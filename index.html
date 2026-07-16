@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>KHUSHALI JEWELLS MANUFACTURING</title>
+    <link rel="stylesheet" href="styles.css?v=77">
+  </head>
+  <body>
+    <section id="login-screen" class="login-screen">
+      <form id="login-form" class="login-card">
+        <div class="brand login-brand">
+          <img class="brand-logo" src="assets/vella-logo.jpeg" alt="VELLA by Khushali Jewells logo">
+          <div>
+            <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
+            <small>VELLA Production ERP</small>
+          </div>
+        </div>
+        <label>Staff ID <input name="loginId" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Example: owner" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Login</button>
+        <p id="login-error" class="login-error"></p>
+        <p class="dialog-note">Use the Staff ID and password assigned by the Owner.</p>
+      </form>
+    </section>
+
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="assets/vella-logo.jpeg" alt="VELLA by Khushali Jewells logo">
+        <div>
+          <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
+          <small>VELLA Production ERP</small>
+        </div>
+      </div>
+      <nav aria-label="Main navigation">
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="customers">Customers</button>
+        <button class="nav-item" data-view="designs">Designs</button>
+        <button class="nav-item" data-view="stone-library">Stone Library</button>
+        <button class="nav-item" data-view="orders">Job Orders</button>
+        <button class="nav-item" data-view="production">Production</button>
+        <button class="nav-item" data-view="billing">Bill</button>
+        <button class="nav-item" data-view="office">Office</button>
+        <button class="nav-item" data-view="stock">Raw Gold Stock</button>
+        <button class="nav-item" data-view="melting">Melting</button>
+        <button class="nav-item" data-view="karigars">Departments</button>
+        <button class="nav-item" data-view="transfer-history">Transfer History</button>
+        <button class="nav-item" data-view="reports">Reports</button>
+      </nav>
+    </aside>
+
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
+        </div>
+        <div class="top-actions">
+          <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
+          <span id="active-user" class="user-pill">Not logged in</span>
+          <button id="logout" class="ghost-button">Logout</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="view active-view">
+        <div class="metric-grid">
+          <article class="metric"><span>Raw Gold Stock</span><strong id="metric-raw">0 g</strong></article>
+          <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong></article>
+          <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong></article>
+          <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong></article>
+          <article class="metric"><span>Open Orders</span><strong id="metric-orders">0</strong></article>
+          <article class="metric"><span>Customers</span><strong id="metric-customers">0</strong></article>
+        </div>
+
+        <div class="content-grid">
+          <section class="panel">
+            <div class="panel-heading"><h2>Pending Job Orders</h2></div>
+            <div id="pending-orders-list" class="stack-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><h2>Production Activity</h2></div>
+            <div id="activity-list" class="stack-list"></div>
+          </section>
+        </div>
+
+        <section class="panel department-panel">
+          <div class="panel-heading"><h2>Department Gold & Stone In Hand</h2></div>
+          <div id="department-metal-list" class="department-grid"></div>
+        </section>
+      </section>
+
+      <section id="customers" class="view">
+        <div class="workbench">
+          <form id="customer-form" class="form-panel">
+            <h2 id="customer-form-title">Add Customer</h2>
+            <input type="hidden" name="customerId">
+            <label>Customer Name <input name="name" required></label>
+            <label>Phone <input name="phone"></label>
+            <label>City <input name="city"></label>
+            <label>GST / Tax No. <input name="gst"></label>
+            <label>Address <input name="address"></label>
+            <button id="customer-submit" type="submit">Save Customer</button>
+            <button id="cancel-customer-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Customer Master</h2>
+              <input id="customer-search" class="search" placeholder="Search customers">
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Phone</th><th>City</th><th>GST</th><th>Address</th><th></th></tr></thead>
+                <tbody id="customers-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="designs" class="view">
+        <div class="tile-grid design-tile-grid">
+          <button class="action-tile" type="button" data-design-page="add">
+            <strong>Add Design</strong>
+            <span>Upload design images and category</span>
+          </button>
+          <button class="action-tile" type="button" data-design-page="stone">
+            <strong>Stone Entry</strong>
+            <span>Add stone details for any design</span>
+          </button>
+          <button class="action-tile" type="button" data-design-page="master">
+            <strong>Design Master</strong>
+            <span>Search and open uploaded designs</span>
+          </button>
+        </div>
+        <div class="workbench design-page" id="design-page-add">
+          <form id="design-form" class="form-panel">
+            <h2 id="design-form-title">Add Design</h2>
+            <input type="hidden" name="designId">
+            <label>Design Images <input name="image" type="file" accept="image/*" multiple></label>
+            <label>Stone Chart <input name="stoneChart" type="file" accept="image/*"></label>
+            <label>Design No. <input name="number" placeholder="Auto from image name"></label>
+            <label>Design Name <input name="name" placeholder="Auto from image name"></label>
+            <label>Category <input name="category" placeholder="Ring, Chain, Bangle"></label>
+            <p id="design-upload-status" class="dialog-note">You can upload up to 500 images at one time.</p>
+            <button id="design-submit" type="submit">Upload Design(s)</button>
+            <button id="cancel-design-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+        </div>
+        <div class="workbench design-page" id="design-page-stone">
+          <section class="panel">
+            <h2>Stone Entry</h2>
+            <p class="dialog-note">Stone Entry opens in full screen for easier design search and stone detail entry.</p>
+            <button type="button" id="open-stone-entry">Open Stone Entry</button>
+          </section>
+        </div>
+        <div class="design-page" id="design-page-master">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Design Master</h2>
+              <input id="design-search" class="search" placeholder="Search design no, name, category">
+            </div>
+            <div id="design-search-results" class="design-category-list hidden"></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Category</th><th>Designs</th><th></th></tr></thead>
+                <tbody id="designs-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="stone-library" class="view">
+        <div class="tile-grid stone-tile-grid">
+          <button class="action-tile" type="button" data-stone-page="add">
+            <strong>Add Stone</strong>
+            <span>Add or edit stone library details</span>
+          </button>
+          <button class="action-tile" type="button" data-stone-page="master">
+            <strong>Stone Master</strong>
+            <span>Search and view all stone details</span>
+          </button>
+        </div>
+        <div class="workbench stone-page" id="stone-page-add">
+          <form id="stone-form" class="form-panel">
+            <h2 id="stone-form-title">Add Stone</h2>
+            <input type="hidden" name="stoneId">
+            <label>Stone Type
+              <span class="select-add-row"><select name="stoneType" required></select><button class="ghost-button" type="button" data-add-stone-option="stoneType">Add</button></span>
+            </label>
+            <label>Shape
+              <span class="select-add-row"><select name="shape"></select><button class="ghost-button" type="button" data-add-stone-option="shape">Add</button></span>
+            </label>
+            <label>Size
+              <span class="select-add-row"><select name="size"></select><button class="ghost-button" type="button" data-add-stone-option="size">Add</button></span>
+            </label>
+            <label>Lookup Code <input name="code" placeholder="SWROUND1.5" readonly></label>
+            <label>Weight / Pc (g) <input name="weightPerPc" placeholder="0.005688"></label>
+            <label>Price / Pc <input name="pricePerPc" placeholder="1.75"></label>
+            <label>Remarks <input name="remarks" placeholder="Optional note"></label>
+            <button id="stone-submit" type="submit">Save Stone</button>
+            <button id="cancel-stone-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+        </div>
+        <div class="stone-page" id="stone-page-master">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Stone Master</h2>
+              <input id="stone-search" class="search" placeholder="Search type, shape, size, code">
+            </div>
+            <div class="stone-lookup-bar">
+              <label>Type <select id="stone-lookup-type"></select></label>
+              <label>Shape <select id="stone-lookup-shape"></select></label>
+              <label>Size <select id="stone-lookup-size"></select></label>
+            </div>
+            <div id="stone-lookup-result" class="stone-lookup-result empty">Enter type, shape and size to show stone details.</div>
+            <p id="stone-library-summary" class="dialog-note"></p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Type</th><th>Shape</th><th>Size</th><th>Code</th><th>Weight/Pc (g)</th><th>Price/Pc</th><th>Remarks</th><th></th></tr></thead>
+                <tbody id="stone-table"></tbody>
+              </table>
+            </div>
+            <div id="stone-pagination" class="pagination-controls"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="orders" class="view">
+        <div class="tile-grid order-tile-grid">
+          <button class="action-tile" type="button" data-order-page="create">
+            <strong>Create Job Order</strong>
+            <span>Add new customer job card</span>
+          </button>
+          <button class="action-tile" type="button" data-order-page="active">
+            <strong>Job Order</strong>
+            <span>Open and update running jobs</span>
+          </button>
+          <button class="action-tile" type="button" data-order-page="completed">
+            <strong>Completed Job Order</strong>
+            <span>View finished job cards</span>
+          </button>
+        </div>
+        <div class="workbench order-entry-workbench order-page" id="order-page-create">
+          <form id="order-form" class="form-panel">
+            <h2>Create Job Order</h2>
+            <label>Customer / Retailer <select name="customerId" required></select></label>
+            <div class="panel-heading">
+              <h2>Order Items</h2>
+              <button id="add-order-item" class="ghost-button" type="button">Add Item</button>
+            </div>
+            <div id="order-item-list" class="order-item-list"></div>
+            <section class="order-entry-summary">
+              <h3>Items Added In This Job Card</h3>
+              <div id="order-entry-summary" class="summary-list"></div>
+            </section>
+            <label>Order Date <input name="orderDate" type="date" required></label>
+            <label>Production Days <input name="productionDays" type="number" min="0" max="10" step="1" required></label>
+            <label>Due Date <input name="dueDate" type="date" readonly required></label>
+            <label class="check-item urgent-order-field"><input name="urgent" type="checkbox"> Mark as Urgent</label>
+            <button type="submit">Save Order</button>
+          </form>
+        </div>
+        <div class="order-page" id="order-page-active">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Job Orders</h2>
+              <input id="barcode-scan" class="search" placeholder="Scan / enter barcode">
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Customer Name</th><th>Job Details</th><th></th></tr></thead>
+                <tbody id="orders-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <div class="order-page" id="order-page-completed">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Completed Job Orders</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Customer Name</th><th>Job Details</th><th></th></tr></thead>
+                <tbody id="completed-orders-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="production" class="view">
+        <div class="tile-grid production-tile-grid">
+          <button class="action-tile" type="button" data-production-page="issue">
+            <strong>Issue Metal</strong>
+            <span>Issue gold to whole job card</span>
+          </button>
+          <button class="action-tile" type="button" data-production-page="lots">
+            <strong>Production Lots</strong>
+            <span>Transfer, complete, and view history</span>
+          </button>
+          <button class="action-tile" type="button" data-production-page="history">
+            <strong>Transfer History</strong>
+            <span>Online movement history</span>
+          </button>
+        </div>
+        <div class="workbench production-page" id="production-page-issue">
+          <form id="production-form" class="form-panel">
+            <h2>Issue Metal To Job Card</h2>
+            <label>Job Card <select name="jobNumber" required></select></label>
+            <label>Department <select name="karigarId" required></select></label>
+            <label>Metal Purity <input name="metalPurity" list="metal-purity-options" value="18K" required></label>
+            <datalist id="metal-purity-options">
+              <option value="24K"></option>
+              <option value="22K"></option>
+              <option value="18K"></option>
+              <option value="14K"></option>
+              <option value="99.9%"></option>
+              <option value="99.5%"></option>
+              <option value="92.5%"></option>
+            </datalist>
+            <label>Metal Issued To Job Card (g) <input name="issuedWeight" type="number" min="0.001" step="0.001" required></label>
+            <p id="issue-metal-summary" class="dialog-note">Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.</p>
+            <label>Expected Wastage (%) <input name="wastagePercent" type="number" min="0" step="0.01" value="2"></label>
+            <button type="submit">Issue Metal</button>
+          </form>
+        </div>
+        <div class="production-page" id="production-page-lots">
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>Production Lots</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Lot</th><th>Order</th><th>Department</th><th>Purity</th><th>Issued</th><th>Finished</th><th>Wastage</th><th>Status</th><th>Transfers</th><th></th></tr></thead>
+                <tbody id="production-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <div class="production-page" id="production-page-history">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Online Transfer History</h2>
+              <input id="production-transfer-search" class="search" placeholder="Search lot or department">
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+                <tbody id="production-transfer-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="stock" class="view">
+        <div class="workbench">
+          <form id="stock-form" class="form-panel">
+            <h2>Add Raw Gold</h2>
+            <label>Design / Stock Item <select name="designId"></select></label>
+            <label>Purity
+              <select name="purity">
+                <option>24K</option>
+                <option>22K</option>
+                <option>18K</option>
+              </select>
+            </label>
+            <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+            <label>Source <input name="source" placeholder="Purchase, customer gold, opening stock" required></label>
+            <button type="submit">Add Raw Gold Stock</button>
+          </form>
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>Raw Gold Stock Ledger</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Type</th><th>Purity</th><th>Weight</th><th>Reference</th></tr></thead>
+                <tbody id="stock-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="melting" class="view">
+        <div class="workbench">
+          <form id="melting-form" class="form-panel">
+            <h2>Melting Conversion</h2>
+            <div class="panel-heading">
+              <h2>Source Metals</h2>
+              <button id="add-melting-source" class="ghost-button" type="button">Add Metal</button>
+            </div>
+            <div id="melting-sources" class="source-list"></div>
+            <input name="averagePurity" type="hidden">
+            <label>Total Source Weight (g) <input name="sourceWeight" type="number" readonly></label>
+            <label>Desired Purity (%) <input name="targetPurity" type="number" min="0.01" max="100" step="0.01" value="91.6" required></label>
+            <label>Colour
+              <select name="colour">
+                <option>Yellow</option>
+                <option>Rose</option>
+                <option>White</option>
+                <option>Green</option>
+              </select>
+            </label>
+            <label>Issue To Department / Caster <select name="meltingDepartmentId" required></select></label>
+            <label>Pure Gold Content (g) <input name="pureGold" type="number" readonly></label>
+            <label>Final Weight (g) <input name="finalWeight" type="number" readonly></label>
+            <label>Alloy To Add (g) <input name="alloyWeight" type="number" readonly></label>
+            <button type="submit">Save & Issue Melting</button>
+          </form>
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>Melting History</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Source Metals</th><th>Target</th><th>Colour</th><th>Department</th><th>Status</th><th>Pure Gold</th><th>Final</th><th>Received</th><th>Loss</th><th>Action</th></tr></thead>
+                <tbody id="melting-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="karigars" class="view">
+        <div class="workbench">
+          <form id="karigar-form" class="form-panel owner-only">
+            <h2 id="department-form-title">Add Department</h2>
+            <input type="hidden" name="departmentId">
+            <label>Department Name <input name="name" required></label>
+            <label>Process <input name="speciality" placeholder="Casting, setting, polishing" required></label>
+            <label>Process Rate / g <input name="rate" type="number" min="0" step="0.01" required></label>
+            <button id="department-submit" type="submit">Save Department</button>
+            <button id="cancel-department-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>Department Master</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Department</th><th>Process</th><th>Rate / g</th><th>Metal In Hand</th><th></th></tr></thead>
+                <tbody id="karigars-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="reports" class="view">
+        <div class="report-grid">
+          <article class="panel report-card"><h2>Total Wastage</h2><p>Recorded loss from completed lots.</p><strong id="report-wastage">0 g</strong></article>
+          <article class="panel report-card"><h2>Department Difference</h2><p>Issue and received weight difference. Minus means weight increased.</p><strong id="report-department-balance">0 g</strong></article>
+          <article class="panel report-card"><h2>Process Charges</h2><p>Estimated payable amount to departments.</p><strong id="report-making">0</strong></article>
+          <article class="panel report-card"><h2>Completed Orders</h2><p>Orders moved to finished stock.</p><strong id="report-completed">0</strong></article>
+        </div>
+      </section>
+
+      <section id="billing" class="view">
+        <section class="panel table-panel">
+          <div class="panel-heading">
+            <h2>Bill Completed Job Cards</h2>
+            <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Lot</th><th>Job Card</th><th>Customer</th><th>Finished Wt</th><th>Wastage</th><th>Bill No</th><th>Mfg Making</th><th>Office Making</th><th>Status</th><th></th></tr></thead>
+              <tbody id="bill-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="office" class="view">
+        <div class="tile-grid office-tile-grid">
+          <button class="action-tile" type="button" data-office-page="non-hallmarked">
+            <strong>Non Hallmarked Item</strong>
+            <span>Items ready for hallmarking</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="hallmarked">
+            <strong>Hallmarked Item</strong>
+            <span>Items with HUID</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="hallmarking">
+            <strong>Hallmarking Dept</strong>
+            <span>Issued and pending receive</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="sales">
+            <strong>Sales Team Holding</strong>
+            <span>Team-wise item holding</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="office-customers">
+            <strong>Office Customers</strong>
+            <span>Sales office customer master</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="sold">
+            <strong>Sold Item</strong>
+            <span>Items marked sold</span>
+          </button>
+          <button class="action-tile" type="button" data-office-page="all">
+            <strong>All Office Details</strong>
+            <span>Search and full movement view</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="transfer-history" class="view">
+        <section class="panel table-panel">
+          <div class="panel-heading">
+            <h2>Online Transfer History</h2>
+            <input id="transfer-history-search" class="search" placeholder="Search lot or department">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+              <tbody id="transfer-history-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="office-details-dialog">
+      <div class="dialog-card history-dialog office-details-card">
+        <div class="dialog-header">
+          <div>
+            <h2>All Office Details</h2>
+            <p class="dialog-note">Search and full movement view for office stock.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-office-details">Close</button>
+        </div>
+        <div id="office-dialog-actions" class="office-inline-actions"></div>
+        <div id="office-dialog-content"></div>
+        <section class="panel table-panel">
+          <div class="panel-heading">
+            <h2>All Office Details</h2>
+            <input id="office-search" class="search" placeholder="Search job, customer, design, PR no">
+          </div>
+          <div id="office-tile-board" class="office-tile-board"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th><input id="office-select-all" type="checkbox" aria-label="Select all office items"></th><th>Job</th><th>PR No</th><th>Customer</th><th>Design</th><th>GW</th><th>Net</th><th>Mfg</th><th>Office</th><th>Bill</th><th>HUID</th><th>Location</th><th>Status</th><th>View</th></tr></thead>
+              <tbody id="office-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="complete-dialog">
+      <form method="dialog" id="complete-form" class="dialog-card">
+        <h2>Complete Production Lot</h2>
+        <input type="hidden" name="lotId">
+        <label>Finished Weight (g) <input name="finishedWeight" type="number" min="0.001" step="0.001" required></label>
+        <label>Actual Wastage (g) <input name="actualWastage" type="number" min="0" step="0.001" required></label>
+        <label>Wastage Purity <input name="wastagePurity" placeholder="18K, 75%, 91.6%" required></label>
+        <label>Wastage Fine Gold (g) <input name="wastageFineGold" type="number" readonly></label>
+        <div class="dialog-actions">
+          <button value="cancel" class="ghost-button" type="button" id="cancel-complete">Cancel</button>
+          <button value="default" type="submit">Complete Lot</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="order-dialog">
+      <div class="dialog-card order-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Open Job Order</h2>
+            <p id="order-dialog-summary" class="dialog-note"></p>
+          </div>
+          <div class="row-actions">
+            <button class="ghost-button" type="button" id="edit-order-details">Edit</button>
+            <button type="button" id="print-order">Print</button>
+            <button class="ghost-button" type="button" id="close-order">Close</button>
+          </div>
+        </div>
+        <form id="update-order-form" class="inline-form hidden">
+          <input type="hidden" name="orderId">
+          <label>Customer / Retailer <select name="customerId" required></select></label>
+          <label>Order Date <input name="orderDate" type="date" required></label>
+          <label>Production Days <input name="productionDays" type="number" min="0" max="10" step="1" required></label>
+          <label>Due Date <input name="dueDate" type="date" readonly required></label>
+          <button type="submit">Update Job Card</button>
+        </form>
+        <section class="order-work-panel">
+          <div class="panel-heading"><h2>Job Items</h2></div>
+          <div id="order-items-detail" class="job-items-detail"></div>
+        </section>
+        <section class="order-work-panel hidden" id="order-production-panel">
+          <div class="panel-heading">
+            <h2>Production Work</h2>
+            <button type="button" id="issue-from-order">Issue Gold</button>
+          </div>
+          <div id="order-lots-list" class="order-lots-list"></div>
+        </section>
+        <section id="order-print-area" class="order-print-area"></section>
+      </div>
+    </dialog>
+
+    <dialog id="item-edit-dialog">
+      <form method="dialog" id="item-edit-form" class="dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Edit Job Item</h2>
+            <p id="item-edit-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="cancel-item-edit">Close</button>
+        </div>
+        <input type="hidden" name="orderId">
+        <div class="inline-form">
+          <label>Category <select name="category"></select></label>
+          <label>Design <select name="designId"></select></label>
+          <label class="cb-field">CB Ring
+            <select name="ringType">
+              <option value="">Select ring</option>
+              <option value="CL">CL - Ladies Ring</option>
+              <option value="CG">CG - Gents Ring</option>
+              <option value="CL+CG">Both CL + CG</option>
+            </select>
+          </label>
+          <label class="normal-size-field">Size <input name="size" placeholder="Size"></label>
+          <label class="cb-field cl-size-field">CL Size <input name="clSize" placeholder="Ladies size"></label>
+          <label class="cb-field cg-size-field">CG Size <input name="cgSize" placeholder="Gents size"></label>
+          <label>Colour
+            <select name="color">
+              <option>Pink</option>
+              <option>Yellow</option>
+              <option>White</option>
+              <option>2 Tone</option>
+              <option>3 Tone</option>
+            </select>
+          </label>
+          <label>Purity
+            <select name="purity">
+              <option>18K</option>
+              <option>22K</option>
+              <option>14K</option>
+            </select>
+          </label>
+          <label class="wide-field">Remark <input name="remarks" placeholder="Item remark"></label>
+          <button type="submit">Save Item</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="production-stone-dialog">
+      <form method="dialog" id="production-stone-form" class="dialog-card production-stone-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Production Stone Entry</h2>
+            <p id="production-stone-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-production-stone">Close</button>
+        </div>
+        <input type="hidden" name="orderId">
+        <p class="dialog-note">Stone rows are loaded from Design Master. Select setting type and manufacturing stage for each stone.</p>
+        <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="close-production-stone-bottom">Close</button>
+          <button type="submit">Save Production Stone Plan</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="transfer-dialog">
+      <form method="dialog" id="transfer-form" class="dialog-card">
+        <h2 id="transfer-form-title">Transfer Job To Another Department</h2>
+        <input type="hidden" name="lotId">
+        <input type="hidden" name="transferId">
+        <p id="transfer-current" class="dialog-note"></p>
+        <label>New Department <select name="karigarId" required></select></label>
+        <div class="transfer-entry-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Issue GW</th>
+                <th>Receive GW</th>
+                <th>Wax Stone</th>
+                <th>Hand Stone</th>
+                <th>Reduced</th>
+                <th>Net Wt</th>
+                <th>Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><input name="transferWeight" type="number" min="0.001" step="0.001" readonly required></td>
+                <td><input name="grossReceivedWeight" type="number" min="0" step="0.001" required></td>
+                <td><input name="waxStoneWeight" type="number" readonly value="0"></td>
+                <td><input name="stoneWeight" type="number" min="0" step="0.001" value="0"></td>
+                <td><input name="reducedWeight" type="number" readonly value="0"></td>
+                <td><input name="receivedWeight" type="number" readonly required></td>
+                <td><input name="departmentBalance" type="number" readonly></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="dialog-note">Reduced = Wax Stone + Hand Stone. Net Wt = GW - Reduced. Difference minus means weight added.</p>
+        </div>
+        <label>From Department <input name="fromDepartment" placeholder="Casting, Filing / Fitting, Setting" required></label>
+        <label>To Department <input name="toDepartment" placeholder="Polishing, QC, stone setting" required></label>
+        <label>Reason / Remarks <input name="reason" placeholder="Next process, repair, balance work" required></label>
+        <div class="dialog-actions">
+          <button value="cancel" class="ghost-button" type="button" id="cancel-transfer">Cancel</button>
+          <button value="default" type="submit">Transfer Job</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="history-dialog">
+      <div class="dialog-card history-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Lot Transfer History</h2>
+            <p id="history-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-history">Close</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </div>
+    </dialog>
+
+    <dialog id="bill-dialog">
+      <form method="dialog" id="bill-form" class="dialog-card bill-dialog-card">
+        <h2 id="bill-form-title">Make Bill</h2>
+        <input type="hidden" name="lotId">
+        <p id="bill-summary" class="dialog-note"></p>
+        <div class="bill-item-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Final GW</th>
+                <th>Stone / Other</th>
+                <th>Net Wt</th>
+                <th>Purity</th>
+                <th>Mfg Making %</th>
+                <th>Mfg Making Gold</th>
+                <th>Office Making %</th>
+                <th>Office Making Gold</th>
+                <th>QC</th>
+              </tr>
+            </thead>
+            <tbody id="bill-item-table"></tbody>
+          </table>
+          <p class="dialog-note">Manufacturing making is from production to office. Office making is from office to customer. Both calculate on Net Wt.</p>
+        </div>
+        <div class="bill-fields">
+          <label>Bill No <input name="billNo" required></label>
+          <label>Bill Date <input name="billDate" type="date" required></label>
+          <label>Mfg Making % <input name="makingRate" type="number" min="0" step="0.01" value="2"></label>
+          <label>Office Making % <input name="officeMakingRate" type="number" min="0" step="0.01" value="2"></label>
+          <label>Other Gold Charges <input name="otherCharges" type="number" min="0" step="0.001" value="0"></label>
+          <label>Total Mfg Making <input name="manufacturingBillAmount" type="number" readonly></label>
+          <label>Total Office Making <input name="billAmount" type="number" readonly></label>
+          <label>Remarks <input name="remarks" placeholder="Bill remarks"></label>
+        </div>
+        <div class="dialog-actions">
+          <button value="cancel" class="ghost-button" type="button" id="cancel-bill">Cancel</button>
+          <button class="ghost-button" type="button" id="bill-qc-ok">Transfer QC OK To Office</button>
+          <button class="ghost-button danger-button" type="button" id="bill-qc-failed">Return QC Failed To Production</button>
+          <button value="default" type="submit">Save Bill</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="melting-receive-dialog">
+      <form method="dialog" id="melting-receive-form" class="dialog-card">
+        <h2 id="melting-receive-title">Receive Melting</h2>
+        <input type="hidden" name="meltingId">
+        <p id="melting-receive-summary" class="dialog-note"></p>
+        <label>Final Weight Issued (g) <input name="finalWeight" type="number" readonly></label>
+        <label>Casting Item Weight (g) <input name="castingItemWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Tree Cut Weight (g) <input name="treeCutWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Other Received Weight (g) <input name="otherReceivedWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Total Received Weight (g) <input name="receivedWeight" type="number" readonly required></label>
+        <label>Loss Booked (g) <input name="meltingLoss" type="number" readonly></label>
+        <div class="dialog-actions">
+          <button value="cancel" class="ghost-button" type="button" id="cancel-melting-receive">Cancel</button>
+          <button value="default" type="submit">Book Receive</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="melting-view-dialog">
+      <div class="dialog-card history-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Melting Details</h2>
+            <p id="melting-view-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-melting-view">Close</button>
+        </div>
+        <div id="melting-view-body" class="history-list"></div>
+      </div>
+    </dialog>
+
+    <dialog id="design-image-dialog">
+      <div class="dialog-card design-image-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2 id="design-image-title">Design Image</h2>
+            <p id="design-image-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-design-image">Close</button>
+        </div>
+        <img id="design-image-full" class="design-image-full" alt="Design preview">
+      </div>
+    </dialog>
+
+    <dialog id="stone-entry-dialog">
+      <div class="dialog-card stone-entry-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Stone Entry</h2>
+            <p class="dialog-note">Search design, add stone rows, and save stone details.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-stone-entry">Close</button>
+        </div>
+        <form id="stone-entry-form" class="stone-entry-fullscreen-form">
+          <section class="stone-entry-main">
+            <label>Category <select name="stoneDesignCategory"></select></label>
+            <label>Search Design <input name="stoneDesignSearch" list="stone-design-search-list" placeholder="Type design no or name"></label>
+            <datalist id="stone-design-search-list"></datalist>
+            <label>Design <select name="stoneDesignId" required></select></label>
+            <p id="stone-entry-summary" class="dialog-note">Select design to view stone data.</p>
+            <div class="stone-design-entry">
+              <label>Type <select name="entryStoneType"></select></label>
+              <label>Shape <select name="entryStoneShape"></select></label>
+              <label>Size <select name="entryStoneSize"></select></label>
+              <label>No. Pcs <input name="entryStonePcs" type="number" min="1" step="1" placeholder="Pcs"></label>
+              <button type="button" id="add-design-stone">Add Stone</button>
+            </div>
+            <div id="design-stone-details" class="design-stone-details empty">No stone added for this design.</div>
+          </section>
+          <section class="stone-entry-side">
+            <label>Stone Chart Image <input name="stoneChart" type="file" accept="image/*"></label>
+            <p id="stone-chart-quality" class="dialog-note ocr-quality-note">For OCR: upload a clear cropped chart, minimum 900px wide, best 1200px+.</p>
+            <div id="stone-entry-preview" class="stone-entry-preview empty">No stone chart selected.</div>
+            <div class="dialog-actions">
+              <button class="ghost-button" type="button" id="read-stone-chart">Read Stone Chart Image</button>
+              <button type="submit">Save Stone Entry</button>
+            </div>
+          </section>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="design-category-dialog">
+      <div class="dialog-card history-dialog design-category-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2 id="design-category-title">Design Category</h2>
+            <p id="design-category-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-design-category">Close</button>
+        </div>
+        <div id="design-category-list" class="design-category-list"></div>
+      </div>
+    </dialog>
+
+    <script src="supabase-config.js?v=35"></script>
+    <script src="stone-library-data.js?v=33"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js?v=137"></script>
+  </body>
+</html>
