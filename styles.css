@@ -291,6 +291,7 @@ th {
   gap: 10px;
 }
 
+.sync-pill,
 .user-pill,
 .status {
   display: inline-flex;
@@ -301,6 +302,25 @@ th {
   color: var(--brand-dark);
   font-weight: 700;
   font-size: 13px;
+}
+
+.sync-pill.online {
+  border: 1px solid #b7e4c7;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.sync-pill.saving,
+.sync-pill.connecting {
+  border: 1px solid #fde68a;
+  background: #fff8df;
+  color: #92400e;
+}
+
+.sync-pill.offline {
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #b42318;
 }
 
 button {
