@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=78">
+    <link rel="stylesheet" href="styles.css?v=99">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -16,11 +16,40 @@
             <small>VELLA Production ERP</small>
           </div>
         </div>
-        <label>Staff ID <input name="loginId" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Example: owner" required></label>
-        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <label>User
+          <select name="user" required>
+            <option value="owner">Owner</option>
+            <option value="order">Order Dept</option>
+            <option value="manager">Manager Dept</option>
+            <option value="bill">Bill Dept</option>
+            <option value="qc">QC Dept</option>
+            <option value="officeMain">Office Main Dept</option>
+            <option value="officeOps">Office Operations</option>
+            <option value="sales1">Sales Team 1</option>
+            <option value="sales2">Sales Team 2</option>
+            <option value="sales3">Sales Team 3</option>
+            <option value="sales4">Sales Team 4</option>
+          </select>
+        </label>
+        <label>Password <input name="password" type="password" required></label>
         <button type="submit">Login</button>
         <p id="login-error" class="login-error"></p>
-        <p class="dialog-note">Use the Staff ID and password assigned by the Owner.</p>
+        <div class="login-help">
+          <button id="show-login-details" class="ghost-button" type="button">Show Login Details</button>
+          <div id="login-details-list" class="login-details-list hidden">
+            <span>Owner / owner123</span>
+            <span>Order Dept / order123</span>
+            <span>Manager Dept / manager123</span>
+            <span>Bill Dept / bill123</span>
+            <span>QC Dept / qc123</span>
+            <span>Office Main / office123</span>
+            <span>Office Ops / ops123</span>
+            <span>Sales Team 1 / sales1123</span>
+            <span>Sales Team 2 / sales2123</span>
+            <span>Sales Team 3 / sales3123</span>
+            <span>Sales Team 4 / sales4123</span>
+          </div>
+        </div>
       </form>
     </section>
 
@@ -38,14 +67,15 @@
         <button class="nav-item" data-view="designs">Designs</button>
         <button class="nav-item" data-view="stone-library">Stone Library</button>
         <button class="nav-item" data-view="orders">Job Orders</button>
+        <button class="nav-item" data-view="melting">Melting</button>
         <button class="nav-item" data-view="production">Production</button>
         <button class="nav-item" data-view="billing">Bill</button>
         <button class="nav-item" data-view="office">Office</button>
         <button class="nav-item" data-view="stock">Raw Gold Stock</button>
-        <button class="nav-item" data-view="melting">Melting</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
         <button class="nav-item" data-view="reports">Reports</button>
+        <button class="nav-item owner-only" data-view="users">Login Details</button>
       </nav>
     </aside>
 
@@ -57,7 +87,6 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span id="sync-status" class="sync-pill sync-offline" aria-live="polite" title="Background data synchronization status">Offline</span>
           <span id="active-user" class="user-pill">Not logged in</span>
           <button id="logout" class="ghost-button">Logout</button>
         </div>
@@ -79,7 +108,7 @@
             <div id="pending-orders-list" class="stack-list"></div>
           </section>
           <section class="panel">
-            <div class="panel-heading"><h2>Production Activity</h2></div>
+            <div class="panel-heading"><h2>Recent Transfer History</h2></div>
             <div id="activity-list" class="stack-list"></div>
           </section>
         </div>
@@ -138,7 +167,7 @@
             <h2 id="design-form-title">Add Design</h2>
             <input type="hidden" name="designId">
             <label>Design Images <input name="image" type="file" accept="image/*" multiple></label>
-            <label>Stone Chart <input name="stoneChart" type="file" accept="image/*"></label>
+            <label>Stone Chart / Sheet Images <input name="stoneChart" type="file" accept="image/*" multiple></label>
             <label>Design No. <input name="number" placeholder="Auto from image name"></label>
             <label>Design Name <input name="name" placeholder="Auto from image name"></label>
             <label>Category <input name="category" placeholder="Ring, Chain, Bangle"></label>
@@ -179,7 +208,7 @@
           </button>
           <button class="action-tile" type="button" data-stone-page="master">
             <strong>Stone Master</strong>
-            <span>Search and view all stone details</span>
+            <span>Search stone details</span>
           </button>
         </div>
         <div class="workbench stone-page" id="stone-page-add">
@@ -241,6 +270,10 @@
             <strong>Completed Job Order</strong>
             <span>View finished job cards</span>
           </button>
+          <button class="action-tile" type="button" data-order-page="repair">
+            <strong>Repair / QC Failed</strong>
+            <span>Open QC failed repair items</span>
+          </button>
         </div>
         <div class="workbench order-entry-workbench order-page" id="order-page-create">
           <form id="order-form" class="form-panel">
@@ -287,6 +320,15 @@
                 <tbody id="completed-orders-table"></tbody>
               </table>
             </div>
+          </section>
+        </div>
+        <div class="order-page" id="order-page-repair">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Repair / QC Failed Job Items</h2>
+              <input id="repair-order-search" class="search" placeholder="Search job, PR no, customer, design">
+            </div>
+            <div id="repair-orders-board" class="repair-job-board"></div>
           </section>
         </div>
       </section>
@@ -452,6 +494,29 @@
         </div>
       </section>
 
+      <section id="users" class="view">
+        <section class="panel table-panel login-user-panel">
+          <div class="panel-heading">
+            <h2>Login Details</h2>
+            <span class="dialog-note">Owner can retrieve current passwords and change passwords.</span>
+          </div>
+          <form id="login-user-form" class="login-user-form">
+            <h3>Add User</h3>
+            <label>User ID <input name="userId" placeholder="example: production1" required></label>
+            <label>User Name <input name="name" placeholder="User / Department name" required></label>
+            <label>Password <input name="password" type="text" placeholder="Password" required></label>
+            <div class="login-access-picker" id="new-user-access"></div>
+            <button type="submit">Add User</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>User ID</th><th>Name</th><th>Access</th><th>Current Password</th><th>New Password</th><th></th></tr></thead>
+              <tbody id="login-users-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section id="billing" class="view">
         <section class="panel table-panel">
           <div class="panel-heading">
@@ -460,7 +525,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Lot</th><th>Job Card</th><th>Customer</th><th>Finished Wt</th><th>Wastage</th><th>Bill No</th><th>Mfg Making</th><th>Office Making</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Lot</th><th>Job Card</th><th>Customer</th><th>Finished Wt</th><th>Wastage</th><th>Bill No</th><th>Net Wt</th><th>Status</th><th></th></tr></thead>
               <tbody id="bill-table"></tbody>
             </table>
           </div>
@@ -535,7 +600,7 @@
           <div id="office-tile-board" class="office-tile-board"></div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th><input id="office-select-all" type="checkbox" aria-label="Select all office items"></th><th>Job</th><th>PR No</th><th>Customer</th><th>Design</th><th>GW</th><th>Net</th><th>Mfg</th><th>Office</th><th>Bill</th><th>HUID</th><th>Location</th><th>Status</th><th>View</th></tr></thead>
+              <thead><tr><th><input id="office-select-all" type="checkbox" aria-label="Select all office items"></th><th>Job</th><th>PR No</th><th>Customer</th><th>Design</th><th>GW</th><th>Net</th><th>Bill</th><th>HUID</th><th>Location</th><th>Status</th><th>View</th></tr></thead>
               <tbody id="office-table"></tbody>
             </table>
           </div>
@@ -582,6 +647,13 @@
         <section class="order-work-panel">
           <div class="panel-heading"><h2>Job Items</h2></div>
           <div id="order-items-detail" class="job-items-detail"></div>
+        </section>
+        <section class="order-work-panel hidden" id="job-item-detail-panel">
+          <div class="panel-heading">
+            <h2>Item Details</h2>
+            <button class="ghost-button" type="button" id="close-job-item-detail">Close Item Details</button>
+          </div>
+          <div id="job-item-open-detail" class="job-item-open-detail"></div>
         </section>
         <section class="order-work-panel hidden" id="order-production-panel">
           <div class="panel-heading">
@@ -721,40 +793,35 @@
         <h2 id="bill-form-title">Make Bill</h2>
         <input type="hidden" name="lotId">
         <p id="bill-summary" class="dialog-note"></p>
+        <div class="bill-fields">
+          <label>Bill No <input name="billNo" required></label>
+          <label>Bill Date <input name="billDate" type="date" required></label>
+          <label>Remarks <input name="remarks" placeholder="Bill remarks"></label>
+        </div>
+        <div id="bill-totals" class="bill-totals"></div>
         <div class="bill-item-table">
           <table>
             <thead>
               <tr>
                 <th>Item</th>
                 <th>Final GW</th>
-                <th>Stone / Other</th>
+                <th>Non-Gold Details</th>
+                <th>Total Non-Gold</th>
                 <th>Net Wt</th>
                 <th>Purity</th>
-                <th>Mfg Making %</th>
-                <th>Mfg Making Gold</th>
-                <th>Office Making %</th>
-                <th>Office Making Gold</th>
                 <th>QC</th>
               </tr>
             </thead>
             <tbody id="bill-item-table"></tbody>
           </table>
-          <p class="dialog-note">Manufacturing making is from production to office. Office making is from office to customer. Both calculate on Net Wt.</p>
-        </div>
-        <div class="bill-fields">
-          <label>Bill No <input name="billNo" required></label>
-          <label>Bill Date <input name="billDate" type="date" required></label>
-          <label>Mfg Making % <input name="makingRate" type="number" min="0" step="0.01" value="2"></label>
-          <label>Office Making % <input name="officeMakingRate" type="number" min="0" step="0.01" value="2"></label>
-          <label>Other Gold Charges <input name="otherCharges" type="number" min="0" step="0.001" value="0"></label>
-          <label>Total Mfg Making <input name="manufacturingBillAmount" type="number" readonly></label>
-          <label>Total Office Making <input name="billAmount" type="number" readonly></label>
-          <label>Remarks <input name="remarks" placeholder="Bill remarks"></label>
+          <p class="dialog-note">Stone Wt is automatic from job card stone data. BB Wt = BB No x BB Type weight per pc. Net Wt = Final GW - BB Wt - Moti Wt - Stone Wt - Spring Wt - Other Wt.</p>
         </div>
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-bill">Cancel</button>
+          <button class="ghost-button" type="button" id="print-bill">Print Bill</button>
+          <button class="ghost-button" type="button" id="print-packing-list">Print Packing List</button>
           <button class="ghost-button" type="button" id="bill-qc-ok">Transfer QC OK To Office</button>
-          <button class="ghost-button danger-button" type="button" id="bill-qc-failed">Return QC Failed To Production</button>
+          <button class="ghost-button danger-button" type="button" id="bill-qc-failed">Send QC Failed Back To Production</button>
           <button value="default" type="submit">Save Bill</button>
         </div>
       </form>
@@ -832,15 +899,45 @@
             <div id="design-stone-details" class="design-stone-details empty">No stone added for this design.</div>
           </section>
           <section class="stone-entry-side">
-            <label>Stone Chart Image <input name="stoneChart" type="file" accept="image/*"></label>
-            <p id="stone-chart-quality" class="dialog-note ocr-quality-note">For OCR: upload a clear cropped chart, minimum 900px wide, best 1200px+.</p>
+            <label>Stone Chart / Design Image <input name="stoneChart" type="file" accept="image/*" multiple></label>
+            <p id="stone-chart-quality" class="dialog-note ocr-quality-note">Matching file names are assigned automatically. For OCR, crop only the chart table when needed.</p>
             <div id="stone-entry-preview" class="stone-entry-preview empty">No stone chart selected.</div>
+            <div class="stone-chart-actions">
+              <button class="ghost-button" type="button" id="crop-stone-chart">Crop Chart From Image</button>
+              <button class="ghost-button" type="button" id="assign-stone-charts">Assign Matching Files</button>
+            </div>
             <div class="dialog-actions">
               <button class="ghost-button" type="button" id="read-stone-chart">Read Stone Chart Image</button>
               <button type="submit">Save Stone Entry</button>
             </div>
           </section>
         </form>
+      </div>
+    </dialog>
+
+    <dialog id="stone-crop-dialog">
+      <div class="dialog-card stone-crop-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Crop Stone Chart</h2>
+            <p id="stone-crop-summary" class="dialog-note">Select the chart area from the uploaded image and save it to the matching design.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-stone-crop">Close</button>
+        </div>
+        <section class="stone-crop-layout">
+          <div class="stone-crop-tools">
+            <label>Image File <select id="stone-crop-source"></select></label>
+            <label>Save To Design <select id="stone-crop-design"></select></label>
+            <p id="stone-crop-status" class="dialog-note ocr-quality-note">Drag on the image to mark the stone chart area.</p>
+            <div class="stone-crop-actions">
+              <button type="button" id="save-cropped-stone-chart">Save Crop To Design</button>
+              <button class="ghost-button" type="button" id="read-cropped-stone-chart">Save Crop & Read OCR</button>
+            </div>
+          </div>
+          <div class="stone-crop-stage">
+            <canvas id="stone-crop-canvas"></canvas>
+          </div>
+        </section>
       </div>
     </dialog>
 
@@ -857,9 +954,9 @@
       </div>
     </dialog>
 
-    <script src="supabase-config.js?v=35"></script>
+    <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=138"></script>
+  <script src="app.js?v=175"></script>
   </body>
 </html>
