@@ -241,11 +241,13 @@ th {
 .top-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .user-pill,
-.status {
+.status,
+.sync-pill {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -254,6 +256,37 @@ th {
   color: var(--brand-dark);
   font-weight: 700;
   font-size: 13px;
+}
+
+.sync-pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sync-live {
+  background: #e7f7ee;
+  color: #0f6b42;
+}
+
+.sync-saving,
+.sync-connecting,
+.sync-pending {
+  background: #fff8dc;
+  color: #785c0b;
+}
+
+.sync-error {
+  background: #fff0f0;
+  color: #a12d2d;
+}
+
+.sync-offline {
+  background: #eef1f4;
+  color: #59636e;
 }
 
 button {

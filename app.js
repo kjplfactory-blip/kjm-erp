@@ -12,8 +12,21 @@ const isoToday = () => new Date().toISOString().slice(0, 10);
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const MAX_PRODUCTION_DAYS = 10;
+const SUPABASE_POLL_INTERVAL_MS = 15000;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
+let supabaseRetryTimer = null;
+let supabasePollTimer = null;
+let supabaseRealtimeChannel = null;
+let deferredRemoteRenderTimer = null;
+let pendingRemoteRecord = null;
+let localSavePending = false;
+let localSaveRevision = 0;
+let lastSupabaseUpdatedAt = "";
+let serverState = null;
+let serverRevision = -1;
+let saveInFlight = false;
+let mergeConflictCount = 0;
 
 const users = {
   owner: { name: "Owner", role: "owner", pages: "all" },
@@ -140,6 +153,7 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
     if (error) throw error;
     await setCurrentUserFromAuth(authData.user);
     await loadSupabaseState();
+    startBackgroundSync();
     errorElement.textContent = "";
     event.target.reset();
     applyLoginState();
@@ -152,9 +166,19 @@ document.getElementById("login-form").addEventListener("submit", async (event) =
 });
 
 document.getElementById("logout").addEventListener("click", async () => {
+  await flushPendingStateBeforeLogout();
+  stopBackgroundSync(true);
   await supabaseClient?.auth.signOut();
   currentUser = null;
   applyLoginState();
+});
+
+window.addEventListener("focus", () => {
+  if (currentUser) refreshSupabaseState();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (currentUser && document.visibilityState === "visible") refreshSupabaseState();
 });
 
 document.getElementById("reset-demo").addEventListener("click", () => {
@@ -1155,6 +1179,7 @@ function applyLoginState() {
   document.body.classList.toggle("logged-out", !isLoggedIn);
   document.body.classList.toggle("is-owner", isOwner());
   document.getElementById("active-user").textContent = isLoggedIn ? currentUser.name : "Not logged in";
+  if (!isLoggedIn) setSyncStatus("Offline", "offline");
   applyAccessControl();
   renderLoginUsers();
 }
@@ -1206,7 +1231,12 @@ function applyAccessControl() {
 
 function saveState() {
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-  queueSupabaseSave();
+  if (supabaseClient && currentUser) {
+    localSaveRevision += 1;
+    localSavePending = true;
+    setSyncStatus("Saving...", "saving");
+    queueSupabaseSave();
+  }
 }
 
 function userAccessText(user = {}) {
@@ -1285,56 +1315,396 @@ async function initializeSupabase() {
     if (data.session?.user) {
       await setCurrentUserFromAuth(data.session.user);
       await loadSupabaseState();
+      startBackgroundSync();
     }
     applyLoginState();
   } catch (error) {
+    stopBackgroundSync(true);
     currentUser = null;
     applyLoginState();
     console.warn("Supabase authentication is not available.", error);
   }
 }
 
-function queueSupabaseSave() {
+function queueSupabaseSave(delay = 600) {
   if (!supabaseClient || !currentUser) return;
   clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(syncStateToSupabase, 600);
+  supabaseSaveTimer = setTimeout(syncStateToSupabase, delay);
 }
 
 async function syncStateToSupabase() {
-  if (!supabaseClient || !currentUser) return;
-  const { error } = await supabaseClient
-    .from("erp_state")
-    .upsert({
-      id: supabaseStateId,
-      data: state,
-      updated_at: new Date().toISOString(),
-    });
-  if (error) console.warn("Supabase save failed", error);
+  if (!supabaseClient || !currentUser || !localSavePending || saveInFlight) return;
+  saveInFlight = true;
+  clearTimeout(supabaseRetryTimer);
+  const saveRevision = localSaveRevision;
+  const stateSnapshot = structuredClone(state);
+  const expectedRevision = serverRevision;
+  let response;
+  try {
+    response = await supabaseClient.rpc("save_erp_state", {
+      p_id: supabaseStateId,
+      p_data: stateSnapshot,
+      p_expected_revision: expectedRevision,
+    }).maybeSingle();
+  } catch (requestError) {
+    saveInFlight = false;
+    localSavePending = true;
+    setSyncStatus("Sync retrying", "error");
+    supabaseRetryTimer = setTimeout(() => queueSupabaseSave(0), 5000);
+    console.warn("Supabase save request failed", requestError);
+    return;
+  }
+  const { data, error } = response;
+
+  if (error) {
+    saveInFlight = false;
+    localSavePending = true;
+    setSyncStatus("Sync retrying", "error");
+    supabaseRetryTimer = setTimeout(() => queueSupabaseSave(0), 5000);
+    console.warn("Supabase save failed", error);
+    return;
+  }
+
+  if (!data) {
+    await rebaseFromSupabase();
+    saveInFlight = false;
+    return;
+  }
+
+  saveInFlight = false;
+  serverState = structuredClone(data.data || stateSnapshot);
+  serverRevision = Number(data.revision ?? expectedRevision + 1);
+  lastSupabaseUpdatedAt = data.updated_at || lastSupabaseUpdatedAt;
+  if (saveRevision === localSaveRevision) {
+    localSavePending = false;
+    setSyncStatus(mergeConflictCount ? "Concurrent edits merged" : syncedStatusText(), mergeConflictCount ? "pending" : "live");
+    mergeConflictCount = 0;
+  } else {
+    localSavePending = true;
+    queueSupabaseSave(0);
+  }
+
+  if (pendingRemoteRecord && !localSavePending) {
+    const pending = pendingRemoteRecord;
+    pendingRemoteRecord = null;
+    if (Number(pending.revision) > serverRevision) applyRemoteStateRecord(pending);
+  }
 }
 
 async function loadSupabaseState() {
   if (!supabaseClient || !currentUser) return;
   const { data, error } = await supabaseClient
     .from("erp_state")
-    .select("data")
+    .select("data, revision, updated_at")
     .eq("id", supabaseStateId)
     .maybeSingle();
   if (error) {
+    setSyncStatus("Sync unavailable", "error");
     console.warn("Supabase load failed", error);
     return;
   }
   if (data?.data) {
     state = normalizeState(data.data);
+    serverState = structuredClone(state);
+    serverRevision = Number(data.revision || 0);
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-    syncStateToSupabase();
-    render();
-    setDefaultOrderDates(document.getElementById("order-form"));
-    resetOrderItemRows();
-    resetMeltingSources();
-    updateMeltingCalculation();
+    lastSupabaseUpdatedAt = data.updated_at || "";
+    renderSyncedState();
+    setSyncStatus(syncedStatusText(), "live");
   } else {
-    syncStateToSupabase();
+    serverState = {};
+    serverRevision = -1;
+    localSaveRevision += 1;
+    localSavePending = true;
+    await syncStateToSupabase();
   }
+}
+
+async function rebaseFromSupabase() {
+  const { data, error } = await supabaseClient
+    .from("erp_state")
+    .select("data, revision, updated_at")
+    .eq("id", supabaseStateId)
+    .maybeSingle();
+  if (error) {
+    localSavePending = true;
+    setSyncStatus("Sync retrying", "error");
+    supabaseRetryTimer = setTimeout(() => queueSupabaseSave(0), 5000);
+    console.warn("Supabase conflict refresh failed", error);
+    return;
+  }
+
+  if (!data?.data) {
+    serverState = {};
+    serverRevision = -1;
+    localSavePending = true;
+    queueSupabaseSave(0);
+    return;
+  }
+
+  const remoteState = normalizeState(structuredClone(data.data));
+  const conflicts = [];
+  state = normalizeState(mergeJsonChanges(serverState || {}, state, remoteState, conflicts));
+  serverState = structuredClone(remoteState);
+  serverRevision = Number(data.revision || 0);
+  lastSupabaseUpdatedAt = data.updated_at || lastSupabaseUpdatedAt;
+  pendingRemoteRecord = null;
+  mergeConflictCount += conflicts.length;
+  localSaveRevision += 1;
+  localSavePending = !jsonEqual(state, serverState);
+  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+
+  if (isUserActivelyEditing()) {
+    setSyncStatus("Concurrent update merged", "pending");
+    queueDeferredRemoteRender();
+  } else {
+    renderSyncedState();
+  }
+
+  if (localSavePending) {
+    setSyncStatus("Saving merged data...", "saving");
+    queueSupabaseSave(0);
+  } else {
+    setSyncStatus(syncedStatusText(), "live");
+  }
+}
+
+async function flushPendingStateBeforeLogout() {
+  clearTimeout(supabaseSaveTimer);
+  const deadline = Date.now() + 3000;
+  while (localSavePending && currentUser && Date.now() < deadline) {
+    await syncStateToSupabase();
+    if (localSavePending) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+function mergeJsonChanges(base, local, remote, conflicts = [], path = "") {
+  if (jsonEqual(local, base)) return cloneJson(remote);
+  if (jsonEqual(remote, base)) return cloneJson(local);
+  if (jsonEqual(local, remote)) return cloneJson(local);
+
+  if ((path === "nextOrder" || path === "nextLot") && [base, local, remote].every((value) => Number.isFinite(Number(value)))) {
+    return Math.max(Number(base), Number(local), Number(remote));
+  }
+
+  if (local === undefined && remote !== undefined) {
+    conflicts.push(path || "root");
+    return cloneJson(remote);
+  }
+  if (remote === undefined && local !== undefined) {
+    conflicts.push(path || "root");
+    return cloneJson(local);
+  }
+
+  if (Array.isArray(local) && Array.isArray(remote)) {
+    const baseArray = Array.isArray(base) ? base : [];
+    const combinedItems = [...baseArray, ...local, ...remote];
+    if (combinedItems.length && combinedItems.every((item) => isPlainObject(item) && item.id !== undefined)) {
+      return mergeArraysById(baseArray, local, remote, conflicts, path);
+    }
+    if (combinedItems.every((item) => !isPlainObject(item))) {
+      return mergePrimitiveArrays(baseArray, local, remote);
+    }
+    conflicts.push(path || "root");
+    return cloneJson(local);
+  }
+
+  if (isPlainObject(local) && isPlainObject(remote)) {
+    const baseObject = isPlainObject(base) ? base : {};
+    const merged = {};
+    const keys = new Set([...Object.keys(baseObject), ...Object.keys(local), ...Object.keys(remote)]);
+    keys.forEach((key) => {
+      const childPath = path ? `${path}.${key}` : key;
+      const value = mergeJsonChanges(baseObject[key], local[key], remote[key], conflicts, childPath);
+      if (value !== undefined) merged[key] = value;
+    });
+    return merged;
+  }
+
+  conflicts.push(path || "root");
+  return cloneJson(local);
+}
+
+function mergeArraysById(base, local, remote, conflicts, path) {
+  const toMap = (items) => new Map(items.map((item) => [String(item.id), item]));
+  const baseMap = toMap(base);
+  const localMap = toMap(local);
+  const remoteMap = toMap(remote);
+  const ids = [];
+  [...remote, ...local, ...base].forEach((item) => {
+    const id = String(item.id);
+    if (!ids.includes(id)) ids.push(id);
+  });
+  return ids.flatMap((id) => {
+    const merged = mergeJsonChanges(
+      baseMap.get(id),
+      localMap.get(id),
+      remoteMap.get(id),
+      conflicts,
+      `${path || "items"}[${id}]`
+    );
+    return merged === undefined ? [] : [merged];
+  });
+}
+
+function mergePrimitiveArrays(base, local, remote) {
+  const key = (value) => JSON.stringify(value);
+  const baseKeys = new Set(base.map(key));
+  const localKeys = new Set(local.map(key));
+  const locallyRemoved = new Set([...baseKeys].filter((itemKey) => !localKeys.has(itemKey)));
+  const merged = remote.filter((item) => !locallyRemoved.has(key(item)));
+  local.forEach((item) => {
+    if (!baseKeys.has(key(item)) && !merged.some((existing) => jsonEqual(existing, item))) merged.push(cloneJson(item));
+  });
+  return merged;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function jsonEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function cloneJson(value) {
+  return value === undefined ? undefined : structuredClone(value);
+}
+
+function startBackgroundSync() {
+  if (!supabaseClient || !currentUser) return;
+  stopBackgroundSync(false);
+  setSyncStatus("Connecting...", "connecting");
+
+  supabaseRealtimeChannel = supabaseClient
+    .channel(`erp-state-live-${supabaseStateId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "erp_state",
+        filter: `id=eq.${supabaseStateId}`,
+      },
+      (payload) => applyRemoteStateRecord(payload.new)
+    )
+    .subscribe((status, error) => {
+      if (status === "SUBSCRIBED") {
+        if (!localSavePending) setSyncStatus(syncedStatusText(), "live");
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setSyncStatus("Live retrying", "error");
+        console.warn("Supabase live sync connection issue", status, error);
+      }
+    });
+
+  supabasePollTimer = setInterval(refreshSupabaseState, SUPABASE_POLL_INTERVAL_MS);
+}
+
+function stopBackgroundSync(resetTracking = false) {
+  clearInterval(supabasePollTimer);
+  clearTimeout(supabaseRetryTimer);
+  clearTimeout(deferredRemoteRenderTimer);
+  supabasePollTimer = null;
+  supabaseRetryTimer = null;
+  deferredRemoteRenderTimer = null;
+  if (supabaseRealtimeChannel && supabaseClient) {
+    const channel = supabaseRealtimeChannel;
+    supabaseRealtimeChannel = null;
+    supabaseClient.removeChannel(channel).catch(() => {});
+  }
+  if (resetTracking) {
+    clearTimeout(supabaseSaveTimer);
+    supabaseSaveTimer = null;
+    pendingRemoteRecord = null;
+    localSavePending = false;
+    lastSupabaseUpdatedAt = "";
+    serverState = null;
+    serverRevision = -1;
+    saveInFlight = false;
+    mergeConflictCount = 0;
+  }
+}
+
+async function refreshSupabaseState() {
+  if (!supabaseClient || !currentUser) return;
+  const { data, error } = await supabaseClient
+    .from("erp_state")
+    .select("data, revision, updated_at")
+    .eq("id", supabaseStateId)
+    .maybeSingle();
+  if (error) {
+    if (!localSavePending) setSyncStatus("Sync retrying", "error");
+    console.warn("Supabase background refresh failed", error);
+    return;
+  }
+  if (data?.data) applyRemoteStateRecord(data);
+}
+
+function applyRemoteStateRecord(record) {
+  if (!record?.data || !currentUser) return;
+  const remoteRevision = Number(record.revision ?? -1);
+  if (remoteRevision <= serverRevision) return;
+
+  if (localSavePending || saveInFlight) {
+    if (!pendingRemoteRecord || remoteRevision > Number(pendingRemoteRecord.revision)) {
+      pendingRemoteRecord = structuredClone(record);
+    }
+    return;
+  }
+
+  state = normalizeState(record.data);
+  serverState = structuredClone(state);
+  serverRevision = remoteRevision;
+  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  lastSupabaseUpdatedAt = record.updated_at || lastSupabaseUpdatedAt;
+  if (isUserActivelyEditing()) {
+    setSyncStatus("New data received", "pending");
+    queueDeferredRemoteRender();
+  } else {
+    renderSyncedState();
+    setSyncStatus(syncedStatusText(), "live");
+  }
+}
+
+function isUserActivelyEditing() {
+  if (document.querySelector("dialog[open]")) return true;
+  const active = document.activeElement;
+  if (!active || active.closest("#login-form")) return false;
+  return active.matches("input, select, textarea, [contenteditable='true']");
+}
+
+function queueDeferredRemoteRender() {
+  clearTimeout(deferredRemoteRenderTimer);
+  deferredRemoteRenderTimer = setTimeout(() => {
+    if (!currentUser) return;
+    if (isUserActivelyEditing()) {
+      queueDeferredRemoteRender();
+      return;
+    }
+    renderSyncedState();
+    setSyncStatus(syncedStatusText(), "live");
+  }, 1000);
+}
+
+function renderSyncedState() {
+  clearTimeout(deferredRemoteRenderTimer);
+  deferredRemoteRenderTimer = null;
+  render();
+  setDefaultOrderDates(document.getElementById("order-form"));
+  resetOrderItemRows();
+  resetMeltingSources();
+  updateMeltingCalculation();
+}
+
+function syncedStatusText() {
+  return `Live ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function setSyncStatus(message, status) {
+  const element = document.getElementById("sync-status");
+  if (!element) return;
+  element.textContent = message;
+  element.className = `sync-pill sync-${status}`;
 }
 
 function switchView(view) {
