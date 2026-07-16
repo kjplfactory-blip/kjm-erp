@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=99">
+    <link rel="stylesheet" href="styles.css?v=100">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -187,7 +187,14 @@
           <section class="panel table-panel">
             <div class="panel-heading">
               <h2>Design Master</h2>
-              <input id="design-search" class="search" placeholder="Search design no, name, category">
+              <div class="design-master-actions">
+                <span class="selection-pill" data-design-selection-count>No design selected</span>
+                <button type="button" class="ghost-button" id="design-select-all">Select All Designs</button>
+                <button type="button" class="ghost-button" id="design-select-visible">Select Visible</button>
+                <button type="button" class="ghost-button" id="design-clear-selection">Clear</button>
+                <button type="button" class="delete-btn" id="design-delete-selected">Delete Selected</button>
+                <input id="design-search" class="search" placeholder="Search design no, name, category">
+              </div>
             </div>
             <div id="design-search-results" class="design-category-list hidden"></div>
             <div class="table-wrap">
@@ -944,11 +951,16 @@
     <dialog id="design-category-dialog">
       <div class="dialog-card history-dialog design-category-dialog">
         <div class="dialog-header">
-          <div>
-            <h2 id="design-category-title">Design Category</h2>
-            <p id="design-category-summary" class="dialog-note"></p>
+            <div>
+              <h2 id="design-category-title">Design Category</h2>
+              <p id="design-category-summary" class="dialog-note"></p>
+            </div>
+          <div class="dialog-actions">
+            <span class="selection-pill" data-design-selection-count>No design selected</span>
+            <button class="ghost-button" type="button" id="design-select-category">Select This Category</button>
+            <button class="delete-btn" type="button" id="design-delete-selected-category">Delete Selected</button>
+            <button class="ghost-button" type="button" id="close-design-category">Close</button>
           </div>
-          <button class="ghost-button" type="button" id="close-design-category">Close</button>
         </div>
         <div id="design-category-list" class="design-category-list"></div>
       </div>
@@ -957,6 +969,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=175"></script>
+  <script src="app.js?v=176"></script>
   </body>
 </html>

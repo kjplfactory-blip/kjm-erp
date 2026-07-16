@@ -15,6 +15,7 @@ const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const MAX_PRODUCTION_DAYS = 10;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
+let selectedDesignIds = new Set();
 
 const users = {
   owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
@@ -388,6 +389,14 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
 document.getElementById("cancel-design-edit").addEventListener("click", resetDesignForm);
 
 document.getElementById("design-search").addEventListener("input", renderDesigns);
+document.getElementById("design-select-all").addEventListener("click", selectAllDesigns);
+document.getElementById("design-select-visible").addEventListener("click", selectVisibleDesigns);
+document.getElementById("design-clear-selection").addEventListener("click", clearDesignSelection);
+document.getElementById("design-delete-selected").addEventListener("click", deleteSelectedDesigns);
+document.getElementById("designs").addEventListener("change", handleDesignSelectionChange);
+document.getElementById("design-category-dialog").addEventListener("change", handleDesignSelectionChange);
+document.getElementById("design-select-category").addEventListener("click", selectCurrentDesignCategory);
+document.getElementById("design-delete-selected-category").addEventListener("click", deleteSelectedDesigns);
 
 document.getElementById("stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2137,6 +2146,7 @@ async function removeItem(collection, id) {
   if (collection === "designs") {
     await deleteDesignImage(id);
     await deleteStoneChartImage(id);
+    selectedDesignIds.delete(id);
   }
   state[collection] = state[collection].filter((item) => item.id !== id);
   saveState();
@@ -5273,6 +5283,91 @@ function removeJobOrder(jobNumber) {
   render();
 }
 
+function handleDesignSelectionChange(event) {
+  const input = event.target.closest?.(".design-select-input");
+  if (!input) return;
+  if (input.checked) selectedDesignIds.add(input.dataset.designSelect);
+  else selectedDesignIds.delete(input.dataset.designSelect);
+  updateDesignSelectionSummary();
+}
+
+function updateDesignSelectionSummary() {
+  const validIds = new Set(state.designs.map((design) => design.id));
+  selectedDesignIds = new Set([...selectedDesignIds].filter((id) => validIds.has(id)));
+  document.querySelectorAll(".design-select-input").forEach((input) => {
+    input.checked = selectedDesignIds.has(input.dataset.designSelect);
+  });
+  const text = selectedDesignIds.size
+    ? `${selectedDesignIds.size} design${selectedDesignIds.size === 1 ? "" : "s"} selected`
+    : "No design selected";
+  document.querySelectorAll("[data-design-selection-count]").forEach((item) => {
+    item.textContent = text;
+  });
+}
+
+function selectAllDesigns() {
+  selectedDesignIds = new Set(state.designs.map((design) => design.id));
+  updateDesignSelectionSummary();
+}
+
+function selectVisibleDesigns() {
+  const visibleInputs = document.querySelectorAll("#design-page-master .design-select-input, #design-category-dialog[open] .design-select-input");
+  if (!visibleInputs.length) {
+    alert("Open a category or search designs first, then select visible designs.");
+    return;
+  }
+  visibleInputs.forEach((input) => selectedDesignIds.add(input.dataset.designSelect));
+  updateDesignSelectionSummary();
+}
+
+function clearDesignSelection() {
+  selectedDesignIds.clear();
+  updateDesignSelectionSummary();
+}
+
+function selectCurrentDesignCategory() {
+  const category = document.getElementById("design-category-title")?.textContent || "";
+  const group = designCategoryGroups().find((item) => item.category === category);
+  if (!group) {
+    alert("No designs found in this category.");
+    return;
+  }
+  group.designs.forEach((design) => selectedDesignIds.add(design.id));
+  updateDesignSelectionSummary();
+}
+
+async function deleteSelectedDesigns() {
+  const ids = [...selectedDesignIds].filter((id) => state.designs.some((design) => design.id === id));
+  if (!ids.length) {
+    alert("Select design first.");
+    return;
+  }
+  const usedIds = ids.filter((id) => state.orders.some((order) => order.designId === id));
+  const deleteIds = ids.filter((id) => !usedIds.includes(id));
+  if (!deleteIds.length) {
+    alert("Selected designs are used in job orders, so they cannot be deleted.");
+    return;
+  }
+  const usedNote = usedIds.length ? `\n\n${usedIds.length} design(s) are used in job orders and will be skipped.` : "";
+  if (!confirm(`Delete ${deleteIds.length} selected design(s)? Design images, stone charts, and stone details will be removed.${usedNote}`)) return;
+  const openCategoryDialog = document.getElementById("design-category-dialog");
+  const openCategory = openCategoryDialog?.open ? document.getElementById("design-category-title")?.textContent || "" : "";
+  for (const id of deleteIds) {
+    await deleteDesignImage(id);
+    await deleteStoneChartImage(id);
+  }
+  state.designs = state.designs.filter((design) => !deleteIds.includes(design.id));
+  deleteIds.forEach((id) => selectedDesignIds.delete(id));
+  saveState();
+  render();
+  if (openCategoryDialog?.open) {
+    const stillExists = designCategoryGroups().some((group) => group.category === openCategory);
+    if (stillExists) openDesignCategory(encodeURIComponent(openCategory));
+    else openCategoryDialog.close();
+  }
+  alert(`Deleted ${deleteIds.length} design(s).${usedIds.length ? ` ${usedIds.length} used design(s) skipped.` : ""}`);
+}
+
 function renderDesigns() {
   const query = document.getElementById("design-search").value.trim().toLowerCase();
   const searchResults = document.getElementById("design-search-results");
@@ -5286,6 +5381,7 @@ function renderDesigns() {
       : '<div class="empty">No matching designs found.</div>';
     document.getElementById("designs-table").innerHTML = "";
     loadDesignThumbnails();
+    updateDesignSelectionSummary();
     return;
   }
   searchResults.classList.add("hidden");
@@ -5301,12 +5397,17 @@ function renderDesigns() {
   `;
   }).join("");
   document.getElementById("designs-table").innerHTML = rows || tableEmpty(3, "No designs uploaded yet.");
+  updateDesignSelectionSummary();
 }
 
 function renderDesignCard(design) {
   const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
   return `
     <article class="design-category-item">
+      <label class="design-select-check">
+        <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
+        <span>Select</span>
+      </label>
       <div class="design-preview-pair ${design.hasStoneChart ? "has-stone-chart" : ""}">
         <figure>
           <span>Design</span>
@@ -5356,6 +5457,7 @@ function openDesignCategory(categoryKey) {
   const dialog = document.getElementById("design-category-dialog");
   if (!dialog.open) dialog.showModal();
   loadDesignThumbnails();
+  updateDesignSelectionSummary();
 }
 
 async function openDesignImage(designId) {
