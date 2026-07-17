@@ -495,6 +495,16 @@ document.getElementById("stone-entry-form").addEventListener("change", (event) =
   if (["entryStoneType", "entryStoneShape", "entryStoneSize"].includes(event.target.name)) {
     handleDesignStoneEntryChange(event.target.name);
   }
+  if (event.target.closest("[data-design-stone-row]") && event.target.dataset.stoneEdit) {
+    updateDesignStoneEditRowPreview(event.target.closest("[data-design-stone-row]"));
+  }
+});
+
+document.getElementById("stone-entry-form").addEventListener("input", (event) => {
+  if (event.target.name === "entryStonePcs") updateDesignStoneEntryCodePreview();
+  if (event.target.closest("[data-design-stone-row]") && event.target.dataset.stoneEdit) {
+    updateDesignStoneEditRowPreview(event.target.closest("[data-design-stone-row]"));
+  }
 });
 
 document.getElementById("add-design-stone").addEventListener("click", addDesignStoneItem);
@@ -5392,6 +5402,7 @@ function handleDesignStoneEntryChange(changedField) {
   }
   if (changedField === "entryStoneShape") form.entryStoneSize.value = "";
   renderDesignStoneEntryOptions();
+  updateDesignStoneEntryCodePreview();
 }
 
 function renderDesignStoneEntryOptions() {
@@ -5406,6 +5417,39 @@ function renderDesignStoneEntryOptions() {
   setSelectOptions(form.entryStoneShape, stoneOptionValues("shape", shapeSource), "Select Shape", selectedShape);
   const sizeSource = shapeSource.filter((stone) => !form.entryStoneShape.value || stone.shape === form.entryStoneShape.value);
   setSelectOptions(form.entryStoneSize, stoneOptionValues("size", sizeSource), "Select Size", selectedSize);
+  updateDesignStoneEntryCodePreview();
+}
+
+function designStoneCodeForSelection(stoneType, shape, size) {
+  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  return libraryStone?.code || stoneLookupCode({ stoneType, shape, size });
+}
+
+function updateDesignStoneEntryCodePreview() {
+  const preview = document.getElementById("entry-stone-code-preview");
+  if (!preview) return;
+  const form = document.getElementById("stone-entry-form");
+  const code = form.entryStoneType.value && form.entryStoneShape.value && form.entryStoneSize.value
+    ? designStoneCodeForSelection(form.entryStoneType.value, form.entryStoneShape.value, form.entryStoneSize.value)
+    : "-";
+  preview.textContent = code || "-";
+}
+
+function updateDesignStoneEditRowPreview(row) {
+  if (!row) return;
+  const stoneType = row.querySelector('[data-stone-edit="stoneType"]')?.value || "";
+  const shape = row.querySelector('[data-stone-edit="shape"]')?.value || "";
+  const size = row.querySelector('[data-stone-edit="size"]')?.value || "";
+  const pcs = Number(row.querySelector('[data-stone-edit="pcs"]')?.value || 0);
+  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const code = stoneType && shape && size ? (libraryStone?.code || stoneLookupCode({ stoneType, shape, size })) : "-";
+  const weightPerPc = libraryStone?.weightPerPc || "";
+  const codeCell = row.querySelector('[data-stone-code-preview]');
+  const weightCell = row.querySelector('[data-stone-weight-preview]');
+  const totalCell = row.querySelector('[data-stone-total-preview]');
+  if (codeCell) codeCell.textContent = code || "-";
+  if (weightCell) weightCell.textContent = formatStoneWeight(weightPerPc) || "-";
+  if (totalCell) totalCell.textContent = weightPerPc ? totalStoneWeight(weightPerPc, pcs) || "-" : "-";
 }
 
 function addDesignStoneItem() {
@@ -5427,7 +5471,7 @@ function addDesignStoneItem() {
     stoneType: form.entryStoneType.value,
     shape: form.entryStoneShape.value,
     size: form.entryStoneSize.value,
-    code: stone?.code || stoneLookupCode({ stoneType: form.entryStoneType.value, shape: form.entryStoneShape.value, size: form.entryStoneSize.value }),
+    code: designStoneCodeForSelection(form.entryStoneType.value, form.entryStoneShape.value, form.entryStoneSize.value),
     pcs,
     weightPerPc: formatStoneWeight(weightPerPc),
     totalWeight: totalStoneWeight(weightPerPc, pcs),
@@ -5562,7 +5606,7 @@ function saveDesignStoneItemEdit(stoneItemId) {
     shape,
     size,
     pcs,
-    code: libraryStone?.code || stoneLookupCode({ stoneType, shape, size }),
+    code: designStoneCodeForSelection(stoneType, shape, size),
     weightPerPc: formatStoneWeight(weightPerPc),
     totalWeight: weightPerPc ? totalStoneWeight(weightPerPc, pcs) : item.totalWeight || "",
   });
@@ -5579,13 +5623,13 @@ function renderDesignStoneItems(items = []) {
   container.innerHTML = items.length
     ? `<div class="stone-total-summary">${designStoneSummaryText(items)}</div><table><thead><tr><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th></th></tr></thead><tbody>${items.map((item) => `
       <tr data-design-stone-row="${item.id}">
-        <td>${escapeHtml(item.code || "-")}</td>
+        <td data-stone-code-preview>${escapeHtml(item.code || stoneLookupCode(item) || "-")}</td>
         <td><select data-stone-edit="stoneType">${stoneEditOptions("stoneType", item.stoneType || "")}</select></td>
         <td><select data-stone-edit="shape">${stoneEditOptions("shape", item.shape || "")}</select></td>
         <td><select data-stone-edit="size">${stoneEditOptions("size", item.size || "")}</select></td>
         <td><input data-stone-edit="pcs" type="number" min="1" step="1" value="${escapeHtml(item.pcs || "")}"></td>
-        <td>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")}</td>
-        <td>${escapeHtml(item.totalWeight || "-")}</td>
+        <td data-stone-weight-preview>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")}</td>
+        <td data-stone-total-preview>${escapeHtml(item.totalWeight || "-")}</td>
         <td><div class="row-actions"><button class="ghost-button" type="button" onclick="saveDesignStoneItemEdit('${item.id}')">Save</button><button class="delete-btn" type="button" onclick="removeDesignStoneItem('${item.id}')">Remove</button></div></td>
       </tr>
     `).join("")}</tbody></table>`
@@ -5603,6 +5647,7 @@ function resetDesignStoneEntryFields() {
     form.entryStoneType.value = "SW";
     renderDesignStoneEntryOptions();
   }
+  updateDesignStoneEntryCodePreview();
 }
 
 function findStoneByLibraryFields(type, shape, size) {
