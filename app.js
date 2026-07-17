@@ -13,10 +13,13 @@ const isoToday = () => new Date().toISOString().slice(0, 10);
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 7000;
+const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const MAX_PRODUCTION_DAYS = 10;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
+let supabaseReconnectTimer = null;
+let supabaseIsConnecting = false;
 let supabaseIsSaving = false;
 let supabaseIsLoading = false;
 let supabaseLastCloudUpdatedAt = "";
@@ -177,6 +180,9 @@ document.getElementById("close-stone-crop").addEventListener("click", () => {
 document.getElementById("stone-crop-source").addEventListener("change", async (event) => {
   await loadStoneCropSource(Number(event.target.value || 0));
 });
+document.getElementById("auto-detect-stone-chart").addEventListener("click", () => {
+  autoDetectCurrentStoneCrop(true);
+});
 document.getElementById("save-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(false);
 });
@@ -320,7 +326,9 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
       const group = uploadGroups.find((item) => designMatchKeys(existing).includes(item.key)) || uploadGroups[0];
       const imageFile = group?.designFile || imageFiles[0];
       const designName = group?.designName || designNameFromFile(imageFile?.name) || existing.number;
-      if (imageFile && !isStoneChartUploadFile(imageFile.name)) await saveDesignImage(existing.id, await compressImageFile(imageFile));
+      const smartImageResult = imageFile && !isStoneChartUploadFile(imageFile.name)
+        ? await saveDesignUploadImageAndAutoChart(existing, imageFile, { saveDesign: true })
+        : { chartAttached: false };
       const chartCandidates = [...(group?.chartFiles || []), ...stoneChartFiles];
       const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, existing) || (stoneChartFiles.length === 1 ? stoneChartFiles[0] : null) || group?.chartFiles?.[0] || null;
       if (matchingStoneChartFile) await saveStoneChartFileForDesign(existing, matchingStoneChartFile);
@@ -331,7 +339,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         category: data.category,
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
-        hasStoneChart: existing.hasStoneChart || Boolean(matchingStoneChartFile),
+        hasStoneChart: existing.hasStoneChart || Boolean(matchingStoneChartFile) || smartImageResult.chartAttached,
       };
       Object.assign(existing, design);
       updateDesignReferences(existing);
@@ -355,8 +363,10 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         const design = createDesignFromUploadGroup(group, data.category);
         state.designs.push(design);
         createdCount += 1;
+        let chartAttachedForDesign = 0;
         if (group.designFile) {
-          await saveDesignImage(design.id, await compressImageFile(group.designFile));
+          const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true });
+          chartAttachedForDesign = smartImageResult.chartAttached ? 1 : 0;
         }
         const chartCandidates = [...group.chartFiles, ...stoneChartFiles];
         const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design)
@@ -364,8 +374,9 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           || (stoneChartFiles.length === 1 && uploadGroups.length === 1 ? stoneChartFiles[0] : null);
         if (matchingStoneChartFile) {
           await saveStoneChartFileForDesign(design, matchingStoneChartFile);
-          matchedStoneCharts += 1;
+          chartAttachedForDesign = 1;
         }
+        matchedStoneCharts += chartAttachedForDesign;
       }
       for (const { group, existingDesign } of duplicateGroups) {
         status.textContent = `Duplicate found: ${group.designName || existingDesign.number}. Waiting for your choice.`;
@@ -1520,27 +1531,186 @@ function loadSupabaseLibrary() {
   });
 }
 
-function setSyncStatus(status, message) {
+function normalizeSupabaseUrl(url) {
+  return String(url || "").replace(/\/+$/, "");
+}
+
+function createFetchSupabaseClient(url, anonKey) {
+  const baseUrl = normalizeSupabaseUrl(url);
+  const headers = (extra = {}) => ({
+    apikey: anonKey,
+    Authorization: `Bearer ${anonKey}`,
+    ...extra,
+  });
+  const asError = async (response) => {
+    let details = "";
+    try {
+      const data = await response.json();
+      details = data.message || data.error || JSON.stringify(data);
+    } catch {
+      details = await response.text().catch(() => "");
+    }
+    return new Error(details || `${response.status} ${response.statusText}`);
+  };
+  return {
+    from(table) {
+      const query = { select: "*", filters: {} };
+      const tableUrl = `${baseUrl}/rest/v1/${encodeURIComponent(table)}`;
+      const builder = {
+        select(columns) {
+          query.select = columns || "*";
+          return builder;
+        },
+        eq(column, value) {
+          query.filters[column] = `eq.${value}`;
+          return builder;
+        },
+        async maybeSingle() {
+          const params = new URLSearchParams({ select: query.select, limit: "1" });
+          Object.entries(query.filters).forEach(([column, value]) => params.set(column, value));
+          try {
+            const response = await fetch(`${tableUrl}?${params.toString()}`, {
+              headers: headers({ Accept: "application/json" }),
+            });
+            if (!response.ok) return { data: null, error: await asError(response) };
+            const rows = await response.json();
+            return { data: Array.isArray(rows) ? rows[0] || null : rows, error: null };
+          } catch (error) {
+            return { data: null, error };
+          }
+        },
+        async upsert(row) {
+          try {
+            const response = await fetch(`${tableUrl}?on_conflict=id`, {
+              method: "POST",
+              headers: headers({
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates,return=minimal",
+              }),
+              body: JSON.stringify(row),
+            });
+            if (!response.ok) return { data: null, error: await asError(response) };
+            return { data: null, error: null };
+          } catch (error) {
+            return { data: null, error };
+          }
+        },
+      };
+      return builder;
+    },
+    storage: {
+      from(bucket) {
+        const objectUrl = `${baseUrl}/storage/v1/object/${encodeURIComponent(bucket)}`;
+        return {
+          async upload(path, blob, options = {}) {
+            try {
+              const response = await fetch(`${objectUrl}/${encodeURI(path)}`, {
+                method: "POST",
+                headers: headers({
+                  "Content-Type": options.contentType || blob.type || "application/octet-stream",
+                  "x-upsert": options.upsert ? "true" : "false",
+                }),
+                body: blob,
+              });
+              if (!response.ok) return { data: null, error: await asError(response) };
+              return { data: null, error: null };
+            } catch (error) {
+              return { data: null, error };
+            }
+          },
+          async download(path) {
+            try {
+              const response = await fetch(`${objectUrl}/${encodeURI(path)}`, {
+                headers: headers(),
+              });
+              if (!response.ok) return { data: null, error: await asError(response) };
+              return { data: await response.blob(), error: null };
+            } catch (error) {
+              return { data: null, error };
+            }
+          },
+          async remove(paths) {
+            try {
+              const response = await fetch(objectUrl, {
+                method: "DELETE",
+                headers: headers({ "Content-Type": "application/json" }),
+                body: JSON.stringify({ prefixes: paths }),
+              });
+              if (!response.ok) return { data: null, error: await asError(response) };
+              return { data: null, error: null };
+            } catch (error) {
+              return { data: null, error };
+            }
+          },
+        };
+      },
+    },
+  };
+}
+
+async function createSupabaseClient() {
+  try {
+    const supabaseLibrary = await loadSupabaseLibrary();
+    return supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
+  } catch (error) {
+    console.warn("Supabase CDN library did not load. Trying direct Supabase connection.", error);
+    if (!window.fetch) throw error;
+    setSyncStatus("connecting", "Sync: Direct Connect", error.message);
+    return createFetchSupabaseClient(supabaseSettings.url, supabaseSettings.anonKey);
+  }
+}
+
+function setSyncStatus(status, message, detail = "") {
   const pill = document.getElementById("sync-status");
   if (!pill) return;
   pill.className = `sync-pill ${status}`;
   pill.textContent = message;
+  pill.title = detail || message;
+}
+
+function syncStatusForError(error, fallback) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
+    return "Sync: Internet Error";
+  }
+  if (message.includes("could not load")) return "Sync: CDN Blocked";
+  if (message.includes("erp_state") || message.includes("schema cache") || message.includes("relation") || message.includes("does not exist")) {
+    return "Sync: Setup Missing";
+  }
+  if (message.includes("permission") || message.includes("policy") || message.includes("row-level security") || message.includes("401") || message.includes("403")) {
+    return "Sync: Permission Error";
+  }
+  return fallback;
+}
+
+function scheduleSupabaseReconnect() {
+  clearTimeout(supabaseReconnectTimer);
+  supabaseReconnectTimer = setTimeout(() => {
+    initializeSupabase();
+  }, SUPABASE_RECONNECT_INTERVAL_MS);
 }
 
 async function initializeSupabase() {
+  if (supabaseIsConnecting) return;
   if (!supabaseSettings.url || !supabaseSettings.anonKey) {
     setSyncStatus("offline", "Sync: Local Only");
     return;
   }
+  supabaseIsConnecting = true;
   try {
+    clearTimeout(supabaseReconnectTimer);
     setSyncStatus("connecting", "Sync: Connecting");
-    const supabaseLibrary = await loadSupabaseLibrary();
-    supabaseClient = supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
-    await loadSupabaseState({ initial: true });
-    startSupabaseAutoRefresh();
+    supabaseClient = await createSupabaseClient();
+    const connected = await loadSupabaseState({ initial: true });
+    if (connected) startSupabaseAutoRefresh();
+    else scheduleSupabaseReconnect();
   } catch (error) {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
-    setSyncStatus("offline", "Sync: Offline");
+    supabaseClient = null;
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Offline"), error.message || String(error));
+    scheduleSupabaseReconnect();
+  } finally {
+    supabaseIsConnecting = false;
   }
 }
 
@@ -1584,7 +1754,8 @@ function queueSupabaseSave() {
 async function syncStateToSupabase() {
   if (!supabaseClient) {
     setSyncStatus("offline", "Sync: Offline");
-    return;
+    scheduleSupabaseReconnect();
+    return false;
   }
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
@@ -1602,17 +1773,20 @@ async function syncStateToSupabase() {
   supabaseIsSaving = false;
   if (error) {
     console.warn("Supabase save failed", error);
-    setSyncStatus("offline", "Sync: Save Failed");
-    return;
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), error.message || String(error));
+    scheduleSupabaseReconnect();
+    return false;
   }
   supabaseLastCloudUpdatedAt = updatedAt;
   setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+  return true;
 }
 
 async function loadSupabaseState(options = {}) {
   if (!supabaseClient) {
     setSyncStatus("offline", "Sync: Offline");
-    return;
+    scheduleSupabaseReconnect();
+    return false;
   }
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return;
   const isAuto = Boolean(options.auto);
@@ -1628,18 +1802,19 @@ async function loadSupabaseState(options = {}) {
   supabaseIsLoading = false;
   if (error) {
     console.warn("Supabase load failed", error);
-    setSyncStatus("offline", "Sync: Load Failed");
-    return;
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), error.message || String(error));
+    scheduleSupabaseReconnect();
+    return false;
   }
   if (data?.data) {
     const cloudUpdatedAt = data.updated_at || "";
     if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
       setSyncStatus("online", "Live Sync: Auto");
-      return;
+      return true;
     }
     if (isAuto && isUserActivelyEditing()) {
       setSyncStatus("online", "Live Sync: New Data");
-      return;
+      return true;
     }
     state = normalizeState(data.data);
     supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
@@ -1655,9 +1830,10 @@ async function loadSupabaseState(options = {}) {
       setSyncStatus("online", `Live Sync: Updated ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
     }
   } else {
-    syncStateToSupabase();
+    await syncStateToSupabase();
   }
   if (options.initial) setSyncStatus("online", "Live Sync: Auto");
+  return true;
 }
 
 function isNewerCloudData(cloudUpdatedAt) {
@@ -4274,12 +4450,13 @@ function findDesignByUploadKey(key) {
 async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFiles = [], replaceDesignImage = false) {
   if (!group || !design) return { updated: 0, chartAttached: 0 };
   if (category && !design.category) design.category = category;
-  if (replaceDesignImage && group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
-    await saveDesignImage(design.id, await compressImageFile(group.designFile));
+  let chartAttached = 0;
+  if (group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
+    const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: replaceDesignImage });
+    chartAttached = smartImageResult.chartAttached ? 1 : 0;
   }
   const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
   const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
-  let chartAttached = 0;
   if (matchingStoneChartFile) {
     await saveStoneChartFileForDesign(design, matchingStoneChartFile);
     chartAttached = 1;
@@ -4309,10 +4486,13 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     if (!cleanCopyName) return { created: 0, updated: 0, chartAttached: 0 };
     const design = createDesignFromUploadGroup(group, category, cleanCopyName);
     state.designs.push(design);
-    if (group.designFile) await saveDesignImage(design.id, await compressImageFile(group.designFile));
+    let chartAttached = 0;
+    if (group.designFile) {
+      const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true });
+      chartAttached = smartImageResult.chartAttached ? 1 : 0;
+    }
     const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
     const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
-    let chartAttached = 0;
     if (matchingStoneChartFile) {
       await saveStoneChartFileForDesign(design, matchingStoneChartFile);
       chartAttached = 1;
@@ -4355,6 +4535,44 @@ async function saveStoneChartFileForDesign(design, file) {
   await saveStoneChartImage(design.id, imageData);
   design.hasStoneChart = true;
   return imageData;
+}
+
+async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
+  const saveDesign = options.saveDesign !== false;
+  if (!design || !file) return { designSaved: false, chartAttached: false, autoSplit: false };
+  if (isStoneChartUploadFile(file.name)) {
+    await saveStoneChartFileForDesign(design, file);
+    return { designSaved: false, chartAttached: true, autoSplit: false };
+  }
+  const split = await autoSplitDesignAndStoneChart(file).catch((error) => {
+    console.warn("Auto stone chart crop failed", error);
+    return null;
+  });
+  if (saveDesign) {
+    await saveDesignImage(design.id, split?.designImageData || await compressImageFile(file));
+  }
+  if (split?.stoneChartImageData) {
+    await saveStoneChartImage(design.id, split.stoneChartImageData);
+    design.hasStoneChart = true;
+  }
+  return {
+    designSaved: saveDesign,
+    chartAttached: Boolean(split?.stoneChartImageData),
+    autoSplit: Boolean(split?.stoneChartImageData),
+  };
+}
+
+async function autoSplitDesignAndStoneChart(file) {
+  const imageData = await readFileAsDataUrl(file);
+  const image = await loadImageFromDataUrl(imageData);
+  const chartRect = detectStoneChartRectFromImage(image);
+  if (!chartRect) return null;
+  const designRect = designRectAfterRemovingChart(image, chartRect);
+  const stoneChartImageData = cropImageToDataUrl(image, chartRect, { maxSize: 1800, quality: 0.94 });
+  const designImageData = designRect
+    ? cropImageToDataUrl(image, designRect, { maxSize: 900, quality: 0.72 })
+    : await compressImageFile(file);
+  return { designImageData, stoneChartImageData, chartRect, designRect };
 }
 
 async function autoAssignStoneChartFiles(files = []) {
@@ -4445,6 +4663,7 @@ async function loadStoneCropSource(index = 0) {
   stoneCropState.imageData = imageData;
   stoneCropState.image = await loadImageFromDataUrl(imageData);
   fitStoneCropCanvas();
+  autoDetectCurrentStoneCrop(false);
 }
 
 function loadImageFromDataUrl(imageData) {
@@ -4468,6 +4687,36 @@ function fitStoneCropCanvas() {
   canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
   canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
   drawStoneCropCanvas();
+}
+
+function autoDetectCurrentStoneCrop(showAlert = false) {
+  const image = stoneCropState.image;
+  const canvas = document.getElementById("stone-crop-canvas");
+  const status = document.getElementById("stone-crop-status");
+  if (!image || !canvas) return false;
+  const rect = detectStoneChartRectFromImage(image);
+  if (!rect) {
+    if (status) {
+      status.className = "dialog-note ocr-quality-note warn";
+      status.textContent = "Auto detect could not find a clear table. Drag around the stone chart manually.";
+    }
+    if (showAlert) alert("Could not auto detect the stone chart. Drag around the chart manually.");
+    return false;
+  }
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  stoneCropState.rect = {
+    x: (rect.x / imageWidth) * canvas.width,
+    y: (rect.y / imageHeight) * canvas.height,
+    width: (rect.width / imageWidth) * canvas.width,
+    height: (rect.height / imageHeight) * canvas.height,
+  };
+  drawStoneCropCanvas();
+  if (status) {
+    status.className = "dialog-note ocr-quality-note good";
+    status.textContent = "Stone chart detected automatically. Check the yellow box, then save or read OCR.";
+  }
+  return true;
 }
 
 function drawStoneCropCanvas() {
@@ -4574,6 +4823,322 @@ function croppedStoneChartDataUrl() {
   context.imageSmoothingQuality = "high";
   context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.94);
+}
+
+function cropImageToDataUrl(image, rect, options = {}) {
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  const cleanRect = clampImageRect(rect, imageWidth, imageHeight);
+  if (!cleanRect || cleanRect.width < 20 || cleanRect.height < 20) return "";
+  const maxSize = options.maxSize || 1200;
+  const quality = options.quality || 0.85;
+  const scale = Math.min(1, maxSize / Math.max(cleanRect.width, cleanRect.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(cleanRect.width * scale));
+  canvas.height = Math.max(1, Math.round(cleanRect.height * scale));
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(
+    image,
+    cleanRect.x,
+    cleanRect.y,
+    cleanRect.width,
+    cleanRect.height,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+function detectStoneChartRectFromImage(image) {
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  if (!imageWidth || !imageHeight) return null;
+  const maxAnalysisSize = 900;
+  const scale = Math.min(1, maxAnalysisSize / Math.max(imageWidth, imageHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(imageWidth * scale));
+  canvas.height = Math.max(1, Math.round(imageHeight * scale));
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const analysisRect = detectStoneChartRectInCanvas(imageData, canvas.width, canvas.height);
+  if (!analysisRect) return null;
+  const naturalRect = {
+    x: analysisRect.x / scale,
+    y: analysisRect.y / scale,
+    width: analysisRect.width / scale,
+    height: analysisRect.height / scale,
+  };
+  return expandImageRect(naturalRect, imageWidth, imageHeight, Math.max(8, Math.min(imageWidth, imageHeight) * 0.012));
+}
+
+function detectStoneChartRectInCanvas(data, width, height) {
+  const tileSize = 24;
+  const cols = Math.ceil(width / tileSize);
+  const rows = Math.ceil(height / tileSize);
+  const active = Array.from({ length: rows }, () => Array(cols).fill(false));
+  for (let tileY = 0; tileY < rows; tileY += 1) {
+    for (let tileX = 0; tileX < cols; tileX += 1) {
+      const rect = {
+        x: tileX * tileSize,
+        y: tileY * tileSize,
+        width: Math.min(tileSize, width - tileX * tileSize),
+        height: Math.min(tileSize, height - tileY * tileSize),
+      };
+      active[tileY][tileX] = stoneChartTileLooksActive(data, width, height, rect);
+    }
+  }
+  const candidateRects = [
+    ...stoneChartComponentRects(active, cols, rows, tileSize, width, height),
+    ...stoneChartSideCandidateRects(width, height),
+  ];
+  let best = null;
+  for (const rect of candidateRects) {
+    const trimmed = trimStoneChartCandidateRect(data, width, height, rect);
+    if (!trimmed) continue;
+    const score = scoreStoneChartCandidate(data, width, height, trimmed);
+    if (!score.accepted) continue;
+    if (!best || score.value > best.score.value) best = { rect: trimmed, score };
+  }
+  return best?.rect || null;
+}
+
+function stoneChartTileLooksActive(data, width, height, rect) {
+  const rowCounts = Array(rect.height).fill(0);
+  const colCounts = Array(rect.width).fill(0);
+  let samples = 0;
+  let dark = 0;
+  let edge = 0;
+  for (let y = rect.y; y < rect.y + rect.height; y += 2) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 2) {
+      const lum = canvasPixelLuminance(data, width, x, y);
+      const right = x + 2 < width ? canvasPixelLuminance(data, width, x + 2, y) : lum;
+      const down = y + 2 < height ? canvasPixelLuminance(data, width, x, y + 2) : lum;
+      const isDark = lum < 135;
+      const isEdge = Math.max(Math.abs(lum - right), Math.abs(lum - down)) > 38;
+      samples += 1;
+      if (isDark) dark += 1;
+      if (isEdge) edge += 1;
+      if (isDark || isEdge) {
+        rowCounts[y - rect.y] += 1;
+        colCounts[x - rect.x] += 1;
+      }
+    }
+  }
+  const density = samples ? (dark + edge * 0.7) / samples : 0;
+  const rowLineThreshold = Math.max(4, rect.width / 7);
+  const colLineThreshold = Math.max(4, rect.height / 7);
+  const rowLines = rowCounts.filter((count) => count >= rowLineThreshold).length;
+  const colLines = colCounts.filter((count) => count >= colLineThreshold).length;
+  return density > 0.17 || (density > 0.08 && rowLines + colLines >= 3);
+}
+
+function stoneChartComponentRects(active, cols, rows, tileSize, width, height) {
+  const seen = Array.from({ length: rows }, () => Array(cols).fill(false));
+  const rects = [];
+  const offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      if (!active[row][col] || seen[row][col]) continue;
+      const queue = [[col, row]];
+      seen[row][col] = true;
+      let minCol = col;
+      let maxCol = col;
+      let minRow = row;
+      let maxRow = row;
+      while (queue.length) {
+        const [currentCol, currentRow] = queue.shift();
+        minCol = Math.min(minCol, currentCol);
+        maxCol = Math.max(maxCol, currentCol);
+        minRow = Math.min(minRow, currentRow);
+        maxRow = Math.max(maxRow, currentRow);
+        offsets.forEach(([dx, dy]) => {
+          const nextCol = currentCol + dx;
+          const nextRow = currentRow + dy;
+          if (nextCol < 0 || nextRow < 0 || nextCol >= cols || nextRow >= rows) return;
+          if (!active[nextRow][nextCol] || seen[nextRow][nextCol]) return;
+          seen[nextRow][nextCol] = true;
+          queue.push([nextCol, nextRow]);
+        });
+      }
+      const rect = clampImageRect({
+        x: (minCol - 1) * tileSize,
+        y: (minRow - 1) * tileSize,
+        width: (maxCol - minCol + 3) * tileSize,
+        height: (maxRow - minRow + 3) * tileSize,
+      }, width, height);
+      if (rect && rect.width * rect.height >= width * height * 0.04) rects.push(rect);
+    }
+  }
+  return rects;
+}
+
+function stoneChartSideCandidateRects(width, height) {
+  return [
+    { x: 0, y: 0, width: width * 0.58, height },
+    { x: width * 0.42, y: 0, width: width * 0.58, height },
+    { x: 0, y: 0, width, height: height * 0.58 },
+    { x: 0, y: height * 0.42, width, height: height * 0.58 },
+    { x: 0, y: 0, width: width * 0.58, height: height * 0.58 },
+    { x: width * 0.42, y: 0, width: width * 0.58, height: height * 0.58 },
+    { x: 0, y: height * 0.42, width: width * 0.58, height: height * 0.58 },
+    { x: width * 0.42, y: height * 0.42, width: width * 0.58, height: height * 0.58 },
+  ].map((rect) => clampImageRect(rect, width, height)).filter(Boolean);
+}
+
+function trimStoneChartCandidateRect(data, width, height, rect) {
+  const cleanRect = clampImageRect(rect, width, height);
+  if (!cleanRect) return null;
+  const rowActive = [];
+  const colActive = [];
+  for (let y = cleanRect.y; y < cleanRect.y + cleanRect.height; y += 2) {
+    let count = 0;
+    let samples = 0;
+    for (let x = cleanRect.x; x < cleanRect.x + cleanRect.width; x += 2) {
+      if (stoneChartInkPixel(data, width, height, x, y)) count += 1;
+      samples += 1;
+    }
+    rowActive.push(samples ? count / samples > 0.035 : false);
+  }
+  for (let x = cleanRect.x; x < cleanRect.x + cleanRect.width; x += 2) {
+    let count = 0;
+    let samples = 0;
+    for (let y = cleanRect.y; y < cleanRect.y + cleanRect.height; y += 2) {
+      if (stoneChartInkPixel(data, width, height, x, y)) count += 1;
+      samples += 1;
+    }
+    colActive.push(samples ? count / samples > 0.03 : false);
+  }
+  const firstRow = rowActive.findIndex(Boolean);
+  const lastRow = rowActive.length - 1 - [...rowActive].reverse().findIndex(Boolean);
+  const firstCol = colActive.findIndex(Boolean);
+  const lastCol = colActive.length - 1 - [...colActive].reverse().findIndex(Boolean);
+  if (firstRow < 0 || firstCol < 0 || lastRow < firstRow || lastCol < firstCol) return null;
+  return expandImageRect({
+    x: cleanRect.x + firstCol * 2,
+    y: cleanRect.y + firstRow * 2,
+    width: (lastCol - firstCol + 1) * 2,
+    height: (lastRow - firstRow + 1) * 2,
+  }, width, height, 10);
+}
+
+function scoreStoneChartCandidate(data, width, height, rect) {
+  const cleanRect = clampImageRect(rect, width, height);
+  if (!cleanRect) return { accepted: false, value: 0 };
+  const areaRatio = (cleanRect.width * cleanRect.height) / (width * height);
+  if (areaRatio < 0.06 || areaRatio > 0.84 || cleanRect.width < width * 0.18 || cleanRect.height < height * 0.16) {
+    return { accepted: false, value: 0 };
+  }
+  const rowPeaks = [];
+  for (let y = cleanRect.y; y < cleanRect.y + cleanRect.height; y += 2) {
+    let count = 0;
+    let samples = 0;
+    for (let x = cleanRect.x; x < cleanRect.x + cleanRect.width; x += 2) {
+      if (stoneChartInkPixel(data, width, height, x, y)) count += 1;
+      samples += 1;
+    }
+    rowPeaks.push(samples ? count / samples > 0.16 : false);
+  }
+  const colPeaks = [];
+  for (let x = cleanRect.x; x < cleanRect.x + cleanRect.width; x += 2) {
+    let count = 0;
+    let samples = 0;
+    for (let y = cleanRect.y; y < cleanRect.y + cleanRect.height; y += 2) {
+      if (stoneChartInkPixel(data, width, height, x, y)) count += 1;
+      samples += 1;
+    }
+    colPeaks.push(samples ? count / samples > 0.11 : false);
+  }
+  const horizontalGroups = countPeakGroups(rowPeaks);
+  const verticalGroups = countPeakGroups(colPeaks);
+  let inkCount = 0;
+  let samples = 0;
+  for (let y = cleanRect.y; y < cleanRect.y + cleanRect.height; y += 4) {
+    for (let x = cleanRect.x; x < cleanRect.x + cleanRect.width; x += 4) {
+      if (stoneChartInkPixel(data, width, height, x, y)) inkCount += 1;
+      samples += 1;
+    }
+  }
+  const density = samples ? inkCount / samples : 0;
+  const tableScore = horizontalGroups * 2.4 + verticalGroups * 2 + density * 22 + areaRatio * 5;
+  return {
+    accepted: horizontalGroups >= 3 && verticalGroups >= 2 && density > 0.045 && tableScore >= 15,
+    value: tableScore,
+    horizontalGroups,
+    verticalGroups,
+    density,
+  };
+}
+
+function countPeakGroups(peaks) {
+  let groups = 0;
+  let inGroup = false;
+  peaks.forEach((peak) => {
+    if (peak && !inGroup) groups += 1;
+    inGroup = Boolean(peak);
+  });
+  return groups;
+}
+
+function stoneChartInkPixel(data, width, height, x, y) {
+  const lum = canvasPixelLuminance(data, width, x, y);
+  const right = x + 2 < width ? canvasPixelLuminance(data, width, x + 2, y) : lum;
+  const down = y + 2 < height ? canvasPixelLuminance(data, width, x, y + 2) : lum;
+  return lum < 165 || Math.max(Math.abs(lum - right), Math.abs(lum - down)) > 42;
+}
+
+function canvasPixelLuminance(data, width, x, y) {
+  const index = (Math.max(0, Math.floor(y)) * width + Math.max(0, Math.floor(x))) * 4;
+  return data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+}
+
+function designRectAfterRemovingChart(image, chartRect) {
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  const chart = clampImageRect(chartRect, imageWidth, imageHeight);
+  if (!chart) return null;
+  const gap = Math.max(8, Math.round(Math.min(imageWidth, imageHeight) * 0.018));
+  const regions = [
+    { x: 0, y: 0, width: chart.x - gap, height: imageHeight },
+    { x: chart.x + chart.width + gap, y: 0, width: imageWidth - chart.x - chart.width - gap, height: imageHeight },
+    { x: 0, y: 0, width: imageWidth, height: chart.y - gap },
+    { x: 0, y: chart.y + chart.height + gap, width: imageWidth, height: imageHeight - chart.y - chart.height - gap },
+  ].map((rect) => clampImageRect(rect, imageWidth, imageHeight)).filter(Boolean);
+  const candidates = regions
+    .filter((rect) =>
+      rect.width >= imageWidth * 0.18 &&
+      rect.height >= imageHeight * 0.18 &&
+      rect.width * rect.height >= imageWidth * imageHeight * 0.12
+    )
+    .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+  return candidates[0] || null;
+}
+
+function clampImageRect(rect, width, height) {
+  if (!rect) return null;
+  const x = Math.max(0, Math.min(width, Math.round(rect.x || 0)));
+  const y = Math.max(0, Math.min(height, Math.round(rect.y || 0)));
+  const rectWidth = Math.max(0, Math.min(width - x, Math.round(rect.width || 0)));
+  const rectHeight = Math.max(0, Math.min(height - y, Math.round(rect.height || 0)));
+  if (rectWidth <= 0 || rectHeight <= 0) return null;
+  return { x, y, width: rectWidth, height: rectHeight };
+}
+
+function expandImageRect(rect, width, height, padding = 0) {
+  return clampImageRect({
+    x: (rect?.x || 0) - padding,
+    y: (rect?.y || 0) - padding,
+    width: (rect?.width || 0) + padding * 2,
+    height: (rect?.height || 0) + padding * 2,
+  }, width, height);
 }
 
 async function saveStoneCropToDesign(readAfterSave = false) {
@@ -5732,7 +6297,7 @@ function resetDesignForm() {
   form.designId.value = "";
   document.getElementById("design-form-title").textContent = "Add Design";
   document.getElementById("design-submit").textContent = "Upload Design(s)";
-  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time.";
+  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time. If a design image also contains a stone chart, the app will try to crop and attach the chart automatically.";
   document.getElementById("cancel-design-edit").classList.add("hidden");
 }
 

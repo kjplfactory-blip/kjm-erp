@@ -173,7 +173,7 @@
             <label>Design No. <input name="number" placeholder="Auto from image name"></label>
             <label>Design Name <input name="name" placeholder="Auto from image name"></label>
             <label>Category <input name="category" placeholder="Ring, Chain, Bangle"></label>
-            <p id="design-upload-status" class="dialog-note">You can upload up to 500 images at one time.</p>
+            <p id="design-upload-status" class="dialog-note">You can upload up to 500 images at one time. If a design image also contains a stone chart, the app will try to crop and attach the chart automatically.</p>
             <button id="design-submit" type="submit">Upload Design(s)</button>
             <button id="cancel-design-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
@@ -939,6 +939,7 @@
             <label>Save To Design <select id="stone-crop-design"></select></label>
             <p id="stone-crop-status" class="dialog-note ocr-quality-note">Drag on the image to mark the stone chart area.</p>
             <div class="stone-crop-actions">
+              <button class="ghost-button" type="button" id="auto-detect-stone-chart">Auto Detect Chart</button>
               <button type="button" id="save-cropped-stone-chart">Save Crop To Design</button>
               <button class="ghost-button" type="button" id="read-cropped-stone-chart">Save Crop & Read OCR</button>
             </div>
@@ -971,6 +972,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=179"></script>
+  <script src="app.js?v=181"></script>
   </body>
 </html>
