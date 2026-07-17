@@ -12,9 +12,15 @@ const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
+const AUTO_SYNC_INTERVAL_MS = 7000;
 const MAX_PRODUCTION_DAYS = 10;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
+let supabaseAutoRefreshTimer = null;
+let supabaseIsSaving = false;
+let supabaseIsLoading = false;
+let supabaseLastCloudUpdatedAt = "";
+let supabaseLastLocalChangeAt = 0;
 let selectedDesignIds = new Set();
 
 const users = {
@@ -1447,6 +1453,7 @@ function applyAccessControl() {
 
 function saveState() {
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
 }
 
@@ -1529,8 +1536,8 @@ async function initializeSupabase() {
     setSyncStatus("connecting", "Sync: Connecting");
     const supabaseLibrary = await loadSupabaseLibrary();
     supabaseClient = supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
-    await loadSupabaseState();
-    setSyncStatus("online", "Live Sync");
+    await loadSupabaseState({ initial: true });
+    startSupabaseAutoRefresh();
   } catch (error) {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
     setSyncStatus("offline", "Sync: Offline");
@@ -1545,6 +1552,24 @@ async function refreshLiveData() {
   }
   await loadSupabaseState({ manual: true });
 }
+
+function startSupabaseAutoRefresh() {
+  clearInterval(supabaseAutoRefreshTimer);
+  if (!supabaseClient) return;
+  supabaseAutoRefreshTimer = setInterval(() => {
+    if (document.hidden) return;
+    loadSupabaseState({ auto: true });
+  }, AUTO_SYNC_INTERVAL_MS);
+  setSyncStatus("online", "Live Sync: Auto");
+}
+
+window.addEventListener("focus", () => {
+  if (supabaseClient) loadSupabaseState({ auto: true });
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && supabaseClient) loadSupabaseState({ auto: true });
+});
 
 function queueSupabaseSave() {
   if (!supabaseClient) {
@@ -1561,19 +1586,26 @@ async function syncStateToSupabase() {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  supabaseIsSaving = true;
   setSyncStatus("saving", "Sync: Saving");
+  const updatedAt = new Date().toISOString();
   const { error } = await supabaseClient
     .from("erp_state")
     .upsert({
       id: supabaseStateId,
       data: state,
-      updated_at: new Date().toISOString(),
-    });
+      updated_at: updatedAt,
+    })
+    .catch((error) => ({ error }));
+  supabaseIsSaving = false;
   if (error) {
     console.warn("Supabase save failed", error);
     setSyncStatus("offline", "Sync: Save Failed");
     return;
   }
+  supabaseLastCloudUpdatedAt = updatedAt;
   setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
 }
 
@@ -1582,21 +1614,36 @@ async function loadSupabaseState(options = {}) {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
-  setSyncStatus("connecting", "Sync: Loading");
+  if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return;
+  const isAuto = Boolean(options.auto);
+  if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return;
+  supabaseIsLoading = true;
+  if (!isAuto) setSyncStatus("connecting", "Sync: Loading");
   const { data, error } = await supabaseClient
     .from("erp_state")
-    .select("data")
+    .select("data, updated_at")
     .eq("id", supabaseStateId)
-    .maybeSingle();
+    .maybeSingle()
+    .catch((error) => ({ data: null, error }));
+  supabaseIsLoading = false;
   if (error) {
     console.warn("Supabase load failed", error);
     setSyncStatus("offline", "Sync: Load Failed");
     return;
   }
   if (data?.data) {
+    const cloudUpdatedAt = data.updated_at || "";
+    if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
+      setSyncStatus("online", "Live Sync: Auto");
+      return;
+    }
+    if (isAuto && isUserActivelyEditing()) {
+      setSyncStatus("online", "Live Sync: New Data");
+      return;
+    }
     state = normalizeState(data.data);
+    supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-    if (!options.manual) syncStateToSupabase();
     render();
     setDefaultOrderDates(document.getElementById("order-form"));
     resetOrderItemRows();
@@ -1604,11 +1651,26 @@ async function loadSupabaseState(options = {}) {
     updateMeltingCalculation();
     if (options.manual) {
       setSyncStatus("online", `Live Sync: Refreshed ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+    } else if (isAuto) {
+      setSyncStatus("online", `Live Sync: Updated ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
     }
   } else {
     syncStateToSupabase();
   }
-  if (!options.manual) setSyncStatus("online", "Live Sync");
+  if (options.initial) setSyncStatus("online", "Live Sync: Auto");
+}
+
+function isNewerCloudData(cloudUpdatedAt) {
+  if (!cloudUpdatedAt) return false;
+  if (!supabaseLastCloudUpdatedAt) return true;
+  return new Date(cloudUpdatedAt).getTime() > new Date(supabaseLastCloudUpdatedAt).getTime() + 250;
+}
+
+function isUserActivelyEditing() {
+  const active = document.activeElement;
+  const editingElement = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+  const openDialog = document.querySelector("dialog[open]");
+  return Boolean(editingElement || openDialog);
 }
 
 function switchView(view) {
