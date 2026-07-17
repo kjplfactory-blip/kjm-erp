@@ -1,22 +1,3 @@
-if (!globalThis.structuredClone) {
-  globalThis.structuredClone = (value) => JSON.parse(JSON.stringify(value));
-}
-if (!String.prototype.replaceAll) {
-  String.prototype.replaceAll = function replaceAll(search, replacement) {
-    return this.split(search).join(replacement);
-  };
-}
-if (!globalThis.crypto) globalThis.crypto = {};
-if (!globalThis.crypto?.randomUUID) {
-  globalThis.crypto.randomUUID = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = globalThis.crypto.getRandomValues
-      ? globalThis.crypto.getRandomValues(new Uint8Array(1))[0] & 15
-      : Math.floor(Math.random() * 16);
-    const value = character === "x" ? random : (random & 3) | 8;
-    return value.toString(16);
-  });
-}
-
 const currency = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -24,6 +5,7 @@ const currency = new Intl.NumberFormat("en-IN", {
 });
 
 const weight3 = (value) => Number(value || 0).toFixed(3);
+const weight5 = (value) => Number(value || 0).toFixed(5);
 const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
@@ -31,46 +13,48 @@ const isoToday = () => new Date().toISOString().slice(0, 10);
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const MAX_PRODUCTION_DAYS = 10;
-const SUPABASE_POLL_INTERVAL_MS = 10000;
-const LOCAL_STATE_KEY = "gold-jewellery-erp-state";
-const LOCAL_PENDING_STATE_KEY = "gold-jewellery-erp-pending-state-v2";
 let supabaseClient = null;
-let supabaseLibraryPromise = null;
-let supabaseClientPromise = null;
-let supabaseAuthSubscription = null;
 let supabaseSaveTimer = null;
-let supabaseRetryTimer = null;
-let supabasePollTimer = null;
-let supabaseRealtimeChannel = null;
-let deferredRemoteRenderTimer = null;
-let pendingRemoteRecord = null;
-let localSavePending = false;
-let localSaveRevision = 0;
-let lastSupabaseUpdatedAt = "";
-let serverState = null;
-let serverRevision = -1;
-let saveInFlight = false;
-let mergeConflictCount = 0;
-let cloudStateReady = false;
-let lastSyncFailure = null;
-const dirtyForms = new WeakSet();
+let selectedDesignIds = new Set();
 
 const users = {
-  owner: { name: "Owner", role: "owner", pages: "all" },
-  order: { name: "Order Dept", role: "order", pages: ["customers", "designs", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "production", "billing"] },
-  bill: { name: "Bill Dept", role: "bill", pages: ["billing"] },
-  officeMain: { name: "Office Main Dept", role: "office-main", pages: ["orders", "office"], canEditOfficeWeights: true },
-  officeOps: { name: "Office Operations", role: "office-ops", pages: ["orders", "office"], canEditOfficeWeights: false },
-  sales1: { name: "Sales Team 1", role: "sales", pages: ["office"], salesTeam: "Sales Team 1" },
-  sales2: { name: "Sales Team 2", role: "sales", pages: ["office"], salesTeam: "Sales Team 2" },
-  sales3: { name: "Sales Team 3", role: "sales", pages: ["office"], salesTeam: "Sales Team 3" },
-  sales4: { name: "Sales Team 4", role: "sales", pages: ["office"], salesTeam: "Sales Team 4" },
+  owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
+  order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "stone-library", "orders"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "production", "billing"] },
+  bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
+  qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
+  officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
+  officeOps: { name: "Office Operations", password: "ops123", role: "office-ops", pages: ["orders", "office"], canEditOfficeWeights: false },
+  sales1: { name: "Sales Team 1", password: "sales1123", role: "sales", pages: ["office"], salesTeam: "Sales Team 1" },
+  sales2: { name: "Sales Team 2", password: "sales2123", role: "sales", pages: ["office"], salesTeam: "Sales Team 2" },
+  sales3: { name: "Sales Team 3", password: "sales3123", role: "sales", pages: ["office"], salesTeam: "Sales Team 3" },
+  sales4: { name: "Sales Team 4", password: "sales4123", role: "sales", pages: ["office"], salesTeam: "Sales Team 4" },
 };
+
+const defaultUserPasswords = Object.fromEntries(Object.entries(users).map(([id, user]) => [id, user.password]));
+
+const loginAccessPages = [
+  "dashboard",
+  "customers",
+  "designs",
+  "stone-library",
+  "orders",
+  "melting",
+  "production",
+  "billing",
+  "office",
+  "stock",
+  "karigars",
+  "transfer-history",
+  "reports",
+];
 
 const demoState = {
   nextOrder: 1004,
   nextLot: 204,
+  userPasswords: defaultUserPasswords,
+  customUsers: [],
+  userAccessOverrides: {},
   customers: [
     { id: crypto.randomUUID(), name: "Shree Jewellers", phone: "", city: "", gst: "", address: "" },
     { id: crypto.randomUUID(), name: "Mehta Gold", phone: "", city: "", gst: "", address: "" },
@@ -101,9 +85,21 @@ const demoState = {
 };
 
 let state = loadState();
-let currentUser = null;
+let currentUser = loadCurrentUser();
 let stoneLibraryPage = 1;
 const stoneLibraryPageSize = 100;
+let selectedStoneChartFiles = [];
+let stoneEntryReturnContext = null;
+const stoneCropState = {
+  files: [],
+  sourceIndex: 0,
+  image: null,
+  imageData: "",
+  rect: null,
+  dragging: false,
+  start: null,
+  canvasScale: 1,
+};
 
 const pageInfo = {
   dashboard: ["Dashboard", "Track raw gold, production stock, office stock, orders, wastage, and finished jewellery separately."],
@@ -113,12 +109,13 @@ const pageInfo = {
   orders: ["Job Orders", "Create and monitor customer jewellery manufacturing orders."],
   production: ["Production", "Issue gold to departments and complete finished lots."],
   billing: ["Bill", "Create bills for completed job cards."],
-  office: ["Office", "View QC OK items received from Sales Office for further process."],
+  office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   stock: ["Raw Gold Stock", "Maintain only raw gold movement ledger. Production stock and office stock are separate."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
   "transfer-history": ["Transfer History", "Online one-line history for every lot transfer."],
   reports: ["Reports", "Review wastage, making charges, and completed orders."],
+  users: ["Login Details", "Owner can retrieve and change user passwords."],
 };
 
 const productionFlow = [
@@ -163,93 +160,79 @@ document.getElementById("open-stone-entry").addEventListener("click", openStoneE
 document.getElementById("close-stone-entry").addEventListener("click", () => {
   document.getElementById("stone-entry-dialog").close();
 });
-
-document.getElementById("login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const data = getFormData(event.target);
-  const errorElement = document.getElementById("login-error");
-  errorElement.textContent = "Signing in...";
-  try {
-    await ensureSupabaseClient();
-    const loginId = normalizeLoginId(data.loginId);
-    if (!users[loginId]) throw new Error("Unknown Staff ID.");
-    const { data: authData, error } = await supabaseClient.auth.signInWithPassword({
-      email: authEmailForLoginId(loginId),
-      password: data.password,
-    });
-    if (error) throw error;
-    await setCurrentUserFromAuth(authData.user);
-    await loadSupabaseState();
-    startBackgroundSync();
-    migrateLegacyDesignImages().catch((migrationError) => {
-      console.warn("Legacy design images are waiting for cloud migration.", migrationError);
-    });
-    errorElement.textContent = "";
-    event.target.reset();
-    applyLoginState();
-  } catch (error) {
-    currentUser = null;
-    await supabaseClient?.auth.signOut();
-    applyLoginState();
-    errorElement.textContent = friendlyLoginError(error);
-  }
+document.getElementById("stone-entry-dialog").addEventListener("close", restoreStoneEntryReturnContext);
+document.getElementById("crop-stone-chart").addEventListener("click", openStoneCropDialog);
+document.getElementById("assign-stone-charts").addEventListener("click", async () => {
+  await assignSelectedStoneChartFiles();
+});
+document.getElementById("close-stone-crop").addEventListener("click", () => {
+  document.getElementById("stone-crop-dialog").close();
+});
+document.getElementById("stone-crop-source").addEventListener("change", async (event) => {
+  await loadStoneCropSource(Number(event.target.value || 0));
+});
+document.getElementById("save-cropped-stone-chart").addEventListener("click", async () => {
+  await saveStoneCropToDesign(false);
+});
+document.getElementById("read-cropped-stone-chart").addEventListener("click", async () => {
+  await saveStoneCropToDesign(true);
+});
+const stoneCropCanvas = document.getElementById("stone-crop-canvas");
+stoneCropCanvas.addEventListener("pointerdown", startStoneCropSelection);
+stoneCropCanvas.addEventListener("pointermove", moveStoneCropSelection);
+stoneCropCanvas.addEventListener("pointerup", finishStoneCropSelection);
+stoneCropCanvas.addEventListener("pointerleave", finishStoneCropSelection);
+window.addEventListener("resize", () => {
+  if (stoneCropState.image) fitStoneCropCanvas();
 });
 
-document.getElementById("logout").addEventListener("click", async () => {
-  await flushPendingStateBeforeLogout();
-  if (localSavePending && !confirm("Some changes are still waiting for cloud sync. Log out anyway?")) return;
-  stopBackgroundSync(true);
-  await supabaseClient?.auth.signOut();
-  currentUser = null;
+document.getElementById("show-login-details").addEventListener("click", () => {
+  const password = prompt("Enter Owner password to view login details:");
+  if (password !== userPassword("owner")) {
+    alert("Wrong Owner password.");
+    return;
+  }
+  renderLoginDetailsList();
+  document.getElementById("login-details-list").classList.toggle("hidden");
+});
+
+document.getElementById("login-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const user = allUsers()[data.user];
+  if (!user || userPassword(data.user) !== data.password) {
+    document.getElementById("login-error").textContent = "Wrong user or password.";
+    return;
+  }
+
+  currentUser = {
+    id: data.user,
+    name: user.name,
+    role: user.role,
+    salesTeam: user.salesTeam || "",
+  };
+  localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+  document.getElementById("login-error").textContent = "";
+  event.target.reset();
   applyLoginState();
 });
 
-window.addEventListener("focus", () => {
-  if (currentUser) refreshSupabaseState();
+document.getElementById("logout").addEventListener("click", () => {
+  currentUser = null;
+  localStorage.removeItem("gold-jewellery-erp-user");
+  applyLoginState();
 });
 
-document.addEventListener("visibilitychange", () => {
-  if (currentUser && document.visibilityState === "visible") refreshSupabaseState();
-});
-
-window.addEventListener("online", () => {
-  if (currentUser) refreshSupabaseState();
-});
-
-window.addEventListener("beforeunload", (event) => {
-  if (!localSavePending) return;
-  event.preventDefault();
-  event.returnValue = "";
-});
-
-document.addEventListener("input", trackDirtyForm, true);
-document.addEventListener("change", trackDirtyForm, true);
-document.addEventListener("reset", (event) => clearFormDirty(event.target), true);
-document.addEventListener("close", (event) => {
-  if (event.target instanceof HTMLDialogElement) {
-    event.target.querySelectorAll("form").forEach(clearFormDirty);
-  }
-}, true);
-
-document.getElementById("sync-now").addEventListener("click", async () => {
-  if (!currentUser) return;
-  if (deferredRemoteRenderTimer) {
-    if (isUserActivelyEditing() && !confirm("Show the latest cloud data now? Unsaved text in an open form will be cleared.")) return;
-    document.querySelectorAll("form").forEach((form) => {
-      if (!dirtyForms.has(form)) return;
-      form.reset();
-      clearFormDirty(form);
-    });
-    renderSyncedState(true);
-    setSyncStatus(syncedStatusText(), "live");
-  }
-  if (localSavePending) await syncStateToSupabase();
-  await refreshSupabaseState();
-});
+document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
 
 document.getElementById("reset-demo").addEventListener("click", () => {
   if (!isOwner()) {
     alert("Only Owner can reset data.");
+    return;
+  }
+  const masterPassword = prompt("Enter master password to clear job cards:");
+  if (masterPassword !== "Khushali@9294") {
+    alert("Wrong master password. Job cards were not cleared.");
     return;
   }
   if (!confirm("Remove only job cards and production history? Departments and stock will remain.")) return;
@@ -316,7 +299,8 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   const data = getFormData(form);
   const existing = data.designId ? findById("designs", data.designId) : null;
   const imageFiles = [...form.image.files];
-  const stoneChartFile = form.stoneChart.files[0];
+  const stoneChartFiles = [...form.stoneChart.files];
+  const uploadGroups = groupDesignUploadFiles(imageFiles);
   const status = document.getElementById("design-upload-status");
   const submitButton = document.getElementById("design-submit");
   if (!existing && imageFiles.length > 500) {
@@ -327,10 +311,13 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   const previousDesigns = [...state.designs];
   try {
     if (existing) {
-      const imageFile = imageFiles[0];
-      const designName = designNameFromFile(imageFile?.name) || existing.number;
-      if (imageFile) await saveDesignImage(existing.id, await compressImageFile(imageFile));
-      if (stoneChartFile) await saveStoneChartImage(existing.id, await compressStoneChartImage(stoneChartFile));
+      const group = uploadGroups.find((item) => designMatchKeys(existing).includes(item.key)) || uploadGroups[0];
+      const imageFile = group?.designFile || imageFiles[0];
+      const designName = group?.designName || designNameFromFile(imageFile?.name) || existing.number;
+      if (imageFile && !isStoneChartUploadFile(imageFile.name)) await saveDesignImage(existing.id, await compressImageFile(imageFile));
+      const chartCandidates = [...(group?.chartFiles || []), ...stoneChartFiles];
+      const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, existing) || (stoneChartFiles.length === 1 ? stoneChartFiles[0] : null) || group?.chartFiles?.[0] || null;
+      if (matchingStoneChartFile) await saveStoneChartFileForDesign(existing, matchingStoneChartFile);
       const design = {
         id: existing.id,
         number: data.number || designName,
@@ -338,7 +325,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         category: data.category,
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
-        hasStoneChart: existing.hasStoneChart || Boolean(stoneChartFile),
+        hasStoneChart: existing.hasStoneChart || Boolean(matchingStoneChartFile),
       };
       Object.assign(existing, design);
       updateDesignReferences(existing);
@@ -347,31 +334,51 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         alert("Select one or more design images.");
         return;
       }
-      const designs = [];
-      const stoneChartData = stoneChartFile ? await compressStoneChartImage(stoneChartFile) : "";
-      for (const [index, file] of imageFiles.entries()) {
-        const designName = designNameFromFile(file.name);
-        const id = crypto.randomUUID();
-        status.textContent = `Uploading ${index + 1} of ${imageFiles.length}: ${designName}`;
-        await saveDesignImage(id, await compressImageFile(file));
-        if (stoneChartData) await saveStoneChartImage(id, stoneChartData);
-        designs.push({
-          id,
-          number: designName,
-          name: designName,
-          category: data.category,
-          stoneDetails: "",
-          stoneItems: [],
-          hasStoneChart: Boolean(stoneChartData),
-        });
+      let createdCount = 0;
+      let updatedCount = 0;
+      let matchedStoneCharts = 0;
+      const duplicateGroups = [];
+      for (const [index, group] of uploadGroups.entries()) {
+        const designName = group.designName || designNameFromFile(group.designFile?.name) || `Design ${index + 1}`;
+        status.textContent = `Uploading ${index + 1} of ${uploadGroups.length}: ${designName}`;
+        const duplicateDesign = findDesignByUploadKey(group.key);
+        if (duplicateDesign) {
+          duplicateGroups.push({ group, existingDesign: duplicateDesign });
+          continue;
+        }
+        const design = createDesignFromUploadGroup(group, data.category);
+        state.designs.push(design);
+        createdCount += 1;
+        if (group.designFile) {
+          await saveDesignImage(design.id, await compressImageFile(group.designFile));
+        }
+        const chartCandidates = [...group.chartFiles, ...stoneChartFiles];
+        const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design)
+          || group.chartFiles[0]
+          || (stoneChartFiles.length === 1 && uploadGroups.length === 1 ? stoneChartFiles[0] : null);
+        if (matchingStoneChartFile) {
+          await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+          matchedStoneCharts += 1;
+        }
       }
-      state.designs.push(...designs);
+      for (const { group, existingDesign } of duplicateGroups) {
+        status.textContent = `Duplicate found: ${group.designName || existingDesign.number}. Waiting for your choice.`;
+        const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles);
+        updatedCount += result.updated;
+        createdCount += result.created;
+        matchedStoneCharts += result.chartAttached;
+      }
+      const mergedImageCount = imageFiles.length - uploadGroups.length;
+      status.dataset.uploadSummary = `${createdCount} design(s) created, ${updatedCount} existing/duplicate design(s) handled. ${mergedImageCount} extra image(s) merged into matching designs. ${matchedStoneCharts} stone chart(s) attached.`;
     }
     form.reset();
     resetDesignForm();
     saveState();
     render();
-    status.textContent = existing ? "Design updated." : `${imageFiles.length} design image(s) uploaded.`;
+    status.textContent = existing
+      ? "Design updated. Matching design/chart images were merged."
+      : status.dataset.uploadSummary || `${imageFiles.length} design image(s) uploaded. Matching stone sheet names were assigned automatically.`;
+    delete status.dataset.uploadSummary;
   } catch (error) {
     state.designs = previousDesigns;
     alert("Upload could not be saved. Try fewer images or smaller image files.");
@@ -384,6 +391,14 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
 document.getElementById("cancel-design-edit").addEventListener("click", resetDesignForm);
 
 document.getElementById("design-search").addEventListener("input", renderDesigns);
+document.getElementById("design-select-all").addEventListener("click", selectAllDesigns);
+document.getElementById("design-select-visible").addEventListener("click", selectVisibleDesigns);
+document.getElementById("design-clear-selection").addEventListener("click", clearDesignSelection);
+document.getElementById("design-delete-selected").addEventListener("click", deleteSelectedDesigns);
+document.getElementById("designs").addEventListener("change", handleDesignSelectionChange);
+document.getElementById("design-category-dialog").addEventListener("change", handleDesignSelectionChange);
+document.getElementById("design-select-category").addEventListener("click", selectCurrentDesignCategory);
+document.getElementById("design-delete-selected-category").addEventListener("click", deleteSelectedDesigns);
 
 document.getElementById("stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -457,12 +472,22 @@ document.getElementById("add-design-stone").addEventListener("click", addDesignS
 document.getElementById("read-stone-chart").addEventListener("click", readStoneChartImage);
 
 document.querySelector('#stone-entry-form [name="stoneChart"]').addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
+  const files = [...event.target.files];
+  selectedStoneChartFiles = files;
+  if (!files.length) return;
   const preview = document.getElementById("stone-entry-preview");
+  const file = files[0];
+  const matchedDesign = findDesignForStoneChartFile(file.name);
+  if (matchedDesign) await loadStoneEntry(matchedDesign.id);
+  const assignedCount = await autoAssignStoneChartFiles(files);
   await showStoneChartQuality(file);
   preview.classList.remove("empty");
   preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Selected stone chart preview">`;
+  const note = document.getElementById("stone-chart-quality");
+  if (assignedCount) {
+    note.className = "dialog-note ocr-quality-note good";
+    note.textContent = `${assignedCount} matching stone sheet file(s) assigned automatically. Use Crop Chart if the chart is inside a larger image.`;
+  }
 });
 
 document.getElementById("stone-entry-form").addEventListener("submit", async (event) => {
@@ -473,13 +498,15 @@ document.getElementById("stone-entry-form").addEventListener("submit", async (ev
     alert("Select design first.");
     return;
   }
-  const file = form.stoneChart.files[0];
-  if (file) {
+  const files = [...form.stoneChart.files];
+  if (files.length) {
+    await autoAssignStoneChartFiles(files);
+    const file = matchingStoneChartFileForDesign(files, design) || files[0];
     await showStoneChartQuality(file);
-    await saveStoneChartImage(design.id, await compressStoneChartImage(file));
-    design.hasStoneChart = true;
+    await saveStoneChartFileForDesign(design, file);
   }
   form.stoneChart.value = "";
+  selectedStoneChartFiles = [];
   saveState();
   render();
   await loadStoneEntry(design.id);
@@ -522,6 +549,8 @@ document.getElementById("barcode-scan").addEventListener("keydown", (event) => {
     event.target.value = "";
   }
 });
+
+document.getElementById("repair-order-search").addEventListener("input", renderRepairJobOrders);
 
 document.querySelectorAll('form select[name="designId"]').forEach((select) => {
   select.addEventListener("change", (event) => applyDesignToForm(event.target.form, event.target.value));
@@ -872,6 +901,15 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
     openOfficeDialogPage("sales");
     return;
   }
+  if (event.target.id === "office-select-dialog-items") {
+    selectAllOfficeDialogItems();
+    return;
+  }
+  const tagButton = event.target.closest("[data-office-tag-key]");
+  if (tagButton) {
+    printHallmarkedTags([tagButton.dataset.officeTagKey]);
+    return;
+  }
   const discardButton = event.target.closest("[data-discard-office-item]");
   if (discardButton) {
     discardOfficeItem(discardButton.dataset.discardOfficeItem);
@@ -885,11 +923,15 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
   if (event.target.id === "office-receive-hallmark") updateSelectedOfficeItems("hallmarkReceive");
   if (event.target.id === "office-issue-sales") updateSelectedOfficeItems("salesIssue");
   if (event.target.id === "office-mark-sold") updateSelectedOfficeItems("sold");
+  if (event.target.id === "office-print-tags") printHallmarkedTags();
 });
 
 document.getElementById("office-details-dialog").addEventListener("input", (event) => {
   if (event.target.id === "office-customer-search") {
     renderOfficeCustomerList();
+  }
+  if (event.target.classList?.contains("repair-final-gw-input")) {
+    updateRepairLossInput(event.target);
   }
 });
 
@@ -900,6 +942,7 @@ document.getElementById("office-details-dialog").addEventListener("submit", (eve
 });
 
 document.getElementById("bill-form").addEventListener("input", updateBillAmount);
+document.getElementById("bill-form").addEventListener("change", updateBillAmount);
 
 document.getElementById("bill-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -907,42 +950,70 @@ document.getElementById("bill-form").addEventListener("submit", (event) => {
 });
 
 document.getElementById("bill-qc-ok").addEventListener("click", () => {
-  saveBillFromForm(false);
+  if (isBillQcOnlyMode()) {
+    alert("QC check users can only select QC dropdown and save. Transfer to Office must be done by Bill, Manager, or Owner.");
+    return;
+  }
   transferQcOkItemsToOffice();
 });
 
 document.getElementById("bill-qc-failed").addEventListener("click", () => {
-  saveBillFromForm(false);
+  if (isBillQcOnlyMode()) {
+    alert("QC check users can only select QC dropdown and save. Sending failed items back to production must be done by Bill, Manager, or Owner.");
+    return;
+  }
   returnQcFailedItemsToProduction();
 });
 
-function saveBillFromForm(closeDialog = false) {
+document.getElementById("print-bill").addEventListener("click", () => {
+  printBillFromDialog();
+});
+
+document.getElementById("print-packing-list").addEventListener("click", () => {
+  printPackingListFromDialog();
+});
+
+function saveBillFromForm(closeDialog = false, options = {}) {
   const form = document.getElementById("bill-form");
   updateBillAmount();
   const data = getFormData(form);
   const lot = findById("lots", data.lotId);
   if (!lot) return null;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  if (isBillQcOnlyMode() && !existingBill.id) {
+    alert("QC can be updated only after Bill Dept, Manager, or Owner has created the bill.");
+    return null;
+  }
+  if (!existingBill.id && !canCreateBill()) {
+    alert("Only Bill Dept, Manager, or Owner can create a bill.");
+    return null;
+  }
+  if (existingBill.id && !isBillQcOnlyMode() && !canEditGeneratedBill()) {
+    if (options.allowLockedBillFlow && isBillDeptUser()) {
+      lot.bill = existingBill;
+      return { lot, bill: existingBill };
+    }
+    alert("Bill is already generated. Bill Dept can view it only. Only Manager and Owner can edit the bill.");
+    return null;
+  }
   const items = billItemRows(existingBill.items || []);
   const netWeight = items.reduce((total, item) => total + Number(item.netWeight || 0), 0);
-  const manufacturingMakingGold = items.reduce((total, item) => total + Number(item.manufacturingMakingGold || item.makingGold || 0), 0);
-  const officeMakingGold = items.reduce((total, item) => total + Number(item.officeMakingGold || 0), 0);
   const bill = {
-    id: lot.bill?.id || crypto.randomUUID(),
+    id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
     lotId: lot.id,
     jobNumber: lot.orderNumber,
     billNo: data.billNo,
     billDate: data.billDate,
-    makingRate: Number(data.makingRate || 0),
-    officeMakingRate: Number(data.officeMakingRate || 0),
-    otherCharges: Number(data.otherCharges || 0),
-    manufacturingBillAmount: Number(data.manufacturingBillAmount || 0),
-    billAmount: Number(data.billAmount || 0),
+    makingRate: 0,
+    officeMakingRate: 0,
+    otherCharges: 0,
+    manufacturingBillAmount: 0,
+    billAmount: 0,
     items,
     netWeight,
-    makingGold: manufacturingMakingGold,
-    manufacturingMakingGold,
-    officeMakingGold,
+    makingGold: 0,
+    manufacturingMakingGold: 0,
+    officeMakingGold: 0,
     remarks: data.remarks || "",
   };
   state.bills = state.bills || [];
@@ -984,6 +1055,10 @@ document.getElementById("close-design-category").addEventListener("click", () =>
 
 document.getElementById("close-order").addEventListener("click", () => {
   document.getElementById("order-dialog").close();
+});
+
+document.getElementById("close-job-item-detail").addEventListener("click", () => {
+  closeJobItemDetail();
 });
 
 document.getElementById("print-order").addEventListener("click", () => {
@@ -1225,59 +1300,54 @@ document.getElementById("close-history").addEventListener("click", () => {
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("production-transfer-search").addEventListener("input", renderOnlineTransferHistory);
 
+document.getElementById("login-user-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!isOwner()) {
+    alert("Only Owner can add users.");
+    return;
+  }
+  addLoginUser(event.target);
+});
+
+document.getElementById("login-users-table")?.addEventListener("click", (event) => {
+  const saveButton = event.target.closest("[data-save-user]");
+  const deleteButton = event.target.closest("[data-delete-user]");
+  if (!saveButton && !deleteButton) return;
+  if (!isOwner()) {
+    alert("Only Owner can modify users.");
+    return;
+  }
+  if (saveButton) saveLoginUser(saveButton.dataset.saveUser, saveButton.closest("tr"));
+  if (deleteButton) deleteLoginUser(deleteButton.dataset.deleteUser);
+});
+
 function loadState() {
   try {
-    const saved = localStorage.getItem(LOCAL_STATE_KEY);
+    const saved = localStorage.getItem("gold-jewellery-erp-state");
     const normalized = normalizeState(saved ? JSON.parse(saved) : structuredClone(demoState));
-    cacheStateLocally(normalized);
+    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
   } catch (error) {
     console.warn("Saved ERP data could not be read. Starting with safe demo data.", error);
+    localStorage.removeItem("gold-jewellery-erp-state");
     const normalized = normalizeState(structuredClone(demoState));
-    cacheStateLocally(normalized);
+    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
   }
 }
 
-function cacheStateLocally(value = state) {
+function loadCurrentUser() {
   try {
-    localStorage.setItem(LOCAL_STATE_KEY, JSON.stringify(value));
-    return true;
+    const saved = localStorage.getItem("gold-jewellery-erp-user");
+    const user = saved ? JSON.parse(saved) : null;
+    if (user && !allUsers()[user.id]) {
+      localStorage.removeItem("gold-jewellery-erp-user");
+      return null;
+    }
+    return user;
   } catch (error) {
-    console.warn("Browser cache is unavailable; cloud sync remains active.", error);
-    return false;
-  }
-}
-
-function cachePendingState() {
-  if (!currentUser || !cloudStateReady) return;
-  try {
-    localStorage.setItem(LOCAL_PENDING_STATE_KEY, JSON.stringify({
-      state,
-      base: serverState,
-      revision: serverRevision,
-      savedAt: new Date().toISOString(),
-    }));
-  } catch (error) {
-    console.warn("Pending cloud save could not be cached in this browser.", error);
-  }
-}
-
-function readPendingState() {
-  try {
-    const pending = JSON.parse(localStorage.getItem(LOCAL_PENDING_STATE_KEY) || "null");
-    return pending?.state && Number.isFinite(Number(pending.revision)) ? pending : null;
-  } catch (error) {
-    console.warn("Pending cloud save cache could not be read.", error);
+    localStorage.removeItem("gold-jewellery-erp-user");
     return null;
-  }
-}
-
-function clearPendingStateCache() {
-  try {
-    localStorage.removeItem(LOCAL_PENDING_STATE_KEY);
-  } catch (error) {
-    console.warn("Pending cloud save cache could not be cleared.", error);
   }
 }
 
@@ -1286,13 +1356,13 @@ function applyLoginState() {
   document.body.classList.toggle("logged-out", !isLoggedIn);
   document.body.classList.toggle("is-owner", isOwner());
   document.getElementById("active-user").textContent = isLoggedIn ? currentUser.name : "Not logged in";
-  if (!isLoggedIn) setSyncStatus("Offline", "offline");
+  renderLoginUserOptions();
   applyAccessControl();
   renderLoginUsers();
 }
 
 function currentUserConfig() {
-  return currentUser ? users[currentUser.id] : null;
+  return currentUser ? allUsers()[currentUser.id] : null;
 }
 
 function allowedPages() {
@@ -1303,6 +1373,7 @@ function allowedPages() {
 }
 
 function canAccessPage(view) {
+  if (view === "users" && !isOwner()) return false;
   return allowedPages().includes(view);
 }
 
@@ -1318,6 +1389,43 @@ function isSalesUser() {
   return currentUserConfig()?.role === "sales";
 }
 
+function isQcUser() {
+  const config = currentUserConfig();
+  return config?.role === "qc" || Boolean(config?.qcOnly);
+}
+
+function isOfficeMainUser() {
+  return currentUserConfig()?.role === "office-main";
+}
+
+function isManagerUser() {
+  return currentUserConfig()?.role === "manager";
+}
+
+function isBillDeptUser() {
+  return currentUserConfig()?.role === "bill";
+}
+
+function canCreateBill() {
+  return isOwner() || isManagerUser() || isBillDeptUser();
+}
+
+function canEditGeneratedBill() {
+  return isOwner() || isManagerUser();
+}
+
+function isGeneratedBillLockedForCurrentUser(bill = {}) {
+  return Boolean(bill?.id) && !isBillQcOnlyMode() && !canEditGeneratedBill();
+}
+
+function canEditQcStatus() {
+  return isOwner() || isOfficeMainUser() || isQcUser();
+}
+
+function isBillQcOnlyMode() {
+  return isOfficeMainUser() || isQcUser();
+}
+
 function currentSalesTeam() {
   return currentUserConfig()?.salesTeam || "";
 }
@@ -1331,21 +1439,41 @@ function applyAccessControl() {
     button.classList.toggle("hidden", isSalesUser() && button.dataset.officePage !== "sales");
   });
   document.body.classList.toggle("office-readonly", currentUserConfig()?.role === "office-ops" || isSalesUser());
+  document.body.classList.toggle("qc-only-user", isBillQcOnlyMode());
   if (currentUser && !canAccessPage(document.querySelector(".view.active-view")?.id || "dashboard")) {
     switchView(defaultAllowedPage());
   }
 }
 
 function saveState() {
-  cacheStateLocally(state);
-  clearFormDirty(document.activeElement?.closest?.("form"));
-  if (supabaseClient && currentUser && cloudStateReady) {
-    localSaveRevision += 1;
-    localSavePending = true;
-    cachePendingState();
-    setSyncStatus("Saving...", "saving");
-    queueSupabaseSave();
-  }
+  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  queueSupabaseSave();
+}
+
+function userPassword(userId) {
+  return state.userPasswords?.[userId] || defaultUserPasswords[userId] || "";
+}
+
+function allUsers() {
+  const custom = (state.customUsers || []).reduce((acc, user) => {
+    acc[user.id] = {
+      ...user,
+      role: user.role || "custom",
+      pages: user.pages || [],
+    };
+    return acc;
+  }, {});
+  const merged = { ...users, ...custom };
+  Object.entries(state.userAccessOverrides || {}).forEach(([id, override]) => {
+    if (!merged[id] || id === "owner") return;
+    merged[id] = {
+      ...merged[id],
+      name: override.name || merged[id].name,
+      pages: override.pages || merged[id].pages || [],
+      canEditOfficeWeights: override.canEditOfficeWeights ?? merged[id].canEditOfficeWeights,
+    };
+  });
+  return merged;
 }
 
 function userAccessText(user = {}) {
@@ -1353,603 +1481,134 @@ function userAccessText(user = {}) {
   return (user.pages || []).map((page) => pageInfo[page]?.[0] || page).join(", ");
 }
 
+function renderLoginDetailsList() {
+  const list = document.getElementById("login-details-list");
+  if (!list) return;
+  list.innerHTML = Object.entries(allUsers()).map(([id, user]) =>
+    `<span>${escapeHtml(user.name)} / ${escapeHtml(userPassword(id))}</span>`
+  ).join("");
+}
+
+function renderLoginUserOptions() {
+  const select = document.querySelector('#login-form select[name="user"]');
+  if (!select) return;
+  const currentValue = select.value || "owner";
+  select.innerHTML = Object.entries(allUsers()).map(([id, user]) =>
+    `<option value="${escapeHtml(id)}">${escapeHtml(user.name)}</option>`
+  ).join("");
+  select.value = allUsers()[currentValue] ? currentValue : "owner";
+}
+
 function loadSupabaseLibrary() {
-  if (window.supabase) return Promise.resolve(window.supabase);
-  if (supabaseLibraryPromise) return supabaseLibraryPromise;
-  supabaseLibraryPromise = new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     if (window.supabase) {
       resolve(window.supabase);
       return;
     }
     const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.8";
+    script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
     script.onload = () => resolve(window.supabase);
-    script.onerror = () => {
-      supabaseLibraryPromise = null;
-      reject(new Error("Supabase library could not load."));
-    };
+    script.onerror = () => reject(new Error("Supabase library could not load."));
     document.head.appendChild(script);
   });
-  return supabaseLibraryPromise;
 }
 
-async function ensureSupabaseClient() {
-  if (supabaseClient) return supabaseClient;
-  if (!supabaseSettings.url || !supabaseSettings.anonKey) {
-    throw new Error("Supabase connection details are missing.");
-  }
-  if (!supabaseClientPromise) {
-    supabaseClientPromise = loadSupabaseLibrary()
-      .then((supabaseLibrary) => {
-        supabaseClient = supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
-        if (!supabaseAuthSubscription) {
-          const { data } = supabaseClient.auth.onAuthStateChange((event) => {
-            if (event !== "SIGNED_OUT" || !currentUser) return;
-            stopBackgroundSync(true);
-            currentUser = null;
-            applyLoginState();
-            const errorElement = document.getElementById("login-error");
-            if (errorElement) errorElement.textContent = "Your session ended. Please log in again.";
-          });
-          supabaseAuthSubscription = data.subscription;
-        }
-        return supabaseClient;
-      })
-      .catch((error) => {
-        supabaseClientPromise = null;
-        throw error;
-      });
-  }
-  return supabaseClientPromise;
-}
-
-async function setCurrentUserFromAuth(authUser) {
-  if (!authUser) throw new Error("No authenticated user was returned.");
-  const { data, error } = await supabaseClient
-    .from("erp_users")
-    .select("erp_user_id")
-    .eq("user_id", authUser.id)
-    .maybeSingle();
-  if (error) throw error;
-  const userId = data?.erp_user_id;
-  const user = users[userId];
-  if (!user) throw new Error("This account has not been assigned an ERP role.");
-  currentUser = {
-    id: userId,
-    name: user.name,
-    role: user.role,
-    salesTeam: user.salesTeam || "",
-    email: authUser.email || "",
-  };
-}
-
-function friendlyLoginError(error) {
-  const message = String(error?.message || "Login failed.");
-  if (error?.userMessage) return error.userMessage;
-  if (message.includes("Invalid login credentials")) return "Wrong Staff ID or password.";
-  if (message.includes("Unknown Staff ID")) return message;
-  if (message.includes("ERP role")) return message;
-  if (message.includes("connection details")) return message;
-  return "Login failed. Check the account and internet connection.";
-}
-
-function isSyncSetupError(error) {
-  const code = String(error?.code || "");
-  const message = String(error?.message || error?.details || "").toLowerCase();
-  return ["PGRST202", "42703", "42883"].includes(code)
-    || message.includes("get_erp_state")
-    || message.includes("save_erp_state")
-    || message.includes("revision");
-}
-
-function cloudLoadError(error) {
-  const wrapped = new Error(String(error?.message || "Cloud ERP data could not be loaded."));
-  wrapped.cause = error;
-  wrapped.code = error?.code;
-  wrapped.userMessage = isSyncSetupError(error)
-    ? "Cloud sync setup is incomplete. Run ENABLE-LIVE-SYNC.sql in Supabase, then log in again."
-    : "Cloud ERP data could not be loaded. Check the internet connection and try again.";
-  return wrapped;
-}
-
-function normalizeLoginId(value = "") {
-  const normalized = String(value).trim().replace(/\s+/g, "").toLowerCase();
-  return Object.keys(users).find((id) => id.toLowerCase() === normalized) || normalized;
-}
-
-function authEmailForLoginId(loginId) {
-  const domain = supabaseSettings.authEmailDomain || "kjm-erp.example.com";
-  return `${loginId.toLowerCase()}@${domain}`;
+function setSyncStatus(status, message) {
+  const pill = document.getElementById("sync-status");
+  if (!pill) return;
+  pill.className = `sync-pill ${status}`;
+  pill.textContent = message;
 }
 
 async function initializeSupabase() {
+  if (!supabaseSettings.url || !supabaseSettings.anonKey) {
+    setSyncStatus("offline", "Sync: Local Only");
+    return;
+  }
   try {
-    await ensureSupabaseClient();
-    const { data, error } = await supabaseClient.auth.getSession();
-    if (error) throw error;
-    if (data.session?.user) {
-      await setCurrentUserFromAuth(data.session.user);
-      await loadSupabaseState();
-      startBackgroundSync();
-      migrateLegacyDesignImages().catch((migrationError) => {
-        console.warn("Legacy design images are waiting for cloud migration.", migrationError);
-      });
-    }
-    applyLoginState();
+    setSyncStatus("connecting", "Sync: Connecting");
+    const supabaseLibrary = await loadSupabaseLibrary();
+    supabaseClient = supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
+    await loadSupabaseState();
+    setSyncStatus("online", "Live Sync");
   } catch (error) {
-    stopBackgroundSync(true);
-    currentUser = null;
-    applyLoginState();
-    const errorElement = document.getElementById("login-error");
-    if (errorElement) errorElement.textContent = friendlyLoginError(error);
-    await supabaseClient?.auth.signOut().catch(() => {});
-    console.warn("Supabase authentication is not available.", error);
+    console.warn("Supabase is not connected. Local browser data is still working.", error);
+    setSyncStatus("offline", "Sync: Offline");
   }
 }
 
-function queueSupabaseSave(delay = 250) {
-  if (!supabaseClient || !currentUser || !cloudStateReady) return;
+async function refreshLiveData() {
+  if (!supabaseClient) {
+    alert("Live sync is not connected on this laptop. Check internet and refresh the website.");
+    setSyncStatus("offline", "Sync: Offline");
+    return;
+  }
+  await loadSupabaseState({ manual: true });
+}
+
+function queueSupabaseSave() {
+  if (!supabaseClient) {
+    setSyncStatus("offline", "Sync: Offline");
+    return;
+  }
+  setSyncStatus("saving", "Sync: Saving");
   clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(syncStateToSupabase, delay);
-}
-
-function handleSyncFailure(error, label) {
-  lastSyncFailure = error;
-  const setupError = isSyncSetupError(error);
-  if (setupError) blockForSyncSetup(error);
-  setSyncStatus(setupError ? "Database update required" : "Sync retrying", "error");
-  if (!setupError) supabaseRetryTimer = setTimeout(() => queueSupabaseSave(0), 5000);
-  console.warn(label, error);
-}
-
-function blockForSyncSetup(error) {
-  cloudStateReady = false;
-  stopBackgroundSync(false);
-  currentUser = null;
-  applyLoginState();
-  const errorElement = document.getElementById("login-error");
-  if (errorElement) errorElement.textContent = error?.userMessage || cloudLoadError(error).userMessage;
-  supabaseClient?.auth.signOut().catch(() => {});
+  supabaseSaveTimer = setTimeout(syncStateToSupabase, 600);
 }
 
 async function syncStateToSupabase() {
-  if (!supabaseClient || !currentUser || !cloudStateReady || saveInFlight) return false;
-  if (!localSavePending) return true;
-  saveInFlight = true;
-  clearTimeout(supabaseRetryTimer);
-  const saveRevision = localSaveRevision;
-  const stateSnapshot = structuredClone(state);
-  const expectedRevision = serverRevision;
-  let response;
-  try {
-    response = await supabaseClient.rpc("save_erp_state", {
-      p_id: supabaseStateId,
-      p_data: stateSnapshot,
-      p_expected_revision: expectedRevision,
-    }).maybeSingle();
-  } catch (requestError) {
-    saveInFlight = false;
-    localSavePending = true;
-    handleSyncFailure(requestError, "Supabase save request failed");
-    return false;
+  if (!supabaseClient) {
+    setSyncStatus("offline", "Sync: Offline");
+    return;
   }
-  const { data, error } = response;
-
+  setSyncStatus("saving", "Sync: Saving");
+  const { error } = await supabaseClient
+    .from("erp_state")
+    .upsert({
+      id: supabaseStateId,
+      data: state,
+      updated_at: new Date().toISOString(),
+    });
   if (error) {
-    saveInFlight = false;
-    localSavePending = true;
-    handleSyncFailure(error, "Supabase save failed");
-    return false;
+    console.warn("Supabase save failed", error);
+    setSyncStatus("offline", "Sync: Save Failed");
+    return;
   }
-
-  if (!data) {
-    await rebaseFromSupabase();
-    saveInFlight = false;
-    return !localSavePending;
-  }
-
-  saveInFlight = false;
-  lastSyncFailure = null;
-  serverState = structuredClone(data.data || stateSnapshot);
-  serverRevision = Number(data.revision ?? expectedRevision + 1);
-  lastSupabaseUpdatedAt = data.updated_at || lastSupabaseUpdatedAt;
-  if (saveRevision === localSaveRevision) {
-    localSavePending = false;
-    clearPendingStateCache();
-    setSyncStatus(mergeConflictCount ? "Concurrent edits merged" : syncedStatusText(), mergeConflictCount ? "pending" : "live");
-    mergeConflictCount = 0;
-  } else {
-    localSavePending = true;
-    cachePendingState();
-    queueSupabaseSave(0);
-  }
-
-  if (pendingRemoteRecord && !localSavePending) {
-    const pending = pendingRemoteRecord;
-    pendingRemoteRecord = null;
-    if (Number(pending.revision) > serverRevision) applyRemoteStateRecord(pending);
-  }
-  return true;
+  setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
 }
 
-async function fetchSupabaseStateRecord() {
+async function loadSupabaseState(options = {}) {
+  if (!supabaseClient) {
+    setSyncStatus("offline", "Sync: Offline");
+    return;
+  }
+  setSyncStatus("connecting", "Sync: Loading");
   const { data, error } = await supabaseClient
-    .rpc("get_erp_state", { p_id: supabaseStateId })
+    .from("erp_state")
+    .select("data")
+    .eq("id", supabaseStateId)
     .maybeSingle();
-  if (error) throw error;
-  return data || null;
-}
-
-async function loadSupabaseState() {
-  if (!supabaseClient || !currentUser) return false;
-  cloudStateReady = false;
-  let data;
-  try {
-    data = await fetchSupabaseStateRecord();
-  } catch (error) {
-    setSyncStatus("Sync unavailable", "error");
+  if (error) {
     console.warn("Supabase load failed", error);
-    throw cloudLoadError(error);
-  }
-  if (!data?.data) {
-    const error = new Error("The shared ERP database row is missing.");
-    error.userMessage = "Shared ERP data is not initialized. Run ENABLE-LIVE-SYNC.sql in Supabase, then log in again.";
-    throw error;
-  }
-
-  const remoteState = normalizeState(structuredClone(data.data));
-  serverState = structuredClone(remoteState);
-  serverRevision = Number(data.revision || 0);
-  lastSupabaseUpdatedAt = data.updated_at || "";
-  const pending = readPendingState();
-  localSavePending = false;
-
-  if (pending?.base && Number(pending.revision) <= serverRevision) {
-    const conflicts = [];
-    state = normalizeState(mergeJsonChanges(pending.base, pending.state, remoteState, conflicts));
-    mergeConflictCount += conflicts.length;
-    localSavePending = !jsonEqual(state, remoteState);
-  } else {
-    state = remoteState;
-    clearPendingStateCache();
-  }
-
-  cloudStateReady = true;
-  lastSyncFailure = null;
-  cacheStateLocally(state);
-  renderSyncedState(true);
-  if (localSavePending) {
-    localSaveRevision += 1;
-    cachePendingState();
-    setSyncStatus("Restoring unsaved work...", "saving");
-    queueSupabaseSave(0);
-  } else {
-    setSyncStatus(syncedStatusText(), "live");
-  }
-  return true;
-}
-
-async function rebaseFromSupabase() {
-  let data;
-  try {
-    data = await fetchSupabaseStateRecord();
-  } catch (error) {
-    localSavePending = true;
-    handleSyncFailure(error, "Supabase conflict refresh failed");
+    setSyncStatus("offline", "Sync: Load Failed");
     return;
   }
-
-  if (!data?.data) {
-    localSavePending = true;
-    const error = new Error("The shared ERP database row is missing.");
-    error.userMessage = "Shared ERP data is not initialized. Run ENABLE-LIVE-SYNC.sql in Supabase, then log in again.";
-    lastSyncFailure = error;
-    blockForSyncSetup(error);
-    return;
-  }
-
-  const remoteState = normalizeState(structuredClone(data.data));
-  const conflicts = [];
-  state = normalizeState(mergeJsonChanges(serverState || {}, state, remoteState, conflicts));
-  serverState = structuredClone(remoteState);
-  serverRevision = Number(data.revision || 0);
-  cloudStateReady = true;
-  lastSupabaseUpdatedAt = data.updated_at || lastSupabaseUpdatedAt;
-  pendingRemoteRecord = null;
-  mergeConflictCount += conflicts.length;
-  localSaveRevision += 1;
-  localSavePending = !jsonEqual(state, serverState);
-  cacheStateLocally(state);
-  if (localSavePending) cachePendingState();
-
-  if (isUserActivelyEditing()) {
-    setSyncStatus("Concurrent update merged", "pending");
-    queueDeferredRemoteRender();
+  if (data?.data) {
+    state = normalizeState(data.data);
+    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+    if (!options.manual) syncStateToSupabase();
+    render();
+    setDefaultOrderDates(document.getElementById("order-form"));
+    resetOrderItemRows();
+    resetMeltingSources();
+    updateMeltingCalculation();
+    if (options.manual) {
+      setSyncStatus("online", `Live Sync: Refreshed ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+    }
   } else {
-    renderSyncedState();
+    syncStateToSupabase();
   }
-
-  if (localSavePending) {
-    setSyncStatus("Saving merged data...", "saving");
-    queueSupabaseSave(0);
-  } else {
-    setSyncStatus(syncedStatusText(), "live");
-  }
-}
-
-async function flushPendingStateBeforeLogout() {
-  clearTimeout(supabaseSaveTimer);
-  const deadline = Date.now() + 8000;
-  while (localSavePending && currentUser && Date.now() < deadline) {
-    await syncStateToSupabase();
-    if (localSavePending) await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-
-function mergeJsonChanges(base, local, remote, conflicts = [], path = "") {
-  if (jsonEqual(local, base)) return cloneJson(remote);
-  if (jsonEqual(remote, base)) return cloneJson(local);
-  if (jsonEqual(local, remote)) return cloneJson(local);
-
-  if ((path === "nextOrder" || path === "nextLot") && [base, local, remote].every((value) => Number.isFinite(Number(value)))) {
-    return Math.max(Number(base), Number(local), Number(remote));
-  }
-
-  if (local === undefined && remote !== undefined) {
-    conflicts.push(path || "root");
-    return cloneJson(remote);
-  }
-  if (remote === undefined && local !== undefined) {
-    conflicts.push(path || "root");
-    return cloneJson(local);
-  }
-
-  if (Array.isArray(local) && Array.isArray(remote)) {
-    const baseArray = Array.isArray(base) ? base : [];
-    const combinedItems = [...baseArray, ...local, ...remote];
-    if (combinedItems.length && combinedItems.every((item) => isPlainObject(item) && item.id !== undefined)) {
-      return mergeArraysById(baseArray, local, remote, conflicts, path);
-    }
-    if (combinedItems.every((item) => !isPlainObject(item))) {
-      return mergePrimitiveArrays(baseArray, local, remote);
-    }
-    conflicts.push(path || "root");
-    return cloneJson(local);
-  }
-
-  if (isPlainObject(local) && isPlainObject(remote)) {
-    const baseObject = isPlainObject(base) ? base : {};
-    const merged = {};
-    const keys = new Set([...Object.keys(baseObject), ...Object.keys(local), ...Object.keys(remote)]);
-    keys.forEach((key) => {
-      const childPath = path ? `${path}.${key}` : key;
-      const value = mergeJsonChanges(baseObject[key], local[key], remote[key], conflicts, childPath);
-      if (value !== undefined) merged[key] = value;
-    });
-    return merged;
-  }
-
-  conflicts.push(path || "root");
-  return cloneJson(local);
-}
-
-function mergeArraysById(base, local, remote, conflicts, path) {
-  const toMap = (items) => new Map(items.map((item) => [String(item.id), item]));
-  const baseMap = toMap(base);
-  const localMap = toMap(local);
-  const remoteMap = toMap(remote);
-  const ids = [];
-  [...remote, ...local, ...base].forEach((item) => {
-    const id = String(item.id);
-    if (!ids.includes(id)) ids.push(id);
-  });
-  return ids.flatMap((id) => {
-    const merged = mergeJsonChanges(
-      baseMap.get(id),
-      localMap.get(id),
-      remoteMap.get(id),
-      conflicts,
-      `${path || "items"}[${id}]`
-    );
-    return merged === undefined ? [] : [merged];
-  });
-}
-
-function mergePrimitiveArrays(base, local, remote) {
-  const key = (value) => JSON.stringify(value);
-  const baseKeys = new Set(base.map(key));
-  const localKeys = new Set(local.map(key));
-  const locallyRemoved = new Set([...baseKeys].filter((itemKey) => !localKeys.has(itemKey)));
-  const merged = remote.filter((item) => !locallyRemoved.has(key(item)));
-  local.forEach((item) => {
-    if (!baseKeys.has(key(item)) && !merged.some((existing) => jsonEqual(existing, item))) merged.push(cloneJson(item));
-  });
-  return merged;
-}
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function jsonEqual(left, right) {
-  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
-}
-
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (!isPlainObject(value)) return value;
-  return Object.keys(value).sort().reduce((result, key) => {
-    result[key] = canonicalJson(value[key]);
-    return result;
-  }, {});
-}
-
-function cloneJson(value) {
-  return value === undefined ? undefined : structuredClone(value);
-}
-
-function stableRecordId(prefix, ...parts) {
-  const textValue = parts.map((part) => String(part ?? "")).join("|");
-  let hash = 2166136261;
-  for (let index = 0; index < textValue.length; index += 1) {
-    hash ^= textValue.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${prefix}-${(hash >>> 0).toString(36)}`;
-}
-
-function startBackgroundSync() {
-  if (!supabaseClient || !currentUser) return;
-  stopBackgroundSync(false);
-  setSyncStatus("Connecting...", "connecting");
-
-  supabaseRealtimeChannel = supabaseClient
-    .channel(`erp-state-live-${supabaseStateId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "erp_state",
-        filter: `id=eq.${supabaseStateId}`,
-      },
-      (payload) => applyRemoteStateRecord(payload.new)
-    )
-    .subscribe((status, error) => {
-      if (status === "SUBSCRIBED") {
-        if (!localSavePending) setSyncStatus(syncedStatusText(), "live");
-        refreshSupabaseState();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        setSyncStatus("Live retrying", "error");
-        console.warn("Supabase live sync connection issue", status, error);
-      }
-    });
-
-  supabasePollTimer = setInterval(refreshSupabaseState, SUPABASE_POLL_INTERVAL_MS);
-}
-
-function stopBackgroundSync(resetTracking = false) {
-  clearInterval(supabasePollTimer);
-  clearTimeout(supabaseRetryTimer);
-  clearTimeout(deferredRemoteRenderTimer);
-  supabasePollTimer = null;
-  supabaseRetryTimer = null;
-  deferredRemoteRenderTimer = null;
-  if (supabaseRealtimeChannel && supabaseClient) {
-    const channel = supabaseRealtimeChannel;
-    supabaseRealtimeChannel = null;
-    supabaseClient.removeChannel(channel).catch(() => {});
-  }
-  if (resetTracking) {
-    clearTimeout(supabaseSaveTimer);
-    supabaseSaveTimer = null;
-    pendingRemoteRecord = null;
-    localSavePending = false;
-    lastSupabaseUpdatedAt = "";
-    serverState = null;
-    serverRevision = -1;
-    saveInFlight = false;
-    mergeConflictCount = 0;
-    cloudStateReady = false;
-    lastSyncFailure = null;
-  }
-}
-
-async function refreshSupabaseState() {
-  if (!supabaseClient || !currentUser) return;
-  const { data: revisionData, error: revisionError } = await supabaseClient
-    .rpc("get_erp_state_revision", { p_id: supabaseStateId })
-    .maybeSingle();
-  if (revisionError) {
-    if (!localSavePending) setSyncStatus("Sync retrying", "error");
-    if (isSyncSetupError(revisionError)) blockForSyncSetup(revisionError);
-    console.warn("Supabase background revision check failed", revisionError);
-    return;
-  }
-  if (!revisionData || Number(revisionData.revision) <= serverRevision) return;
-  try {
-    const data = await fetchSupabaseStateRecord();
-    if (data?.data) applyRemoteStateRecord(data);
-  } catch (error) {
-    if (!localSavePending) setSyncStatus("Sync retrying", "error");
-    console.warn("Supabase background refresh failed", error);
-  }
-}
-
-function applyRemoteStateRecord(record) {
-  if (!record?.data || !currentUser) return;
-  const remoteRevision = Number(record.revision ?? -1);
-  if (remoteRevision <= serverRevision) return;
-
-  if (localSavePending || saveInFlight) {
-    if (!pendingRemoteRecord || remoteRevision > Number(pendingRemoteRecord.revision)) {
-      pendingRemoteRecord = structuredClone(record);
-    }
-    return;
-  }
-
-  state = normalizeState(record.data);
-  serverState = structuredClone(state);
-  serverRevision = remoteRevision;
-  cacheStateLocally(state);
-  lastSupabaseUpdatedAt = record.updated_at || lastSupabaseUpdatedAt;
-  if (isUserActivelyEditing()) {
-    setSyncStatus("New data received", "pending");
-    queueDeferredRemoteRender();
-  } else {
-    renderSyncedState();
-    setSyncStatus(syncedStatusText(), "live");
-  }
-}
-
-function isUserActivelyEditing() {
-  return [...document.querySelectorAll("form")].some((form) => dirtyForms.has(form) && form.id !== "login-form");
-}
-
-function trackDirtyForm(event) {
-  const field = event.target;
-  const form = field?.closest?.("form");
-  if (!form || form.id === "login-form" || field.matches("[readonly], [disabled]")) return;
-  dirtyForms.add(form);
-}
-
-function clearFormDirty(form) {
-  if (form instanceof HTMLFormElement) dirtyForms.delete(form);
-}
-
-function queueDeferredRemoteRender() {
-  clearTimeout(deferredRemoteRenderTimer);
-  deferredRemoteRenderTimer = setTimeout(() => {
-    if (!currentUser) return;
-    if (isUserActivelyEditing()) {
-      queueDeferredRemoteRender();
-      return;
-    }
-    renderSyncedState();
-    setSyncStatus(syncedStatusText(), "live");
-  }, 1000);
-}
-
-function renderSyncedState(resetEntryForms = false) {
-  clearTimeout(deferredRemoteRenderTimer);
-  deferredRemoteRenderTimer = null;
-  render();
-  if (!resetEntryForms) return;
-  setDefaultOrderDates(document.getElementById("order-form"));
-  resetOrderItemRows();
-  resetMeltingSources();
-  updateMeltingCalculation();
-}
-
-function syncedStatusText() {
-  return `Live ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-function setSyncStatus(message, status) {
-  const element = document.getElementById("sync-status");
-  if (!element) return;
-  element.textContent = message;
-  element.className = `sync-pill sync-${status}`;
+  if (!options.manual) setSyncStatus("online", "Live Sync");
 }
 
 function switchView(view) {
@@ -2036,9 +1695,20 @@ function clearOfficePages() {
   if (selectAll) selectAll.checked = false;
 }
 
-function openStoneEntryDialog() {
+function openStoneEntryDialog(designId = "") {
   const dialog = document.getElementById("stone-entry-dialog");
   if (!dialog.open) dialog.showModal();
+  if (designId) loadStoneEntry(designId);
+}
+
+function restoreStoneEntryReturnContext() {
+  const context = stoneEntryReturnContext;
+  stoneEntryReturnContext = null;
+  if (!context) return;
+  if (context.type === "design-category" && context.category) {
+    switchDesignPage("master");
+    setTimeout(() => openDesignCategory(encodeURIComponent(context.category)), 0);
+  }
 }
 
 function getFormData(form) {
@@ -2456,6 +2126,22 @@ function getLotOrders(lot) {
   return getLotOrderIds(lot).map((id) => findById("orders", id)).filter(Boolean);
 }
 
+function billableOrderIdsForLot(lot = {}, bill = {}) {
+  if (Array.isArray(lot.billOrderIds) && lot.billOrderIds.length) return lot.billOrderIds;
+  if (lot.qcReturn || lot.parentLotId) return getLotOrderIds(lot);
+  const repairBillItemIds = (bill.items || [])
+    .filter((item) => item.reworkLotId === lot.id || item.repairFinalBillLotId === lot.id)
+    .map((item) => item.orderId)
+    .filter(Boolean);
+  return repairBillItemIds.length ? repairBillItemIds : getLotOrderIds(lot);
+}
+
+function billableOrdersForLot(lot = {}, bill = {}) {
+  const ids = billableOrderIdsForLot(lot, bill);
+  const orders = ids.map((id) => findById("orders", id)).filter(Boolean);
+  return orders.length ? orders : getLotOrders(lot);
+}
+
 function rawGoldStock() {
   return state.ledger.reduce((total, item) => {
     if (item.type === "In") return total + item.weight;
@@ -2476,6 +2162,12 @@ function officeStockWeight() {
     if (item.saleStatus === "Sold") return total;
     return total + Number(item.netWeight || item.finalGw || 0);
   }, 0);
+}
+
+function billProductionStockWeight(bill = {}) {
+  return Number(weight3((bill.items || [])
+    .filter((item) => item.qcStatus !== "QC OK" && !isRepairItem(item))
+    .reduce((total, item) => total + Number(item.netWeight || item.finalGw || 0), 0)));
 }
 
 function workInProgress() {
@@ -2500,6 +2192,7 @@ async function removeItem(collection, id) {
   if (collection === "designs") {
     await deleteDesignImage(id);
     await deleteStoneChartImage(id);
+    selectedDesignIds.delete(id);
   }
   state[collection] = state[collection].filter((item) => item.id !== id);
   saveState();
@@ -2520,7 +2213,7 @@ function closeOpenDialogs() {
   document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
 }
 
-function openOrderDetail(orderId, editMode = false) {
+function openOrderDetail(orderId, editMode = false, bucket = "all") {
   const order = findById("orders", orderId);
   if (!order) return;
   const form = document.getElementById("update-order-form");
@@ -2529,9 +2222,15 @@ function openOrderDetail(orderId, editMode = false) {
   form.orderDate.value = order.orderDate;
   form.productionDays.value = order.productionDays;
   form.dueDate.value = order.dueDate;
-  const jobOrders = getJobOrders(order);
-  document.getElementById("order-dialog-summary").textContent = `${order.jobNumber || order.number} / ${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""} / ${jobCurrentStage(jobOrders)} / ${daysRemainingText(order.dueDate)}`;
+  const jobOrders = filterJobOrdersForBucket(getJobOrders(order), bucket);
+  document.getElementById("order-dialog-summary").textContent = [
+    order.jobNumber || order.number,
+    `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
+    jobCurrentStage(jobOrders),
+    jobOrderDeliverySummary(jobOrders),
+  ].filter(Boolean).join(" / ");
   renderJobItemsDetail(jobOrders);
+  closeJobItemDetail();
   renderOrderLots(order);
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
   document.getElementById("order-dialog").showModal();
@@ -2542,29 +2241,187 @@ function getJobOrders(order) {
   return state.orders.filter((item) => (item.jobNumber || item.productionNo || item.number) === jobNumber);
 }
 
+function filterJobOrdersForBucket(orders = [], bucket = "all") {
+  if (bucket === "active") return orders.filter((order) => !isCompletedOrder(order));
+  if (bucket === "completed") return orders.filter(isCompletedOrder);
+  return orders;
+}
+
 function renderJobItemsDetail(orders) {
-  document.getElementById("order-items-detail").innerHTML = orders.map((order) => `
-    <article class="job-item-row">
-      <strong>${escapeHtml(order.productionNo || order.number)}</strong>
-      <span>${barcodeSvg(order.barcode || order.productionNo || order.number)}</span>
-      <span><b>Current Stage</b>${escapeHtml(orderCurrentStage(order))}</span>
-      <span><b>Delivery</b>${escapeHtml(daysRemainingText(order.dueDate))}</span>
-      ${order.urgent ? '<span class="job-urgent-cell"><b>Tag</b>Urgent</span>' : ""}
-      <span><b>Category</b>${escapeHtml(order.category || "-")}</span>
-      <span><b>Design</b>${escapeHtml(order.designNumber || designLabel(order.designId) || "-")}</span>
-      ${orderSizeDetailHtml(order)}
-      <span><b>Color</b>${escapeHtml(order.color || "-")}</span>
-      <span><b>Purity</b>${escapeHtml(order.purity || "-")}</span>
-      <span><b>Remark</b>${escapeHtml(order.remarks || "-")}</span>
-      <span><b>Status</b>${escapeHtml(order.status || "-")}</span>
-      <span><b>Production Stone</b>${escapeHtml(productionStoneSummaryText(productionStoneItemsForOrder(order)))}</span>
-      <div class="row-actions">
-        <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print</button>
+  document.getElementById("order-items-detail").innerHTML = `
+    <div class="job-item-button-grid">
+      ${orders.map((order) => {
+        const stage = orderCurrentStage(order);
+        const deliveryText = orderDeliveryText(order);
+        return `
+          <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
+            <strong>${escapeHtml(order.productionNo || order.number)}</strong>
+            <span>${escapeHtml(order.designNumber || designLabel(order.designId) || order.category || "-")}</span>
+            <small>${escapeHtml(stage)}</small>
+            ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
+            ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function closeJobItemDetail() {
+  const panel = document.getElementById("job-item-detail-panel");
+  const detail = document.getElementById("job-item-open-detail");
+  if (panel) panel.classList.add("hidden");
+  if (detail) detail.innerHTML = "";
+  document.querySelectorAll(".job-item-open-button").forEach((button) => button.classList.remove("active"));
+}
+
+function openJobItemDetail(orderId) {
+  const order = findById("orders", orderId);
+  if (!order) return;
+  document.querySelectorAll(".job-item-open-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.jobItemId === orderId);
+  });
+  const panel = document.getElementById("job-item-detail-panel");
+  const detail = document.getElementById("job-item-open-detail");
+  if (!panel || !detail) return;
+  panel.classList.remove("hidden");
+  detail.innerHTML = jobItemDetailHtml(order);
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function jobItemDetailHtml(order) {
+  const lotEntries = lotsForOrder(order);
+  const lot = lotEntries[0] || null;
+  const billEntry = findBillItemForOrder(order);
+  const billItem = billEntry?.item || {};
+  const officeEntry = officeItems().find(({ item }) => item.orderId === order.id || item.productionNo === order.productionNo);
+  const design = findById("designs", order.designId) || {};
+  const productionStones = productionStoneItemsForOrder(order);
+  const waxStone = productionStoneTotals(productionStones, "wax");
+  const handStone = productionStoneTotals(productionStones, "hand");
+  const currentStage = orderCurrentStage(order);
+  return `
+    <div class="job-item-detail-card">
+      <div class="job-item-detail-head">
+        <div>
+          <strong>${escapeHtml(order.productionNo || order.number || "-")}</strong>
+          <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.jobNumber || order.number || "-")}</span>
+          <span class="status ${statusClass(order.status || currentStage)}">${escapeHtml(currentStage)}</span>
+        </div>
+        <div class="job-item-barcode">${barcodeSvg(order.barcode || order.productionNo || order.number)}</div>
+      </div>
+      <div class="job-item-detail-grid">
+        ${jobItemDetailCell("Current Production Stage", currentStage)}
+        ${orderDeliveryText(order) ? jobItemDetailCell("Days Remaining", orderDeliveryText(order)) : ""}
+        ${jobItemDetailCell("Order Status", order.status || "-")}
+        ${jobItemDetailCell("Urgent", order.urgent ? "Yes" : "No")}
+        ${jobItemDetailCell("Customer", order.customer || "-")}
+        ${jobItemDetailCell("Order Date", order.orderDate || "-")}
+        ${jobItemDetailCell("Production Days", order.productionDays || "-")}
+        ${jobItemDetailCell("Due Date", order.dueDate || "-")}
+        ${jobItemDetailCell("Category", order.category || "-")}
+        ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+        ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
+        ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
+        ${jobItemDetailCell("Colour", order.color || "-")}
+        ${jobItemDetailCell("Purity", order.purity || "-")}
+        ${jobItemDetailCell("Remark", order.remarks || "-")}
+        ${jobItemDetailCell("Lot", lot?.number || "-")}
+        ${jobItemDetailCell("Department", lot ? `${lot.currentDepartment || lot.karigarName || "-"} / ${lot.status || "-"}` : "-")}
+        ${jobItemDetailCell("Issued Gold", lot ? gram(lot.grossIssuedWeight || lot.issuedWeight) : "-")}
+        ${jobItemDetailCell("Current Lot Weight", lot ? gram(currentTransferIssueWeight(lot)) : "-")}
+        ${jobItemDetailCell("Transfer Entries", lot ? `${(lot.transfers || []).length}` : "-")}
+        ${jobItemDetailCell("Bill No", billEntry?.bill?.billNo || "-")}
+        ${jobItemDetailCell("QC Status", billItem.qcStatus || "-")}
+        ${jobItemDetailCell("Office Location", officeEntry ? officeItemLocation(officeEntry.item) : "-")}
+        ${jobItemDetailCell("HUID", officeHuidText(billItem))}
+        ${jobItemDetailCell("Final GW", billItem.finalGw !== undefined ? gram(billItem.finalGw) : "-")}
+        ${jobItemDetailCell("Total Non-Gold", billItem.reducedWeight !== undefined ? billNonGoldTotalText(billItem, order) : "-")}
+        ${jobItemDetailCell("Non-Gold Details", billItem.reducedWeight !== undefined ? billNonGoldSummaryText(billItem, order) : "-")}
+        ${jobItemDetailCell("Net Wt", billItem.netWeight !== undefined ? gram(billItem.netWeight) : "-")}
+        ${jobItemDetailCell("Wax Stone", `${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g`)}
+        ${jobItemDetailCell("Hand Stone", `${handStone.pcs} pcs / ${weight3(handStone.weight)}g`)}
+        ${jobItemDetailCell("Repair Status", billItem.repairStatus || "-")}
+        ${jobItemDetailCell("Repair Days", billItem.repairStatus ? repairDayText(billItem) : "-")}
+        ${jobItemDetailCell("Repair Loss", billItem.repairAdditionalLoss ? gram(billItem.repairAdditionalLoss) : "-")}
+      </div>
+      ${jobItemTransferHistoryHtml(lotEntries)}
+      <div class="row-actions job-item-detail-actions">
+        <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
         <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
       </div>
-    </article>
-  `).join("");
+    </div>
+  `;
+}
+
+function jobItemDetailCell(label, value) {
+  return `
+    <span>
+      <b>${escapeHtml(label)}</b>
+      ${escapeHtml(value || "-")}
+    </span>
+  `;
+}
+
+function lotsForOrder(order) {
+  return state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
+}
+
+function findBillItemForOrder(order) {
+  for (const lot of state.lots) {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.items?.length) continue;
+    const found = bill.items.find((item) =>
+      item.orderId === order.id ||
+      (item.productionNo && item.productionNo === order.productionNo)
+    );
+    if (found) return { lot, bill, item: found };
+  }
+  return null;
+}
+
+function jobItemTransferHistoryHtml(lots = []) {
+  const rows = lots.flatMap((lot) => [
+    {
+      date: lot.issueDate || "-",
+      from: "Gold Issue",
+      to: lot.currentDepartment || lot.karigarName || "-",
+      issue: lot.grossIssuedWeight || lot.issuedWeight || 0,
+      receive: lot.grossIssuedWeight || lot.issuedWeight || 0,
+      difference: 0,
+      note: lot.qcReturn ? "Repair production lot" : "First issue",
+    },
+    ...(lot.transfers || []).map((transfer) => ({
+      date: transfer.date || "-",
+      from: transfer.fromDepartment || transfer.fromKarigarName || "-",
+      to: transfer.toDepartment || transfer.toKarigarName || "-",
+      issue: transfer.transferWeight || 0,
+      receive: transfer.grossReceivedWeight || 0,
+      difference: transfer.departmentBalance || 0,
+      note: transfer.reason || "-",
+    })),
+  ]);
+  if (!rows.length) return '<div class="empty">No production movement yet.</div>';
+  return `
+    <div class="job-item-transfer-table">
+      <h3>Item Production Movement</h3>
+      <table>
+        <thead><tr><th>Date</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Difference</th><th>Note</th></tr></thead>
+        <tbody>${rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.date)}</td>
+            <td>${escapeHtml(row.from)}</td>
+            <td>${escapeHtml(row.to)}</td>
+            <td>${gram(row.issue)}</td>
+            <td>${gram(row.receive)}</td>
+            <td>${gram(row.difference)}</td>
+            <td>${escapeHtml(row.note)}</td>
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function openProductionStoneEntry(orderId) {
@@ -2830,9 +2687,17 @@ function setPrintPageSize(mode = "job") {
     style.id = "dynamic-print-page-size";
     document.head.appendChild(style);
   }
-  style.textContent = mode === "single"
-    ? "@media print { @page { size: 105mm 148.5mm; margin: 0; } }"
-    : "@media print { @page { size: A4 portrait; margin: 0; } }";
+  if (mode === "bill") {
+    style.textContent = "@media print { @page { size: 148.5mm 105mm; margin: 0; } }";
+  } else if (mode === "packing-list") {
+    style.textContent = "@media print { @page { size: 297mm 210mm; margin: 0; } }";
+  } else if (mode === "hallmark-tags") {
+    style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
+  } else if (mode === "single") {
+    style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } }";
+  } else {
+    style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
+  }
 }
 
 function getGlobalPrintArea() {
@@ -2844,6 +2709,428 @@ function getGlobalPrintArea() {
     document.body.appendChild(printArea);
   }
   return printArea;
+}
+
+function startBillPrint(html) {
+  const printArea = getGlobalPrintArea();
+  printArea.innerHTML = html;
+  setPrintPageSize("bill");
+  document.body.classList.add("printing-bill");
+  const cleanup = () => {
+    document.body.classList.remove("printing-bill");
+    printArea.innerHTML = "";
+    setPrintPageSize("job");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(() => window.print(), 100);
+}
+
+function startPackingListPrint(html) {
+  const printArea = getGlobalPrintArea();
+  printArea.innerHTML = html;
+  setPrintPageSize("packing-list");
+  document.body.classList.add("printing-packing-list");
+  const cleanup = () => {
+    document.body.classList.remove("printing-packing-list");
+    printArea.innerHTML = "";
+    setPrintPageSize("job");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(() => window.print(), 100);
+}
+
+function startHallmarkTagPrint(html, afterPrint = null) {
+  const printArea = getGlobalPrintArea();
+  printArea.innerHTML = html;
+  setPrintPageSize("hallmark-tags");
+  document.body.classList.add("printing-hallmark-tags");
+  const cleanup = () => {
+    document.body.classList.remove("printing-hallmark-tags");
+    printArea.innerHTML = "";
+    setPrintPageSize("job");
+    window.removeEventListener("afterprint", cleanup);
+    if (typeof afterPrint === "function") afterPrint();
+  };
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(() => window.print(), 100);
+}
+
+function printBillFromDialog() {
+  const form = document.getElementById("bill-form");
+  if (!form) return;
+  const lot = findById("lots", form.lotId.value);
+  if (!lot) return;
+  const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  let bill = existingBill;
+  if (!existingBill.id || canEditGeneratedBill()) {
+    const saved = saveBillFromForm(false);
+    if (!saved) return;
+    bill = saved.bill;
+  }
+  printBill(lot.id, bill);
+}
+
+function printPackingListFromDialog() {
+  const form = document.getElementById("bill-form");
+  if (!form) return;
+  const lot = findById("lots", form.lotId.value);
+  if (!lot) return;
+  const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  let bill = existingBill;
+  if (!existingBill.id || canEditGeneratedBill()) {
+    const saved = saveBillFromForm(false);
+    if (!saved) return;
+    bill = saved.bill;
+  }
+  printPackingList(lot.id, bill);
+}
+
+function printBill(lotId, billOverride = null) {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const bill = billOverride || lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+  if (!bill?.id) {
+    alert("Generate bill first, then print.");
+    return;
+  }
+  startBillPrint(billPrintHtml(lot, bill));
+}
+
+function printPackingList(lotId, billOverride = null) {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const bill = billOverride || lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+  if (!bill?.id) {
+    alert("Generate bill first, then print packing list.");
+    return;
+  }
+  startPackingListPrint(packingListPrintHtml(lot, bill));
+}
+
+function printHallmarkedTags(keys = null) {
+  const selectedKeys = Array.isArray(keys) && keys.length ? keys : selectedOfficeKeys();
+  if (!selectedKeys.length) {
+    alert("Select hallmarked item to print tag.");
+    return;
+  }
+  const entries = selectedOfficeEntries(selectedKeys).filter(({ item }) => isHallmarkedItem(item));
+  if (!entries.length) {
+    alert("Selected item is not hallmarked yet.");
+    return;
+  }
+  startHallmarkTagPrint(hallmarkedTagPrintHtml(entries), () => markHallmarkTagsPrinted(entries));
+}
+
+function markHallmarkTagsPrinted(entries = []) {
+  const printedKeys = entries.map(({ lot, item }) => officeItemKey(lot.id, item));
+  if (!printedKeys.length) return;
+  let updated = 0;
+  state.lots.forEach((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.items?.length) return;
+    bill.items = bill.items.map((item) => {
+      if (!printedKeys.includes(officeItemKey(lot.id, item))) return item;
+      updated += 1;
+      return {
+        ...item,
+        tagPrinted: true,
+        tagPrintedDate: today(),
+        tagPrintedIsoDate: isoToday(),
+      };
+    });
+    lot.bill = bill;
+    updateSavedBill(bill);
+  });
+  if (!updated) return;
+  saveState();
+  renderOffice();
+  const dialog = document.getElementById("office-details-dialog");
+  const page = dialog?.dataset.page || "";
+  if (!dialog?.open) return;
+  if (page === "hallmarked") {
+    openOfficeDialogPage("hallmarked");
+  } else if (page === "product-view" && printedKeys.length === 1) {
+    openOfficeItemView(printedKeys[0]);
+  }
+}
+
+function selectAllOfficeDialogItems() {
+  const dialog = document.getElementById("office-details-dialog");
+  const checkboxes = Array.from(dialog?.querySelectorAll(".office-item-check") || []);
+  if (!checkboxes.length) {
+    alert("No item available to select.");
+    return;
+  }
+  checkboxes.forEach((input) => {
+    input.checked = true;
+  });
+}
+
+function hallmarkedTagPrintHtml(entries = []) {
+  return `
+    <section class="hallmark-tags-document">
+      ${entries.map(hallmarkedTagHtml).join("")}
+    </section>
+  `;
+}
+
+function hallmarkedTagHtml({ lot, bill, item, order }) {
+  const design = findById("designs", order.designId) || {};
+  const productionNo = item.productionNo || order.productionNo || order.number || "";
+  const designName = order.designNo || designLabel(order.designId) || (design.id ? designText(design) : "") || "-";
+  const sizeText = soldItemSizeText(order) || "-";
+  const nonGold = billItemNonGoldBreakup(item, order);
+  const huid = officeHuidText(item);
+  const hmLot = hallmarkLotLabel(item) || "-";
+  const nonGoldText = [
+    `BB ${weight3(nonGold.blackBeadsWeight)}`,
+    `M ${weight3(nonGold.motiWeight)}`,
+    `SP ${weight3(nonGold.springWeight)}`,
+    `O ${weight3(nonGold.otherNonGoldWeight)}`,
+  ].join(" / ");
+  return `
+    <article class="hallmark-tag-card">
+      <div class="hallmark-tag-info">
+        <div class="hallmark-tag-head">
+          <strong>KJ</strong>
+          <b>${escapeHtml(productionNo || "-")}</b>
+          <span>${escapeHtml(item.purity || order.purity || "-")}</span>
+        </div>
+        <div class="hallmark-tag-line"><b>HUID</b> ${escapeHtml(huid)} <b>HM</b> ${escapeHtml(hmLot)} <b>Bill</b> ${escapeHtml(bill.billNo || "-")}</div>
+        <div class="hallmark-tag-line">${escapeHtml(designName)} / ${escapeHtml(order.category || design.category || "-")} / ${escapeHtml(order.color || "-")} / Sz ${escapeHtml(sizeText)}</div>
+        <div class="hallmark-tag-line"><b>GW</b> ${weight3(item.finalGw)} <b>ST</b> ${weight3(nonGold.stoneWeight)} <b>NET</b> ${weight3(item.netWeight)} <b>Job</b> ${escapeHtml(lot.orderNumber || lot.number || "-")}</div>
+        <div class="hallmark-tag-line">${escapeHtml(order.customer || "-")} / ${escapeHtml(nonGoldText)}</div>
+      </div>
+      <div class="hallmark-tag-barcode">
+        ${productionNo ? barcodeSvg(productionNo) : ""}
+      </div>
+    </article>
+  `;
+}
+
+function billPrintHtml(lot, bill) {
+  const orders = billableOrdersForLot(lot, bill);
+  const items = billPrintItems(lot, bill, orders);
+  const totals = billTotals(items);
+  const customer = billPrintCustomer(orders);
+  const purityText = [...new Set(items.map((item) => item.purity).filter(Boolean))].join(", ") || "-";
+  const fineWeight = items.reduce((sum, item) => sum + fineGoldWeight(item.netWeight, item.purity || item.order?.purity || 0), 0);
+  return `
+    <section class="bill-print-document small-bill-document">
+      <header class="bill-sample-header">
+        <div>
+          <p><b>Name</b> : ${escapeHtml(customer.name || "-")}</p>
+          <p><b>Voucher No</b> : ${escapeHtml(bill.billNo || "-")}</p>
+        </div>
+        <div class="bill-sample-title">
+          <span>KHUSHALI JEWELLS</span>
+          <strong>Bill</strong>
+          <small>Weight Approval</small>
+        </div>
+        <div>
+          <p><b>Date</b> : ${escapeHtml(bill.billDate || "-")}</p>
+          <p><b>Page No</b> : 1/1</p>
+        </div>
+      </header>
+      <section class="bill-sample-info">
+        <span><b>Job Card</b>${escapeHtml(lot.orderNumber || bill.jobNumber || "-")}</span>
+        <span><b>Lot</b>${escapeHtml(lot.number || "-")}</span>
+        <span><b>Phone</b>${escapeHtml(customer.phone || "-")}</span>
+        <span><b>City</b>${escapeHtml(customer.city || "-")}</span>
+        <span><b>Items</b>${totals.pieces}</span>
+        <span><b>Purity</b>${escapeHtml(purityText)}</span>
+      </section>
+      <table class="bill-print-table bill-sample-table bill-weight-category-table">
+        <thead>
+          <tr>
+            <th>Sr.</th>
+            <th>Weight Category</th>
+            <th>Weight (g)</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${billWeightCategoryRows(totals, lot, fineWeight).map((row, index) => `
+            <tr class="${row.highlight ? "bill-sample-total-row" : ""}">
+              <td>${index + 1}</td>
+              <td>${escapeHtml(row.label)}</td>
+              <td>${escapeHtml(row.value)}</td>
+              <td>${escapeHtml(row.note || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <section class="bill-weight-summary-line">
+        <span><b>Total Non-Gold</b>${gram(totals.reducedWeight)}</span>
+        <span><b>Net Wt</b>${gram(totals.netWeight)}</span>
+        <span><b>Wastage</b>${gram(lot.actualWastage || 0)}</span>
+        <span><b>Remarks</b>${escapeHtml(bill.remarks || "-")}</span>
+      </section>
+      <section class="bill-sign-row">
+        <span>Prepared By</span>
+        <span>Checked By</span>
+        <span>Approved By</span>
+      </section>
+    </section>
+  `;
+}
+
+function billWeightCategoryRows(totals = {}, lot = {}, fineWeight = 0) {
+  return [
+    { label: "Gross Weight", value: weight3(totals.finalGw), note: "Total GW" },
+    { label: "BB Weight", value: weight3(totals.bbWeight), note: "Black beads" },
+    { label: "Moti Weight", value: weight3(totals.motiWeight), note: "Moti" },
+    { label: "Stone Weight", value: weight3(totals.stoneWeight), note: "Stone from job card" },
+    { label: "Spring Weight", value: weight3(totals.springWeight), note: "Spring" },
+    { label: "Other Weight", value: weight3(totals.otherNonGoldWeight), note: "Other non-gold" },
+    { label: "Total Non-Gold", value: weight3(totals.reducedWeight), note: "BB + Moti + Stone + Spring + Other" },
+    { label: "Net Weight", value: weight3(totals.netWeight), note: "GW - Total Non-Gold", highlight: true },
+    { label: "Wastage", value: weight3(lot.actualWastage || 0), note: "Manufacturing wastage" },
+    { label: "Fine Weight", value: weight3(fineWeight), note: "Net by purity", highlight: true },
+  ];
+}
+
+function billPrintCustomer(orders = []) {
+  const customerIds = [...new Set(orders.map((order) => order.customerId).filter(Boolean))];
+  const customers = customerIds.map((id) => findById("customers", id)).filter(Boolean);
+  const names = [...new Set(orders.map((order) => order.customer).filter(Boolean))];
+  return customers[0] || { name: names.join(", ") || "-", phone: "", city: "", gst: "", address: "" };
+}
+
+function packingListPrintHtml(lot, bill) {
+  const orders = billableOrdersForLot(lot, bill);
+  const items = billPrintItems(lot, bill, orders);
+  const totals = billTotals(items);
+  return `
+    <section class="bill-print-document packing-list-document">
+      <header class="bill-print-header">
+        <div>
+          <h1>KHUSHALI JEWELLS MANUFACTURING</h1>
+          <p>Packing List</p>
+        </div>
+        <div class="bill-print-meta">
+          <span><b>Bill No</b>${escapeHtml(bill.billNo || "-")}</span>
+          <span><b>Bill Date</b>${escapeHtml(bill.billDate || "-")}</span>
+          <span><b>Job Card</b>${escapeHtml(lot.orderNumber || bill.jobNumber || "-")}</span>
+          <span><b>Lot</b>${escapeHtml(lot.number || "-")}</span>
+        </div>
+      </header>
+      <section class="bill-print-section">
+        <h2>Customer Details</h2>
+        ${billPrintCustomerHtml(orders)}
+      </section>
+      <section class="bill-print-section">
+        <h2>Total Weight Summary</h2>
+        <div class="bill-print-total-grid">
+          ${billPrintTotalCard("Items", totals.pieces)}
+          ${billPrintTotalCard("Total GW", gram(totals.finalGw))}
+          ${billPrintTotalCard("BB Wt", gram(totals.bbWeight))}
+          ${billPrintTotalCard("Moti Wt", gram(totals.motiWeight))}
+          ${billPrintTotalCard("Stone Wt", gram(totals.stoneWeight))}
+          ${billPrintTotalCard("Spring Wt", gram(totals.springWeight))}
+          ${billPrintTotalCard("Other Wt", gram(totals.otherNonGoldWeight))}
+          ${billPrintTotalCard("Total Non-Gold", gram(totals.reducedWeight))}
+          ${billPrintTotalCard("Net Wt", gram(totals.netWeight), "highlight")}
+        </div>
+      </section>
+      <section class="bill-print-section">
+        <h2>Item Details</h2>
+        ${billPrintItemTableHtml(items)}
+      </section>
+      ${bill.remarks ? `<section class="bill-print-section"><h2>Remarks</h2><p>${escapeHtml(bill.remarks)}</p></section>` : ""}
+    </section>
+  `;
+}
+
+function billPrintItems(lot, bill, orders = []) {
+  const orderMap = Object.fromEntries(orders.map((order) => [order.id, order]));
+  const savedItems = Array.isArray(bill.items) ? bill.items : [];
+  if (savedItems.length) {
+    return savedItems.map((item, index) => {
+      const order = orderMap[item.orderId] || findById("orders", item.orderId) || {};
+      return billPrintItem(item, order, index);
+    });
+  }
+  return orders.map((order, index) => billPrintItem({}, order, index));
+}
+
+function billPrintItem(item = {}, order = {}, index = 0) {
+  const nonGold = billItemNonGoldBreakup(item, order);
+  const finalGw = billNumber(item.finalGw);
+  const reducedWeight = billNumber(item.reducedWeight || nonGold.total);
+  const netWeight = billNumber(item.netWeight || Math.max(finalGw - reducedWeight, 0));
+  return {
+    ...item,
+    order,
+    index,
+    productionNo: item.productionNo || order.productionNo || order.number || "",
+    customer: order.customer || "",
+    design: order.designNo || designLabel(order.designId) || "",
+    category: order.category || "Uncategorised",
+    purity: item.purity || order.purity || "",
+    finalGw,
+    blackBeadsWeight: billNumber(item.blackBeadsWeight || item.bbWeight || nonGold.blackBeadsWeight),
+    motiWeight: billNumber(item.motiWeight || item.mmWeight || nonGold.motiWeight),
+    stoneWeight: billNumber(item.stoneWeight || item.stWeight || nonGold.stoneWeight),
+    springWeight: billNumber(item.springWeight || nonGold.springWeight),
+    otherNonGoldWeight: billNumber(item.otherNonGoldWeight || item.otherWeight || nonGold.otherNonGoldWeight),
+    reducedWeight,
+    netWeight,
+  };
+}
+
+function billPrintCustomerHtml(orders = [], compact = false) {
+  const customerIds = [...new Set(orders.map((order) => order.customerId).filter(Boolean))];
+  const customers = customerIds.map((id) => findById("customers", id)).filter(Boolean);
+  const names = [...new Set(orders.map((order) => order.customer).filter(Boolean))];
+  const primary = customers[0] || { name: names.join(", ") || "-" };
+  return `
+    <div class="bill-print-customer-grid ${compact ? "compact" : ""}">
+      <span><b>Name</b>${escapeHtml(primary.name || names.join(", ") || "-")}</span>
+      <span><b>Phone</b>${escapeHtml(primary.phone || "-")}</span>
+      ${compact ? "" : `
+        <span><b>City</b>${escapeHtml(primary.city || "-")}</span>
+        <span><b>GST</b>${escapeHtml(primary.gst || "-")}</span>
+        <span class="wide"><b>Address</b>${escapeHtml(primary.address || "-")}</span>
+        ${names.length > 1 ? `<span class="wide"><b>All Customers</b>${escapeHtml(names.join(", "))}</span>` : ""}
+      `}
+    </div>
+  `;
+}
+
+function billPrintTotalCard(label, value, extraClass = "") {
+  return `<div class="bill-print-total ${extraClass}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function billPrintItemTableHtml(items = []) {
+  const rows = items.map((item) => `
+    <tr>
+      <td>${item.index + 1}</td>
+      <td>${escapeHtml(item.productionNo || "-")}</td>
+      <td>${escapeHtml(item.customer || "-")}</td>
+      <td>${escapeHtml(item.category || "-")}</td>
+      <td>${escapeHtml(item.design || "-")}</td>
+      <td>${escapeHtml(item.purity || "-")}</td>
+      <td>${gram(item.finalGw)}</td>
+      <td>${gram(item.blackBeadsWeight)}</td>
+      <td>${gram(item.motiWeight)}</td>
+      <td>${gram(item.stoneWeight)}</td>
+      <td>${gram(item.springWeight)}</td>
+      <td>${gram(item.otherNonGoldWeight)}</td>
+      <td>${gram(item.reducedWeight)}</td>
+      <td>${gram(item.netWeight)}</td>
+    </tr>
+  `).join("");
+  return `
+    <table class="bill-print-table bill-print-items-table">
+      <thead>
+        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="14">No item details</td></tr>`}</tbody>
+    </table>
+  `;
 }
 
 async function jobOrderPrintHtml(order, orders) {
@@ -3361,6 +3648,7 @@ function escapeRegExp(value = "") {
 }
 
 function render() {
+  renderLoginUserOptions();
   renderSelects();
   renderDashboard();
   renderCustomers();
@@ -3381,27 +3669,158 @@ function render() {
 function renderLoginUsers() {
   const table = document.getElementById("login-users-table");
   if (!table) return;
-  const rows = Object.entries(users).map(([id, user]) => `
+  renderNewUserAccessPicker();
+  const rows = Object.entries(allUsers()).map(([id, user]) => {
+    const isBuiltIn = Boolean(users[id]);
+    const isOwnerRow = id === "owner";
+    return `
     <tr>
       <td><strong>${escapeHtml(id)}</strong></td>
-      <td>${escapeHtml(user.name)}</td>
-      <td>${escapeHtml(userAccessText(user))}</td>
+      <td><input name="userName" value="${escapeHtml(user.name)}" ${isOwnerRow ? "readonly" : ""}></td>
+      <td>${isOwnerRow ? "Full software" : renderUserAccessCheckboxes(id, user.pages)}</td>
+      <td><span class="password-pill">${escapeHtml(userPassword(id))}</span></td>
+      <td><input name="newPassword" type="text" placeholder="Enter new password"></td>
+      <td>
+        <div class="login-user-actions">
+          <button type="button" data-save-user="${escapeHtml(id)}">Save</button>
+          ${isBuiltIn ? "" : `<button type="button" class="delete-btn" data-delete-user="${escapeHtml(id)}">Delete</button>`}
+        </div>
+      </td>
     </tr>
-  `).join("");
-  table.innerHTML = isOwner() ? rows : tableEmpty(3, "Only Owner can view login roles.");
+  `;
+  }).join("");
+  table.innerHTML = isOwner() ? rows : tableEmpty(6, "Only Owner can view login details.");
+}
+
+function renderNewUserAccessPicker() {
+  const container = document.getElementById("new-user-access");
+  if (!container) return;
+  container.innerHTML = renderUserAccessCheckboxes("new", ["dashboard"]);
+}
+
+function renderUserAccessCheckboxes(userId, selectedPages = []) {
+  const selected = new Set(Array.isArray(selectedPages) ? selectedPages : []);
+  return `<div class="login-access-grid">${loginAccessPages.map((page) => `
+    <label>
+      <input type="checkbox" name="pages" value="${escapeHtml(page)}" ${selected.has(page) ? "checked" : ""}>
+      ${escapeHtml(pageInfo[page]?.[0] || page)}
+    </label>
+  `).join("")}</div>`;
+}
+
+function selectedAccessPages(container) {
+  return [...container.querySelectorAll('input[name="pages"]:checked')].map((input) => input.value);
+}
+
+function normalizeLoginUserId(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]/g, "");
+}
+
+function addLoginUser(form) {
+  const data = getFormData(form);
+  const userId = normalizeLoginUserId(data.userId);
+  const password = String(data.password || "").trim();
+  const pages = selectedAccessPages(form);
+  if (!userId || !data.name.trim() || !password) {
+    alert("Enter user ID, name, and password.");
+    return;
+  }
+  if (allUsers()[userId]) {
+    alert("This user ID already exists.");
+    return;
+  }
+  if (!pages.length) {
+    alert("Select at least one access page.");
+    return;
+  }
+  state.customUsers.push({
+    id: userId,
+    name: data.name.trim(),
+    role: "custom",
+    pages,
+    canEditOfficeWeights: false,
+  });
+  state.userPasswords[userId] = password;
+  saveState();
+  form.reset();
+  renderLoginUserOptions();
+  renderLoginUsers();
+  alert("User added.");
+}
+
+function saveLoginUser(userId, row) {
+  if (!row || !allUsers()[userId]) return;
+  const name = row.querySelector('[name="userName"]')?.value.trim() || allUsers()[userId].name;
+  const password = row.querySelector('[name="newPassword"]')?.value.trim() || "";
+  const pages = userId === "owner" ? "all" : selectedAccessPages(row);
+  if (userId !== "owner" && !pages.length) {
+    alert("Select at least one access page.");
+    return;
+  }
+  const customUser = (state.customUsers || []).find((user) => user.id === userId);
+  if (customUser) {
+    customUser.name = name;
+    customUser.pages = pages;
+  } else if (userId !== "owner") {
+    state.userAccessOverrides[userId] = {
+      ...(state.userAccessOverrides[userId] || {}),
+      name,
+      pages,
+    };
+  }
+  if (password) state.userPasswords[userId] = password;
+  if (currentUser?.id === userId) {
+    currentUser.name = allUsers()[userId]?.name || name;
+    localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+  }
+  saveState();
+  renderLoginUserOptions();
+  renderLoginUsers();
+  applyAccessControl();
+  alert("User updated.");
+}
+
+function deleteLoginUser(userId) {
+  if (!confirm(`Delete user ${userId}?`)) return;
+  state.customUsers = (state.customUsers || []).filter((user) => user.id !== userId);
+  delete state.userPasswords[userId];
+  delete state.userAccessOverrides[userId];
+  saveState();
+  renderLoginUserOptions();
+  renderLoginUsers();
+  alert("User deleted.");
 }
 
 function renderStoneLibrary() {
+  renderStoneFormOptions();
+  renderStoneLookupOptions();
+  renderStoneLookup();
+  renderStoneLibraryList();
+}
+
+function renderStoneLibraryList() {
   const query = document.getElementById("stone-search").value.trim().toLowerCase();
+  const lookupType = document.getElementById("stone-lookup-type")?.value || "";
+  const lookupShape = document.getElementById("stone-lookup-shape")?.value || "";
+  const lookupSize = document.getElementById("stone-lookup-size")?.value || "";
+  const hasSearch = Boolean(query || lookupType || lookupShape || lookupSize);
   const matches = state.stones.filter((stone) =>
-    `${stone.stoneType} ${stone.shape} ${stone.size} ${stone.code} ${stone.weightPerPc} ${stone.pricePerPc} ${stone.remarks}`.toLowerCase().includes(query)
+    `${stone.stoneType} ${stone.shape} ${stone.size} ${stone.code} ${stone.weightPerPc} ${stone.pricePerPc} ${stone.remarks}`.toLowerCase().includes(query) &&
+    (!lookupType || stone.stoneType === lookupType) &&
+    (!lookupShape || stone.shape === lookupShape) &&
+    (!lookupSize || stone.size === lookupSize)
   );
   const totalPages = Math.max(Math.ceil(matches.length / stoneLibraryPageSize), 1);
   stoneLibraryPage = Math.min(Math.max(stoneLibraryPage, 1), totalPages);
   const start = (stoneLibraryPage - 1) * stoneLibraryPageSize;
   const visible = matches.slice(start, start + stoneLibraryPageSize);
+  const tableWrap = document.getElementById("stone-table").closest(".table-wrap");
+  const pagination = document.getElementById("stone-pagination");
   document.getElementById("stone-library-summary").textContent =
-    `${state.stones.length} stones in library${query ? ` / ${matches.length} match search` : ""} / showing ${visible.length ? start + 1 : 0}-${start + visible.length} of ${matches.length}`;
+    hasSearch
+      ? `${matches.length} match${matches.length === 1 ? "" : "es"} found. Showing ${visible.length ? start + 1 : 0}-${start + visible.length} of ${matches.length}.`
+      : "Select Type / Shape / Size or type in search to show stone details.";
+  tableWrap.classList.toggle("hidden", !hasSearch);
   document.getElementById("stone-table").innerHTML = visible.length
     ? visible.map((stone) => `
       <tr>
@@ -3415,17 +3834,15 @@ function renderStoneLibrary() {
         <td><div class="row-actions"><button onclick="editStone('${stone.id}')">Edit</button><button class="delete-btn" onclick="removeStone('${stone.id}')">Delete</button></div></td>
       </tr>
     `).join("")
-    : tableEmpty(8, "No stones found.");
-  document.getElementById("stone-pagination").innerHTML = matches.length
+    : hasSearch ? tableEmpty(8, "No stones found.") : "";
+  pagination.classList.toggle("hidden", !hasSearch);
+  pagination.innerHTML = hasSearch && matches.length
     ? `
       <button class="ghost-button" type="button" onclick="changeStonePage(-1)" ${stoneLibraryPage <= 1 ? "disabled" : ""}>Previous</button>
       <span>Page ${stoneLibraryPage} of ${totalPages}</span>
       <button class="ghost-button" type="button" onclick="changeStonePage(1)" ${stoneLibraryPage >= totalPages ? "disabled" : ""}>Next</button>
     `
     : "";
-  renderStoneFormOptions();
-  renderStoneLookupOptions();
-  renderStoneLookup();
 }
 
 function changeStonePage(direction) {
@@ -3509,6 +3926,8 @@ function handleStoneLookupChange(event) {
   }
   renderStoneLookupOptions();
   renderStoneLookup();
+  stoneLibraryPage = 1;
+  renderStoneLibraryList();
 }
 
 function renderStoneLookupOptions() {
@@ -3584,6 +4003,7 @@ function renderStoneLookup() {
 }
 
 function editStone(id) {
+  if (!requireOwnerPermission("edit stone master")) return;
   const stone = findById("stones", id);
   if (!stone) return;
   switchStonePage("add");
@@ -3605,6 +4025,7 @@ function editStone(id) {
 }
 
 function removeStone(id) {
+  if (!requireOwnerPermission("delete stone from master")) return;
   if (!confirm("Delete this stone from library?")) return;
   state.stones = state.stones.filter((stone) => stone.id !== id);
   saveState();
@@ -3722,6 +4143,402 @@ function updateStoneDesignOptions(selectedDesignId = "", keepCategory = false) {
   return designs;
 }
 
+function normalizedDesignMatchKey(value = "") {
+  return designNameFromFile(String(value || ""))
+    .toLowerCase()
+    .replace(/\b(stone|chart|sheet|gem|report|image|photo|design|file|both|with|and|jewellery|jewelry)\b/g, " ")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function isStoneChartUploadFile(fileName = "") {
+  const name = designNameFromFile(fileName).replace(/[_-]+/g, " ");
+  return /\b(stone|chart|sheet|gem|report|ocr|both)\b/i.test(name);
+}
+
+function cleanUploadDesignName(fileName = "") {
+  const rawName = designNameFromFile(fileName);
+  const cleaned = rawName
+    .replace(/\b(stone|chart|sheet|gem|report|image|photo|design|file|both|with|and)\b/ig, " ")
+    .replace(/[_-]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned || rawName;
+}
+
+function groupDesignUploadFiles(files = []) {
+  const groups = new Map();
+  [...files].forEach((file) => {
+    const key = normalizedDesignMatchKey(file.name) || cleanUploadDesignName(file.name).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, { key, files: [] });
+    groups.get(key).files.push(file);
+  });
+  return [...groups.values()].map((group) => {
+    const normalDesignFile = group.files.find((file) => !isStoneChartUploadFile(file.name));
+    const designFile = normalDesignFile || group.files[0];
+    const chartFiles = group.files.filter((file) =>
+      file !== designFile && isStoneChartUploadFile(file.name)
+    );
+    if (isStoneChartUploadFile(designFile.name)) chartFiles.unshift(designFile);
+    if (!chartFiles.length && group.files.length > 1) {
+      chartFiles.push(...group.files.filter((file) => file !== designFile));
+    }
+    return {
+      ...group,
+      designFile,
+      chartFiles: [...new Set(chartFiles)],
+      designName: normalDesignFile ? designNameFromFile(designFile.name) : cleanUploadDesignName(designFile.name),
+    };
+  });
+}
+
+function createDesignFromUploadGroup(group, category, nameOverride = "") {
+  const designName = nameOverride || group.designName || designNameFromFile(group.designFile?.name) || "Design";
+  return {
+    id: crypto.randomUUID(),
+    number: designName,
+    name: designName,
+    category,
+    stoneDetails: "",
+    stoneItems: [],
+    hasStoneChart: false,
+  };
+}
+
+function findDesignByUploadKey(key) {
+  return state.designs.find((design) => designMatchKeys(design).includes(key));
+}
+
+async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFiles = [], replaceDesignImage = false) {
+  if (!group || !design) return { updated: 0, chartAttached: 0 };
+  if (category && !design.category) design.category = category;
+  if (replaceDesignImage && group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
+    await saveDesignImage(design.id, await compressImageFile(group.designFile));
+  }
+  const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
+  const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
+  let chartAttached = 0;
+  if (matchingStoneChartFile) {
+    await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+    chartAttached = 1;
+  }
+  updateDesignReferences(design);
+  return { updated: 1, chartAttached };
+}
+
+async function resolveDuplicateDesignUpload(group, existingDesign, category, stoneChartFiles = []) {
+  const designName = group.designName || designText(existingDesign);
+  const action = prompt(
+    `Duplicate design number found: ${designName}\nExisting: ${designText(existingDesign)}\n\nType MERGE to attach stone chart/details to existing.\nType REPLACE to also replace existing design image.\nType NEW to keep as separate design.\nType SKIP to ignore this duplicate.`,
+    "MERGE"
+  );
+  const choice = String(action || "SKIP").trim().toUpperCase();
+  if (choice === "MERGE") {
+    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, false);
+    return { created: 0, updated: result.updated, chartAttached: result.chartAttached };
+  }
+  if (choice === "REPLACE") {
+    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, true);
+    return { created: 0, updated: result.updated, chartAttached: result.chartAttached };
+  }
+  if (choice === "NEW") {
+    const copyName = prompt("Enter design number for this separate duplicate:", `${designName}-COPY`);
+    const cleanCopyName = String(copyName || "").trim();
+    if (!cleanCopyName) return { created: 0, updated: 0, chartAttached: 0 };
+    const design = createDesignFromUploadGroup(group, category, cleanCopyName);
+    state.designs.push(design);
+    if (group.designFile) await saveDesignImage(design.id, await compressImageFile(group.designFile));
+    const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
+    const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
+    let chartAttached = 0;
+    if (matchingStoneChartFile) {
+      await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+      chartAttached = 1;
+    }
+    return { created: 1, updated: 0, chartAttached };
+  }
+  return { created: 0, updated: 0, chartAttached: 0 };
+}
+
+function designMatchKeys(design) {
+  return [...new Set([
+    design?.number,
+    design?.name,
+    design ? designText(design) : "",
+  ].map(normalizedDesignMatchKey).filter((key) => key.length >= 3))];
+}
+
+function stoneChartFileMatchesDesign(fileName, design) {
+  const fileKey = normalizedDesignMatchKey(fileName);
+  if (!fileKey) return false;
+  return designMatchKeys(design).some((key) => {
+    if (fileKey === key) return true;
+    if (key.length >= 5 && fileKey.includes(key)) return true;
+    if (fileKey.length >= 5 && key.includes(fileKey)) return true;
+    return false;
+  });
+}
+
+function matchingStoneChartFileForDesign(files = [], design) {
+  return [...files].find((file) => stoneChartFileMatchesDesign(file.name, design)) || null;
+}
+
+function findDesignForStoneChartFile(fileName) {
+  return sortedDesigns().find((design) => stoneChartFileMatchesDesign(fileName, design)) || null;
+}
+
+async function saveStoneChartFileForDesign(design, file) {
+  if (!design || !file) return "";
+  const imageData = await compressStoneChartImage(file);
+  await saveStoneChartImage(design.id, imageData);
+  design.hasStoneChart = true;
+  return imageData;
+}
+
+async function autoAssignStoneChartFiles(files = []) {
+  const assignedDesigns = new Set();
+  let assignedCount = 0;
+  for (const file of [...files]) {
+    const design = findDesignForStoneChartFile(file.name);
+    if (!design || assignedDesigns.has(design.id)) continue;
+    await saveStoneChartFileForDesign(design, file);
+    assignedDesigns.add(design.id);
+    assignedCount += 1;
+  }
+  if (assignedCount) {
+    saveState();
+    renderDesigns();
+    updateStoneDesignOptions(document.querySelector('#stone-entry-form [name="stoneDesignId"]')?.value || "");
+  }
+  return assignedCount;
+}
+
+async function assignSelectedStoneChartFiles() {
+  const form = document.getElementById("stone-entry-form");
+  const files = [...form.stoneChart.files];
+  selectedStoneChartFiles = files;
+  if (!files.length) {
+    alert("Select one or more stone sheet images first.");
+    return 0;
+  }
+  const assignedCount = await autoAssignStoneChartFiles(files);
+  const note = document.getElementById("stone-chart-quality");
+  note.className = `dialog-note ocr-quality-note ${assignedCount ? "good" : "warn"}`;
+  note.textContent = assignedCount
+    ? `${assignedCount} stone sheet file(s) assigned by matching design name.`
+    : "No matching design name found. Use Crop Chart and choose the design manually.";
+  return assignedCount;
+}
+
+async function stoneCropSourcesFromSelection() {
+  const form = document.getElementById("stone-entry-form");
+  const files = [...form.stoneChart.files].length ? [...form.stoneChart.files] : selectedStoneChartFiles;
+  if (files.length) return files.map((file) => ({ name: file.name, file }));
+  const design = findById("designs", form.stoneDesignId.value);
+  if (design?.hasStoneChart) {
+    const imageData = await getStoneChartImage(design.id).catch(() => "");
+    if (imageData) return [{ name: `${designText(design)} saved chart`, imageData, designId: design.id }];
+  }
+  return [];
+}
+
+async function openStoneCropDialog() {
+  const sources = await stoneCropSourcesFromSelection();
+  if (!sources.length) {
+    alert("Upload a stone chart or design image first, then crop.");
+    return;
+  }
+  stoneCropState.files = sources;
+  stoneCropState.sourceIndex = 0;
+  stoneCropState.rect = null;
+  const sourceSelect = document.getElementById("stone-crop-source");
+  sourceSelect.innerHTML = sources.map((source, index) => {
+    const matched = source.designId ? findById("designs", source.designId) : findDesignForStoneChartFile(source.name);
+    const suffix = matched ? ` -> ${designText(matched)}` : "";
+    return `<option value="${index}">${escapeHtml(source.name + suffix)}</option>`;
+  }).join("");
+  document.getElementById("stone-crop-dialog").showModal();
+  await loadStoneCropSource(0);
+}
+
+function renderStoneCropDesignOptions(selectedDesignId = "") {
+  const select = document.getElementById("stone-crop-design");
+  const designs = sortedDesigns();
+  select.innerHTML = `<option value="">Select design</option>` + designs
+    .map((design) => `<option value="${design.id}">${escapeHtml(designText(design))} / ${escapeHtml(design.category || "Uncategorised")}</option>`)
+    .join("");
+  select.value = designs.some((design) => design.id === selectedDesignId) ? selectedDesignId : "";
+}
+
+async function loadStoneCropSource(index = 0) {
+  const source = stoneCropState.files[index];
+  if (!source) return;
+  stoneCropState.sourceIndex = index;
+  stoneCropState.rect = null;
+  const matchedDesign = source.designId ? findById("designs", source.designId) : findDesignForStoneChartFile(source.name);
+  const currentDesignId = document.querySelector('#stone-entry-form [name="stoneDesignId"]')?.value || "";
+  renderStoneCropDesignOptions(matchedDesign?.id || currentDesignId);
+  document.getElementById("stone-crop-status").textContent = "Drag on the image to mark the stone chart area.";
+  const imageData = source.imageData || await readFileAsDataUrl(source.file);
+  stoneCropState.imageData = imageData;
+  stoneCropState.image = await loadImageFromDataUrl(imageData);
+  fitStoneCropCanvas();
+}
+
+function loadImageFromDataUrl(imageData) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = imageData;
+  });
+}
+
+function fitStoneCropCanvas() {
+  const image = stoneCropState.image;
+  if (!image) return;
+  const canvas = document.getElementById("stone-crop-canvas");
+  const stage = canvas.closest(".stone-crop-stage");
+  const availableWidth = Math.max(320, (stage?.clientWidth || window.innerWidth) - 28);
+  const availableHeight = Math.max(260, window.innerHeight - 250);
+  const scale = Math.min(1, availableWidth / image.naturalWidth, availableHeight / image.naturalHeight);
+  stoneCropState.canvasScale = scale;
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  drawStoneCropCanvas();
+}
+
+function drawStoneCropCanvas() {
+  const image = stoneCropState.image;
+  if (!image) return;
+  const canvas = document.getElementById("stone-crop-canvas");
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const rect = normalizedStoneCropRect();
+  if (!rect) return;
+  context.save();
+  context.fillStyle = "rgba(15, 23, 42, 0.42)";
+  context.fillRect(0, 0, canvas.width, rect.y);
+  context.fillRect(0, rect.y + rect.height, canvas.width, canvas.height - rect.y - rect.height);
+  context.fillRect(0, rect.y, rect.x, rect.height);
+  context.fillRect(rect.x + rect.width, rect.y, canvas.width - rect.x - rect.width, rect.height);
+  context.strokeStyle = "#f4d35e";
+  context.lineWidth = 3;
+  context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  context.restore();
+}
+
+function stoneCropPoint(event) {
+  const canvas = document.getElementById("stone-crop-canvas");
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(canvas.width, (event.clientX - bounds.left) * (canvas.width / bounds.width))),
+    y: Math.max(0, Math.min(canvas.height, (event.clientY - bounds.top) * (canvas.height / bounds.height))),
+  };
+}
+
+function startStoneCropSelection(event) {
+  if (!stoneCropState.image) return;
+  event.preventDefault();
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  const point = stoneCropPoint(event);
+  stoneCropState.dragging = true;
+  stoneCropState.start = point;
+  stoneCropState.rect = { x: point.x, y: point.y, width: 0, height: 0 };
+  drawStoneCropCanvas();
+}
+
+function moveStoneCropSelection(event) {
+  if (!stoneCropState.dragging || !stoneCropState.start) return;
+  event.preventDefault();
+  const point = stoneCropPoint(event);
+  stoneCropState.rect = {
+    x: stoneCropState.start.x,
+    y: stoneCropState.start.y,
+    width: point.x - stoneCropState.start.x,
+    height: point.y - stoneCropState.start.y,
+  };
+  drawStoneCropCanvas();
+}
+
+function finishStoneCropSelection(event) {
+  if (!stoneCropState.dragging) return;
+  stoneCropState.dragging = false;
+  event.currentTarget.releasePointerCapture?.(event.pointerId);
+  const rect = normalizedStoneCropRect();
+  const status = document.getElementById("stone-crop-status");
+  if (!rect || rect.width < 30 || rect.height < 30) {
+    status.className = "dialog-note ocr-quality-note warn";
+    status.textContent = "Crop area is too small. Drag around the full stone chart table.";
+    return;
+  }
+  status.className = "dialog-note ocr-quality-note good";
+  status.textContent = `Crop selected: ${Math.round(rect.width)} x ${Math.round(rect.height)} px on screen.`;
+}
+
+function normalizedStoneCropRect() {
+  const rect = stoneCropState.rect;
+  if (!rect) return null;
+  const canvas = document.getElementById("stone-crop-canvas");
+  const x = Math.max(0, Math.min(rect.x, rect.x + rect.width));
+  const y = Math.max(0, Math.min(rect.y, rect.y + rect.height));
+  const width = Math.min(canvas.width - x, Math.abs(rect.width));
+  const height = Math.min(canvas.height - y, Math.abs(rect.height));
+  if (width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
+
+function croppedStoneChartDataUrl() {
+  const image = stoneCropState.image;
+  const rect = normalizedStoneCropRect();
+  if (!image || !rect || rect.width < 30 || rect.height < 30) return "";
+  const displayCanvas = document.getElementById("stone-crop-canvas");
+  const sx = (rect.x / displayCanvas.width) * image.naturalWidth;
+  const sy = (rect.y / displayCanvas.height) * image.naturalHeight;
+  const sw = (rect.width / displayCanvas.width) * image.naturalWidth;
+  const sh = (rect.height / displayCanvas.height) * image.naturalHeight;
+  const maxSize = 1800;
+  const scale = Math.min(1, maxSize / Math.max(sw, sh));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sw * scale));
+  canvas.height = Math.max(1, Math.round(sh * scale));
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.94);
+}
+
+async function saveStoneCropToDesign(readAfterSave = false) {
+  const design = findById("designs", document.getElementById("stone-crop-design").value);
+  const status = document.getElementById("stone-crop-status");
+  if (!design) {
+    alert("Select design to save this crop.");
+    return;
+  }
+  const imageData = croppedStoneChartDataUrl();
+  if (!imageData) {
+    alert("Select crop area first.");
+    return;
+  }
+  await saveStoneChartImage(design.id, imageData);
+  design.hasStoneChart = true;
+  saveState();
+  renderDesigns();
+  await loadStoneEntry(design.id);
+  status.className = "dialog-note ocr-quality-note good";
+  status.textContent = `Cropped stone chart saved to ${designText(design)}.`;
+  if (readAfterSave) {
+    await readStoneChartImageDataForDesign(design, imageData);
+    document.getElementById("stone-crop-status").textContent = `Crop saved and OCR read for ${designText(design)}.`;
+  }
+}
+
 async function loadStoneEntry(designId) {
   const form = document.getElementById("stone-entry-form");
   const summary = document.getElementById("stone-entry-summary");
@@ -3820,18 +4637,29 @@ async function readStoneChartImage() {
     return;
   }
   let imageData = "";
-  const file = form.stoneChart.files[0];
+  const files = [...form.stoneChart.files];
+  const file = matchingStoneChartFileForDesign(files, design) || files[0];
   if (file) {
     await showStoneChartQuality(file);
     imageData = await compressStoneChartImage(file);
     await saveStoneChartImage(design.id, imageData);
     design.hasStoneChart = true;
     form.stoneChart.value = "";
+    selectedStoneChartFiles = [];
   } else {
     imageData = await getStoneChartImage(design.id).catch(() => "");
   }
   if (!imageData) {
     alert("Upload or save a stone chart image first.");
+    return;
+  }
+  await readStoneChartImageDataForDesign(design, imageData);
+}
+
+async function readStoneChartImageDataForDesign(design, imageData) {
+  const summary = document.getElementById("stone-entry-summary");
+  if (!window.Tesseract) {
+    alert("OCR library is not loaded. Connect internet and refresh once, then try again.");
     return;
   }
   summary.textContent = "Reading stone chart image...";
@@ -3849,14 +4677,17 @@ async function readStoneChartImage() {
       alert("No stone rows detected. Use a clear crop of the stone table.");
       return;
     }
-    if ((design.stoneItems || []).length && !confirm("Replace existing stone rows for this design with OCR result?")) return;
-    design.stoneItems = rows;
-    design.stoneDetails = designStoneDetailsText(rows);
+    const existingRows = design.stoneItems || [];
+    const replaceRows = existingRows.length
+      ? confirm("Existing stone rows found. OK = replace with OCR rows. Cancel = add OCR rows below existing rows.")
+      : true;
+    design.stoneItems = replaceRows ? rows : [...existingRows, ...rows];
+    design.stoneDetails = designStoneDetailsText(design.stoneItems);
     saveState();
     renderDesignStoneItems(design.stoneItems);
     renderDesigns();
     await loadStoneEntry(design.id);
-    summary.textContent = `${rows.length} stone row(s) read and saved from image.`;
+    summary.textContent = `${rows.length} stone row(s) read and ${replaceRows ? "saved" : "added"} from image.`;
   } catch (error) {
     console.error(error);
     summary.textContent = "OCR failed. Try a clearer cropped chart image.";
@@ -3868,6 +4699,7 @@ function removeDesignStoneItem(stoneItemId) {
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) return;
+  if (!requireOwnerPermission("remove saved stone chart row")) return;
   design.stoneItems = (design.stoneItems || []).filter((item) => item.id !== stoneItemId);
   design.stoneDetails = designStoneDetailsText(design.stoneItems);
   renderDesignStoneItems(design.stoneItems);
@@ -3875,20 +4707,70 @@ function removeDesignStoneItem(stoneItemId) {
   renderDesigns();
 }
 
+function requireOwnerPermission(action) {
+  if (isOwner()) return true;
+  const password = prompt(`Enter Owner password to ${action}:`);
+  if (password === userPassword("owner")) return true;
+  alert("Wrong Owner password.");
+  return false;
+}
+
+function stoneEditOptions(field, selected) {
+  const values = stoneOptionValues(field, state.stones);
+  const optionValues = selected && !values.includes(selected) ? [...values, selected] : values;
+  return `<option value="">Select</option>${optionValues.map((value) =>
+    `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`
+  ).join("")}`;
+}
+
+function saveDesignStoneItemEdit(stoneItemId) {
+  const form = document.getElementById("stone-entry-form");
+  const design = findById("designs", form.stoneDesignId.value);
+  if (!design) return;
+  const item = (design.stoneItems || []).find((stoneItem) => stoneItem.id === stoneItemId);
+  const row = document.querySelector(`[data-design-stone-row="${stoneItemId}"]`);
+  if (!item || !row) return;
+  const stoneType = row.querySelector('[data-stone-edit="stoneType"]').value;
+  const shape = row.querySelector('[data-stone-edit="shape"]').value;
+  const size = row.querySelector('[data-stone-edit="size"]').value;
+  const pcs = Number(row.querySelector('[data-stone-edit="pcs"]').value || 0);
+  if (!stoneType || !shape || !size || pcs <= 0) {
+    alert("Select Type, Shape, Size and enter valid No. Pcs.");
+    return;
+  }
+  if (!requireOwnerPermission("edit saved stone chart row")) return;
+  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const weightPerPc = libraryStone?.weightPerPc || item.weightPerPc || "";
+  Object.assign(item, {
+    stoneType,
+    shape,
+    size,
+    pcs,
+    code: libraryStone?.code || stoneLookupCode({ stoneType, shape, size }),
+    weightPerPc: formatStoneWeight(weightPerPc),
+    totalWeight: weightPerPc ? totalStoneWeight(weightPerPc, pcs) : item.totalWeight || "",
+  });
+  design.stoneDetails = designStoneDetailsText(design.stoneItems);
+  renderDesignStoneItems(design.stoneItems);
+  saveState();
+  renderDesigns();
+  document.getElementById("stone-entry-summary").textContent = "Stone row corrected and saved.";
+}
+
 function renderDesignStoneItems(items = []) {
   const container = document.getElementById("design-stone-details");
   container.classList.toggle("empty", !items.length);
   container.innerHTML = items.length
     ? `<div class="stone-total-summary">${designStoneSummaryText(items)}</div><table><thead><tr><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th></th></tr></thead><tbody>${items.map((item) => `
-      <tr>
+      <tr data-design-stone-row="${item.id}">
         <td>${escapeHtml(item.code || "-")}</td>
-        <td>${escapeHtml(item.stoneType || "-")}</td>
-        <td>${escapeHtml(item.shape || "-")}</td>
-        <td>${escapeHtml(item.size || "-")}</td>
-        <td>${escapeHtml(item.pcs || "-")}</td>
+        <td><select data-stone-edit="stoneType">${stoneEditOptions("stoneType", item.stoneType || "")}</select></td>
+        <td><select data-stone-edit="shape">${stoneEditOptions("shape", item.shape || "")}</select></td>
+        <td><select data-stone-edit="size">${stoneEditOptions("size", item.size || "")}</select></td>
+        <td><input data-stone-edit="pcs" type="number" min="1" step="1" value="${escapeHtml(item.pcs || "")}"></td>
         <td>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")}</td>
         <td>${escapeHtml(item.totalWeight || "-")}</td>
-        <td><button class="delete-btn" type="button" onclick="removeDesignStoneItem('${item.id}')">Remove</button></td>
+        <td><div class="row-actions"><button class="ghost-button" type="button" onclick="saveDesignStoneItemEdit('${item.id}')">Save</button><button class="delete-btn" type="button" onclick="removeDesignStoneItem('${item.id}')">Remove</button></div></td>
       </tr>
     `).join("")}</tbody></table>`
     : "No stone added for this design.";
@@ -4046,16 +4928,54 @@ function renderDashboard() {
   document.getElementById("metric-orders").textContent = state.orders.filter((order) => order.status !== "Completed").length;
   document.getElementById("metric-customers").textContent = state.customers.length;
 
-  const pendingOrders = state.orders.filter((order) => order.status !== "Completed");
+  const pendingOrders = groupedJobOrders((order) => !isCompletedOrder(order), "active");
   document.getElementById("pending-orders-list").innerHTML = pendingOrders.length
-    ? pendingOrders.map((order) => stackItem(`${order.number} - ${order.item || order.designNumber || order.category || order.remarks || "-"}`, `Due ${order.dueDate}`)).join("")
+    ? pendingOrders.map(dashboardPendingOrderItem).join("")
     : '<div class="empty">No pending job orders.</div>';
 
-  document.getElementById("activity-list").innerHTML = state.lots.length
-    ? state.lots.slice(0, 6).map((lot) => stackItem(`${lot.number} - ${lot.karigarName}`, `${gram(lot.issuedWeight)} ${lot.status}`)).join("")
-    : '<div class="empty">No production lots issued yet.</div>';
+  const transfers = recentDashboardTransfers();
+  document.getElementById("activity-list").innerHTML = transfers.length
+    ? transfers.map(dashboardTransferItem).join("")
+    : '<div class="empty">No transfer history recorded.</div>';
 
   renderDepartmentMetal();
+}
+
+function dashboardPendingOrderItem(job) {
+  const jobNumber = job.jobNumber || "-";
+  const detail = [
+    job.customer || "-",
+    `${job.orders.length} item${job.orders.length === 1 ? "" : "s"}`,
+    job.categories || "-",
+    job.currentStage || "-",
+    job.dueDate ? `Due ${job.dueDate}` : "",
+  ].filter(Boolean).join(" / ");
+  return `
+    <div class="stack-item dashboard-job-item">
+      <button type="button" class="dashboard-job-button" onclick="openJobOrder(decodeURIComponent('${encodeURIComponent(jobNumber)}'), 'active')">${escapeHtml(jobNumber)}</button>
+      <span>${escapeHtml(detail)}</span>
+    </div>
+  `;
+}
+
+function recentDashboardTransfers(limit = 8) {
+  return state.lots
+    .flatMap((lot) => (lot.transfers || []).map((transfer) => ({ lot, transfer })))
+    .sort((a, b) => String(b.transfer.date || "").localeCompare(String(a.transfer.date || "")))
+    .slice(0, limit);
+}
+
+function dashboardTransferItem({ lot, transfer }) {
+  const from = transfer.fromDepartment || transfer.fromKarigarName || "-";
+  const to = transfer.toDepartment || transfer.toKarigarName || "-";
+  const title = `${lot.orderNumber || lot.number || "-"} / ${from} -> ${to}`;
+  const detail = `${transfer.date || "-"} / Issue ${gram(transfer.transferWeight)} / Net ${gram(transfer.receivedWeight)} / Diff ${gram(transfer.departmentBalance)}`;
+  return `
+    <div class="stack-item dashboard-transfer-item">
+      <span>${escapeHtml(title)}</span>
+      <strong>${escapeHtml(detail)}</strong>
+    </div>
+  `;
 }
 
 function renderDepartmentMetal() {
@@ -4189,21 +5109,77 @@ function addDepartmentWeight(departments, department, totals = {}) {
 }
 
 function renderOrders() {
-  const activeRows = groupedJobOrders()
-    .filter((job) => job.status !== "Completed")
+  const activeRows = groupedJobOrders((order) => !isCompletedOrder(order), "active")
     .map(orderTableRow)
     .join("");
-  const completedRows = groupedJobOrders()
-    .filter((job) => job.status === "Completed")
+  const completedRows = groupedJobOrders(isCompletedOrder, "completed")
     .map(orderTableRow)
     .join("");
   document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, "No active job orders recorded.");
   document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, "No completed job orders recorded.");
+  renderRepairJobOrders();
+}
+
+function renderRepairJobOrders() {
+  const board = document.getElementById("repair-orders-board");
+  if (!board) return;
+  const query = (document.getElementById("repair-order-search")?.value || "").toLowerCase();
+  const entries = repairJobItems()
+    .filter(({ lot, bill, item, order }) => {
+      const text = [
+        lot.number,
+        lot.orderNumber,
+        bill.billNo,
+        item.productionNo,
+        order.productionNo,
+        order.customer,
+        order.designNo,
+        designLabel(order.designId),
+        item.repairStatus,
+        item.qcStatus,
+        officeItemLocation(item),
+      ].join(" ").toLowerCase();
+      return text.includes(query);
+    });
+  board.innerHTML = entries.length
+    ? `<div class="repair-item-grid">${entries.map(renderRepairJobOrderCard).join("")}</div>`
+    : '<div class="empty">No Repair / QC Failed job item.</div>';
+}
+
+function renderRepairJobOrderCard({ lot, bill, item, order }) {
+  const productionNo = item.productionNo || order.productionNo || "-";
+  return `
+    <article class="office-library-item repair repair-detail-card repair-job-card">
+      <div class="office-library-row">
+        <strong>${escapeHtml(productionNo)}</strong>
+        <span class="status ${officeItemStatusClass(item)}">${escapeHtml(repairDayText(item))}</span>
+      </div>
+      <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
+      <div class="sales-detail-grid repair-detail-grid">
+        <span><b>Job Card</b>${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
+        <span><b>Bill No</b>${escapeHtml(bill.billNo || "-")}</span>
+        <span><b>QC Status</b>${escapeHtml(item.qcStatus || "-")}</span>
+        <span><b>Repair Status</b>${escapeHtml(item.repairStatus || "QC Failed")}</span>
+        <span><b>Repair Start</b>${escapeHtml(item.repairStartDate || item.qcDate || "-")}</span>
+        <span><b>Repair Issue</b>${escapeHtml(item.repairIssueDate || "-")}</span>
+        <span><b>Repair Return</b>${escapeHtml(item.repairReturnDate || "-")}</span>
+        <span><b>Current Location</b>${escapeHtml(officeItemLocation(item))}</span>
+        <span><b>Final GW</b>${gram(item.finalGw)}</span>
+        <span><b>Net Wt</b>${gram(item.netWeight)}</span>
+        <span><b>Total Non-Gold</b>${billNonGoldTotalText(item, order)}</span>
+        <span><b>Non-Gold Details</b>${escapeHtml(billNonGoldSummaryText(item, order))}</span>
+        <span><b>Extra Loss</b>${gram(item.repairAdditionalLoss)}</span>
+      </div>
+      <div class="row-actions">
+        <button type="button" onclick="openRepairJobItem('${escapeHtml(order.id)}')">Open Job Item</button>
+      </div>
+    </article>
+  `;
 }
 
 function orderTableRow(job) {
   const urgency = job.urgent ? '<span class="job-badge urgent">Urgent</span>' : "";
-  const delivery = deliveryBadgeHtml(job.dueDate);
+  const delivery = isCompletedJob(job) ? "" : deliveryBadgeHtml(job.dueDate);
   return `
     <tr>
       <td>${escapeHtml(job.customer)}</td>
@@ -4217,17 +5193,19 @@ function orderTableRow(job) {
           </div>
         </div>
       </td>
-      <td><div class="row-actions"><button onclick="openJobOrder('${job.jobNumber}')">Open</button><button class="ghost-button" onclick="editJobOrder('${job.jobNumber}')">Edit</button><button class="delete-btn" onclick="removeJobOrder('${job.jobNumber}')">Delete</button></div></td>
+      <td><div class="row-actions"><button onclick="openJobOrder('${job.jobNumber}', '${job.bucket || "all"}')">Open</button><button class="ghost-button" onclick="editJobOrder('${job.jobNumber}', '${job.bucket || "all"}')">Edit</button><button class="delete-btn" onclick="removeJobOrder('${job.jobNumber}')">Delete</button></div></td>
     </tr>
   `;
 }
 
 function jobDetailsText(job) {
-  return `${job.jobNumber} / ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} / ${job.categories} / Due ${job.dueDate} / ${job.status}`;
+  const dueText = isCompletedJob(job) ? "" : ` / Due ${job.dueDate}`;
+  return `${job.jobNumber} / ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} / ${job.categories}${dueText} / ${job.status}`;
 }
 
-function groupedJobOrders() {
-  const groups = state.orders.reduce((acc, order) => {
+function groupedJobOrders(orderFilter = null, bucket = "all") {
+  const sourceOrders = orderFilter ? state.orders.filter(orderFilter) : state.orders;
+  const groups = sourceOrders.reduce((acc, order) => {
     const key = order.jobNumber || order.productionNo || order.number;
     if (!acc[key]) acc[key] = [];
     acc[key].push(order);
@@ -4246,6 +5224,7 @@ function groupedJobOrders() {
       urgent: orders.some((order) => order.urgent),
       currentStage: jobCurrentStage(orders),
       status: statuses.length === 1 ? statuses[0] : "Mixed",
+      bucket,
     };
   }).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
 }
@@ -4274,6 +5253,23 @@ function daysRemainingText(dueDate) {
   return `${days} day${days === 1 ? "" : "s"} remaining`;
 }
 
+function isCompletedOrder(order = {}) {
+  return String(order.status || "").toLowerCase() === "completed";
+}
+
+function isCompletedJob(job = {}) {
+  return String(job.status || "").toLowerCase() === "completed"
+    || (job.orders || []).every(isCompletedOrder);
+}
+
+function orderDeliveryText(order = {}) {
+  return isCompletedOrder(order) ? "" : daysRemainingText(order.dueDate);
+}
+
+function jobOrderDeliverySummary(orders = []) {
+  return orders.length && orders.every(isCompletedOrder) ? "" : daysRemainingText(orders[0]?.dueDate);
+}
+
 function jobCurrentStage(orders = []) {
   const stages = [...new Set(orders.map(orderCurrentStage).filter(Boolean))];
   if (!stages.length) return "Pending";
@@ -4283,20 +5279,47 @@ function jobCurrentStage(orders = []) {
 function orderCurrentStage(order = {}) {
   const officeEntry = officeItems().find(({ item }) => item.orderId === order.id || item.productionNo === order.productionNo);
   if (officeEntry) return officeItemLocation(officeEntry.item);
+  const repairEntry = findBillItemForOrder(order);
+  if (repairEntry?.item && isRepairItem(repairEntry.item)) {
+    const reworkLot = repairEntry.item.reworkLotId ? findById("lots", repairEntry.item.reworkLotId) : null;
+    if (reworkLot && reworkLot.status !== "Completed") return reworkLot.currentDepartment || "Repair Production";
+    return officeItemLocation(repairEntry.item);
+  }
   const lot = state.lots.find((item) => getLotOrderIds(item).includes(order.id));
   if (lot?.bill) return lot.billingStage || "Bill / QC";
   if (lot) return lot.currentDepartment || lot.karigarName || "Production";
   return order.status || "Pending";
 }
 
-function openJobOrder(jobNumber) {
-  const first = state.orders.find((order) => (order.jobNumber || order.productionNo || order.number) === jobNumber);
-  if (first) openOrderDetail(first.id);
+function openJobOrder(jobNumber, bucket = "all") {
+  const first = findJobOrderForBucket(jobNumber, bucket);
+  if (first) openOrderDetail(first.id, false, bucket);
 }
 
-function editJobOrder(jobNumber) {
-  const first = state.orders.find((order) => (order.jobNumber || order.productionNo || order.number) === jobNumber);
-  if (first) openOrderDetail(first.id, true);
+function openRepairJobItem(orderId) {
+  const order = findById("orders", orderId);
+  if (!order) {
+    alert("Repair job item not found.");
+    return;
+  }
+  openOrderDetail(order.id, false, "all");
+  setTimeout(() => openJobItemDetail(order.id), 0);
+}
+
+function editJobOrder(jobNumber, bucket = "all") {
+  const first = findJobOrderForBucket(jobNumber, bucket);
+  if (first) openOrderDetail(first.id, true, bucket);
+}
+
+function findJobOrderForBucket(jobNumber, bucket = "all") {
+  return state.orders.find((order) =>
+    (order.jobNumber || order.productionNo || order.number) === jobNumber
+    && (
+      bucket === "all"
+      || (bucket === "completed" && isCompletedOrder(order))
+      || (bucket === "active" && !isCompletedOrder(order))
+    )
+  );
 }
 
 function removeJobOrder(jobNumber) {
@@ -4304,6 +5327,91 @@ function removeJobOrder(jobNumber) {
   state.orders = state.orders.filter((order) => (order.jobNumber || order.productionNo || order.number) !== jobNumber);
   saveState();
   render();
+}
+
+function handleDesignSelectionChange(event) {
+  const input = event.target.closest?.(".design-select-input");
+  if (!input) return;
+  if (input.checked) selectedDesignIds.add(input.dataset.designSelect);
+  else selectedDesignIds.delete(input.dataset.designSelect);
+  updateDesignSelectionSummary();
+}
+
+function updateDesignSelectionSummary() {
+  const validIds = new Set(state.designs.map((design) => design.id));
+  selectedDesignIds = new Set([...selectedDesignIds].filter((id) => validIds.has(id)));
+  document.querySelectorAll(".design-select-input").forEach((input) => {
+    input.checked = selectedDesignIds.has(input.dataset.designSelect);
+  });
+  const text = selectedDesignIds.size
+    ? `${selectedDesignIds.size} design${selectedDesignIds.size === 1 ? "" : "s"} selected`
+    : "No design selected";
+  document.querySelectorAll("[data-design-selection-count]").forEach((item) => {
+    item.textContent = text;
+  });
+}
+
+function selectAllDesigns() {
+  selectedDesignIds = new Set(state.designs.map((design) => design.id));
+  updateDesignSelectionSummary();
+}
+
+function selectVisibleDesigns() {
+  const visibleInputs = document.querySelectorAll("#design-page-master .design-select-input, #design-category-dialog[open] .design-select-input");
+  if (!visibleInputs.length) {
+    alert("Open a category or search designs first, then select visible designs.");
+    return;
+  }
+  visibleInputs.forEach((input) => selectedDesignIds.add(input.dataset.designSelect));
+  updateDesignSelectionSummary();
+}
+
+function clearDesignSelection() {
+  selectedDesignIds.clear();
+  updateDesignSelectionSummary();
+}
+
+function selectCurrentDesignCategory() {
+  const category = document.getElementById("design-category-title")?.textContent || "";
+  const group = designCategoryGroups().find((item) => item.category === category);
+  if (!group) {
+    alert("No designs found in this category.");
+    return;
+  }
+  group.designs.forEach((design) => selectedDesignIds.add(design.id));
+  updateDesignSelectionSummary();
+}
+
+async function deleteSelectedDesigns() {
+  const ids = [...selectedDesignIds].filter((id) => state.designs.some((design) => design.id === id));
+  if (!ids.length) {
+    alert("Select design first.");
+    return;
+  }
+  const usedIds = ids.filter((id) => state.orders.some((order) => order.designId === id));
+  const deleteIds = ids.filter((id) => !usedIds.includes(id));
+  if (!deleteIds.length) {
+    alert("Selected designs are used in job orders, so they cannot be deleted.");
+    return;
+  }
+  const usedNote = usedIds.length ? `\n\n${usedIds.length} design(s) are used in job orders and will be skipped.` : "";
+  if (!confirm(`Delete ${deleteIds.length} selected design(s)? Design images, stone charts, and stone details will be removed.${usedNote}`)) return;
+  const openCategoryDialog = document.getElementById("design-category-dialog");
+  const openCategory = openCategoryDialog?.open ? document.getElementById("design-category-title")?.textContent || "" : "";
+  for (const id of deleteIds) {
+    await deleteDesignImage(id);
+    await deleteStoneChartImage(id);
+  }
+  state.designs = state.designs.filter((design) => !deleteIds.includes(design.id));
+  deleteIds.forEach((id) => selectedDesignIds.delete(id));
+  saveState();
+  render();
+  if (openCategoryDialog?.open) {
+    const stillExists = designCategoryGroups().some((group) => group.category === openCategory);
+    if (stillExists) openDesignCategory(encodeURIComponent(openCategory));
+    else openCategoryDialog.close();
+  }
+  alert(`Deleted ${deleteIds.length} design(s).${usedIds.length ? ` ${usedIds.length} used design(s) skipped.` : ""}`);
 }
 
 function renderDesigns() {
@@ -4319,6 +5427,7 @@ function renderDesigns() {
       : '<div class="empty">No matching designs found.</div>';
     document.getElementById("designs-table").innerHTML = "";
     loadDesignThumbnails();
+    updateDesignSelectionSummary();
     return;
   }
   searchResults.classList.add("hidden");
@@ -4334,19 +5443,37 @@ function renderDesigns() {
   `;
   }).join("");
   document.getElementById("designs-table").innerHTML = rows || tableEmpty(3, "No designs uploaded yet.");
+  updateDesignSelectionSummary();
 }
 
 function renderDesignCard(design) {
   const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
   return `
     <article class="design-category-item">
-      <img class="design-thumb" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
+      <label class="design-select-check">
+        <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
+        <span>Select</span>
+      </label>
+      <div class="design-preview-pair ${design.hasStoneChart ? "has-stone-chart" : ""}">
+        <figure>
+          <span>Design</span>
+          <img class="design-thumb" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
+        </figure>
+        ${design.hasStoneChart ? `
+          <figure>
+            <span>Stone Chart</span>
+            <img class="design-thumb stone-chart-thumb" data-stone-chart-image="${design.id}" alt="Stone chart for ${escapeHtml(design.name)}">
+          </figure>
+        ` : ""}
+      </div>
       <strong>${escapeHtml(designText(design))}</strong>
       <span>${escapeHtml(design.category || "Uncategorised")}</span>
       <span class="dialog-note">${design.hasStoneChart ? "Stone chart added" : "No stone chart"}${escapeHtml(stoneSummary)}</span>
       <div class="row-actions">
         <button class="ghost-button" onclick="openDesignImage('${design.id}')">View</button>
-        ${design.hasStoneChart ? `<button class="ghost-button" onclick="openStoneChart('${design.id}')">Stone Chart</button>` : ""}
+        ${design.hasStoneChart ? `<button class="ghost-button" onclick="openStoneChart('${design.id}')">Stone Chart</button><button class="ghost-button danger-button" onclick="removeDesignStoneChart('${design.id}')">Remove Stone Chart</button>` : ""}
+        <button class="ghost-button" onclick="openDesignStoneDetails('${design.id}')">Modify Stone Details</button>
+        <button class="ghost-button" onclick="mergeDesignPrompt('${design.id}')">Merge</button>
         <button onclick="editDesign('${design.id}')">Edit</button>
         <button class="delete-btn" onclick="removeItem('designs', '${design.id}')">Delete</button>
       </div>
@@ -4373,8 +5500,10 @@ function openDesignCategory(categoryKey) {
   document.getElementById("design-category-list").innerHTML = group.designs.map((design) =>
     renderDesignCard(design).replace(`editDesign('${design.id}')`, `editDesign('${design.id}'); document.getElementById('design-category-dialog').close()`)
   ).join("");
-  document.getElementById("design-category-dialog").showModal();
+  const dialog = document.getElementById("design-category-dialog");
+  if (!dialog.open) dialog.showModal();
   loadDesignThumbnails();
+  updateDesignSelectionSummary();
 }
 
 async function openDesignImage(designId) {
@@ -4401,6 +5530,101 @@ async function openStoneChart(designId) {
   document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"}`;
   document.getElementById("design-image-summary").textContent = design.name || "";
   document.getElementById("design-image-dialog").showModal();
+}
+
+async function removeDesignStoneChart(designId) {
+  const design = findById("designs", designId);
+  if (!design) return;
+  if (!requireOwnerPermission("remove stone chart from design")) return;
+  if (!confirm(`Remove stone chart from ${designText(design)}? Stone detail rows will remain for checking/editing.`)) return;
+  await deleteStoneChartImage(design.id);
+  design.hasStoneChart = false;
+  saveState();
+  renderDesigns();
+  if (document.getElementById("design-category-dialog").open) {
+    openDesignCategory(encodeURIComponent(design.category || "Uncategorised"));
+  }
+}
+
+function findDesignByMergeInput(input, excludeId = "") {
+  const query = normalizedDesignMatchKey(input);
+  if (!query) return null;
+  return state.designs.find((design) =>
+    design.id !== excludeId &&
+    designMatchKeys(design).some((key) => key === query || key.includes(query) || query.includes(key))
+  );
+}
+
+async function mergeDesignPrompt(sourceDesignId) {
+  const source = findById("designs", sourceDesignId);
+  if (!source) return;
+  if (!requireOwnerPermission("merge designs")) return;
+  const targetInput = prompt(`Merge ${designText(source)} into which design number/name?`);
+  const target = findDesignByMergeInput(targetInput, source.id);
+  if (!target) {
+    alert("Target design not found.");
+    return;
+  }
+  if (!confirm(`Merge ${designText(source)} into ${designText(target)}?\n\nSource design will be removed after image, stone chart, stone details, and job references are moved.`)) return;
+  await mergeDesignRecords(source, target);
+  const category = target.category || source.category || "Uncategorised";
+  saveState();
+  render();
+  if (document.getElementById("design-category-dialog").open) {
+    openDesignCategory(encodeURIComponent(category));
+  }
+  alert("Designs merged.");
+}
+
+async function mergeDesignRecords(source, target) {
+  if (!source || !target || source.id === target.id) return;
+  if (!target.category && source.category) target.category = source.category;
+  if (!target.stoneItems?.length && source.stoneItems?.length) {
+    target.stoneItems = source.stoneItems.map((item) => ({ ...item, id: crypto.randomUUID() }));
+  } else if (source.stoneItems?.length) {
+    target.stoneItems = [
+      ...(target.stoneItems || []),
+      ...source.stoneItems.map((item) => ({ ...item, id: crypto.randomUUID() })),
+    ];
+  }
+  target.stoneDetails = designStoneDetailsText(target.stoneItems || []);
+  if (!target.hasStoneChart && source.hasStoneChart) {
+    const sourceChart = await getStoneChartImage(source.id).catch(() => "");
+    if (sourceChart) {
+      await saveStoneChartImage(target.id, sourceChart);
+      target.hasStoneChart = true;
+    }
+  }
+  const targetImage = await getDesignImage(target.id).catch(() => "");
+  if (!targetImage) {
+    const sourceImage = await getDesignImage(source.id).catch(() => "");
+    if (sourceImage) await saveDesignImage(target.id, sourceImage);
+  }
+  state.orders.forEach((order) => {
+    if (order.designId === source.id) {
+      order.designId = target.id;
+      order.designNumber = designLabel(target.id);
+      order.designNo = designLabel(target.id);
+      order.category = target.category || order.category || "";
+    }
+  });
+  await deleteDesignImage(source.id);
+  await deleteStoneChartImage(source.id);
+  state.designs = state.designs.filter((design) => design.id !== source.id);
+  updateDesignReferences(target);
+}
+
+function openDesignStoneDetails(designId) {
+  const categoryDialog = document.getElementById("design-category-dialog");
+  if (categoryDialog?.open) {
+    const design = findById("designs", designId);
+    stoneEntryReturnContext = {
+      type: "design-category",
+      category: design?.category || document.getElementById("design-category-title").textContent || "Uncategorised",
+    };
+    categoryDialog.close();
+  }
+  openStoneEntryDialog(designId);
 }
 
 function renderCustomers() {
@@ -4542,22 +5766,12 @@ function openDesignImageDb() {
 }
 
 async function saveDesignImage(id, imageData) {
-  if (!supabaseClient || !currentUser || !cloudStateReady) {
-    throw new Error("Sign in and wait for cloud sync before uploading images.");
+  if (supabaseClient) {
+    const blob = dataUrlToBlob(imageData);
+    await supabaseClient.storage
+      .from("design-images")
+      .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
   }
-  const blob = dataUrlToBlob(imageData);
-  const { error } = await supabaseClient.storage
-    .from("design-images")
-    .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
-  if (error) throw new Error(`Cloud image upload failed: ${error.message || "storage permission error"}`);
-  try {
-    await cacheDesignImageLocally(id, imageData);
-  } catch (cacheError) {
-    console.warn("The image is in cloud storage, but this browser could not cache it.", cacheError);
-  }
-}
-
-async function cacheDesignImageLocally(id, imageData) {
   const db = await openDesignImageDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("images", "readwrite");
@@ -4590,51 +5804,39 @@ async function deleteStoneChartImage(id) {
 }
 
 async function getDesignImage(id) {
-  if (supabaseClient && currentUser) {
+  if (supabaseClient) {
     const { data, error } = await supabaseClient.storage
       .from("design-images")
       .download(`${id}.jpg`);
     if (!error && data) return blobToDataUrl(data);
   }
-  let localImage = "";
-  try {
-    const db = await openDesignImageDb();
-    localImage = await new Promise((resolve, reject) => {
+  const db = await openDesignImageDb();
+  return new Promise((resolve, reject) => {
     const transaction = db.transaction("images", "readonly");
     const request = transaction.objectStore("images").get(id);
     request.onsuccess = () => resolve(request.result || "");
     request.onerror = () => reject(request.error);
     transaction.oncomplete = () => db.close();
-    });
-  } catch (cacheError) {
-    console.warn("This browser could not read its image cache.", cacheError);
-  }
-  if (localImage && currentUser && cloudStateReady) {
-    saveDesignImage(id, localImage).catch((uploadError) => {
-      console.warn("A browser-only image could not yet be repaired in cloud storage.", uploadError);
-    });
-  }
-  return localImage;
+  });
 }
 
 async function deleteDesignImage(id) {
-  if (!supabaseClient || !currentUser || !cloudStateReady) {
-    throw new Error("Sign in and wait for cloud sync before deleting images.");
+  if (supabaseClient) {
+    await supabaseClient.storage.from("design-images").remove([`${id}.jpg`]);
   }
-  const { error } = await supabaseClient.storage.from("design-images").remove([`${id}.jpg`]);
-  if (error) throw new Error(`Cloud image delete failed: ${error.message || "storage permission error"}`);
-  try {
-    const db = await openDesignImageDb();
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction("images", "readwrite");
-      transaction.objectStore("images").delete(id);
-      transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error);
-    });
-    db.close();
-  } catch (cacheError) {
-    console.warn("Cloud image was deleted, but the browser cache could not be cleared.", cacheError);
-  }
+  const db = await openDesignImageDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("images", "readwrite");
+    transaction.objectStore("images").delete(id);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -4666,6 +5868,15 @@ async function loadDesignThumbnails() {
       image.src = imageData || design?.imageData || "";
     } catch (error) {
       image.src = design?.imageData || "";
+    }
+  }
+  const stoneCharts = [...document.querySelectorAll("[data-stone-chart-image]")];
+  for (const image of stoneCharts) {
+    try {
+      image.src = await getStoneChartImage(image.dataset.stoneChartImage);
+    } catch (error) {
+      image.removeAttribute("src");
+      image.alt = "Stone chart not available";
     }
   }
 }
@@ -4802,36 +6013,48 @@ function issueWeightDetailHtml(lot) {
 function renderBills() {
   const query = (document.getElementById("bill-search")?.value || "").toLowerCase();
   const rows = state.lots
-    .filter((lot) => lot.status === "Completed" || lot.bill || state.bills?.some((item) => item.lotId === lot.id))
     .filter((lot) => {
-      const orders = getLotOrders(lot);
-      const text = `${lot.number} ${lot.orderNumber} ${orders.map((order) => order.customer).join(" ")} ${lot.bill?.billNo || ""}`.toLowerCase();
+      const hasBill = Boolean(lot.bill || state.bills?.some((item) => item.lotId === lot.id));
+      if (isBillQcOnlyMode()) return hasBill;
+      return lot.status === "Completed" || hasBill;
+    })
+    .filter((lot) => {
+      const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+      const orders = billableOrdersForLot(lot, bill);
+      const text = `${lot.number} ${lot.orderNumber} ${orders.map((order) => order.customer).join(" ")} ${bill.billNo || ""}`.toLowerCase();
       return text.includes(query);
     })
     .map((lot) => {
-      const orders = getLotOrders(lot);
-      const customer = orders[0]?.customer || "-";
       const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
-      const mfgAmount = bill ? gram(Number(bill.manufacturingMakingGold || bill.makingGold || 0)) : "-";
-      const officeAmount = bill ? gram(Number(bill.officeMakingGold || bill.billAmount || 0)) : "-";
-      const billWeight = bill?.netWeight ? `<br><small>Net ${gram(bill.netWeight)}</small>` : "";
+      const orders = billableOrdersForLot(lot, bill || {});
+      const customer = orders[0]?.customer || "-";
+      const billWeight = bill ? gram(Number(bill.netWeight || 0)) : "-";
+      const actionLabel = isBillQcOnlyMode()
+        ? "QC Check"
+        : bill
+          ? (isGeneratedBillLockedForCurrentUser(bill) ? "View Bill" : "View / Edit Bill")
+          : "Make Bill";
       return `
         <tr>
           <td>${escapeHtml(lot.number)}</td>
-          <td>${escapeHtml(lot.orderNumber || "-")}</td>
+          <td>${escapeHtml(lot.orderNumber || "-")}${lot.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
           <td>${escapeHtml(customer)}</td>
           <td>${gram(lot.finishedWeight)}</td>
           <td>${wastageDetailHtml(lot)}</td>
           <td>${escapeHtml(bill?.billNo || "-")}</td>
-          <td>${mfgAmount}${billWeight}</td>
-          <td>${officeAmount}</td>
+          <td>${billWeight}</td>
           <td><span class="status ${bill ? "completed" : "pending"}">${bill ? escapeHtml(lot.billingStage || "Sales Office QC") : "Pending Bill"}</span></td>
-          <td><button type="button" onclick="openBill('${lot.id}')">${bill ? "View / Edit Bill" : "Make Bill"}</button></td>
+          <td>
+            <div class="row-actions">
+              <button type="button" onclick="openBill('${lot.id}')">${actionLabel}</button>
+              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button>` : ""}
+            </div>
+          </td>
         </tr>
       `;
     })
     .join("");
-  document.getElementById("bill-table").innerHTML = rows || tableEmpty(10, "No completed job cards available for billing.");
+  document.getElementById("bill-table").innerHTML = rows || tableEmpty(9, "No completed job cards available for billing.");
 }
 
 function renderOffice() {
@@ -4849,8 +6072,15 @@ function renderOffice() {
         entry.bill.billNo,
         entry.item.huid1,
         entry.item.huid2,
+        entry.item.hallmarkLotNo,
+        entry.item.hallmarkLotNumber,
         entry.item.salesTeam,
         entry.item.soldCustomer,
+        entry.item.repairStatus,
+        entry.item.repairStartDate,
+        entry.item.repairIssueDate,
+        entry.item.repairReturnDate,
+        entry.item.repairAdditionalLoss,
         officeItemLocation(entry.item),
         officeItemStatus(entry.item),
       ].join(" ").toLowerCase();
@@ -4869,18 +6099,16 @@ function renderOffice() {
         <td>${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</td>
         <td>${gram(item.finalGw)}</td>
         <td>${gram(item.netWeight)}</td>
-        <td>${gram(item.manufacturingMakingGold || item.makingGold)}</td>
-        <td>${gram(item.officeMakingGold)}</td>
         <td>${escapeHtml(bill.billNo || "-")}</td>
         <td>${escapeHtml(officeHuidText(item))}</td>
-        <td>${escapeHtml(officeItemLocation(item))}</td>
-        <td><span class="status ${officeItemStatusClass(item)}">${escapeHtml(officeItemStatus(item))}</span><br><small>${escapeHtml(officeItemDate(item))}</small></td>
+        <td>${escapeHtml(officeItemLocation(item))}${hallmarkLotLabel(item) ? `<br><small>HM Lot ${escapeHtml(hallmarkLotLabel(item))}</small>` : ""}</td>
+        <td><span class="status ${officeItemStatusClass(item)}">${escapeHtml(officeItemStatus(item))}</span><br><small>${escapeHtml(officeItemDate(item))}</small>${isRepairItem(item) ? `<br><small>${escapeHtml(repairDayText(item))} / Loss ${gram(item.repairAdditionalLoss)}</small>` : ""}</td>
         <td><button type="button" class="ghost-button office-view-button" data-office-view-key="${escapeHtml(key)}">View</button></td>
       </tr>
     `;
     })
     .join("");
-  document.getElementById("office-table").innerHTML = rows || tableEmpty(14, "No QC OK items received in Office.");
+  document.getElementById("office-table").innerHTML = rows || tableEmpty(12, "No QC OK items received in Office.");
   const selectAll = document.getElementById("office-select-all");
   if (selectAll) selectAll.checked = false;
 }
@@ -4933,7 +6161,7 @@ function officeDialogConfig(page) {
       title: "Hallmarking Dept",
       note: "Enter HUID, then receive item to Hallmarked Item.",
       actions: '<button type="button" id="office-receive-hallmark" class="ghost-button">Receive To Hallmarked Item</button>',
-      content: renderOfficeLibraryItems(groups.hallmarking, "No item issued to Hallmarking."),
+      content: renderHallmarkLotLibraryItems(groups.hallmarking, "No item issued to Hallmarking."),
     };
   }
   if (page === "hallmarked") {
@@ -4950,8 +6178,10 @@ function officeDialogConfig(page) {
           <option>Sales Team 5</option>
         </select>
         <button type="button" id="office-issue-sales" class="ghost-button">Transfer To Sales Team</button>
+        <button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button>
+        <button type="button" id="office-print-tags" class="ghost-button">Print Selected Tags</button>
       `,
-      content: renderOfficeLibraryItems(groups.hallmarked, "No hallmarked stock."),
+      content: renderHallmarkLotLibraryItems(groups.hallmarked, "No hallmarked stock."),
     };
   }
   if (page === "sales") {
@@ -4996,19 +6226,19 @@ function renderOfficeItemTiles(entries) {
 function renderOfficeItemTile({ lot, bill, item, order }) {
   const key = officeItemKey(lot.id, item);
   const huidText = [item.huid1, item.huid2].filter(Boolean).join(" / ") || "No HUID";
+  const hmLot = hallmarkLotLabel(item);
+  const department = officeDepartment(item);
   return `
-    <article class="office-item-tile ${isHallmarkedItem(item) ? "hallmarked" : "non-hallmarked"}">
+    <article class="office-item-tile ${department}">
       <label class="office-tile-select">
         <input class="office-item-check" type="checkbox" value="${escapeHtml(key)}">
-        <span>${isHallmarkedItem(item) ? "Hallmarked" : "Non Hallmarked"}</span>
+        <span>${escapeHtml(officeItemStatus(item))}</span>
       </label>
       <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
       <span>${escapeHtml(order.customer || "-")}</span>
       <span>${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
       <div class="office-tile-metrics">
         <b>Net ${gram(item.netWeight)}</b>
-        <b>Mfg ${gram(item.manufacturingMakingGold || item.makingGold)}</b>
-        <b>Office ${gram(item.officeMakingGold)}</b>
       </div>
       <div class="office-tile-huid">
         ${officeHuidHtml(lot, item, order)}
@@ -5018,6 +6248,8 @@ function renderOfficeItemTile({ lot, bill, item, order }) {
         <span>${escapeHtml(officeItemLocation(item))}</span>
         <span class="status ${officeItemStatusClass(item)}">${escapeHtml(officeItemStatus(item))}</span>
       </div>
+      ${hmLot ? `<small>HM Lot ${escapeHtml(hmLot)}</small>` : ""}
+      ${isRepairItem(item) ? `<small>${escapeHtml(repairDayText(item))} / Extra loss ${gram(item.repairAdditionalLoss)}</small>` : ""}
       <small>${escapeHtml(lot.orderNumber || "-")} / ${escapeHtml(bill.billNo || "-")}</small>
     </article>
   `;
@@ -5126,9 +6358,8 @@ function renderSalesTeamItemDetails(entries, emptyText) {
         <div class="sales-detail-grid">
           <span><b>GW</b>${gram(item.finalGw)}</span>
           <span><b>Net Wt</b>${gram(item.netWeight)}</span>
-          <span><b>Stone Wt</b>${gram(item.reducedWeight)}</span>
-          <span><b>Mfg Making</b>${gram(item.manufacturingMakingGold || item.makingGold)}</span>
-          <span><b>Office Making</b>${gram(item.officeMakingGold)}</span>
+          <span><b>Total Non-Gold</b>${billNonGoldTotalText(item, order)}</span>
+          <span><b>Non-Gold Details</b>${escapeHtml(billNonGoldSummaryText(item, order))}</span>
           <span><b>Bill No</b>${escapeHtml(bill.billNo || "-")}</span>
           <span><b>HUID</b>${escapeHtml([item.huid1, item.huid2].filter(Boolean).join(" / ") || "-")}</span>
         </div>
@@ -5144,29 +6375,100 @@ function renderSalesTeamItemDetails(entries, emptyText) {
   }).join("");
 }
 
+function renderRepairItems(entries, emptyText) {
+  if (!entries.length) return `<div class="empty">${emptyText}</div>`;
+  const readonly = canEditOfficeWeights() ? "" : "readonly";
+  return `
+    <div class="repair-item-grid">
+      ${entries.map(({ lot, bill, item, order }) => {
+        const key = officeItemKey(lot.id, item);
+        const suggestedLoss = repairSuggestedAdditionalLoss(item);
+        return `
+          <div class="office-library-item repair repair-detail-card">
+            <label class="office-tile-select">
+              <input class="office-item-check" type="checkbox" value="${escapeHtml(key)}">
+              <span>${escapeHtml(officeItemStatus(item))}</span>
+            </label>
+            <div class="office-library-row">
+              <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
+              <span class="status ${officeItemStatusClass(item)}">${escapeHtml(repairDayText(item))}</span>
+            </div>
+            <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
+            <div class="sales-detail-grid repair-detail-grid">
+              <span><b>Job Card</b>${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
+              <span><b>Repair Start</b>${escapeHtml(item.repairStartDate || item.qcDate || "-")}</span>
+              <span><b>Repair Issue</b>${escapeHtml(item.repairIssueDate || "-")}</span>
+              <span><b>Repair Return</b>${escapeHtml(item.repairReturnDate || "-")}</span>
+              <span><b>Previous Net</b>${gram(item.repairBaseNetWeight || item.netWeight)}</span>
+              <span><b>Current Net</b>${gram(item.netWeight)}</span>
+              <span><b>Extra Loss</b>${gram(item.repairAdditionalLoss)}</span>
+              <span><b>Status</b>${escapeHtml(item.repairStatus || "QC Failed")}</span>
+            </div>
+            <div class="repair-input-grid">
+              <label>Final GW After Repair <input class="repair-final-gw-input" data-key="${escapeHtml(key)}" type="number" min="0" step="0.001" value="${weight3(item.finalGw)}" ${readonly}></label>
+              <label>Additional Repair Loss <input class="repair-loss-input" data-key="${escapeHtml(key)}" type="number" min="0" step="0.001" value="${weight3(suggestedLoss)}" ${readonly}></label>
+            </div>
+            <small>${escapeHtml(bill.billNo || "-")} / ${escapeHtml(officeItemLocation(item))}</small>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderHallmarkLotLibraryItems(entries, emptyText) {
+  if (!entries.length) return `<div class="empty">${emptyText}</div>`;
+  const groups = entries.reduce((acc, entry) => {
+    const lotNo = hallmarkLotLabel(entry.item) || "No HM Lot";
+    acc[lotNo] = acc[lotNo] || [];
+    acc[lotNo].push(entry);
+    return acc;
+  }, {});
+  return `
+    <div class="hallmark-lot-groups">
+      ${Object.entries(groups).map(([lotNo, lotEntries]) => `
+        <section class="hallmark-lot-group">
+          <div class="panel-heading hallmark-lot-heading">
+            <h3>${escapeHtml(lotNo)}</h3>
+            <span>${lotEntries.length} pcs</span>
+          </div>
+          ${renderOfficeLibraryItems(lotEntries, "")}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderOfficeLibraryItems(entries, emptyText) {
   if (!entries.length) return `<div class="empty">${emptyText}</div>`;
   return entries.map(({ lot, bill, item, order }) => {
     const key = officeItemKey(lot.id, item);
+    const hmLot = hallmarkLotLabel(item);
     const soldAction = item.saleStatus === "Sold"
       ? `<button type="button" class="ghost-button office-view-button" data-sold-view-key="${escapeHtml(key)}">View</button>`
       : "";
+    const tagAction = isHallmarkedItem(item)
+      ? `<button type="button" class="ghost-button office-view-button" data-office-tag-key="${escapeHtml(key)}">Tag</button>`
+      : "";
     return `
-      <div class="office-library-item ${isHallmarkedItem(item) ? "hallmarked" : "non-hallmarked"}">
+      <div class="office-library-item ${officeDepartment(item)}">
         <label class="office-tile-select">
           <input class="office-item-check" type="checkbox" value="${escapeHtml(key)}">
           <span>${escapeHtml(officeItemStatus(item))}</span>
         </label>
         <div class="office-library-row">
           <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
-          ${soldAction}
+          <div class="row-actions">${tagAction}${soldAction}</div>
         </div>
         <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
         <small>${escapeHtml(lot.orderNumber || "-")} / ${escapeHtml(bill.billNo || "-")} / ${gram(item.netWeight)}</small>
+        ${hmLot ? `<small><b>HM Lot</b> ${escapeHtml(hmLot)}${item.hallmarkLotIssueDate ? ` / Issue ${escapeHtml(item.hallmarkLotIssueDate)}` : ""}${item.hallmarkLotReceiveDate ? ` / Return ${escapeHtml(item.hallmarkLotReceiveDate)}` : ""}</small>` : ""}
         <small>Location: ${escapeHtml(officeItemLocation(item))}</small>
+        ${isRepairItem(item) ? `<small>${escapeHtml(repairDayText(item))} / Extra loss ${gram(item.repairAdditionalLoss)}</small>` : ""}
         ${item.soldCustomer ? `<small>Sold To: ${escapeHtml(item.soldCustomer)}</small>` : ""}
         ${item.hallmarkStatus === "Issued" ? officeHuidHtml(lot, item, order) : ""}
         ${isHallmarkedItem(item) ? `<small>HUID: ${escapeHtml([item.huid1, item.huid2].filter(Boolean).join(" / "))}</small>` : ""}
+        ${item.tagPrinted ? `<small><span class="status completed">Tag Printed</span> ${escapeHtml(item.tagPrintedDate || "")}</small>` : ""}
       </div>
     `;
   }).join("");
@@ -5331,7 +6633,10 @@ async function openOfficeItemView(key) {
   const discardAction = canEditOfficeWeights() && !isDiscardedItem(item)
     ? `<button type="button" class="danger-button" data-discard-office-item="${escapeHtml(key)}">Discard / Send To Melting</button>`
     : "";
-  if (actions) actions.innerHTML = `<button type="button" id="office-back-sold" class="ghost-button">Back To Office Details</button>${discardAction}`;
+  const tagAction = isHallmarkedItem(item)
+    ? `<button type="button" class="ghost-button" data-office-tag-key="${escapeHtml(key)}">Print Tag</button>`
+    : "";
+  if (actions) actions.innerHTML = `<button type="button" id="office-back-sold" class="ghost-button">Back To Office Details</button>${tagAction}${discardAction}`;
   if (detailsPanel) detailsPanel.classList.add("hidden");
   if (content) {
     content.innerHTML = `
@@ -5352,10 +6657,19 @@ async function openOfficeItemView(key) {
           <div class="sold-detail-grid">
             ${soldDetailCell("Current Location", officeItemLocation(item))}
             ${soldDetailCell("Current Status", officeItemStatus(item))}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Repair Status", item.repairStatus || "-") : ""}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Repair Days", repairDayText(item)) : ""}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Repair Start", item.repairStartDate) : ""}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Repair Issue", item.repairIssueDate) : ""}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Repair Return", item.repairReturnDate) : ""}
+            ${isRepairItem(item) || item.repairStatus ? soldDetailCell("Additional Repair Loss", gram(item.repairAdditionalLoss)) : ""}
             ${isDiscardedItem(item) ? soldDetailCell("Discard Reason", item.discardReason) : ""}
             ${isDiscardedItem(item) ? soldDetailCell("Discard Date", item.discardDate) : ""}
             ${soldDetailCell("Job Card", lot.orderNumber || lot.number)}
             ${soldDetailCell("Lot", lot.number)}
+            ${soldDetailCell("Hallmark Lot", hallmarkLotLabel(item))}
+            ${soldDetailCell("HM Issue Date", item.hallmarkLotIssueDate || item.hallmarkIssueDate)}
+            ${soldDetailCell("HM Return Date", item.hallmarkLotReceiveDate || item.hallmarkReceiveDate)}
             ${soldDetailCell("Bill No", bill.billNo)}
             ${soldDetailCell("Original Customer", order.customer)}
             ${soldDetailCell("Sold To", item.soldCustomer)}
@@ -5368,12 +6682,9 @@ async function openOfficeItemView(key) {
             ${soldDetailCell("Colour", order.color)}
             ${soldDetailCell("Purity", item.purity || order.purity)}
             ${soldDetailCell("GW", gram(item.finalGw))}
-            ${soldDetailCell("Stone Wt", gram(item.reducedWeight))}
+            ${soldDetailCell("Total Non-Gold", billNonGoldTotalText(item, order))}
+            ${soldDetailCell("Non-Gold Details", billNonGoldSummaryText(item, order))}
             ${soldDetailCell("Net Wt", gram(item.netWeight))}
-            ${soldDetailCell("Mfg Making %", item.manufacturingMakingPercent || item.makingPercent || "")}
-            ${soldDetailCell("Mfg Making Gold", gram(item.manufacturingMakingGold || item.makingGold))}
-            ${soldDetailCell("Office Making %", item.officeMakingPercent || "")}
-            ${soldDetailCell("Office Making Gold", gram(item.officeMakingGold))}
             ${soldDetailCell("HUID", [item.huid1, item.huid2].filter(Boolean).join(" / "))}
             ${soldDetailCell("Black Beads", item.blackBeads)}
             ${soldDetailCell("Moti", item.moti)}
@@ -5433,7 +6744,9 @@ function officeItems() {
     const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
     if (!bill?.items?.length) return [];
     return bill.items
-      .filter((item) => item.qcStatus === "QC OK" && item.officeStatus === "Office" && !isDiscardedItem(item))
+      .filter((item) => !isDiscardedItem(item) && (
+        item.qcStatus === "QC OK" && item.officeStatus === "Office"
+      ))
       .map((item) => ({
         lot,
         bill,
@@ -5443,9 +6756,31 @@ function officeItems() {
   });
 }
 
+function repairJobItems() {
+  return state.lots.flatMap((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.items?.length) return [];
+    return bill.items
+      .filter((item) => isRepairItem(item))
+      .map((item) => ({
+        lot,
+        bill,
+        item,
+        order: findById("orders", item.orderId) || {},
+      }));
+  });
+}
+
+function isRepairItem(item = {}) {
+  if (isDiscardedItem(item)) return false;
+  if (item.qcStatus === "QC Failed") return true;
+  return ["QC Failed", "In Repair Production", "Repaired - Ready For Final Bill"].includes(item.repairStatus || "");
+}
+
 function officeDepartment(item = {}) {
   if (isDiscardedItem(item)) return "discarded";
   if (item.saleStatus === "Sold") return "sold";
+  if (isRepairItem(item)) return "repair";
   if (item.salesTeam) return "sales";
   if (item.hallmarkStatus === "Issued") return "hallmarking";
   if (isHallmarkedItem(item)) return "hallmarked";
@@ -5683,33 +7018,45 @@ function createDiscardMeltingRecord({ item, order, lot, reason, goldWeight, puri
 }
 
 function officeItemHolder(item) {
+  if (isRepairItem(item)) return item.repairStatus === "In Repair Production" ? "Repair Production" : "QC Failed / Repair";
   if (item.saleStatus === "Sold") return item.salesTeam || "Sold";
   if (item.salesTeam) return item.salesTeam;
-  if (item.hallmarkStatus === "Issued") return "Hallmarking Department";
+  if (item.hallmarkStatus === "Issued") return hallmarkLotLabel(item) ? `Hallmarking Department - ${hallmarkLotLabel(item)}` : "Hallmarking Department";
   if (isHallmarkedItem(item)) return "Hallmarked Item";
   return "Non Hallmarked Item";
 }
 
 function officeItemLocation(item) {
   if (isDiscardedItem(item)) return "Discarded / Melting";
+  if (isRepairItem(item)) {
+    if (item.repairStatus === "In Repair Production") return "Repair Production";
+    if (item.repairStatus === "Repaired - Ready For Final Bill") return "Repair Completed - Final Bill";
+    return "QC Failed - Back To Production";
+  }
   if (item.saleStatus === "Sold") return item.soldCustomer ? `Sold to ${item.soldCustomer}` : "Sold Item";
   if (item.salesTeam) return `Sales Team - ${item.salesTeam}`;
-  if (item.hallmarkStatus === "Issued") return "Hallmarking Department";
-  if (isHallmarkedItem(item)) return "Office - Hallmarked Item Stock";
+  if (item.hallmarkStatus === "Issued") return hallmarkLotLabel(item) ? `Hallmarking Department - ${hallmarkLotLabel(item)}` : "Hallmarking Department";
+  if (isHallmarkedItem(item)) return hallmarkLotLabel(item) ? `Office - Hallmarked Item Stock - ${hallmarkLotLabel(item)}` : "Office - Hallmarked Item Stock";
   return "Office - Non Hallmarked Item Stock";
 }
 
 function officeItemStatus(item) {
   if (isDiscardedItem(item)) return "Discarded for Melting";
+  if (isRepairItem(item)) return item.repairStatus || "QC Failed";
   if (item.saleStatus === "Sold") return "Sold";
   if (item.salesTeam) return "With Sales Team";
-  if (item.hallmarkStatus === "Issued") return "Hallmarking Issued";
-  if (isHallmarkedItem(item)) return "Hallmarked";
+  if (item.hallmarkStatus === "Issued") return hallmarkLotLabel(item) ? `Hallmarking Issued ${hallmarkLotLabel(item)}` : "Hallmarking Issued";
+  if (isHallmarkedItem(item)) return item.tagPrinted ? "Tag Printed" : "Hallmarked";
   return "Non Hallmarked";
 }
 
 function officeItemStatusClass(item) {
   if (isDiscardedItem(item)) return "cancelled";
+  if (isRepairItem(item)) {
+    if (item.repairStatus === "In Repair Production") return "transfer";
+    if (item.repairStatus === "Repaired - Ready For Final Bill") return "pending";
+    return "cancelled";
+  }
   if (item.saleStatus === "Sold") return "completed";
   if (item.salesTeam) return "pending";
   if (item.hallmarkStatus === "Issued") return "transfer";
@@ -5718,7 +7065,28 @@ function officeItemStatusClass(item) {
 
 function officeItemDate(item) {
   if (isDiscardedItem(item)) return item.discardDate || "";
+  if (isRepairItem(item)) return item.repairReturnDate || item.repairIssueDate || item.repairStartDate || item.qcDate || "";
+  if (isHallmarkedItem(item) && item.tagPrinted && !item.salesTeam && item.hallmarkStatus !== "Issued") return item.tagPrintedDate || "";
   return item.saleDate || item.salesIssueDate || item.hallmarkReceiveDate || item.hallmarkIssueDate || item.qcDate || "";
+}
+
+function repairDayCount(item = {}) {
+  const start = item.repairStartIsoDate || "";
+  const end = item.repairReturnIsoDate || isoToday();
+  if (start) return daysBetween(start, end);
+  return Number(item.repairDays || 0);
+}
+
+function repairDayText(item = {}) {
+  const days = repairDayCount(item);
+  return `${days} repair day${days === 1 ? "" : "s"}`;
+}
+
+function repairSuggestedAdditionalLoss(item = {}) {
+  if (Number(item.repairLastLoss || 0) > 0) return Number(item.repairLastLoss || 0);
+  const baseNet = Number(item.repairBaseNetWeight || item.netWeight || 0);
+  const currentNet = Number(item.netWeight || 0);
+  return Number(weight3(Math.max(baseNet - currentNet, 0)));
 }
 
 function isDiscardedItem(item = {}) {
@@ -5727,6 +7095,22 @@ function isDiscardedItem(item = {}) {
 
 function selectedOfficeKeys() {
   return Array.from(document.querySelectorAll(".office-item-check:checked")).map((input) => input.value);
+}
+
+function hallmarkLotLabel(item = {}) {
+  return item.hallmarkLotNo || item.hallmarkLotNumber || "";
+}
+
+function nextHallmarkLotNumber() {
+  let max = 0;
+  state.lots.forEach((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    (bill?.items || []).forEach((item) => {
+      const match = String(hallmarkLotLabel(item)).match(/hm\s*0*(\d+)/i);
+      if (match) max = Math.max(max, Number(match[1] || 0));
+    });
+  });
+  return `HM${String(max + 1).padStart(2, "0")}`;
 }
 
 function updateSelectedOfficeItems(action) {
@@ -5764,6 +7148,7 @@ function updateSelectedOfficeItems(action) {
       return;
     }
   }
+  const hallmarkLotNo = action === "hallmarkIssue" ? nextHallmarkLotNumber() : "";
   let updated = 0;
   state.lots.forEach((lot) => {
     const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
@@ -5772,10 +7157,33 @@ function updateSelectedOfficeItems(action) {
       if (!keys.includes(officeItemKey(lot.id, item))) return item;
       updated += 1;
       if (action === "hallmarkIssue") {
-        return { ...item, hallmarkStatus: "Issued", hallmarkIssueDate: today(), holder: "Hallmarking Department", salesTeam: "", salesIssueDate: "", saleStatus: "" };
+        return {
+          ...item,
+          hallmarkStatus: "Issued",
+          hallmarkIssueDate: today(),
+          hallmarkIssueIsoDate: isoToday(),
+          hallmarkLotNo,
+          hallmarkLotNumber: hallmarkLotNo,
+          hallmarkLotIssueDate: today(),
+          hallmarkLotIssueIsoDate: isoToday(),
+          holder: "Hallmarking Department",
+          salesTeam: "",
+          salesIssueDate: "",
+          saleStatus: "",
+        };
       }
       if (action === "hallmarkReceive") {
-        return { ...item, hallmarkStatus: "Received", hallmarkReceiveDate: today(), holder: "Hallmarked Item" };
+        return {
+          ...item,
+          hallmarkStatus: "Received",
+          hallmarkReceiveDate: today(),
+          hallmarkReceiveIsoDate: isoToday(),
+          hallmarkLotNo: hallmarkLotLabel(item),
+          hallmarkLotNumber: hallmarkLotLabel(item),
+          hallmarkLotReceiveDate: today(),
+          hallmarkLotReceiveIsoDate: isoToday(),
+          holder: "Hallmarked Item",
+        };
       }
       if (action === "salesIssue") {
         return { ...item, salesTeam, salesIssueDate: today(), holder: salesTeam, saleStatus: "With Sales Team" };
@@ -5819,55 +7227,224 @@ function openBill(lotId) {
   const lot = findById("lots", lotId);
   if (!lot) return;
   const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  if (isBillQcOnlyMode() && !bill.id) {
+    alert("Bill must be created by Bill Dept, Manager, or Owner before QC check.");
+    return;
+  }
   const form = document.getElementById("bill-form");
-  const customer = getLotOrders(lot)[0]?.customer || "-";
+  const billableOrders = billableOrdersForLot(lot, bill);
+  const customer = billableOrders[0]?.customer || "-";
   form.lotId.value = lot.id;
   form.billNo.value = bill.billNo || nextBillNumber();
   form.billDate.value = bill.billDate || isoToday();
-  form.makingRate.value = bill.makingRate ?? defaultMakingPercentForLot(lot);
-  form.officeMakingRate.value = bill.officeMakingRate ?? defaultMakingPercentForLot(lot);
-  form.otherCharges.value = bill.otherCharges ?? 0;
   form.remarks.value = bill.remarks || "";
-  document.getElementById("bill-form-title").textContent = bill.billNo ? "View / Edit Bill" : "Make Bill";
-  document.getElementById("bill-summary").textContent = `${lot.number} / ${lot.orderNumber || "-"} / ${customer} / Finished ${gram(lot.finishedWeight)}`;
+  const lockedForUser = isGeneratedBillLockedForCurrentUser(bill);
+  document.getElementById("bill-form-title").textContent = isBillQcOnlyMode()
+    ? "QC Check"
+    : bill.billNo
+      ? (lockedForUser ? "View Bill" : "View / Edit Bill")
+      : "Make Bill";
+  document.getElementById("bill-summary").textContent = [
+    `${lot.number} / ${lot.orderNumber || "-"} / ${customer} / ${billableOrders.length} current item${billableOrders.length === 1 ? "" : "s"} / Finished ${gram(lot.finishedWeight)}`,
+    lockedForUser ? "Bill already generated. Bill Dept can view only; Manager and Owner can edit." : "",
+  ].filter(Boolean).join(" | ");
   renderBillItems(lot, bill);
   updateBillAmount();
+  applyBillAccessMode();
   document.getElementById("bill-dialog").showModal();
+}
+
+function applyBillAccessMode() {
+  const form = document.getElementById("bill-form");
+  if (!form) return;
+  const qcOnlyMode = isBillQcOnlyMode();
+  const canChangeQc = canEditQcStatus();
+  const lot = findById("lots", form.lotId.value);
+  const bill = lot?.bill || state.bills?.find((item) => item.lotId === lot?.id) || {};
+  const lockedForUser = isGeneratedBillLockedForCurrentUser(bill);
+  form.classList.toggle("qc-only-bill-form", qcOnlyMode);
+  form.classList.toggle("locked-bill-form", lockedForUser);
+  form.querySelectorAll("input, textarea").forEach((input) => {
+    if (input.type === "hidden") return;
+    input.readOnly = qcOnlyMode || lockedForUser || input.hasAttribute("readonly");
+  });
+  form.querySelectorAll("select").forEach((select) => {
+    select.disabled = lockedForUser || (qcOnlyMode && select.name !== "billItemQcStatus") || (select.name === "billItemQcStatus" && !canChangeQc);
+  });
+  const transferOk = document.getElementById("bill-qc-ok");
+  const transferFailed = document.getElementById("bill-qc-failed");
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (transferOk) transferOk.classList.toggle("hidden", qcOnlyMode);
+  if (transferFailed) transferFailed.classList.toggle("hidden", qcOnlyMode);
+  if (submitButton) {
+    submitButton.classList.toggle("hidden", lockedForUser);
+    submitButton.disabled = lockedForUser;
+    submitButton.textContent = qcOnlyMode ? "Save QC Check" : "Save Bill";
+  }
+}
+
+function billWeightInputValue(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number === 0) return "0";
+  return weight3(number).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function billWeightText(value) {
+  return `${billWeightInputValue(value)} g`;
+}
+
+function billNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeBbType(value = "") {
+  const match = String(value || "").match(/\d+(?:\.\d+)?/);
+  if (!match) return "";
+  const number = Number(match[0]);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return String(number);
+}
+
+function bbTypeOptions(selected = "") {
+  const normalized = normalizeBbType(selected);
+  const options = [
+    ["", "Select"],
+    ["1.3", "1.3 gm / 100 pc"],
+    ["0.9", "0.9 gm / 100 pc"],
+  ];
+  return options.map(([value, label]) =>
+    `<option value="${escapeHtml(value)}" ${value === normalized ? "selected" : ""}>${escapeHtml(label)}</option>`
+  ).join("");
+}
+
+function bbTypeLabel(value = "") {
+  const normalized = normalizeBbType(value);
+  if (normalized === "1.3") return "1.3 gm/100 pc";
+  if (normalized === "0.9") return "0.9 gm/100 pc";
+  return "";
+}
+
+function bbTypeWeightPerPc(value = "") {
+  const normalized = Number(normalizeBbType(value));
+  if (!Number.isFinite(normalized) || normalized <= 0) return 0;
+  return normalized > 0.1 ? normalized / 100 : normalized;
+}
+
+function bbWeightFromType(bbNo = "", bbType = "") {
+  const pcs = Number(bbNo || 0);
+  const weightPerPc = bbTypeWeightPerPc(bbType);
+  if (!Number.isFinite(pcs) || pcs <= 0 || !weightPerPc) return 0;
+  return Number(weight3(pcs * weightPerPc));
+}
+
+function automaticBillStoneWeight(order = {}) {
+  if (!order?.id) return 0;
+  return Number(weight3(productionStoneTotalsForOrders([order]).weight || 0));
+}
+
+function billItemNonGoldBreakup(item = {}, order = {}) {
+  const plannedStoneWeight = automaticBillStoneWeight(order);
+  const stoneWeight = order.id
+    ? plannedStoneWeight
+    : billNumber(item.stoneWeight ?? item.stWeight ?? item.stoneWt);
+  const bbNo = item.bbNo ?? item.blackBeads ?? "";
+  const bbType = normalizeBbType(item.bbType ?? "");
+  const calculatedBbWeight = bbWeightFromType(bbNo, bbType);
+  const savedBbWeight = billNumber(item.blackBeadsWeight ?? item.bbWeight);
+  const blackBeadsWeight = bbType ? calculatedBbWeight : savedBbWeight;
+  const motiWeight = billNumber(item.motiWeight ?? item.mmWeight);
+  const springWeight = billNumber(item.springWeight);
+  const otherNonGoldWeight = billNumber(item.otherNonGoldWeight ?? item.otherWeight);
+  const total = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + springWeight + otherNonGoldWeight));
+  return {
+    bbNo,
+    bbType,
+    blackBeadsWeight,
+    motiWeight,
+    stoneWeight,
+    springWeight,
+    otherNonGoldWeight,
+    total,
+  };
+}
+
+function billNonGoldSummaryText(item = {}, order = {}) {
+  const nonGold = billItemNonGoldBreakup(item, order);
+  return [
+    `BB ${nonGold.bbNo ? `${nonGold.bbNo}${bbTypeLabel(nonGold.bbType) ? ` ${bbTypeLabel(nonGold.bbType)}` : ""} ` : ""}${billWeightText(nonGold.blackBeadsWeight)}`,
+    `Moti ${billWeightText(nonGold.motiWeight)}`,
+    `Stone ${billWeightText(nonGold.stoneWeight)}`,
+    `Spring ${billWeightText(nonGold.springWeight)}`,
+    `Other ${billWeightText(nonGold.otherNonGoldWeight)}`,
+  ].join(" / ");
+}
+
+function billNonGoldTotalText(item = {}, order = {}) {
+  return billWeightText(billItemNonGoldBreakup(item, order).total);
 }
 
 function updateBillAmount() {
   const form = document.getElementById("bill-form");
   if (!form) return;
-  const lot = findById("lots", form.lotId.value);
   const itemRows = billItemRows();
-  const itemNetWeight = itemRows.reduce((total, item) => total + Number(item.netWeight || 0), 0);
-  const itemManufacturingMakingGold = itemRows.reduce((total, item) => total + Number(item.manufacturingMakingGold || item.makingGold || 0), 0);
-  const itemOfficeMakingGold = itemRows.reduce((total, item) => total + Number(item.officeMakingGold || 0), 0);
-  const hasItemWeight = itemRows.some((item) => Number(item.finalGw || 0) > 0);
-  const billWeight = hasItemWeight ? itemNetWeight : Number(lot?.finishedWeight || 0);
-  const fallbackManufacturingMaking = billWeight * Number(form.makingRate.value || 0) / 100;
-  const fallbackOfficeMaking = billWeight * Number(form.officeMakingRate.value || 0) / 100;
-  const manufacturingAmount = hasItemWeight ? itemManufacturingMakingGold : fallbackManufacturingMaking;
-  const officeAmount = hasItemWeight ? itemOfficeMakingGold : fallbackOfficeMaking;
-  if (form.manufacturingBillAmount) form.manufacturingBillAmount.value = weight3(manufacturingAmount);
-  form.billAmount.value = weight3(officeAmount);
+  renderBillTotals(itemRows);
+}
+
+function billTotals(items = []) {
+  return items.reduce((total, item) => ({
+    pieces: total.pieces + 1,
+    finalGw: total.finalGw + billNumber(item.finalGw),
+    bbWeight: total.bbWeight + billNumber(item.blackBeadsWeight || item.bbWeight),
+    motiWeight: total.motiWeight + billNumber(item.motiWeight || item.mmWeight),
+    stoneWeight: total.stoneWeight + billNumber(item.stoneWeight || item.stWeight),
+    springWeight: total.springWeight + billNumber(item.springWeight),
+    otherNonGoldWeight: total.otherNonGoldWeight + billNumber(item.otherNonGoldWeight || item.otherWeight),
+    reducedWeight: total.reducedWeight + billNumber(item.reducedWeight),
+    netWeight: total.netWeight + billNumber(item.netWeight),
+  }), {
+    pieces: 0,
+    finalGw: 0,
+    bbWeight: 0,
+    motiWeight: 0,
+    stoneWeight: 0,
+    springWeight: 0,
+    otherNonGoldWeight: 0,
+    reducedWeight: 0,
+    netWeight: 0,
+  });
+}
+
+function renderBillTotals(items = []) {
+  const container = document.getElementById("bill-totals");
+  if (!container) return;
+  const total = billTotals(items);
+  container.innerHTML = `
+    <div class="bill-total-card"><span>Items</span><strong>${total.pieces}</strong></div>
+    <div class="bill-total-card"><span>Total GW (g)</span><strong>${gram(total.finalGw)}</strong></div>
+    <div class="bill-total-card"><span>BB Wt (g)</span><strong>${gram(total.bbWeight)}</strong></div>
+    <div class="bill-total-card"><span>Moti Wt (g)</span><strong>${gram(total.motiWeight)}</strong></div>
+    <div class="bill-total-card"><span>Stone Wt (g)</span><strong>${gram(total.stoneWeight)}</strong></div>
+    <div class="bill-total-card"><span>Spring Wt (g)</span><strong>${gram(total.springWeight)}</strong></div>
+    <div class="bill-total-card"><span>Other Wt (g)</span><strong>${gram(total.otherNonGoldWeight)}</strong></div>
+    <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>
+    <div class="bill-total-card highlight"><span>Net Wt (g)</span><strong>${gram(total.netWeight)}</strong></div>
+  `;
 }
 
 function renderBillItems(lot, bill = {}) {
   const body = document.getElementById("bill-item-table");
   if (!body) return;
   const savedItems = Array.isArray(bill.items) ? bill.items : [];
-  const rows = getLotOrders(lot).map((order, index) => {
+  const billableOrders = billableOrdersForLot(lot, bill);
+  const qcDisabled = canEditQcStatus() ? "" : " disabled";
+  const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
-    const stoneWeight = Number(saved.reducedWeight ?? productionStoneTotalsForOrders([order]).weight ?? 0);
+    const nonGold = billItemNonGoldBreakup(saved, order);
     const finalGwValue = saved.finalGw ?? "";
     const finalGw = Number(finalGwValue || 0);
-    const netWeight = finalGwValue === "" ? 0 : Math.max(finalGw - stoneWeight, 0);
+    const netWeight = finalGwValue === "" ? 0 : Math.max(finalGw - nonGold.total, 0);
     const purity = saved.purity || order.purity || "18K";
-    const manufacturingMakingPercent = saved.manufacturingMakingPercent ?? saved.makingPercent ?? defaultMakingPercentForPurity(purity);
-    const officeMakingPercent = saved.officeMakingPercent ?? bill.officeMakingRate ?? saved.makingPercent ?? defaultMakingPercentForPurity(purity);
-    const manufacturingMakingGold = netWeight * Number(manufacturingMakingPercent || 0) / 100;
-    const officeMakingGold = netWeight * Number(officeMakingPercent || 0) / 100;
     const qcStatus = saved.qcStatus || "Pending QC";
     const qcNote = saved.reworkLotNumber ? `Returned: ${saved.reworkLotNumber}` : (saved.officeStatus ? saved.officeStatus : "");
     const itemLabel = [
@@ -5877,21 +7454,28 @@ function renderBillItems(lot, bill = {}) {
       order.ringType || "",
     ].filter(Boolean).join(" / ");
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-reduced-weight="${weight3(stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}${order.size ? ` / Size ${escapeHtml(order.size)}` : ""}</small>
         </td>
         <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
-        <td>${gram(stoneWeight)}</td>
+        <td>
+          <div class="bill-non-gold-grid">
+            <label>BB No <input name="billItemBbNo" type="number" min="0" step="1" value="${escapeHtml(nonGold.bbNo)}" placeholder="0"></label>
+            <label>BB Type <select name="billItemBbType">${bbTypeOptions(nonGold.bbType)}</select></label>
+            <label>BB Wt <input name="billItemBbWeight" type="number" readonly value="${escapeHtml(billWeightInputValue(nonGold.blackBeadsWeight))}"></label>
+            <label>Moti Wt <input name="billItemMotiWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.motiWeight))}"></label>
+            <label>Stone Wt <input name="billItemStoneWeight" type="number" readonly value="${escapeHtml(billWeightInputValue(nonGold.stoneWeight))}"></label>
+            <label>Spring <input name="billItemSpringWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.springWeight))}"></label>
+            <label>Other Wt <input name="billItemOtherNonGoldWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.otherNonGoldWeight))}"></label>
+          </div>
+        </td>
+        <td><input name="billItemReducedWeight" type="number" readonly value="${weight3(nonGold.total)}"></td>
         <td><input name="billItemNetWeight" type="number" readonly value="${weight3(netWeight)}"></td>
         <td>${escapeHtml(purity)}</td>
-        <td><input name="billItemManufacturingMakingPercent" type="number" min="0" step="0.01" value="${escapeHtml(manufacturingMakingPercent)}"></td>
-        <td><input name="billItemManufacturingMakingGold" type="number" readonly value="${weight3(manufacturingMakingGold)}"></td>
-        <td><input name="billItemOfficeMakingPercent" type="number" min="0" step="0.01" value="${escapeHtml(officeMakingPercent)}"></td>
-        <td><input name="billItemOfficeMakingGold" type="number" readonly value="${weight3(officeMakingGold)}"></td>
         <td>
-          <select name="billItemQcStatus">
+          <select name="billItemQcStatus"${qcDisabled}>
             <option value="Pending QC" ${qcStatus === "Pending QC" ? "selected" : ""}>Pending QC</option>
             <option value="QC OK" ${qcStatus === "QC OK" ? "selected" : ""}>QC OK</option>
             <option value="QC Failed" ${qcStatus === "QC Failed" ? "selected" : ""}>QC Failed</option>
@@ -5901,45 +7485,66 @@ function renderBillItems(lot, bill = {}) {
       </tr>
     `;
   }).join("");
-  body.innerHTML = rows || tableEmpty(10, "No item details found for this job card.");
+  body.innerHTML = rows || tableEmpty(7, "No item details found for this job card.");
 }
 
 function billItemRows(existingItems = []) {
+  const canChangeQc = canEditQcStatus();
   return Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]")).map((row) => {
     const existing = existingItems.find((item) => item.orderId === row.dataset.orderId || item.productionNo === row.dataset.productionNo) || {};
     const finalGwInput = row.querySelector('[name="billItemFinalGw"]');
+    const bbNoInput = row.querySelector('[name="billItemBbNo"]');
+    const bbTypeInput = row.querySelector('[name="billItemBbType"]');
+    const bbWeightInput = row.querySelector('[name="billItemBbWeight"]');
+    const motiWeightInput = row.querySelector('[name="billItemMotiWeight"]');
+    const stoneWeightInput = row.querySelector('[name="billItemStoneWeight"]');
+    const springWeightInput = row.querySelector('[name="billItemSpringWeight"]');
+    const otherNonGoldWeightInput = row.querySelector('[name="billItemOtherNonGoldWeight"]');
+    const reducedInput = row.querySelector('[name="billItemReducedWeight"]');
     const netInput = row.querySelector('[name="billItemNetWeight"]');
-    const manufacturingMakingPercentInput = row.querySelector('[name="billItemManufacturingMakingPercent"]');
-    const manufacturingMakingGoldInput = row.querySelector('[name="billItemManufacturingMakingGold"]');
-    const officeMakingPercentInput = row.querySelector('[name="billItemOfficeMakingPercent"]');
-    const officeMakingGoldInput = row.querySelector('[name="billItemOfficeMakingGold"]');
     const qcStatusInput = row.querySelector('[name="billItemQcStatus"]');
     const finalGw = Number(finalGwInput?.value || 0);
-    const reducedWeight = Number(row.dataset.reducedWeight || 0);
+    const bbNo = (bbNoInput?.value || "").trim();
+    const bbType = (bbTypeInput?.value || "").trim();
+    const calculatedBbWeight = bbWeightFromType(bbNo, bbType);
+    const blackBeadsWeight = bbType ? calculatedBbWeight : Number(bbWeightInput?.value || 0);
+    const motiWeight = Number(motiWeightInput?.value || 0);
+    const stoneWeight = Number(row.dataset.jobStoneWeight || 0);
+    const springWeight = Number(springWeightInput?.value || 0);
+    const otherNonGoldWeight = Number(otherNonGoldWeightInput?.value || 0);
+    const reducedWeight = Number(weight3(blackBeadsWeight + motiWeight + stoneWeight + springWeight + otherNonGoldWeight));
     const netWeight = Math.max(finalGw - reducedWeight, 0);
-    const manufacturingMakingPercent = Number(manufacturingMakingPercentInput?.value || 0);
-    const officeMakingPercent = Number(officeMakingPercentInput?.value || 0);
-    const manufacturingMakingGold = netWeight * manufacturingMakingPercent / 100;
-    const officeMakingGold = netWeight * officeMakingPercent / 100;
+    if (bbWeightInput) bbWeightInput.value = billWeightInputValue(blackBeadsWeight);
+    if (stoneWeightInput) stoneWeightInput.value = billWeightInputValue(stoneWeight);
+    if (reducedInput) reducedInput.value = weight3(reducedWeight);
     if (netInput) netInput.value = weight3(netWeight);
-    if (manufacturingMakingGoldInput) manufacturingMakingGoldInput.value = weight3(manufacturingMakingGold);
-    if (officeMakingGoldInput) officeMakingGoldInput.value = weight3(officeMakingGold);
     return {
       ...existing,
-      id: existing.id || stableRecordId("bill-item", row.dataset.orderId, row.dataset.productionNo),
       orderId: row.dataset.orderId || "",
       productionNo: row.dataset.productionNo || "",
       purity: row.dataset.purity || "",
       finalGw: Number(weight3(finalGw)),
+      bbNo,
+      bbType: normalizeBbType(bbType),
+      blackBeads: bbNo || existing.blackBeads || "",
+      blackBeadsWeight: Number(weight3(blackBeadsWeight)),
+      bbWeight: Number(weight3(blackBeadsWeight)),
+      motiWeight: Number(weight3(motiWeight)),
+      mmWeight: Number(weight3(motiWeight)),
+      stoneWeight: Number(weight3(stoneWeight)),
+      stWeight: Number(weight3(stoneWeight)),
+      springWeight: Number(weight3(springWeight)),
+      otherNonGoldWeight: Number(weight3(otherNonGoldWeight)),
+      otherWeight: Number(weight3(otherNonGoldWeight)),
       reducedWeight: Number(weight3(reducedWeight)),
       netWeight: Number(weight3(netWeight)),
-      makingPercent: manufacturingMakingPercent,
-      makingGold: Number(weight3(manufacturingMakingGold)),
-      manufacturingMakingPercent,
-      manufacturingMakingGold: Number(weight3(manufacturingMakingGold)),
-      officeMakingPercent,
-      officeMakingGold: Number(weight3(officeMakingGold)),
-      qcStatus: qcStatusInput?.value || "Pending QC",
+      makingPercent: 0,
+      makingGold: 0,
+      manufacturingMakingPercent: 0,
+      manufacturingMakingGold: 0,
+      officeMakingPercent: 0,
+      officeMakingGold: 0,
+      qcStatus: canChangeQc ? (qcStatusInput?.value || "Pending QC") : (existing.qcStatus || "Pending QC"),
       officeStatus: row.dataset.officeStatus || "",
       reworkLotId: row.dataset.reworkLotId || "",
       reworkLotNumber: row.dataset.reworkLotNumber || "",
@@ -5948,7 +7553,7 @@ function billItemRows(existingItems = []) {
 }
 
 function transferQcOkItemsToOffice() {
-  const saved = saveBillFromForm(false);
+  const saved = saveBillFromForm(false, { allowLockedBillFlow: true });
   if (!saved) return;
   const { lot, bill } = saved;
   let moved = 0;
@@ -5963,49 +7568,322 @@ function transferQcOkItemsToOffice() {
     return;
   }
   lot.bill = bill;
-  lot.billingStage = bill.items.some((item) => item.qcStatus === "QC Failed") ? "QC Failed / Office OK" : "Office";
-  lot.productionStockWeight = Number(weight3((bill.items || [])
-    .filter((item) => item.qcStatus !== "QC OK")
-    .reduce((total, item) => total + Number(item.netWeight || item.finalGw || 0), 0)));
+  lot.billingStage = bill.items.some((item) => item.qcStatus === "QC Failed") ? "QC Failed / Repair Pending" : "Office";
+  lot.productionStockWeight = billProductionStockWeight(bill);
   lot.currentDepartment = "Office";
   lot.karigarName = "Office Department";
+  markParentRepairItemsComplete(lot, bill);
   updateSavedBill(bill);
   saveState();
   render();
   openBill(lot.id);
 }
 
+function markParentRepairItemsComplete(reworkLot, reworkBill = {}) {
+  if (!reworkLot?.parentLotId || !reworkBill?.items?.length) return;
+  const parentLot = findById("lots", reworkLot.parentLotId);
+  const parentBill = parentLot?.bill || state.bills?.find((item) => item.lotId === reworkLot.parentLotId);
+  if (!parentLot || !parentBill?.items?.length) return;
+  const okItems = (reworkBill.items || []).filter((item) => item.qcStatus === "QC OK" && !isDiscardedItem(item));
+  if (!okItems.length) return;
+  const okByOrderId = Object.fromEntries(okItems.map((item) => [item.orderId, item]));
+  const repairReturnIsoDate = isoToday();
+  const repairReturnDate = today();
+  let changed = false;
+  parentBill.items = parentBill.items.map((item) => {
+    const repairedItem = okByOrderId[item.orderId];
+    if (!repairedItem || item.reworkLotId !== reworkLot.id || item.repairStatus === "Repair Complete") return item;
+    changed = true;
+    const netWeight = Number(repairedItem.netWeight || item.netWeight || 0);
+    const baseNet = Number(item.repairBaseNetWeight || item.netWeight || 0);
+    const lastLoss = Number(weight3(Math.max(baseNet - netWeight, 0)));
+    addRepairLossToLot(parentLot, findById("orders", item.orderId) || {}, item, lastLoss);
+    return {
+      ...item,
+      finalGw: Number(repairedItem.finalGw || item.finalGw || 0),
+      bbNo: repairedItem.bbNo || item.bbNo || "",
+      bbType: repairedItem.bbType || item.bbType || "",
+      blackBeads: repairedItem.blackBeads || repairedItem.bbNo || item.blackBeads || "",
+      blackBeadsWeight: Number(repairedItem.blackBeadsWeight ?? item.blackBeadsWeight ?? 0),
+      bbWeight: Number(repairedItem.bbWeight ?? repairedItem.blackBeadsWeight ?? item.bbWeight ?? 0),
+      motiWeight: Number(repairedItem.motiWeight ?? item.motiWeight ?? 0),
+      mmWeight: Number(repairedItem.mmWeight ?? repairedItem.motiWeight ?? item.mmWeight ?? 0),
+      stoneWeight: Number(repairedItem.stoneWeight ?? item.stoneWeight ?? 0),
+      stWeight: Number(repairedItem.stWeight ?? repairedItem.stoneWeight ?? item.stWeight ?? 0),
+      springWeight: Number(repairedItem.springWeight ?? item.springWeight ?? 0),
+      otherNonGoldWeight: Number(repairedItem.otherNonGoldWeight ?? item.otherNonGoldWeight ?? 0),
+      otherWeight: Number(repairedItem.otherWeight ?? repairedItem.otherNonGoldWeight ?? item.otherWeight ?? 0),
+      reducedWeight: Number(repairedItem.reducedWeight || item.reducedWeight || 0),
+      netWeight,
+      qcStatus: "QC OK",
+      officeStatus: "",
+      repairStatus: "Repair Complete",
+      repairReturnDate: item.repairReturnDate || repairReturnDate,
+      repairReturnIsoDate: item.repairReturnIsoDate || repairReturnIsoDate,
+      repairCompleteDate: repairReturnDate,
+      repairCompleteIsoDate: repairReturnIsoDate,
+      repairDays: repairDayCount({ ...item, repairReturnIsoDate }),
+      repairLastLoss: lastLoss,
+      repairAdditionalLoss: Number(weight3(Number(item.repairAdditionalLoss || 0) + lastLoss)),
+      repairFinalBillLotId: reworkLot.id,
+      holder: "Repair Complete / Sent To Office",
+    };
+  });
+  if (!changed) return;
+  parentLot.bill = parentBill;
+  parentLot.productionStockWeight = billProductionStockWeight(parentBill);
+  updateSavedBill(parentBill);
+}
+
 function returnQcFailedItemsToProduction() {
-  const saved = saveBillFromForm(false);
+  const saved = saveBillFromForm(false, { allowLockedBillFlow: true });
   if (!saved) return;
   const { lot, bill } = saved;
-  const failedItems = (bill.items || []).filter((item) => item.qcStatus === "QC Failed" && !item.reworkLotId);
+  const failedItems = (bill.items || []).filter((item) =>
+    item.qcStatus === "QC Failed"
+    && !isDiscardedItem(item)
+    && item.repairStatus !== "In Repair Production"
+    && !item.reworkLotId
+  );
   if (!failedItems.length) {
-    alert("Select QC Failed for item not already returned.");
+    alert("Select QC Failed for at least one item not already sent to repair production.");
     return;
   }
   const failedOrderIds = failedItems.map((item) => item.orderId).filter(Boolean);
   const failedOrders = failedOrderIds.map((id) => findById("orders", id)).filter(Boolean);
   if (!failedOrders.length) {
-    alert("No failed job item found to return.");
+    alert("No failed job item found.");
     return;
   }
+  const repairStartDate = today();
+  const repairStartIsoDate = isoToday();
   const reworkLot = createQcFailedReworkLot(lot, failedOrders, failedItems);
   failedOrders.forEach((order) => {
-    order.status = "QC Failed - Production";
+    order.status = "Repair Production";
   });
   bill.items = (bill.items || []).map((item) => {
     if (!failedOrderIds.includes(item.orderId)) return item;
-    return { ...item, reworkLotId: reworkLot.id, reworkLotNumber: reworkLot.number, qcDate: today() };
+    return {
+      ...item,
+      officeStatus: "",
+      repairStatus: "In Repair Production",
+      repairStartDate: item.repairStartDate || repairStartDate,
+      repairStartIsoDate: item.repairStartIsoDate || repairStartIsoDate,
+      repairIssueDate: repairStartDate,
+      repairIssueIsoDate: repairStartIsoDate,
+      repairBaseFinalGw: Number(item.repairBaseFinalGw || item.finalGw || 0),
+      repairBaseNetWeight: Number(item.repairBaseNetWeight || item.netWeight || 0),
+      repairAdditionalLoss: Number(item.repairAdditionalLoss || 0),
+      reworkLotId: reworkLot.id,
+      reworkLotNumber: reworkLot.number,
+      holder: "Repair Production",
+      salesTeam: "",
+      salesIssueDate: "",
+      saleStatus: "",
+      qcDate: repairStartDate,
+    };
   });
   lot.bill = bill;
-  lot.billingStage = "QC Failed Returned";
-  lot.currentDepartment = "Bill";
-  lot.karigarName = "Bill Department";
+  lot.billingStage = "QC Failed / Repair Production";
+  lot.productionStockWeight = billProductionStockWeight(bill);
+  lot.currentDepartment = "Repair Production";
+  lot.karigarName = "Repair Production";
   updateSavedBill(bill);
   saveState();
   render();
   openBill(lot.id);
+}
+
+function moveQcFailedItemsToOfficeRepair() {
+  returnQcFailedItemsToProduction();
+}
+
+function issueRepairItemsToProduction() {
+  const keys = selectedOfficeKeys();
+  if (!keys.length) {
+    alert("Select repair item to issue.");
+    return;
+  }
+  const entries = selectedOfficeEntries(keys).filter(({ item }) => isRepairItem(item) && item.repairStatus !== "In Repair Production");
+  if (!entries.length) {
+    alert("Selected repair item is already issued or not in repair category.");
+    return;
+  }
+  const entriesByLot = entries.reduce((acc, entry) => {
+    acc[entry.lot.id] = acc[entry.lot.id] || [];
+    acc[entry.lot.id].push(entry);
+    return acc;
+  }, {});
+  Object.values(entriesByLot).forEach((lotEntries) => {
+    const sourceLot = lotEntries[0].lot;
+    const orders = lotEntries.map(({ order }) => order).filter((order) => order.id);
+    const failedItems = lotEntries.map(({ item }) => item);
+    const reworkLot = createQcFailedReworkLot(sourceLot, orders, failedItems);
+    orders.forEach((order) => {
+      order.status = "Repair Production";
+    });
+    const bill = sourceLot.bill || state.bills?.find((item) => item.lotId === sourceLot.id);
+    if (!bill?.items?.length) return;
+    const orderIds = new Set(failedItems.map((item) => item.orderId));
+    bill.items = bill.items.map((item) => {
+      if (!orderIds.has(item.orderId)) return item;
+      return {
+        ...item,
+        officeStatus: "",
+        repairStatus: "In Repair Production",
+        repairIssueDate: today(),
+        repairIssueIsoDate: isoToday(),
+        reworkLotId: reworkLot.id,
+        reworkLotNumber: reworkLot.number,
+        holder: "Repair Production",
+      };
+    });
+    sourceLot.bill = bill;
+    sourceLot.billingStage = "Repair Production";
+    sourceLot.currentDepartment = "Repair Production";
+    sourceLot.karigarName = "Repair Production";
+    updateSavedBill(bill);
+  });
+  saveState();
+  render();
+  openOfficeDialogPage("repair");
+}
+
+function receiveRepairItemsToOffice() {
+  const keys = selectedOfficeKeys();
+  if (!keys.length) {
+    alert("Select repair item to receive.");
+    return;
+  }
+  const finalGwInputs = repairInputValues(".repair-final-gw-input");
+  const lossInputs = repairInputValues(".repair-loss-input");
+  let updated = 0;
+  selectedOfficeEntries(keys).forEach(({ lot, bill, item, order }) => {
+    if (!isRepairItem(item) || item.repairStatus !== "In Repair Production") return;
+    const key = officeItemKey(lot.id, item);
+    const finalGw = Number(finalGwInputs[key] ?? item.finalGw ?? 0);
+    if (!Number.isFinite(finalGw) || finalGw < 0) return;
+    const reducedWeight = Number(item.reducedWeight || 0);
+    const netWeight = Number(weight3(Math.max(finalGw - reducedWeight, 0)));
+    const computedLoss = Number(weight3(Math.max(Number(item.netWeight || 0) - netWeight, 0)));
+    const additionalLoss = Number(weight3(Number(lossInputs[key] ?? computedLoss)));
+    const repairReturnIsoDate = isoToday();
+    const repairReturnDate = today();
+    const repairDays = repairDayCount({ ...item, repairReturnIsoDate });
+    const index = bill.items.findIndex((billItem) => officeItemKey(lot.id, billItem) === key);
+    if (index < 0) return;
+    bill.items[index] = {
+      ...item,
+      finalGw: Number(weight3(finalGw)),
+      netWeight,
+      repairStatus: "Repaired - Ready For Final Bill",
+      repairReturnDate,
+      repairReturnIsoDate,
+      repairDays,
+      repairLastLoss: additionalLoss,
+      repairAdditionalLoss: Number(weight3(Number(item.repairAdditionalLoss || 0) + additionalLoss)),
+      holder: "Repair Completed / Final Bill",
+      qcStatus: "QC OK",
+      qcDate: repairReturnDate,
+    };
+    lot.bill = bill;
+    closeRepairReworkLot(item.reworkLotId, netWeight);
+    addRepairLossToLot(lot, order, item, additionalLoss);
+    if (order.id) order.status = "Repair Ready For Final Bill";
+    updateSavedBill(bill);
+    updated += 1;
+  });
+  if (!updated) {
+    alert("Select item that is issued for repair production.");
+    return;
+  }
+  saveState();
+  render();
+  openOfficeDialogPage("repair");
+}
+
+function moveRepairedItemsToOfficeStock() {
+  const keys = selectedOfficeKeys();
+  if (!keys.length) {
+    alert("Select repaired item to move to stock.");
+    return;
+  }
+  let updated = 0;
+  selectedOfficeEntries(keys).forEach(({ lot, bill, item, order }) => {
+    if (!isRepairItem(item) || item.repairStatus !== "Repaired - Ready For Final Bill") return;
+    const key = officeItemKey(lot.id, item);
+    const index = bill.items.findIndex((billItem) => officeItemKey(lot.id, billItem) === key);
+    if (index < 0) return;
+    const updatedItem = {
+      ...item,
+      officeStatus: "Office",
+      repairStatus: "Repair Complete",
+      repairCompleteDate: today(),
+      repairCompleteIsoDate: isoToday(),
+      holder: isHallmarkedItem(item) ? "Hallmarked Item" : "Non Hallmarked Item",
+      qcStatus: "QC OK",
+    };
+    bill.items[index] = updatedItem;
+    lot.bill = bill;
+    if (order.id) order.status = "Office";
+    updateSavedBill(bill);
+    updated += 1;
+  });
+  if (!updated) {
+    alert("Select repaired item already received back to Office.");
+    return;
+  }
+  saveState();
+  render();
+  openOfficeDialogPage("repair");
+}
+
+function repairInputValues(selector) {
+  return Array.from(document.querySelectorAll(selector)).reduce((values, input) => {
+    values[input.dataset.key] = input.value;
+    return values;
+  }, {});
+}
+
+function updateRepairLossInput(finalGwInput) {
+  const found = findOfficeBillItem(finalGwInput.dataset.key);
+  if (!found) return;
+  const finalGw = Number(finalGwInput.value || 0);
+  const reducedWeight = Number(found.item.reducedWeight || 0);
+  const newNet = Number(weight3(Math.max(finalGw - reducedWeight, 0)));
+  const loss = Number(weight3(Math.max(Number(found.item.netWeight || 0) - newNet, 0)));
+  const lossInput = Array.from(document.querySelectorAll(".repair-loss-input"))
+    .find((input) => input.dataset.key === finalGwInput.dataset.key);
+  if (lossInput) lossInput.value = weight3(loss);
+}
+
+function closeRepairReworkLot(reworkLotId, netWeight) {
+  if (!reworkLotId) return;
+  const reworkLot = findById("lots", reworkLotId);
+  if (!reworkLot) return;
+  reworkLot.status = "Completed";
+  reworkLot.finishedWeight = Number(weight3(netWeight || 0));
+  reworkLot.productionStockWeight = 0;
+  reworkLot.currentDepartment = "Bill / QC";
+  reworkLot.karigarName = "Bill / QC";
+}
+
+function addRepairLossToLot(lot, order, item, additionalLoss) {
+  const loss = Number(weight3(additionalLoss || 0));
+  if (loss <= 0) return;
+  const purity = item.purity || order.purity || lot.metalPurity || lot.wastagePurity || "18K";
+  lot.repairAdditionalLoss = Number(weight3(Number(lot.repairAdditionalLoss || 0) + loss));
+  lot.actualWastage = Number(weight3(Number(lot.actualWastage || 0) + loss));
+  lot.wastagePurity = lot.wastagePurity || purity;
+  lot.wastageFineGold = Number(weight3(fineGoldWeight(lot.actualWastage, lot.wastagePurity)));
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Repair Loss",
+    purity,
+    weight: loss,
+    reference: `${item.productionNo || order.productionNo || "Repair item"} extra repair manufacturing loss in ${lot.orderNumber || lot.number}`,
+  });
 }
 
 function createQcFailedReworkLot(sourceLot, orders, failedItems) {
@@ -6017,13 +7895,14 @@ function createQcFailedReworkLot(sourceLot, orders, failedItems) {
     issueDate: today(),
     orderId: orders[0]?.id || "",
     orderIds: orders.map((order) => order.id),
+    billOrderIds: orders.map((order) => order.id),
     orderNumber: sourceLot.orderNumber,
     karigarId: "",
-    karigarName: "Bill Department",
+    karigarName: "Repair Production",
     issueKarigarId: "",
-    issueKarigarName: "Bill Department",
-    issueDepartment: "Bill",
-    currentDepartment: "Bill",
+    issueKarigarName: "Bill / QC",
+    issueDepartment: "Bill / QC",
+    currentDepartment: "Repair Production",
     metalPurity: sourceLot.metalPurity || orders[0]?.purity || "18K",
     grossIssuedWeight: Number(weight3(issueWeight)),
     waxStoneWeight: 0,
@@ -6034,7 +7913,7 @@ function createQcFailedReworkLot(sourceLot, orders, failedItems) {
     status: "Issued",
     parentLotId: sourceLot.id,
     qcReturn: true,
-    qcReturnReason: "QC Failed from Sales Office",
+    qcReturnReason: "QC Failed repair from Bill / QC",
     transfers: [],
   };
   state.lots.unshift(lot);
@@ -6069,7 +7948,8 @@ function wastageDetailHtml(lot) {
   if (!Number(lot.actualWastage || 0)) return `${lot.expectedWastage}% est.`;
   const purity = lot.wastagePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "";
   const fine = Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage, purity));
-  return `${gram(lot.actualWastage)}<br><small>${displayPurity(purity)} / Fine ${gram(fine)}</small>`;
+  const repairLoss = Number(lot.repairAdditionalLoss || 0);
+  return `${gram(lot.actualWastage)}<br><small>${displayPurity(purity)} / Fine ${gram(fine)}${repairLoss ? ` / Repair +${gram(repairLoss)}` : ""}</small>`;
 }
 
 function renderLedger() {
@@ -6132,7 +8012,6 @@ function resetMeltingSources() {
 function getMeltingSourceMetals() {
   return [...document.querySelectorAll("#melting-sources .source-row")]
     .map((row) => ({
-      id: crypto.randomUUID(),
       weight: Number(row.querySelector('[name="sourceWeightLine"]').value || 0),
       purity: Number(row.querySelector('[name="sourcePurity"]').value || 0),
     }))
@@ -6597,49 +8476,79 @@ function meltingDepartment(name) {
 }
 
 function normalizeState(currentState) {
-  currentState.schemaVersion = Math.max(Number(currentState.schemaVersion || 0), 2);
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
-  delete currentState.userPasswords;
+  currentState.userPasswords = { ...defaultUserPasswords, ...(currentState.userPasswords || {}) };
+  currentState.customUsers = (currentState.customUsers || []).map((user) => ({
+    id: normalizeLoginUserId(user.id),
+    name: user.name || user.id || "User",
+    role: user.role || "custom",
+    pages: Array.isArray(user.pages) ? user.pages.filter((page) => loginAccessPages.includes(page)) : ["dashboard"],
+    canEditOfficeWeights: Boolean(user.canEditOfficeWeights),
+  })).filter((user) => user.id && !users[user.id]);
+  currentState.userAccessOverrides = Object.fromEntries(Object.entries(currentState.userAccessOverrides || {}).map(([id, override]) => [
+    id,
+    {
+      name: override.name || users[id]?.name || id,
+      pages: Array.isArray(override.pages) ? override.pages.filter((page) => loginAccessPages.includes(page)) : users[id]?.pages || [],
+      canEditOfficeWeights: override.canEditOfficeWeights ?? users[id]?.canEditOfficeWeights ?? false,
+    },
+  ]).filter(([id]) => users[id] && id !== "owner"));
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
-  currentState.bills = (currentState.bills || []).map((bill, billIndex) => ({
-    ...bill,
-    id: bill.id || stableRecordId("bill", bill.lotId, bill.billNo, bill.jobNumber, billIndex),
+  currentState.bills = (currentState.bills || []).map((bill) => ({
+    id: bill.id || crypto.randomUUID(),
     lotId: bill.lotId || "",
     jobNumber: bill.jobNumber || "",
     billNo: bill.billNo || "",
     billDate: bill.billDate || "",
-    makingRate: Number(bill.makingRate || 0),
-    officeMakingRate: Number(bill.officeMakingRate ?? bill.makingRate ?? 0),
-    otherCharges: Number(bill.otherCharges || 0),
-    manufacturingBillAmount: Number(bill.manufacturingBillAmount || bill.makingGold || 0),
-    billAmount: Number(bill.billAmount || 0),
+    makingRate: 0,
+    officeMakingRate: 0,
+    otherCharges: 0,
+    manufacturingBillAmount: 0,
+    billAmount: 0,
     netWeight: Number(bill.netWeight || 0),
-    makingGold: Number(bill.makingGold || bill.billAmount || 0),
-    manufacturingMakingGold: Number(bill.manufacturingMakingGold || bill.makingGold || 0),
-    officeMakingGold: Number(bill.officeMakingGold || bill.billAmount || 0),
+    makingGold: 0,
+    manufacturingMakingGold: 0,
+    officeMakingGold: 0,
     items: (bill.items || []).map((item) => ({
-      ...item,
-      id: item.id || stableRecordId("bill-item", bill.id, bill.lotId, bill.billNo, bill.jobNumber, billIndex, item.orderId, item.productionNo),
       orderId: item.orderId || "",
       productionNo: item.productionNo || "",
       purity: item.purity || "",
       finalGw: Number(item.finalGw || 0),
+      bbNo: item.bbNo || item.blackBeads || "",
+      bbType: normalizeBbType(item.bbType || ""),
+      blackBeadsWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
+      bbWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
+      motiWeight: Number(item.motiWeight ?? item.mmWeight ?? 0),
+      mmWeight: Number(item.motiWeight ?? item.mmWeight ?? 0),
+      stoneWeight: Number(item.stoneWeight ?? item.stWeight ?? item.reducedWeight ?? 0),
+      stWeight: Number(item.stoneWeight ?? item.stWeight ?? item.reducedWeight ?? 0),
+      springWeight: Number(item.springWeight || 0),
+      otherNonGoldWeight: Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0),
+      otherWeight: Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0),
       reducedWeight: Number(item.reducedWeight || 0),
       netWeight: Number(item.netWeight || 0),
-      makingPercent: Number(item.makingPercent || 0),
-      makingGold: Number(item.makingGold || 0),
-      manufacturingMakingPercent: Number(item.manufacturingMakingPercent ?? item.makingPercent ?? 0),
-      manufacturingMakingGold: Number(item.manufacturingMakingGold ?? item.makingGold ?? 0),
-      officeMakingPercent: Number(item.officeMakingPercent ?? item.makingPercent ?? 0),
-      officeMakingGold: Number(item.officeMakingGold ?? item.makingGold ?? 0),
+      makingPercent: 0,
+      makingGold: 0,
+      manufacturingMakingPercent: 0,
+      manufacturingMakingGold: 0,
+      officeMakingPercent: 0,
+      officeMakingGold: 0,
       qcStatus: item.qcStatus || "Pending QC",
       qcDate: item.qcDate || "",
-      officeStatus: item.officeStatus || "",
+      officeStatus: item.qcStatus === "QC Failed" && !item.discardStatus ? "" : (item.officeStatus || ""),
       hallmarkStatus: item.hallmarkStatus || "",
       hallmarkIssueDate: item.hallmarkIssueDate || "",
+      hallmarkIssueIsoDate: item.hallmarkIssueIsoDate || "",
       hallmarkReceiveDate: item.hallmarkReceiveDate || "",
+      hallmarkReceiveIsoDate: item.hallmarkReceiveIsoDate || "",
+      hallmarkLotNo: item.hallmarkLotNo || item.hallmarkLotNumber || "",
+      hallmarkLotNumber: item.hallmarkLotNumber || item.hallmarkLotNo || "",
+      hallmarkLotIssueDate: item.hallmarkLotIssueDate || "",
+      hallmarkLotIssueIsoDate: item.hallmarkLotIssueIsoDate || "",
+      hallmarkLotReceiveDate: item.hallmarkLotReceiveDate || "",
+      hallmarkLotReceiveIsoDate: item.hallmarkLotReceiveIsoDate || "",
       holder: item.holder || "",
       salesTeam: item.salesTeam || "",
       salesIssueDate: item.salesIssueDate || "",
@@ -6650,13 +8559,27 @@ function normalizeState(currentState) {
       huid1: item.huid1 || "",
       huid2: item.huid2 || "",
       huidUpdatedDate: item.huidUpdatedDate || "",
-      blackBeads: item.blackBeads || "",
+      blackBeads: item.blackBeads || item.bbNo || "",
       moti: item.moti || "",
       spring: item.spring || "",
       otherDetails: item.otherDetails || "",
       officeDetailUpdatedDate: item.officeDetailUpdatedDate || "",
       reworkLotId: item.reworkLotId || "",
       reworkLotNumber: item.reworkLotNumber || "",
+      repairStatus: item.repairStatus || (item.qcStatus === "QC Failed" ? (item.reworkLotId ? "In Repair Production" : "QC Failed") : ""),
+      repairStartDate: item.repairStartDate || (item.qcStatus === "QC Failed" ? item.qcDate || today() : ""),
+      repairStartIsoDate: item.repairStartIsoDate || (item.qcStatus === "QC Failed" ? isoToday() : ""),
+      repairIssueDate: item.repairIssueDate || "",
+      repairIssueIsoDate: item.repairIssueIsoDate || "",
+      repairReturnDate: item.repairReturnDate || "",
+      repairReturnIsoDate: item.repairReturnIsoDate || "",
+      repairCompleteDate: item.repairCompleteDate || "",
+      repairCompleteIsoDate: item.repairCompleteIsoDate || "",
+      repairDays: Number(item.repairDays || 0),
+      repairBaseFinalGw: Number(item.repairBaseFinalGw ?? item.finalGw ?? 0),
+      repairBaseNetWeight: Number(item.repairBaseNetWeight ?? item.netWeight ?? 0),
+      repairLastLoss: Number(item.repairLastLoss || 0),
+      repairAdditionalLoss: Number(item.repairAdditionalLoss || 0),
       discardStatus: item.discardStatus || "",
       discardDate: item.discardDate || "",
       discardReason: item.discardReason || "",
@@ -6664,11 +8587,9 @@ function normalizeState(currentState) {
     })),
     remarks: bill.remarks || "",
   }));
-  currentState.designs = (currentState.designs || []).map((design, designIndex) => {
-    const designId = design.id || stableRecordId("design", design.number, design.name, design.category, designIndex);
-    const stoneItems = (design.stoneItems || []).map((item, stoneIndex) => ({
-      ...item,
-      id: item.id || stableRecordId("design-stone", designId, item.code, item.stoneType, item.shape, item.size, stoneIndex),
+  currentState.designs = (currentState.designs || []).map((design) => {
+    const stoneItems = (design.stoneItems || []).map((item) => ({
+      id: item.id || crypto.randomUUID(),
       stoneType: item.stoneType || "",
       shape: item.shape || "",
       size: item.size || "",
@@ -6678,8 +8599,7 @@ function normalizeState(currentState) {
       totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
     }));
     return {
-      ...design,
-      id: designId,
+      id: design.id || crypto.randomUUID(),
       number: design.number || "",
       name: design.name || "",
       category: design.category || "",
@@ -6694,7 +8614,8 @@ function normalizeState(currentState) {
     currentState.stoneLibrarySeeded = true;
   } else {
     currentState.stones = currentState.stones.map(normalizeStone);
-    currentState.stoneLibrarySeeded = Boolean(currentState.stoneLibrarySeeded);
+    currentState.stones = mergeDefaultStoneLibrary(currentState.stones);
+    currentState.stoneLibrarySeeded = true;
   }
   currentState.stoneOptions = {
     stoneType: currentState.stoneOptions?.stoneType || [],
@@ -6717,21 +8638,11 @@ function normalizeState(currentState) {
     sourceProductionNo: item.sourceProductionNo || "",
     discardReason: item.discardReason || "",
     sourceMetals: item.sourceMetals?.length
-      ? item.sourceMetals.map((metal, index) => ({
-        ...metal,
-        id: metal.id || stableRecordId("source-metal", item.id, index, metal.weight, metal.purity),
-        weight: Number(metal.weight || 0),
-        purity: purityPercent(metal.purity),
-      }))
-      : [{
-        id: stableRecordId("source-metal", item.id, 0, item.sourceWeight, item.sourcePurity),
-        weight: Number(item.sourceWeight || 0),
-        purity: purityPercent(item.sourcePurity),
-      }],
+      ? item.sourceMetals.map((metal) => ({ weight: Number(metal.weight || 0), purity: purityPercent(metal.purity) }))
+      : [{ weight: Number(item.sourceWeight || 0), purity: purityPercent(item.sourcePurity) }],
   }));
   currentState.orders = currentState.orders || [];
-  currentState.orders.forEach((order, orderIndex) => {
-    order.id = order.id || stableRecordId("order", order.productionNo, order.number, order.jobNumber, orderIndex);
+  currentState.orders.forEach((order) => {
     order.designId = order.designId || "";
     const design = currentState.designs.find((item) => item.id === order.designId);
     order.designNumber = design ? designText(design) : order.designNumber || "";
@@ -6752,7 +8663,7 @@ function normalizeState(currentState) {
       ? calculateDueDate(order.orderDate, order.productionDays)
       : order.dueDate;
     order.urgent = Boolean(order.urgent);
-    order.productionStoneItems = (order.productionStoneItems || []).map((item, stoneIndex) => {
+    order.productionStoneItems = (order.productionStoneItems || []).map((item) => {
       const matchedDesignStone = design?.stoneItems?.find((stoneItem) =>
         item.sourceDesignStoneId === stoneItem.id ||
         (item.code && item.code === stoneItem.code) ||
@@ -6760,8 +8671,7 @@ function normalizeState(currentState) {
       );
       const automaticSetting = automaticProductionStoneSetting(matchedDesignStone || item);
       return {
-        ...item,
-        id: item.id || stableRecordId("production-stone", order.id, item.code, item.sourceDesignStoneId, stoneIndex),
+        id: item.id || crypto.randomUUID(),
         sourceDesignStoneId: item.sourceDesignStoneId || matchedDesignStone?.id || "",
         date: item.date || today(),
         settingType: item.settingType || automaticSetting.settingType,
@@ -6778,14 +8688,14 @@ function normalizeState(currentState) {
     if (!order.customerId && order.customer) {
       let customer = currentState.customers.find((item) => item.name.toLowerCase() === order.customer.toLowerCase());
       if (!customer) {
-        customer = { id: stableRecordId("customer", order.customer), name: order.customer, phone: "", city: "", gst: "", address: "" };
+        customer = { id: crypto.randomUUID(), name: order.customer, phone: "", city: "", gst: "", address: "" };
         currentState.customers.push(customer);
       }
       order.customerId = customer.id;
     }
   });
   migrateCbBothRingOrders(currentState);
-  currentState.lots = (currentState.lots || []).map((lot, lotIndex) => normalizeLotIssueWeights(currentState, lot, lotIndex));
+  currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
   currentState.lots.forEach((lot) => {
     const bill = currentState.bills.find((item) => item.lotId === lot.id);
     if (bill) lot.bill = bill;
@@ -6796,17 +8706,18 @@ function normalizeState(currentState) {
   return currentState;
 }
 
-function normalizeLotIssueWeights(currentState, lot, lotIndex) {
+function normalizeLotIssueWeights(currentState, lot) {
   const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  const billOrderIds = lot.billOrderIds?.length
+    ? lot.billOrderIds.filter((id) => orderIds.includes(id))
+    : (lot.qcReturn || lot.parentLotId ? orderIds : []);
   const transfers = lot.transfers || [];
   const firstTransfer = transfers[0] || {};
   const bill = lot.bill || (currentState.bills || []).find((item) => item.lotId === lot.id);
-  const productionStockWeight = lot.productionStockWeight !== undefined
-    ? Number(lot.productionStockWeight || 0)
-    : bill?.items?.length
-      ? Number(weight3(bill.items
-        .filter((item) => item.qcStatus !== "QC OK")
-        .reduce((total, item) => total + Number(item.netWeight || item.finalGw || 0), 0)))
+  const productionStockWeight = bill?.items?.length
+    ? billProductionStockWeight(bill)
+    : lot.productionStockWeight !== undefined
+      ? Number(lot.productionStockWeight || 0)
       : Number(lot.finishedWeight || 0);
   const waxStoneWeight = Number(lot.waxStoneWeight || lotWaxStoneWeight(currentState, orderIds));
   const hasGrossIssue = lot.grossIssuedWeight !== undefined && lot.grossIssuedWeight !== null;
@@ -6817,14 +8728,14 @@ function normalizeLotIssueWeights(currentState, lot, lotIndex) {
   return {
     transfers: [],
     ...lot,
-    id: lot.id || stableRecordId("lot", lot.number, lot.orderId, lot.issueDate, lotIndex),
     orderIds,
+    billOrderIds,
     issueKarigarId: lot.issueKarigarId || firstTransfer.fromKarigarId || lot.karigarId || "",
     issueKarigarName: lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName || "",
     issueDepartment: mergedProductionDepartmentName(lot.issueDepartment || firstTransfer.fromDepartment || lot.currentDepartment || lot.karigarName || ""),
-    transfers: transfers.map((transfer, transferIndex) => ({
+    transfers: transfers.map((transfer) => ({
+      id: transfer.id || crypto.randomUUID(),
       ...transfer,
-      id: transfer.id || stableRecordId("transfer", lot.id || lot.number, transfer.date, transfer.fromDepartment, transfer.toDepartment, transferIndex),
       grossReceivedWeight: transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transfer.transferWeight ?? 0,
       waxStoneWeight: transfer.waxStoneWeight ?? waxStoneWeight,
       stoneWeight: transfer.stoneWeight ?? 0,
@@ -6843,6 +8754,9 @@ function normalizeLotIssueWeights(currentState, lot, lotIndex) {
     grossIssuedWeight,
     waxStoneWeight,
     issuedWeight,
+    actualWastage: Number(lot.actualWastage || 0),
+    repairAdditionalLoss: Number(lot.repairAdditionalLoss || 0),
+    wastageFineGold: Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage || 0, lot.wastagePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0)),
     productionStockWeight,
   };
 }
@@ -6897,7 +8811,7 @@ function migrateCbBothRingOrders(currentState) {
     const cgProductionNo = nextProductionNumber(currentState, usedCodes);
     const cgOrder = {
       ...order,
-      id: stableRecordId("cb-split", order.id, cgProductionNo),
+      id: crypto.randomUUID(),
       number: cgProductionNo,
       productionNo: cgProductionNo,
       barcode: cgProductionNo,
@@ -6938,24 +8852,70 @@ function nextProductionNumber(currentState, usedCodes) {
 }
 
 function defaultStoneLibrary() {
-  return (window.KJM_STONE_LIBRARY || []).map((stone, index) => normalizeStone({
+  return dedupeStoneLibrary((window.KJM_STONE_LIBRARY || []).map((stone) => normalizeStone({
     ...stone,
-    id: stone.id || stableRecordId("stone", stone.code, stone.stoneType, stone.shape, stone.size, index),
-  }));
+    id: crypto.randomUUID(),
+  })));
 }
 
-function normalizeStone(stone, index = 0) {
+function normalizeStone(stone) {
   return {
-    ...stone,
-    id: stone.id || stableRecordId("stone", stone.code, stone.stoneType, stone.shape, stone.size, index),
-    stoneType: stone.stoneType || "",
-    shape: stone.shape || "",
-    size: stone.size || "",
+    id: stone.id || crypto.randomUUID(),
+    stoneType: String(stone.stoneType || "").trim(),
+    shape: String(stone.shape || "").trim(),
+    size: normalizeSizeText(stone.size || ""),
     code: stone.code || stoneLookupCode(stone),
     weightPerPc: formatStoneWeight(stone.weightPerPc),
     pricePerPc: stone.pricePerPc || "",
     remarks: stone.remarks || "",
   };
+}
+
+function stoneLibraryKey(stone) {
+  return [
+    String(stone.stoneType || "").trim().toUpperCase(),
+    String(stone.shape || "").trim().toUpperCase(),
+    normalizeSizeText(stone.size || "").trim().toUpperCase(),
+  ].join("|");
+}
+
+function dedupeStoneLibrary(stones = []) {
+  const byKey = new Map();
+  stones.map(normalizeStone).forEach((stone) => {
+    const key = stoneLibraryKey(stone);
+    if (!key.replaceAll("|", "")) return;
+    if (!byKey.has(key)) {
+      byKey.set(key, stone);
+      return;
+    }
+    const existing = byKey.get(key);
+    existing.code = existing.code || stone.code || stoneLookupCode(existing);
+    existing.weightPerPc = existing.weightPerPc && Number(existing.weightPerPc) > 0 ? existing.weightPerPc : stone.weightPerPc;
+    existing.pricePerPc = existing.pricePerPc || stone.pricePerPc || "";
+    existing.remarks = existing.remarks || stone.remarks || "";
+  });
+  return [...byKey.values()];
+}
+
+function mergeDefaultStoneLibrary(stones = []) {
+  const merged = dedupeStoneLibrary(stones);
+  const byKey = new Map(merged.map((stone) => [stoneLibraryKey(stone), stone]));
+  defaultStoneLibrary().forEach((seedStone) => {
+    const key = stoneLibraryKey(seedStone);
+    const existing = byKey.get(key);
+    if (!existing) {
+      merged.push(seedStone);
+      byKey.set(key, seedStone);
+      return;
+    }
+    existing.code = existing.code || seedStone.code || stoneLookupCode(existing);
+    if ((!existing.weightPerPc || Number(existing.weightPerPc) === 0) && seedStone.weightPerPc && Number(seedStone.weightPerPc) > 0) {
+      existing.weightPerPc = seedStone.weightPerPc;
+    }
+    existing.pricePerPc = existing.pricePerPc || seedStone.pricePerPc || "";
+    existing.remarks = existing.remarks || seedStone.remarks || "";
+  });
+  return merged.sort((a, b) => `${a.stoneType} ${a.shape} ${a.size}`.localeCompare(`${b.stoneType} ${b.shape} ${b.size}`, undefined, { numeric: true, sensitivity: "base" }));
 }
 
 function escapeHtml(value) {
@@ -6969,6 +8929,9 @@ function escapeHtml(value) {
 
 applyLoginState();
 render();
+migrateLegacyDesignImages().catch(() => {
+  document.getElementById("design-upload-status").textContent = "Design image storage is using browser local storage fallback.";
+});
 setDefaultOrderDates(document.getElementById("order-form"));
 resetOrderItemRows();
 resetMeltingSources();
