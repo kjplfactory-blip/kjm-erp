@@ -180,6 +180,9 @@ document.getElementById("close-stone-crop").addEventListener("click", () => {
 document.getElementById("stone-crop-source").addEventListener("change", async (event) => {
   await loadStoneCropSource(Number(event.target.value || 0));
 });
+document.getElementById("stone-crop-reupload").addEventListener("change", async (event) => {
+  await reuploadStoneCropImage(event.target.files?.[0]);
+});
 document.getElementById("auto-detect-stone-chart").addEventListener("click", () => {
   autoDetectCurrentStoneCrop(true);
 });
@@ -191,6 +194,9 @@ document.getElementById("reset-stone-crop").addEventListener("click", () => {
 });
 document.getElementById("save-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(false);
+});
+document.getElementById("save-crop-split-design").addEventListener("click", async () => {
+  await saveStoneCropToDesign(false, { splitDesignImage: true });
 });
 document.getElementById("read-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(true);
@@ -4647,14 +4653,20 @@ async function openStoneCropDialog() {
   stoneCropState.files = sources;
   stoneCropState.sourceIndex = 0;
   stoneCropState.rect = null;
+  renderStoneCropSourceOptions();
+  document.getElementById("stone-crop-reupload").value = "";
+  document.getElementById("stone-crop-dialog").showModal();
+  await loadStoneCropSource(0);
+}
+
+function renderStoneCropSourceOptions() {
   const sourceSelect = document.getElementById("stone-crop-source");
-  sourceSelect.innerHTML = sources.map((source, index) => {
+  sourceSelect.innerHTML = stoneCropState.files.map((source, index) => {
     const matched = source.designId ? findById("designs", source.designId) : findDesignForStoneChartFile(source.name);
     const suffix = matched ? ` -> ${designText(matched)}` : "";
     return `<option value="${index}">${escapeHtml(source.name + suffix)}</option>`;
   }).join("");
-  document.getElementById("stone-crop-dialog").showModal();
-  await loadStoneCropSource(0);
+  sourceSelect.value = String(stoneCropState.sourceIndex || 0);
 }
 
 function renderStoneCropDesignOptions(selectedDesignId = "") {
@@ -4680,6 +4692,26 @@ async function loadStoneCropSource(index = 0) {
   stoneCropState.image = await loadImageFromDataUrl(imageData);
   fitStoneCropCanvas();
   autoDetectCurrentStoneCrop(false);
+}
+
+async function reuploadStoneCropImage(file) {
+  if (!file) return;
+  const selectedDesignId = document.getElementById("stone-crop-design").value || "";
+  const source = {
+    name: `Reupload - ${file.name}`,
+    file,
+    designId: selectedDesignId,
+    reuploaded: true,
+  };
+  stoneCropState.files.unshift(source);
+  stoneCropState.sourceIndex = 0;
+  renderStoneCropSourceOptions();
+  await loadStoneCropSource(0);
+  const status = document.getElementById("stone-crop-status");
+  if (status) {
+    status.className = "dialog-note ocr-quality-note";
+    status.textContent = "Reuploaded full image is visible. Use Auto Detect or Manual Crop, then Save Crop & Split Design Image.";
+  }
 }
 
 function loadImageFromDataUrl(imageData) {
@@ -4751,11 +4783,11 @@ function resetStoneCropSelection() {
   stoneCropState.rect = null;
   stoneCropState.dragging = false;
   stoneCropState.start = null;
-  drawStoneCropCanvas();
+  fitStoneCropCanvas();
   const status = document.getElementById("stone-crop-status");
   if (status) {
     status.className = "dialog-note ocr-quality-note";
-    status.textContent = "Crop reset. Use Auto Detect Chart or Manual Crop.";
+    status.textContent = "Crop reset. Full uploaded image is visible now. Use Auto Detect Chart or Manual Crop.";
   }
 }
 
@@ -4849,25 +4881,24 @@ function normalizedStoneCropRect() {
 
 function croppedStoneChartDataUrl() {
   const image = stoneCropState.image;
-  const rect = normalizedStoneCropRect();
+  const rect = currentStoneCropNaturalRect();
   if (!image || !rect || rect.width < 30 || rect.height < 30) return "";
+  return cropImageToDataUrl(image, rect, { maxSize: 1800, quality: 0.94 });
+}
+
+function currentStoneCropNaturalRect() {
+  const image = stoneCropState.image;
+  const rect = normalizedStoneCropRect();
+  if (!image || !rect || rect.width < 30 || rect.height < 30) return null;
   const displayCanvas = document.getElementById("stone-crop-canvas");
-  const sx = (rect.x / displayCanvas.width) * image.naturalWidth;
-  const sy = (rect.y / displayCanvas.height) * image.naturalHeight;
-  const sw = (rect.width / displayCanvas.width) * image.naturalWidth;
-  const sh = (rect.height / displayCanvas.height) * image.naturalHeight;
-  const maxSize = 1800;
-  const scale = Math.min(1, maxSize / Math.max(sw, sh));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(sw * scale));
-  canvas.height = Math.max(1, Math.round(sh * scale));
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#fff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.94);
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  return clampImageRect({
+    x: (rect.x / displayCanvas.width) * imageWidth,
+    y: (rect.y / displayCanvas.height) * imageHeight,
+    width: (rect.width / displayCanvas.width) * imageWidth,
+    height: (rect.height / displayCanvas.height) * imageHeight,
+  }, imageWidth, imageHeight);
 }
 
 function cropImageToDataUrl(image, rect, options = {}) {
@@ -5285,25 +5316,39 @@ function expandImageRect(rect, width, height, padding = 0) {
   }, width, height);
 }
 
-async function saveStoneCropToDesign(readAfterSave = false) {
+async function saveStoneCropToDesign(readAfterSave = false, options = {}) {
   const design = findById("designs", document.getElementById("stone-crop-design").value);
   const status = document.getElementById("stone-crop-status");
   if (!design) {
     alert("Select design to save this crop.");
     return;
   }
+  const cropRect = currentStoneCropNaturalRect();
   const imageData = croppedStoneChartDataUrl();
   if (!imageData) {
     alert("Select crop area first.");
     return;
   }
   await saveStoneChartImage(design.id, imageData);
+  let designImageUpdated = false;
+  if (options.splitDesignImage) {
+    const designRect = designRectAfterRemovingChart(stoneCropState.image, cropRect);
+    if (!designRect) {
+      alert("Could not find remaining design area outside this crop. Stone chart saved, but design image was not replaced.");
+    } else {
+      const designImageData = cropImageToDataUrl(stoneCropState.image, designRect, { maxSize: 900, quality: 0.72 });
+      await saveDesignImage(design.id, designImageData);
+      designImageUpdated = true;
+    }
+  }
   design.hasStoneChart = true;
   saveState();
   renderDesigns();
   await loadStoneEntry(design.id);
   status.className = "dialog-note ocr-quality-note good";
-  status.textContent = `Cropped stone chart saved to ${designText(design)}.`;
+  status.textContent = designImageUpdated
+    ? `Cropped stone chart saved and design image replaced for ${designText(design)}.`
+    : `Cropped stone chart saved to ${designText(design)}.`;
   if (readAfterSave) {
     await readStoneChartImageDataForDesign(design, imageData);
     document.getElementById("stone-crop-status").textContent = `Crop saved and OCR read for ${designText(design)}.`;
