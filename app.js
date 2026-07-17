@@ -183,6 +183,12 @@ document.getElementById("stone-crop-source").addEventListener("change", async (e
 document.getElementById("auto-detect-stone-chart").addEventListener("click", () => {
   autoDetectCurrentStoneCrop(true);
 });
+document.getElementById("manual-stone-crop").addEventListener("click", () => {
+  startManualStoneCrop();
+});
+document.getElementById("reset-stone-crop").addEventListener("click", () => {
+  resetStoneCropSelection();
+});
 document.getElementById("save-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(false);
 });
@@ -411,6 +417,7 @@ document.getElementById("design-search").addEventListener("input", renderDesigns
 document.getElementById("design-select-all").addEventListener("click", selectAllDesigns);
 document.getElementById("design-select-visible").addEventListener("click", selectVisibleDesigns);
 document.getElementById("design-clear-selection").addEventListener("click", clearDesignSelection);
+document.getElementById("design-auto-crop-existing").addEventListener("click", autoCropExistingDesigns);
 document.getElementById("design-delete-selected").addEventListener("click", deleteSelectedDesigns);
 document.getElementById("designs").addEventListener("change", handleDesignSelectionChange);
 document.getElementById("design-category-dialog").addEventListener("change", handleDesignSelectionChange);
@@ -4564,6 +4571,15 @@ async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
 
 async function autoSplitDesignAndStoneChart(file) {
   const imageData = await readFileAsDataUrl(file);
+  const split = await autoSplitDesignAndStoneChartDataUrl(imageData);
+  if (!split) return null;
+  return {
+    ...split,
+    designImageData: split.designImageData || await compressImageFile(file),
+  };
+}
+
+async function autoSplitDesignAndStoneChartDataUrl(imageData) {
   const image = await loadImageFromDataUrl(imageData);
   const chartRect = detectStoneChartRectFromImage(image);
   if (!chartRect) return null;
@@ -4571,7 +4587,7 @@ async function autoSplitDesignAndStoneChart(file) {
   const stoneChartImageData = cropImageToDataUrl(image, chartRect, { maxSize: 1800, quality: 0.94 });
   const designImageData = designRect
     ? cropImageToDataUrl(image, designRect, { maxSize: 900, quality: 0.72 })
-    : await compressImageFile(file);
+    : cropImageToDataUrl(image, { x: 0, y: 0, width: image.naturalWidth || image.width, height: image.naturalHeight || image.height }, { maxSize: 900, quality: 0.72 });
   return { designImageData, stoneChartImageData, chartRect, designRect };
 }
 
@@ -4719,6 +4735,30 @@ function autoDetectCurrentStoneCrop(showAlert = false) {
   return true;
 }
 
+function startManualStoneCrop() {
+  stoneCropState.rect = null;
+  stoneCropState.dragging = false;
+  stoneCropState.start = null;
+  drawStoneCropCanvas();
+  const status = document.getElementById("stone-crop-status");
+  if (status) {
+    status.className = "dialog-note ocr-quality-note";
+    status.textContent = "Manual crop mode: drag around the full Gem Reporter stone chart, then save.";
+  }
+}
+
+function resetStoneCropSelection() {
+  stoneCropState.rect = null;
+  stoneCropState.dragging = false;
+  stoneCropState.start = null;
+  drawStoneCropCanvas();
+  const status = document.getElementById("stone-crop-status");
+  if (status) {
+    status.className = "dialog-note ocr-quality-note";
+    status.textContent = "Crop reset. Use Auto Detect Chart or Manual Crop.";
+  }
+}
+
 function drawStoneCropCanvas() {
   const image = stoneCropState.image;
   if (!image) return;
@@ -4755,6 +4795,11 @@ function startStoneCropSelection(event) {
   if (!stoneCropState.image) return;
   event.preventDefault();
   event.currentTarget.setPointerCapture?.(event.pointerId);
+  const status = document.getElementById("stone-crop-status");
+  if (status) {
+    status.className = "dialog-note ocr-quality-note";
+    status.textContent = "Manual crop: release after covering only the full stone chart panel.";
+  }
   const point = stoneCropPoint(event);
   stoneCropState.dragging = true;
   stoneCropState.start = point;
@@ -4904,9 +4949,10 @@ function detectStoneChartRectInCanvas(data, width, height) {
   for (const rect of candidateRects) {
     const trimmed = trimStoneChartCandidateRect(data, width, height, rect);
     if (!trimmed) continue;
-    const score = scoreStoneChartCandidate(data, width, height, trimmed);
+    const panelRect = expandGemReporterPanelRect(data, width, height, trimmed);
+    const score = scoreStoneChartCandidate(data, width, height, panelRect);
     if (!score.accepted) continue;
-    if (!best || score.value > best.score.value) best = { rect: trimmed, score };
+    if (!best || score.value > best.score.value) best = { rect: panelRect, score };
   }
   return best?.rect || null;
 }
@@ -5028,6 +5074,104 @@ function trimStoneChartCandidateRect(data, width, height, rect) {
     width: (lastCol - firstCol + 1) * 2,
     height: (lastRow - firstRow + 1) * 2,
   }, width, height, 10);
+}
+
+function expandGemReporterPanelRect(data, width, height, rect) {
+  const seed = clampImageRect(rect, width, height);
+  if (!seed) return null;
+  const xPad = Math.max(18, Math.round(width * 0.035));
+  const yPad = Math.max(18, Math.round(height * 0.04));
+  let left = Math.max(0, seed.x - xPad);
+  let right = Math.min(width - 1, seed.x + seed.width + xPad);
+  let top = seed.y;
+  let bottom = seed.y + seed.height;
+  let gap = 0;
+  for (let y = seed.y; y >= 0; y -= 2) {
+    const active = stoneChartPanelRowRatio(data, width, height, left, right, y) > 0.055;
+    if (active) {
+      top = y;
+      gap = 0;
+    } else {
+      gap += 2;
+      if (gap > yPad) break;
+    }
+  }
+  gap = 0;
+  for (let y = seed.y + seed.height; y < height; y += 2) {
+    const active = stoneChartPanelRowRatio(data, width, height, left, right, y) > 0.055;
+    if (active) {
+      bottom = y;
+      gap = 0;
+    } else {
+      gap += 2;
+      if (gap > yPad) break;
+    }
+  }
+  top = Math.max(0, top - Math.round(yPad * 0.35));
+  bottom = Math.min(height, bottom + Math.round(yPad * 0.35));
+  gap = 0;
+  for (let x = seed.x; x >= 0; x -= 2) {
+    const active = stoneChartPanelColRatio(data, width, height, top, bottom, x) > 0.05;
+    if (active) {
+      left = x;
+      gap = 0;
+    } else {
+      gap += 2;
+      if (gap > xPad) break;
+    }
+  }
+  gap = 0;
+  for (let x = seed.x + seed.width; x < width; x += 2) {
+    const active = stoneChartPanelColRatio(data, width, height, top, bottom, x) > 0.05;
+    if (active) {
+      right = x;
+      gap = 0;
+    } else {
+      gap += 2;
+      if (gap > xPad) break;
+    }
+  }
+  return expandImageRect({
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  }, width, height, Math.max(8, Math.round(Math.min(width, height) * 0.012)));
+}
+
+function stoneChartPanelRowRatio(data, width, height, left, right, y) {
+  let count = 0;
+  let samples = 0;
+  for (let x = Math.max(0, left); x <= Math.min(width - 1, right); x += 3) {
+    if (stoneChartPanelPixel(data, width, height, x, y)) count += 1;
+    samples += 1;
+  }
+  return samples ? count / samples : 0;
+}
+
+function stoneChartPanelColRatio(data, width, height, top, bottom, x) {
+  let count = 0;
+  let samples = 0;
+  for (let y = Math.max(0, top); y <= Math.min(height - 1, bottom); y += 3) {
+    if (stoneChartPanelPixel(data, width, height, x, y)) count += 1;
+    samples += 1;
+  }
+  return samples ? count / samples : 0;
+}
+
+function stoneChartPanelPixel(data, width, height, x, y) {
+  const lum = canvasPixelLuminance(data, width, x, y);
+  const right = x + 2 < width ? canvasPixelLuminance(data, width, x + 2, y) : lum;
+  const down = y + 2 < height ? canvasPixelLuminance(data, width, x, y + 2) : lum;
+  return lum < 220 || Math.max(Math.abs(lum - right), Math.abs(lum - down)) > 34 || isGreenUiPixel(data, width, x, y);
+}
+
+function isGreenUiPixel(data, width, x, y) {
+  const index = (Math.max(0, Math.floor(y)) * width + Math.max(0, Math.floor(x))) * 4;
+  const red = data[index];
+  const green = data[index + 1];
+  const blue = data[index + 2];
+  return green > 95 && green > red * 1.35 && green > blue * 1.2;
 }
 
 function scoreStoneChartCandidate(data, width, height, rect) {
@@ -6007,6 +6151,66 @@ function selectCurrentDesignCategory() {
   }
   group.designs.forEach((design) => selectedDesignIds.add(design.id));
   updateDesignSelectionSummary();
+}
+
+async function autoCropExistingDesigns() {
+  const button = document.getElementById("design-auto-crop-existing");
+  const status = document.getElementById("design-bulk-crop-status");
+  const selected = selectedDesignIds.size
+    ? state.designs.filter((design) => selectedDesignIds.has(design.id))
+    : state.designs;
+  if (!selected.length) {
+    alert("No designs available for auto crop.");
+    return;
+  }
+  const scopeText = selectedDesignIds.size
+    ? `${selected.length} selected design(s)`
+    : `all ${selected.length} design(s)`;
+  if (!confirm(`Auto crop old uploaded images for ${scopeText}?\n\nThis will save the Gem Reporter panel as Stone Chart and keep the remaining part as Design Image when a chart is detected.`)) {
+    return;
+  }
+  button.disabled = true;
+  let processed = 0;
+  let cropped = 0;
+  let noChart = 0;
+  let failed = 0;
+  try {
+    for (const design of selected) {
+      processed += 1;
+      if (status) status.textContent = `Checking ${processed} of ${selected.length}: ${designText(design)}`;
+      try {
+        const imageData = await getDesignImage(design.id);
+        if (!imageData) {
+          noChart += 1;
+          continue;
+        }
+        const split = await autoSplitDesignAndStoneChartDataUrl(imageData);
+        if (!split?.stoneChartImageData || !split?.designImageData) {
+          noChart += 1;
+          continue;
+        }
+        await saveDesignImage(design.id, split.designImageData);
+        await saveStoneChartImage(design.id, split.stoneChartImageData);
+        design.hasStoneChart = true;
+        cropped += 1;
+      } catch (error) {
+        console.warn("Could not auto crop old design", design, error);
+        failed += 1;
+      }
+    }
+    if (cropped) saveState();
+    renderDesigns();
+    if (document.getElementById("design-category-dialog").open) {
+      const category = document.getElementById("design-category-title").textContent || "";
+      if (category) openDesignCategory(encodeURIComponent(category));
+    }
+    if (status) {
+      status.textContent = `Old design auto crop complete: ${cropped} cropped, ${noChart} no chart found, ${failed} failed.`;
+    }
+    alert(`Auto crop complete.\nCropped: ${cropped}\nNo chart found: ${noChart}\nFailed: ${failed}`);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function deleteSelectedDesigns() {
