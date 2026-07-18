@@ -1218,11 +1218,16 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
 
 document.getElementById("issue-from-order").addEventListener("click", () => {
   const orderId = document.getElementById("update-order-form").orderId.value;
+  const order = findById("orders", orderId);
+  const pendingOrders = order ? getJobOrders(order).filter((item) => item.status === "Pending") : [];
+  if (!pendingOrders.length) {
+    alert("Gold is already issued for this job card, or no pending item is available for issue.");
+    return;
+  }
   document.getElementById("order-dialog").close();
   switchView("production");
   switchProductionPage("issue");
   renderSelects();
-  const order = findById("orders", orderId);
   const jobSelect = document.querySelector('#production-form select[name="jobNumber"]');
   if (order && jobSelect) jobSelect.value = order.jobNumber || order.productionNo || order.number;
   applyIssuePurityFromJob();
@@ -2504,6 +2509,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   renderJobItemsDetail(jobOrders);
   closeJobItemDetail();
   renderOrderLots(order);
+  document.getElementById("order-production-panel")?.classList.remove("hidden");
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
   document.getElementById("order-dialog").showModal();
 }
@@ -3574,10 +3580,76 @@ function printStoneDetailsHtml(design) {
 }
 
 function renderOrderLots(order) {
-  const lots = state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
+  const jobOrders = getJobOrders(order);
+  const orderIds = new Set(jobOrders.map((item) => item.id));
+  const lots = state.lots.filter((lot) => getLotOrderIds(lot).some((id) => orderIds.has(id)));
+  const status = document.getElementById("order-current-status");
+  if (status) status.innerHTML = orderCurrentLotStatusHtml(jobOrders, lots);
+  updateIssueGoldFromOrderButton(jobOrders);
   document.getElementById("order-lots-list").innerHTML = lots.length
     ? lots.map(renderOrderLotCard).join("")
     : '<div class="empty">No gold issued for this order yet. Use Issue Gold to start production.</div>';
+}
+
+function updateIssueGoldFromOrderButton(jobOrders = []) {
+  const button = document.getElementById("issue-from-order");
+  if (!button) return;
+  const pendingCount = jobOrders.filter((order) => order.status === "Pending").length;
+  button.disabled = pendingCount === 0;
+  button.textContent = pendingCount ? "Issue Gold" : "Gold Issued";
+  button.title = pendingCount
+    ? `Issue gold for ${pendingCount} pending item${pendingCount === 1 ? "" : "s"} in this job card.`
+    : "This job card has no pending item left for gold issue.";
+}
+
+function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
+  const currentLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;
+  const pendingCount = jobOrders.filter((order) => order.status === "Pending").length;
+  const completedCount = jobOrders.filter(isCompletedOrder).length;
+  const activeCount = Math.max(jobOrders.length - pendingCount - completedCount, 0);
+  const currentStage = jobCurrentStage(jobOrders);
+  const deliveryText = jobOrderDeliverySummary(jobOrders);
+  if (!currentLot) {
+    return `
+      <article class="order-current-card order-current-card-main">
+        <span>Current Status</span>
+        <strong>Gold Not Issued</strong>
+        <small>${pendingCount} pending item${pendingCount === 1 ? "" : "s"} / ${deliveryText || "No delivery balance"}</small>
+      </article>
+      <article class="order-current-card">
+        <span>Next Step</span>
+        <strong>Issue Gold</strong>
+        <small>Select Issue Gold to start production for this job card.</small>
+      </article>
+    `;
+  }
+  const transferCount = (currentLot.transfers || []).length;
+  const currentWeight = currentTransferIssueWeight(currentLot);
+  return `
+    <article class="order-current-card order-current-card-main">
+      <span>Current Stage</span>
+      <strong>${escapeHtml(currentStage)}</strong>
+      <small>${deliveryText ? escapeHtml(deliveryText) : "Delivery completed or not required"}</small>
+    </article>
+    <article class="order-current-card order-current-dept-card">
+      ${currentDepartmentBadgeHtml(currentLot)}
+    </article>
+    <article class="order-current-card">
+      <span>Lot</span>
+      <strong>${escapeHtml(currentLot.number || "-")}</strong>
+      <small>${escapeHtml(currentLot.status || "-")} / ${escapeHtml(currentLot.metalPurity || "-")}</small>
+    </article>
+    <article class="order-current-card">
+      <span>Current GW</span>
+      <strong>${gram(currentWeight)}</strong>
+      <small>Issued ${gram(currentLot.grossIssuedWeight || currentLot.issuedWeight || 0)}</small>
+    </article>
+    <article class="order-current-card">
+      <span>Transfers</span>
+      <strong>${transferCount}</strong>
+      <small>${pendingCount} pending / ${activeCount} active / ${completedCount} completed</small>
+    </article>
+  `;
 }
 
 function renderOrderLotCard(lot) {

@@ -2099,6 +2099,60 @@ dialog::backdrop {
   gap: 12px;
 }
 
+.order-current-status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.order-current-card {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-height: 88px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.order-current-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.order-current-card strong {
+  color: #0b514c;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.order-current-card small {
+  color: var(--muted);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.order-current-card-main {
+  background: #f4fbf9;
+  border-color: #b7dfd8;
+}
+
+.order-current-dept-card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.order-current-dept-card .current-dept-badge {
+  height: 100%;
+}
+
 .job-items-detail {
   display: grid;
   gap: 12px;
