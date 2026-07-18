@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v203";
+const APP_VERSION = "v204";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -21,6 +21,8 @@ const MAX_PRODUCTION_DAYS = 10;
 const DEFAULT_STONE_ITEM_KEY = "GENERAL";
 const STONE_ITEM_PRESETS = [
   ["GENERAL", "General"],
+  ["LR", "LR - Ladies Ring"],
+  ["GR", "GR - Gents Ring"],
   ["CL", "CL - Ladies Ring"],
   ["CG", "CG - Gents Ring"],
   ["CLR", "CLR - CBR Ladies Ring"],
@@ -565,7 +567,7 @@ document.querySelector('#stone-entry-form [name="stoneChart"]').addEventListener
   const matchedDesign = findDesignForStoneChartFile(file.name);
   const fileItemKey = matchedDesign ? stoneItemKeyFromFileName(file.name, matchedDesign) : DEFAULT_STONE_ITEM_KEY;
   if (matchedDesign) await loadStoneEntry(matchedDesign.id, fileItemKey);
-  else if (form.stoneItemKey && fileItemKey !== DEFAULT_STONE_ITEM_KEY) form.stoneItemKey.value = stoneItemInputValue(fileItemKey);
+  else if (form.stoneItemKey && fileItemKey !== DEFAULT_STONE_ITEM_KEY) form.stoneItemKey.value = fileItemKey;
   const assignedCount = await autoAssignStoneChartFiles(files);
   await showStoneChartQuality(file);
   if (matchedDesign) {
@@ -4994,10 +4996,17 @@ function isCmSetStoneDesign(design = null) {
   return ["CM", "CMB", "CME"].includes(category) || /\bCM(E|B)?\b/.test(designTextValue) || /\bCHAMS?\b/.test(designTextValue);
 }
 
+function isRegularRingStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return ["LR", "GR", "RING", "RINGS"].includes(category) || /\b(LR|GR|RING|RINGS)\b/.test(designTextValue);
+}
+
 function baseStoneItemKeysForDesign(design = null) {
   const category = categoryCode(design?.category || "");
   if (isCbrStoneDesign(design)) return ["CLR", "CGR"];
   if (category === "CB") return ["CL", "CG"];
+  if (isRegularRingStoneDesign(design)) return ["LR", "GR"];
   if (isCmSetStoneDesign(design)) return ["CM", "CME", "CMB"];
   return [DEFAULT_STONE_ITEM_KEY];
 }
@@ -5013,14 +5022,21 @@ function stoneItemKeyFromFileName(fileName = "", design = null) {
 function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   const name = ` ${designNameFromFile(fileName).toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
   const isCbr = isCbrStoneDesign(design);
+  const category = categoryCode(design?.category || "");
   if (/\bCGR\b/.test(name) || (isCbr && /\bCG\b/.test(name))) return "CGR";
   if (/\bCLR\b/.test(name) || (isCbr && /\bCL\b/.test(name))) return "CLR";
+  if (isCbr && (/\bGR\b/.test(name) || /\bGENTS?\b/.test(name))) return "CGR";
+  if (isCbr && (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name))) return "CLR";
   if (/\bCME\b/.test(name)) return "CME";
   if (/\bCMB\b/.test(name)) return "CMB";
   if (/\bCHAMS?\b/.test(name) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(name)) return "CME";
   if (/\bCHAMS?\b/.test(name) && /\b(BRACELET|BR)\b/.test(name)) return "CMB";
   if (/\bCG\b/.test(name)) return "CG";
   if (/\bCL\b/.test(name)) return "CL";
+  if (category === "CB" && (/\bGR\b/.test(name) || /\bGENTS?\b/.test(name))) return "CG";
+  if (category === "CB" && (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name))) return "CL";
+  if (/\bGR\b/.test(name) || /\bGENTS?\b/.test(name)) return "GR";
+  if (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name)) return "LR";
   if (/\bCM\b/.test(name) || /\bCHAMS?\b/.test(name)) return "CM";
   return "";
 }
@@ -5045,12 +5061,35 @@ function stoneItemOptionKeysForDesign(design = null) {
   return [...keys];
 }
 
+function stoneItemSelectOptionsForDesign(design = null, selected = "") {
+  const selectedKey = normalizeStoneItemKey(selected);
+  const keys = stoneItemOptionKeysForDesign(design);
+  if (selectedKey && !keys.includes(selectedKey)) keys.push(selectedKey);
+  return keys
+    .map((key) => {
+      const itemKey = normalizeStoneItemKey(key);
+      return `<option value="${escapeHtml(itemKey)}" ${itemKey === selectedKey ? "selected" : ""}>${escapeHtml(stoneItemLabel(itemKey))}</option>`;
+    })
+    .join("");
+}
+
+function setStoneItemSelectOptions(select, design = null, selected = "") {
+  if (!select) return DEFAULT_STONE_ITEM_KEY;
+  const optionKeys = stoneItemOptionKeysForDesign(design);
+  const requestedKey = normalizeStoneItemKey(selected || select.value || defaultStoneItemKeyForDesign(design));
+  const selectedKey = optionKeys.includes(requestedKey) ? requestedKey : defaultStoneItemKeyForDesign(design);
+  select.innerHTML = stoneItemSelectOptionsForDesign(design, selectedKey);
+  select.value = selectedKey;
+  return selectedKey;
+}
+
 function updateStoneItemDatalist(design = null) {
   const list = document.getElementById("stone-item-key-list");
-  if (!list) return;
-  list.innerHTML = stoneItemOptionKeysForDesign(design)
-    .map((key) => `<option value="${escapeHtml(stoneItemInputValue(key))}" label="${escapeHtml(stoneItemLabel(key))}"></option>`)
-    .join("");
+  if (list) {
+    list.innerHTML = stoneItemOptionKeysForDesign(design)
+      .map((key) => `<option value="${escapeHtml(stoneItemInputValue(key))}" label="${escapeHtml(stoneItemLabel(key))}"></option>`)
+      .join("");
+  }
 }
 
 function currentStoneEntryItemKey() {
@@ -5121,6 +5160,9 @@ function orderStoneItemKeys(order = {}) {
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
+  if (["LR", "GR"].includes(category)) return [category];
+  if (/\bGR\b/.test(itemText) || /\bGENTS?\b/.test(itemText)) return ["GR"];
+  if (/\bLR\b/.test(itemText) || /\bLADIES?\b/.test(itemText)) return ["LR"];
   return [DEFAULT_STONE_ITEM_KEY];
 }
 
@@ -5475,11 +5517,7 @@ function updateStoneCropItemOptions(itemKey = "") {
   const design = findById("designs", document.getElementById("stone-crop-design")?.value || "");
   updateStoneItemDatalist(design);
   const input = document.getElementById("stone-crop-item-key");
-  if (!input) return;
-  const optionKeys = stoneItemOptionKeysForDesign(design);
-  const requestedKey = normalizeStoneItemKey(itemKey || input.value || currentStoneEntryItemKey() || defaultStoneItemKeyForDesign(design));
-  const selectedKey = optionKeys.includes(requestedKey) ? requestedKey : defaultStoneItemKeyForDesign(design);
-  input.value = stoneItemInputValue(selectedKey);
+  setStoneItemSelectOptions(input, design, itemKey || currentStoneEntryItemKey());
 }
 
 async function loadStoneCropSource(index = 0) {
@@ -6181,7 +6219,7 @@ async function loadStoneEntry(designId, itemKey = "") {
   const optionKeys = stoneItemOptionKeysForDesign(design);
   const requestedItemKey = normalizeStoneItemKey(itemKey || form.stoneItemKey?.value || defaultStoneItemKeyForDesign(design));
   const selectedItemKey = optionKeys.includes(requestedItemKey) ? requestedItemKey : defaultStoneItemKeyForDesign(design);
-  if (form.stoneItemKey) form.stoneItemKey.value = stoneItemInputValue(selectedItemKey);
+  setStoneItemSelectOptions(form.stoneItemKey, design, selectedItemKey);
   renderDesignStoneEntryOptions();
   resetDesignStoneEntryFields();
   renderDesignStoneItems(designStoneItemsForKey(design, selectedItemKey), selectedItemKey);
@@ -6403,6 +6441,12 @@ function stoneEditOptions(field, selected) {
   ).join("")}`;
 }
 
+function stoneItemEditOptions(selected = "") {
+  const form = document.getElementById("stone-entry-form");
+  const design = findById("designs", form?.stoneDesignId?.value || "");
+  return stoneItemSelectOptionsForDesign(design, selected);
+}
+
 function saveDesignStoneItemEdit(stoneItemId) {
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
@@ -6446,7 +6490,7 @@ function renderDesignStoneItems(items = [], itemKey = DEFAULT_STONE_ITEM_KEY) {
   container.innerHTML = items.length
     ? `<div class="stone-total-summary">${activeItem}: ${designStoneSummaryText(items)}</div><table><thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th></th></tr></thead><tbody>${items.map((item) => `
       <tr data-design-stone-row="${item.id}">
-        <td><input data-stone-edit="itemKey" list="stone-item-key-list" value="${escapeHtml(stoneItemInputValue(item.itemKey))}"></td>
+        <td><select data-stone-edit="itemKey">${stoneItemEditOptions(item.itemKey)}</select></td>
         <td data-stone-code-preview>${escapeHtml(item.code || stoneLookupCode(item) || "-")}</td>
         <td><select data-stone-edit="stoneType">${stoneEditOptions("stoneType", item.stoneType || "")}</select></td>
         <td><select data-stone-edit="shape">${stoneEditOptions("shape", item.shape || "")}</select></td>
