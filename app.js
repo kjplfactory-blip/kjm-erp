@@ -12,13 +12,16 @@ const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
-const AUTO_SYNC_INTERVAL_MS = 7000;
+const AUTO_SYNC_INTERVAL_MS = 3000;
 const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
+const SUPABASE_SAVE_DELAY_MS = 300;
 const MAX_PRODUCTION_DAYS = 10;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
 let supabaseReconnectTimer = null;
+let supabaseRealtimeChannel = null;
+let supabasePendingCloudState = null;
 let supabaseIsConnecting = false;
 let supabaseIsSaving = false;
 let supabaseIsLoading = false;
@@ -248,6 +251,7 @@ document.getElementById("logout").addEventListener("click", () => {
 });
 
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
+document.getElementById("push-live-data")?.addEventListener("click", pushLocalDataToCloud);
 
 document.getElementById("reset-demo").addEventListener("click", () => {
   if (!isOwner()) {
@@ -1729,6 +1733,52 @@ function scheduleSupabaseReconnect() {
   }, SUPABASE_RECONNECT_INTERVAL_MS);
 }
 
+function stopSupabaseRealtime() {
+  if (!supabaseRealtimeChannel || !supabaseClient?.removeChannel) {
+    supabaseRealtimeChannel = null;
+    return;
+  }
+  try {
+    supabaseClient.removeChannel(supabaseRealtimeChannel);
+  } catch (error) {
+    console.warn("Could not stop Supabase realtime channel", error);
+  }
+  supabaseRealtimeChannel = null;
+}
+
+function startSupabaseRealtime() {
+  if (!supabaseClient?.channel || supabaseRealtimeChannel) return false;
+  try {
+    supabaseRealtimeChannel = supabaseClient
+      .channel(`erp-state-sync-${supabaseStateId}`)
+      .on("postgres_changes", {
+        event: "*",
+        schema: "public",
+        table: "erp_state",
+        filter: `id=eq.${supabaseStateId}`,
+      }, (payload) => {
+        const row = payload.new || {};
+        if (!row.data) {
+          loadSupabaseState({ auto: true, realtime: true });
+          return;
+        }
+        applyCloudStateFromRow(row, { auto: true, realtime: true });
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setSyncStatus("online", "Live Sync: Realtime");
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          supabaseRealtimeChannel = null;
+          setSyncStatus("connecting", "Live Sync: Auto", "Realtime unavailable, polling every few seconds.");
+        }
+      });
+    return true;
+  } catch (error) {
+    console.warn("Supabase realtime could not start. Auto refresh will continue.", error);
+    supabaseRealtimeChannel = null;
+    return false;
+  }
+}
+
 async function initializeSupabase() {
   if (supabaseIsConnecting) return;
   if (!supabaseSettings.url || !supabaseSettings.anonKey) {
@@ -1745,6 +1795,7 @@ async function initializeSupabase() {
     else scheduleSupabaseReconnect();
   } catch (error) {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
+    stopSupabaseRealtime();
     supabaseClient = null;
     setSyncStatus("offline", syncStatusForError(error, "Sync: Offline"), error.message || String(error));
     scheduleSupabaseReconnect();
@@ -1759,26 +1810,60 @@ async function refreshLiveData() {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
+  if (supabasePendingCloudState) {
+    const pending = supabasePendingCloudState;
+    supabasePendingCloudState = null;
+    applyCloudState(pending.data, pending.updated_at, { manual: true });
+    return;
+  }
   await loadSupabaseState({ manual: true });
+}
+
+async function pushLocalDataToCloud() {
+  if (!isOwner()) {
+    alert("Only Owner can upload this laptop data to cloud.");
+    return;
+  }
+  if (!supabaseClient) {
+    await initializeSupabase();
+  }
+  if (!supabaseClient) {
+    alert("Live sync is not connected on this laptop. Check internet and refresh the website.");
+    return;
+  }
+  if (!confirm("Upload this laptop data to cloud now?\n\nUse this only on the laptop which has the correct latest data. Other laptops will receive this data.")) return;
+  supabasePendingCloudState = null;
+  await syncStateToSupabase({ force: true });
 }
 
 function startSupabaseAutoRefresh() {
   clearInterval(supabaseAutoRefreshTimer);
   if (!supabaseClient) return;
+  const realtimeStarted = startSupabaseRealtime();
   supabaseAutoRefreshTimer = setInterval(() => {
     if (document.hidden) return;
+    if (applyPendingCloudState("auto")) return;
     loadSupabaseState({ auto: true });
   }, AUTO_SYNC_INTERVAL_MS);
-  setSyncStatus("online", "Live Sync: Auto");
+  setSyncStatus("online", realtimeStarted ? "Live Sync: Realtime" : "Live Sync: Auto");
 }
 
 window.addEventListener("focus", () => {
+  if (applyPendingCloudState("auto")) return;
   if (supabaseClient) loadSupabaseState({ auto: true });
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && supabaseClient) loadSupabaseState({ auto: true });
+  if (document.hidden) {
+    flushSupabaseSave();
+    return;
+  }
+  if (applyPendingCloudState("auto")) return;
+  if (supabaseClient) loadSupabaseState({ auto: true });
 });
+
+window.addEventListener("beforeunload", flushSupabaseSave);
+window.addEventListener("pagehide", flushSupabaseSave);
 
 function queueSupabaseSave() {
   if (!supabaseClient) {
@@ -1787,10 +1872,15 @@ function queueSupabaseSave() {
   }
   setSyncStatus("saving", "Sync: Saving");
   clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(syncStateToSupabase, 600);
+  supabaseSaveTimer = setTimeout(syncStateToSupabase, SUPABASE_SAVE_DELAY_MS);
 }
 
-async function syncStateToSupabase() {
+function flushSupabaseSave() {
+  if (!supabaseClient || !supabaseSaveTimer) return;
+  syncStateToSupabase({ keepalive: true });
+}
+
+async function syncStateToSupabase(options = {}) {
   if (!supabaseClient) {
     setSyncStatus("offline", "Sync: Offline");
     scheduleSupabaseReconnect();
@@ -1846,33 +1936,60 @@ async function loadSupabaseState(options = {}) {
     return false;
   }
   if (data?.data) {
-    const cloudUpdatedAt = data.updated_at || "";
-    if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
-      setSyncStatus("online", "Live Sync: Auto");
-      return true;
-    }
-    if (isAuto && isUserActivelyEditing()) {
-      setSyncStatus("online", "Live Sync: New Data");
-      return true;
-    }
-    state = normalizeState(data.data);
-    supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
-    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-    render();
-    setDefaultOrderDates(document.getElementById("order-form"));
-    resetOrderItemRows();
-    resetMeltingSources();
-    updateMeltingCalculation();
-    if (options.manual) {
-      setSyncStatus("online", `Live Sync: Refreshed ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
-    } else if (isAuto) {
-      setSyncStatus("online", `Live Sync: Updated ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
-    }
+    applyCloudStateFromRow(data, options);
   } else {
     await syncStateToSupabase();
   }
   if (options.initial) setSyncStatus("online", "Live Sync: Auto");
   return true;
+}
+
+function applyCloudStateFromRow(row = {}, options = {}) {
+  const cloudUpdatedAt = row.updated_at || "";
+  const isAuto = Boolean(options.auto || options.realtime);
+  if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
+    setSyncStatus("online", supabaseRealtimeChannel ? "Live Sync: Realtime" : "Live Sync: Auto");
+    return false;
+  }
+  if (isAuto && isUserActivelyEditing()) {
+    supabasePendingCloudState = {
+      data: row.data,
+      updated_at: cloudUpdatedAt,
+    };
+    setSyncStatus("connecting", "New Data - Refresh", "Another laptop saved new data. Close the open form or click Refresh Live Data to load it.");
+    return true;
+  }
+  applyCloudState(row.data, cloudUpdatedAt, options);
+  return true;
+}
+
+function applyPendingCloudState(source = "auto") {
+  if (!supabasePendingCloudState || isUserActivelyEditing()) return false;
+  const pending = supabasePendingCloudState;
+  supabasePendingCloudState = null;
+  applyCloudState(pending.data, pending.updated_at, { auto: source === "auto" });
+  return true;
+}
+
+function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
+  state = normalizeState(cloudState);
+  supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
+  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  render();
+  setDefaultOrderDates(document.getElementById("order-form"));
+  resetOrderItemRows();
+  resetMeltingSources();
+  updateMeltingCalculation();
+  const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  if (options.manual) {
+    setSyncStatus("online", `Live Sync: Refreshed ${time}`);
+  } else if (options.realtime) {
+    setSyncStatus("online", `Live Sync: Updated ${time}`);
+  } else if (options.auto) {
+    setSyncStatus("online", `Live Sync: Updated ${time}`);
+  } else {
+    setSyncStatus("online", "Live Sync: Auto");
+  }
 }
 
 function isNewerCloudData(cloudUpdatedAt) {
