@@ -10,6 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
+const APP_VERSION = "v193";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -1588,17 +1589,17 @@ function normalizeSupabaseUrl(url) {
   return String(url || "").replace(/\/+$/, "");
 }
 
+function withSupabaseTimeout(promise, message = "Supabase request timeout.") {
+  let timeout;
+  const timer = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), SUPABASE_REQUEST_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timer]).finally(() => clearTimeout(timeout));
+}
+
 function supabaseFetch(input, init = {}) {
   if (!window.fetch) return Promise.reject(new Error("Browser fetch is not available."));
-  if (init.signal || typeof AbortController === "undefined") return fetch(input, init);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal })
-    .finally(() => clearTimeout(timeout))
-    .catch((error) => {
-      if (error?.name === "AbortError") throw new Error("Supabase request timeout.");
-      throw error;
-    });
+  return withSupabaseTimeout(fetch(input, init));
 }
 
 function createFetchSupabaseClient(url, anonKey) {
@@ -1730,10 +1731,16 @@ async function createSupabaseClient() {
 
 function setSyncStatus(status, message, detail = "") {
   const pill = document.getElementById("sync-status");
-  if (!pill) return;
-  pill.className = `sync-pill ${status}`;
-  pill.textContent = message;
-  pill.title = detail || message;
+  if (pill) {
+    pill.className = `sync-pill ${status}`;
+    pill.textContent = message;
+    pill.title = detail || message;
+  }
+  const detailNode = document.getElementById("sync-detail");
+  if (detailNode) {
+    const detailText = detail ? String(detail).replace(/\s+/g, " ").trim().slice(0, 120) : "auto refresh every 3 sec";
+    detailNode.textContent = `${APP_VERSION} / ${detailText}`;
+  }
 }
 
 function syncStatusForError(error, fallback) {
@@ -1916,15 +1923,25 @@ async function syncStateToSupabase(options = {}) {
   supabaseIsSaving = true;
   setSyncStatus("saving", "Sync: Saving");
   const updatedAt = new Date().toISOString();
-  const { error } = await supabaseClient
-    .from("erp_state")
-    .upsert({
-      id: supabaseStateId,
-      data: state,
-      updated_at: updatedAt,
-    })
-    .catch((error) => ({ error }));
-  supabaseIsSaving = false;
+  let error = null;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .upsert({
+          id: supabaseStateId,
+          data: state,
+          updated_at: updatedAt,
+        })
+        .catch((error) => ({ error })),
+      "Supabase save timeout."
+    );
+    error = result?.error || null;
+  } catch (caughtError) {
+    error = caughtError;
+  } finally {
+    supabaseIsSaving = false;
+  }
   if (error) {
     console.warn("Supabase save failed", error);
     setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), error.message || String(error));
@@ -1942,18 +1959,30 @@ async function loadSupabaseState(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
-  if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return;
+  if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
-  if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return;
+  if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
   supabaseIsLoading = true;
   if (!isAuto) setSyncStatus("connecting", "Sync: Loading");
-  const { data, error } = await supabaseClient
-    .from("erp_state")
-    .select("data, updated_at")
-    .eq("id", supabaseStateId)
-    .maybeSingle()
-    .catch((error) => ({ data: null, error }));
-  supabaseIsLoading = false;
+  let data = null;
+  let error = null;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle()
+        .catch((error) => ({ data: null, error })),
+      "Supabase load timeout."
+    );
+    data = result?.data || null;
+    error = result?.error || null;
+  } catch (caughtError) {
+    error = caughtError;
+  } finally {
+    supabaseIsLoading = false;
+  }
   if (error) {
     console.warn("Supabase load failed", error);
     setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), error.message || String(error));
