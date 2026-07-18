@@ -3721,7 +3721,7 @@ function openTransferLot(lotId) {
   const settingStoneNote = handStoneWeight > 0
     ? ` Hand-setting stone caught from job card: ${gram(handStoneWeight)}.`
     : "";
-  document.getElementById("transfer-current").textContent = `${lot.number} is currently with ${lot.karigarName} in ${lot.currentDepartment || "current department"}. GW includes wax stone ${gram(waxStoneWeight)}.${settingStoneNote}`;
+  setTransferCurrentNote(transferCurrentLocationHtml(lot, waxStoneWeight, settingStoneNote));
   renderTransferOptions(lot);
   applyProductionFlowDefaults(lot);
   applyProductionStoneWeightToTransfer();
@@ -3750,7 +3750,11 @@ function openTransferEdit(lotId, transferId) {
   form.departmentBalance.value = weight3(transfer.departmentBalance);
   form.fromDepartment.value = transfer.fromDepartment || "";
   form.reason.value = transfer.reason || "";
-  document.getElementById("transfer-current").textContent = `Editing transfer for ${lot.number}.`;
+  setTransferCurrentNote(`
+    <span>Editing transfer for ${escapeHtml(lot.number)}. Current department:</span>
+    <strong class="transfer-current-dept">${escapeHtml(lot.karigarName || lot.currentDepartment || "-")}</strong>
+    <span>Entry: ${escapeHtml(transfer.fromDepartment || "-")} to ${escapeHtml(transfer.toDepartment || transfer.toKarigarName || "-")}.</span>
+  `);
   document.getElementById("transfer-dialog").showModal();
 }
 
@@ -6971,12 +6975,42 @@ function designNameFromFile(fileName = "") {
   return fileName.replace(/\.[^/.]+$/, "").trim();
 }
 
+function currentDepartmentBadgeHtml(lot = {}) {
+  const department = lot.karigarName || lot.currentDepartment || "-";
+  const process = lot.currentDepartment && lot.currentDepartment !== department ? lot.currentDepartment : "";
+  const completedClass = lot.status === "Completed" ? " completed" : "";
+  return `
+    <div class="current-dept-badge${completedClass}">
+      <span>${lot.status === "Completed" ? "Last Dept" : "Current Dept"}</span>
+      <strong>${escapeHtml(department)}</strong>
+      ${process ? `<small>Process: ${escapeHtml(process)}</small>` : `<small>Process: -</small>`}
+    </div>
+  `;
+}
+
+function transferCurrentLocationHtml(lot = {}, waxStoneWeight = 0, settingStoneNote = "") {
+  const department = lot.karigarName || lot.currentDepartment || "current department";
+  const process = lot.currentDepartment && lot.currentDepartment !== department ? lot.currentDepartment : "";
+  return `
+    <span>${escapeHtml(lot.number || "Lot")} current department:</span>
+    <strong class="transfer-current-dept">${escapeHtml(department)}</strong>
+    ${process ? `<span class="transfer-current-process">Process: <b>${escapeHtml(process)}</b></span>` : ""}
+    <span>GW includes wax stone ${gram(waxStoneWeight)}.${escapeHtml(settingStoneNote)}</span>
+  `;
+}
+
+function setTransferCurrentNote(html) {
+  const note = document.getElementById("transfer-current");
+  note.className = "dialog-note transfer-current-highlight";
+  note.innerHTML = html;
+}
+
 function renderProduction() {
   const rows = state.lots.map((lot) => `
     <tr>
       <td>${lot.number}</td>
       <td>${escapeHtml(lot.orderNumber)}</td>
-      <td>${escapeHtml(lot.karigarName)}<br><small>${escapeHtml(lot.currentDepartment || "-")}</small></td>
+      <td class="current-dept-cell">${currentDepartmentBadgeHtml(lot)}</td>
       <td>${escapeHtml(lot.metalPurity || getLotOrders(lot)[0]?.purity || "-")}</td>
       <td>${issueWeightDetailHtml(lot)}</td>
       <td>${lot.finishedWeight ? gram(lot.finishedWeight) : "-"}</td>
