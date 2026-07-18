@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=113">
+    <link rel="stylesheet" href="styles.css?v=114">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v199</small>
+            <small class="app-version-badge">App v200</small>
           </div>
         </div>
         <label>User
@@ -88,7 +88,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span class="app-version-badge">App v199</span>
+          <span class="app-version-badge">App v200</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -920,6 +920,8 @@
             <label>Search Design <input name="stoneDesignSearch" list="stone-design-search-list" placeholder="Type design no or name"></label>
             <datalist id="stone-design-search-list"></datalist>
             <label>Design <select name="stoneDesignId" required></select></label>
+            <label>Item / Chart <input name="stoneItemKey" list="stone-item-key-list" placeholder="General / CL / CG"></label>
+            <datalist id="stone-item-key-list"></datalist>
             <p id="stone-entry-summary" class="dialog-note">Select design to view stone data.</p>
             <div class="stone-design-entry">
               <label>Type <select name="entryStoneType"></select></label>
@@ -961,6 +963,7 @@
           <div class="stone-crop-tools">
             <label>Image File <select id="stone-crop-source"></select></label>
             <label>Save To Design <select id="stone-crop-design"></select></label>
+            <label>Save To Item / Chart <input id="stone-crop-item-key" list="stone-item-key-list" placeholder="General / CL / CG"></label>
             <label>Reupload Full Image <input id="stone-crop-reupload" type="file" accept="image/*"></label>
             <p id="stone-crop-status" class="dialog-note ocr-quality-note">Drag on the image to mark the stone chart area.</p>
             <div class="stone-crop-actions">
@@ -999,6 +1002,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=199"></script>
+  <script src="app.js?v=200"></script>
   </body>
 </html>
