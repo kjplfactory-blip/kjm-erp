@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v200";
+const APP_VERSION = "v201";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -358,13 +358,14 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   }
   submitButton.disabled = true;
   const previousDesigns = [...state.designs];
+  const uploadCropPermission = createStoneCropUploadPermission();
   try {
     if (existing) {
       const group = uploadGroups.find((item) => designMatchKeys(existing).includes(item.key)) || uploadGroups[0];
       const imageFile = group?.designFile || imageFiles[0];
       const designName = group?.designName || designNameFromFile(imageFile?.name) || existing.number;
       const smartImageResult = imageFile && !isStoneChartUploadFile(imageFile.name)
-        ? await saveDesignUploadImageAndAutoChart(existing, imageFile, { saveDesign: true })
+        ? await saveDesignUploadImageAndAutoChart(existing, imageFile, { saveDesign: true, cropPermission: uploadCropPermission })
         : { chartAttached: false };
       const chartCandidates = [...(group?.chartFiles || []), ...stoneChartFiles];
       const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, existing) || (stoneChartFiles.length === 1 ? stoneChartFiles[0] : null) || group?.chartFiles?.[0] || null;
@@ -403,7 +404,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         createdCount += 1;
         let chartAttachedForDesign = 0;
         if (group.designFile) {
-          const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true });
+          const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: uploadCropPermission });
           chartAttachedForDesign = smartImageResult.chartAttached ? 1 : 0;
         }
         const chartCandidates = [...group.chartFiles, ...stoneChartFiles];
@@ -418,7 +419,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
       }
       for (const { group, existingDesign } of duplicateGroups) {
         status.textContent = `Duplicate found: ${group.designName || existingDesign.number}. Waiting for your choice.`;
-        const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles);
+        const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles, { cropPermission: uploadCropPermission });
         updatedCount += result.updated;
         createdCount += result.created;
         matchedStoneCharts += result.chartAttached;
@@ -5147,12 +5148,12 @@ function findDesignByUploadKey(key) {
   return state.designs.find((design) => designMatchKeys(design).includes(key));
 }
 
-async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFiles = [], replaceDesignImage = false) {
+async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFiles = [], replaceDesignImage = false, options = {}) {
   if (!group || !design) return { updated: 0, chartAttached: 0 };
   if (category && !design.category) design.category = category;
   let chartAttached = 0;
   if (group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
-    const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: replaceDesignImage });
+    const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: replaceDesignImage, cropPermission: options.cropPermission });
     chartAttached = smartImageResult.chartAttached ? 1 : 0;
   }
   const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
@@ -5165,7 +5166,7 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
   return { updated: 1, chartAttached };
 }
 
-async function resolveDuplicateDesignUpload(group, existingDesign, category, stoneChartFiles = []) {
+async function resolveDuplicateDesignUpload(group, existingDesign, category, stoneChartFiles = [], options = {}) {
   const designName = group.designName || designText(existingDesign);
   const action = prompt(
     `Duplicate design number found: ${designName}\nExisting: ${designText(existingDesign)}\n\nType MERGE to attach stone chart/details to existing.\nType REPLACE to also replace existing design image.\nType NEW to keep as separate design.\nType SKIP to ignore this duplicate.`,
@@ -5173,11 +5174,11 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
   );
   const choice = String(action || "SKIP").trim().toUpperCase();
   if (choice === "MERGE") {
-    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, false);
+    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, false, options);
     return { created: 0, updated: result.updated, chartAttached: result.chartAttached };
   }
   if (choice === "REPLACE") {
-    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, true);
+    const result = await mergeUploadGroupIntoDesign(group, existingDesign, category, stoneChartFiles, true, options);
     return { created: 0, updated: result.updated, chartAttached: result.chartAttached };
   }
   if (choice === "NEW") {
@@ -5188,7 +5189,7 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     state.designs.push(design);
     let chartAttached = 0;
     if (group.designFile) {
-      const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true });
+      const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: options.cropPermission });
       chartAttached = smartImageResult.chartAttached ? 1 : 0;
     }
     const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
@@ -5242,6 +5243,23 @@ function confirmStoneChartCrop(message) {
   return confirm(`${message}\n\nOnly the stone chart crop will be saved. The design image will stay unchanged.`);
 }
 
+function createStoneCropUploadPermission() {
+  return { asked: false, allow: false };
+}
+
+function shouldSaveAutoDetectedStoneChart(design, file, permission) {
+  if (!permission) {
+    return confirmStoneChartCrop(`Stone chart detected in ${file.name}. Save this cropped chart to ${designText(design)}?`);
+  }
+  if (!permission.asked) {
+    permission.asked = true;
+    permission.allow = confirm(
+      `Stone chart detected during this design upload lot.\n\nFirst detected file: ${file.name}\nDesign: ${designText(design)}\n\nSave all auto-detected cropped stone charts for this whole upload lot?\n\nOK = save all detected charts in this upload.\nCancel = skip auto-cropped charts for this upload.\n\nDesign images will stay unchanged.`
+    );
+  }
+  return permission.allow;
+}
+
 async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
   const saveDesign = options.saveDesign !== false;
   if (!design || !file) return { designSaved: false, chartAttached: false, autoSplit: false };
@@ -5261,7 +5279,7 @@ async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
   let chartAttached = false;
   if (split?.stoneChartImageData) {
     const targetItemKey = stoneItemKeyFromFileName(file.name, design);
-    const shouldSaveChart = confirmStoneChartCrop(`Stone chart detected in ${file.name}. Save this cropped chart to ${designText(design)}?`);
+    const shouldSaveChart = shouldSaveAutoDetectedStoneChart(design, file, options.cropPermission);
     if (shouldSaveChart) {
       await saveStoneChartImage(design.id, split.stoneChartImageData, targetItemKey);
       markDesignStoneChart(design, targetItemKey, true);
@@ -7347,7 +7365,7 @@ function resetDesignForm() {
   form.designId.value = "";
   document.getElementById("design-form-title").textContent = "Add Design";
   document.getElementById("design-submit").textContent = "Upload Design(s)";
-  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time. If a design image also contains a stone chart, the app will ask before attaching only the stone chart crop. Design image stays unchanged.";
+  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time. If design images contain stone charts, the app asks once for the whole upload lot before attaching chart crops. Design images stay unchanged.";
   document.getElementById("cancel-design-edit").classList.add("hidden");
 }
 
