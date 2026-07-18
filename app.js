@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v202";
+const APP_VERSION = "v203";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -371,7 +371,9 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         : { chartAttached: false };
       const chartCandidates = [...(group?.chartFiles || []), ...stoneChartFiles];
       const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, existing) || (stoneChartFiles.length === 1 ? stoneChartFiles[0] : null) || group?.chartFiles?.[0] || null;
-      if (matchingStoneChartFile) await saveStoneChartFileForDesign(existing, matchingStoneChartFile);
+      const matchingStoneChartResult = matchingStoneChartFile
+        ? await saveStoneChartFileForDesign(existing, matchingStoneChartFile)
+        : { itemSaved: false, sourceSaved: false };
       const design = {
         id: existing.id,
         number: data.number || designName,
@@ -380,7 +382,9 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
         stoneChartItems: existing.stoneChartItems || [],
-        hasStoneChart: existing.hasStoneChart || Boolean(matchingStoneChartFile) || smartImageResult.chartAttached,
+        hasStoneChartSource: existing.hasStoneChartSource || matchingStoneChartResult.sourceSaved,
+        stoneChartSourceName: existing.stoneChartSourceName || matchingStoneChartFile?.name || "",
+        hasStoneChart: existing.hasStoneChart || matchingStoneChartResult.itemSaved || smartImageResult.chartAttached,
       };
       Object.assign(existing, design);
       updateDesignReferences(existing);
@@ -414,8 +418,8 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           || group.chartFiles[0]
           || (stoneChartFiles.length === 1 && uploadGroups.length === 1 ? stoneChartFiles[0] : null);
         if (matchingStoneChartFile) {
-          await saveStoneChartFileForDesign(design, matchingStoneChartFile);
-          chartAttachedForDesign = 1;
+          const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+          chartAttachedForDesign = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttachedForDesign;
         }
         matchedStoneCharts += chartAttachedForDesign;
       }
@@ -564,8 +568,12 @@ document.querySelector('#stone-entry-form [name="stoneChart"]').addEventListener
   else if (form.stoneItemKey && fileItemKey !== DEFAULT_STONE_ITEM_KEY) form.stoneItemKey.value = stoneItemInputValue(fileItemKey);
   const assignedCount = await autoAssignStoneChartFiles(files);
   await showStoneChartQuality(file);
-  preview.classList.remove("empty");
-  preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Selected stone chart preview">`;
+  if (matchedDesign) {
+    await loadStoneEntry(matchedDesign.id, fileItemKey);
+  } else {
+    preview.classList.remove("empty");
+    preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="Selected stone chart preview">`;
+  }
   const note = document.getElementById("stone-chart-quality");
   if (assignedCount) {
     note.className = "dialog-note ocr-quality-note good";
@@ -4999,6 +5007,10 @@ function defaultStoneItemKeyForDesign(design = null) {
 }
 
 function stoneItemKeyFromFileName(fileName = "", design = null) {
+  return explicitStoneItemKeyFromFileName(fileName, design) || defaultStoneItemKeyForDesign(design);
+}
+
+function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   const name = ` ${designNameFromFile(fileName).toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
   const isCbr = isCbrStoneDesign(design);
   if (/\bCGR\b/.test(name) || (isCbr && /\bCG\b/.test(name))) return "CGR";
@@ -5010,8 +5022,7 @@ function stoneItemKeyFromFileName(fileName = "", design = null) {
   if (/\bCG\b/.test(name)) return "CG";
   if (/\bCL\b/.test(name)) return "CL";
   if (/\bCM\b/.test(name) || /\bCHAMS?\b/.test(name)) return "CM";
-  const designCode = categoryCode(design?.category || "");
-  return ["CB", "CM", "CMB", "CME"].includes(designCode) ? DEFAULT_STONE_ITEM_KEY : DEFAULT_STONE_ITEM_KEY;
+  return "";
 }
 
 function stoneItemOptionKeysForDesign(design = null) {
@@ -5063,6 +5074,12 @@ function markDesignStoneChart(design, itemKey = DEFAULT_STONE_ITEM_KEY, hasChart
   if (hasChart) items.push({ itemKey: key, label: stoneItemLabel(key) });
   design.stoneChartItems = items;
   design.hasStoneChart = items.length > 0;
+}
+
+function markDesignStoneChartSource(design, sourceName = "") {
+  if (!design) return;
+  design.hasStoneChartSource = true;
+  if (sourceName) design.stoneChartSourceName = sourceName;
 }
 
 function designStoneChartItemKeys(design = {}) {
@@ -5174,6 +5191,8 @@ function createDesignFromUploadGroup(group, category, nameOverride = "") {
     stoneDetails: "",
     stoneItems: [],
     stoneChartItems: [],
+    hasStoneChartSource: false,
+    stoneChartSourceName: "",
     hasStoneChart: false,
   };
 }
@@ -5193,8 +5212,8 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
   const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
   const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
   if (matchingStoneChartFile) {
-    await saveStoneChartFileForDesign(design, matchingStoneChartFile);
-    chartAttached = 1;
+    const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+    chartAttached = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttached;
   }
   updateDesignReferences(design);
   return { updated: 1, chartAttached };
@@ -5229,8 +5248,8 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     const chartCandidates = [...(group.chartFiles || []), ...stoneChartFiles];
     const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design) || group.chartFiles?.[0] || null;
     if (matchingStoneChartFile) {
-      await saveStoneChartFileForDesign(design, matchingStoneChartFile);
-      chartAttached = 1;
+      const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+      chartAttached = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttached;
     }
     return { created: 1, updated: 0, chartAttached };
   }
@@ -5264,13 +5283,20 @@ function findDesignForStoneChartFile(fileName) {
   return sortedDesigns().find((design) => stoneChartFileMatchesDesign(fileName, design)) || null;
 }
 
-async function saveStoneChartFileForDesign(design, file, itemKey = "") {
-  if (!design || !file) return "";
-  const targetItemKey = normalizeStoneItemKey(itemKey || stoneItemKeyFromFileName(file.name, design));
+async function saveStoneChartFileForDesign(design, file, itemKey = "", options = {}) {
+  if (!design || !file) return { imageData: "", itemSaved: false, sourceSaved: false };
   const imageData = await compressStoneChartImage(file);
-  await saveStoneChartImage(design.id, imageData, targetItemKey);
-  markDesignStoneChart(design, targetItemKey, true);
-  return imageData;
+  await saveStoneChartSourceImage(design.id, imageData);
+  markDesignStoneChartSource(design, file.name);
+  const explicitKey = itemKey ? normalizeStoneItemKey(itemKey) : explicitStoneItemKeyFromFileName(file.name, design);
+  const shouldSaveItem = options.saveItem !== false && (Boolean(itemKey) || Boolean(explicitKey) || !baseStoneItemKeysForDesign(design).some((key) => key !== DEFAULT_STONE_ITEM_KEY));
+  if (shouldSaveItem) {
+    const targetItemKey = normalizeStoneItemKey(explicitKey || defaultStoneItemKeyForDesign(design));
+    await saveStoneChartImage(design.id, imageData, targetItemKey);
+    markDesignStoneChart(design, targetItemKey, true);
+    return { imageData, itemSaved: true, sourceSaved: true, itemKey: targetItemKey };
+  }
+  return { imageData, itemSaved: false, sourceSaved: true, itemKey: "" };
 }
 
 function confirmStoneChartCrop(message) {
@@ -5298,8 +5324,8 @@ async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
   const saveDesign = options.saveDesign !== false;
   if (!design || !file) return { designSaved: false, chartAttached: false, autoSplit: false };
   if (isStoneChartUploadFile(file.name)) {
-    await saveStoneChartFileForDesign(design, file);
-    return { designSaved: false, chartAttached: true, autoSplit: false };
+    const result = await saveStoneChartFileForDesign(design, file);
+    return { designSaved: false, chartAttached: result.sourceSaved || result.itemSaved, autoSplit: false };
   }
   const split = await autoSplitDesignAndStoneChart(file).catch((error) => {
     console.warn("Auto stone chart crop failed", error);
@@ -5348,10 +5374,10 @@ async function autoAssignStoneChartFiles(files = []) {
   for (const file of [...files]) {
     const design = findDesignForStoneChartFile(file.name);
     if (!design) continue;
-    const itemKey = stoneItemKeyFromFileName(file.name, design);
-    const assignKey = `${design.id}|${itemKey}`;
+    const itemKey = explicitStoneItemKeyFromFileName(file.name, design);
+    const assignKey = `${design.id}|${itemKey || "SOURCE"}`;
     if (assignedCharts.has(assignKey)) continue;
-    await saveStoneChartFileForDesign(design, file, itemKey);
+    await saveStoneChartFileForDesign(design, file, itemKey, { saveItem: Boolean(itemKey) });
     assignedCharts.add(assignKey);
     assignedCount += 1;
   }
@@ -5383,17 +5409,27 @@ async function assignSelectedStoneChartFiles() {
 async function stoneCropSourcesFromSelection() {
   const form = document.getElementById("stone-entry-form");
   const files = [...form.stoneChart.files].length ? [...form.stoneChart.files] : selectedStoneChartFiles;
-  if (files.length) return files.map((file) => ({ name: file.name, file }));
+  if (files.length) return files.map((file) => {
+    const matchedDesign = findDesignForStoneChartFile(file.name) || findById("designs", form.stoneDesignId.value);
+    const explicitItemKey = matchedDesign ? explicitStoneItemKeyFromFileName(file.name, matchedDesign) : "";
+    return { name: file.name, file, designId: matchedDesign?.id || "", itemKey: explicitItemKey || currentStoneEntryItemKey(), sourceImage: true };
+  });
   const design = findById("designs", form.stoneDesignId.value);
   if (design) {
     const sources = [];
+    const savedSourceImageData = await getStoneChartSourceImage(design.id).catch(() => "");
+    const legacySourceImageData = savedSourceImageData ? "" : await getStoneChartImage(design.id, DEFAULT_STONE_ITEM_KEY).catch(() => "");
+    const mainSourceImageData = savedSourceImageData || legacySourceImageData;
+    if (mainSourceImageData) {
+      sources.push({ name: `${designText(design)} main stone chart image`, imageData: mainSourceImageData, designId: design.id, itemKey: currentStoneEntryItemKey(), sourceImage: true });
+    }
     const designImageData = await getDesignImage(design.id).catch(() => design.imageData || "");
     if (designImageData) {
       sources.push({ name: `${designText(design)} full design image`, imageData: designImageData, designId: design.id, itemKey: currentStoneEntryItemKey(), fullDesignImage: true });
     }
     for (const itemKey of designStoneChartItemKeys(design)) {
       const imageData = await getStoneChartImage(design.id, itemKey).catch(() => "");
-      if (imageData) sources.push({ name: `${designText(design)} saved chart - ${stoneItemInputValue(itemKey)}`, imageData, designId: design.id, itemKey });
+      if (imageData) sources.push({ name: `${designText(design)} saved item crop - ${stoneItemInputValue(itemKey)}`, imageData, designId: design.id, itemKey, itemChart: true });
     }
     if (sources.length) return sources;
   }
@@ -6103,6 +6139,11 @@ async function saveStoneCropToDesign(readAfterSave = false) {
   if (!confirmStoneChartCrop(`${action} for ${designText(design)} / ${stoneItemInputValue(itemKey)}?`)) {
     return;
   }
+  const source = stoneCropState.files[stoneCropState.sourceIndex] || {};
+  if (!source.itemChart && stoneCropState.imageData) {
+    await saveStoneChartSourceImage(design.id, stoneCropState.imageData);
+    markDesignStoneChartSource(design, source.name || "Main stone chart image");
+  }
   await saveStoneChartImage(design.id, imageData, itemKey);
   markDesignStoneChart(design, itemKey, true);
   saveState();
@@ -6145,12 +6186,17 @@ async function loadStoneEntry(designId, itemKey = "") {
   resetDesignStoneEntryFields();
   renderDesignStoneItems(designStoneItemsForKey(design, selectedItemKey), selectedItemKey);
   const chartKeys = designStoneChartItemKeys(design);
-  summary.textContent = `${design.number || "Design"} / ${design.category || "Uncategorised"} / ${stoneItemInputValue(selectedItemKey)} / ${designHasStoneChartForItem(design, selectedItemKey) ? "Stone chart available" : "No item chart"}`;
-  const imageData = designHasStoneChartForItem(design, selectedItemKey) ? await getStoneChartImage(design.id, selectedItemKey).catch(() => "") : "";
+  const hasItemChart = designHasStoneChartForItem(design, selectedItemKey);
+  const savedSourceImageData = await getStoneChartSourceImage(design.id).catch(() => "");
+  const legacySourceImageData = savedSourceImageData ? "" : await getStoneChartImage(design.id, DEFAULT_STONE_ITEM_KEY).catch(() => "");
+  const sourceImageData = savedSourceImageData || legacySourceImageData;
+  const itemImageData = hasItemChart ? await getStoneChartImage(design.id, selectedItemKey).catch(() => "") : "";
+  const imageData = sourceImageData || itemImageData;
+  summary.textContent = `${design.number || "Design"} / ${design.category || "Uncategorised"} / ${stoneItemInputValue(selectedItemKey)} / ${hasItemChart ? "Item crop saved" : "No item crop"}${sourceImageData ? " / Main image available" : ""}`;
   preview.classList.toggle("empty", !imageData);
   preview.innerHTML = imageData
-    ? `<img src="${imageData}" alt="Stone chart for ${escapeHtml(designText(design))} ${escapeHtml(stoneItemInputValue(selectedItemKey))}">`
-    : `No stone chart uploaded for ${escapeHtml(stoneItemInputValue(selectedItemKey))}.${chartKeys.length ? ` Available: ${chartKeys.map(stoneItemInputValue).join(", ")}` : ""}`;
+    ? `<img src="${imageData}" alt="Stone chart for ${escapeHtml(designText(design))} ${escapeHtml(stoneItemInputValue(selectedItemKey))}"><small>${sourceImageData ? `Main matching image shown. Crop/save to ${escapeHtml(stoneItemInputValue(selectedItemKey))}.` : `${escapeHtml(stoneItemInputValue(selectedItemKey))} item crop shown.`}</small>`
+    : `No matching stone chart image saved for this design.${chartKeys.length ? ` Item crops available: ${chartKeys.map(stoneItemInputValue).join(", ")}` : ""}`;
 }
 
 async function refreshStoneEntryItemView() {
@@ -6270,6 +6316,8 @@ async function readStoneChartImage() {
   if (file) {
     await showStoneChartQuality(file);
     imageData = await compressStoneChartImage(file);
+    await saveStoneChartSourceImage(design.id, imageData);
+    markDesignStoneChartSource(design, file.name);
     await saveStoneChartImage(design.id, imageData, itemKey);
     markDesignStoneChart(design, itemKey, true);
     saveState();
@@ -7056,6 +7104,8 @@ async function autoCropExistingDesigns() {
           noChart += 1;
           continue;
         }
+        await saveStoneChartSourceImage(design.id, imageData);
+        markDesignStoneChartSource(design, "Auto detected from old upload");
         await saveStoneChartImage(design.id, split.stoneChartImageData, DEFAULT_STONE_ITEM_KEY);
         markDesignStoneChart(design, DEFAULT_STONE_ITEM_KEY, true);
         cropped += 1;
@@ -7146,19 +7196,21 @@ function renderDesigns() {
 
 function designStoneChartPreviewHtml(design) {
   const chartKeys = designStoneChartItemKeys(design);
-  if (!chartKeys.length) return "";
+  const hasSource = Boolean(design.hasStoneChartSource);
+  if (!chartKeys.length && !hasSource) return "";
   const previewKey = chartKeys[0];
   return `
     <figure>
-      <span>Stone Chart${chartKeys.length > 1 ? "s" : ""}</span>
-      <img class="design-thumb stone-chart-thumb" data-stone-chart-image="${design.id}" data-stone-chart-item="${escapeHtml(previewKey)}" alt="Stone chart for ${escapeHtml(design.name)}">
-      <small class="stone-chart-chip-list">${chartKeys.map((key) => `<b>${escapeHtml(stoneItemInputValue(key))}</b>`).join("")}</small>
+      <span>${hasSource ? "Main Stone Chart" : `Stone Chart${chartKeys.length > 1 ? "s" : ""}`}</span>
+      <img class="design-thumb stone-chart-thumb" ${hasSource ? `data-stone-chart-source-image="${design.id}"` : `data-stone-chart-image="${design.id}" data-stone-chart-item="${escapeHtml(previewKey)}"`} alt="Stone chart for ${escapeHtml(design.name)}">
+      <small class="stone-chart-chip-list">${hasSource ? "<b>Main</b>" : ""}${chartKeys.map((key) => `<b>${escapeHtml(stoneItemInputValue(key))}</b>`).join("")}</small>
     </figure>
   `;
 }
 
 function renderDesignCard(design) {
   const chartKeys = designStoneChartItemKeys(design);
+  const hasSource = Boolean(design.hasStoneChartSource);
   const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
   return `
     <article class="design-category-item">
@@ -7166,7 +7218,7 @@ function renderDesignCard(design) {
         <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
         <span>Select</span>
       </label>
-      <div class="design-preview-pair ${chartKeys.length ? "has-stone-chart" : ""}">
+      <div class="design-preview-pair ${chartKeys.length || hasSource ? "has-stone-chart" : ""}">
         <figure>
           <span>Design</span>
           <img class="design-thumb" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
@@ -7175,10 +7227,10 @@ function renderDesignCard(design) {
       </div>
       <strong>${escapeHtml(designText(design))}</strong>
       <span>${escapeHtml(design.category || "Uncategorised")}</span>
-      <span class="dialog-note">${chartKeys.length ? `${chartKeys.length} stone chart item${chartKeys.length === 1 ? "" : "s"} added` : "No stone chart"}${escapeHtml(stoneSummary)}</span>
+      <span class="dialog-note">${hasSource ? "Main chart image saved" : "No main chart"}${chartKeys.length ? ` / ${chartKeys.length} item crop${chartKeys.length === 1 ? "" : "s"} saved` : ""}${escapeHtml(stoneSummary)}</span>
       <div class="row-actions">
         <button class="ghost-button" onclick="openDesignImage('${design.id}')">View</button>
-        ${chartKeys.length ? `<button class="ghost-button" onclick="openStoneChart('${design.id}')">Stone Chart</button><button class="ghost-button danger-button" onclick="removeDesignStoneChart('${design.id}')">Remove Stone Chart</button>` : ""}
+        ${chartKeys.length || hasSource ? `<button class="ghost-button" onclick="openStoneChart('${design.id}')">Stone Chart</button><button class="ghost-button danger-button" onclick="removeDesignStoneChart('${design.id}')">Remove Stone Chart</button>` : ""}
         <button class="ghost-button" onclick="openDesignStoneDetails('${design.id}')">Modify Stone Details</button>
         <button class="ghost-button" onclick="mergeDesignPrompt('${design.id}')">Merge</button>
         <button onclick="editDesign('${design.id}')">Edit</button>
@@ -7228,28 +7280,34 @@ async function openStoneChart(designId) {
   const design = findById("designs", designId);
   if (!design) return;
   const chartKeys = designStoneChartItemKeys(design);
-  if (!chartKeys.length) {
+  const choices = [...(design.hasStoneChartSource ? ["SOURCE"] : []), ...chartKeys];
+  if (!choices.length) {
     alert("No stone chart uploaded for this design.");
     return;
   }
-  const choice = chartKeys.length === 1
-    ? stoneItemInputValue(chartKeys[0])
-    : prompt(`Which stone chart to view?\nAvailable: ${chartKeys.map(stoneItemInputValue).join(", ")}`, stoneItemInputValue(chartKeys[0]));
+  const labelForChoice = (key) => key === "SOURCE" ? "Main" : stoneItemInputValue(key);
+  const choice = choices.length === 1
+    ? labelForChoice(choices[0])
+    : prompt(`Which stone chart to view?\nAvailable: ${choices.map(labelForChoice).join(", ")}`, labelForChoice(choices[0]));
   if (choice === null) return;
-  const selectedKey = normalizeStoneItemKey(choice);
-  if (!chartKeys.includes(selectedKey)) {
+  const selectedKey = String(choice || "").trim().toUpperCase() === "MAIN" || String(choice || "").trim().toUpperCase() === "SOURCE"
+    ? "SOURCE"
+    : normalizeStoneItemKey(choice);
+  if (!choices.includes(selectedKey)) {
     alert("Stone chart item not found.");
     return;
   }
-  const imageData = await getStoneChartImage(design.id, selectedKey).catch(() => "");
+  const imageData = selectedKey === "SOURCE"
+    ? await getStoneChartSourceImage(design.id).catch(() => "")
+    : await getStoneChartImage(design.id, selectedKey).catch(() => "");
   if (!imageData) {
     alert("No stone chart uploaded for this item.");
     return;
   }
   const image = document.getElementById("design-image-full");
   image.src = imageData;
-  document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"} / ${stoneItemInputValue(selectedKey)}`;
-  document.getElementById("design-image-summary").textContent = `${design.name || ""} ${stoneItemLabel(selectedKey)}`.trim();
+  document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"} / ${labelForChoice(selectedKey)}`;
+  document.getElementById("design-image-summary").textContent = `${design.name || ""} ${selectedKey === "SOURCE" ? "Main matching image" : stoneItemLabel(selectedKey)}`.trim();
   document.getElementById("design-image-dialog").showModal();
 }
 
@@ -7258,19 +7316,29 @@ async function removeDesignStoneChart(designId) {
   if (!design) return;
   if (!requireOwnerPermission("remove stone chart from design")) return;
   const chartKeys = designStoneChartItemKeys(design);
-  if (!chartKeys.length) return;
-  const choice = chartKeys.length === 1
-    ? stoneItemInputValue(chartKeys[0])
-    : prompt(`Which stone chart to remove?\nAvailable: ${chartKeys.map(stoneItemInputValue).join(", ")}`, stoneItemInputValue(chartKeys[0]));
+  const choices = [...(design.hasStoneChartSource ? ["SOURCE"] : []), ...chartKeys];
+  if (!choices.length) return;
+  const labelForChoice = (key) => key === "SOURCE" ? "Main" : stoneItemInputValue(key);
+  const choice = choices.length === 1
+    ? labelForChoice(choices[0])
+    : prompt(`Which stone chart to remove?\nAvailable: ${choices.map(labelForChoice).join(", ")}`, labelForChoice(choices[0]));
   if (choice === null) return;
-  const selectedKey = normalizeStoneItemKey(choice);
-  if (!chartKeys.includes(selectedKey)) {
+  const selectedKey = String(choice || "").trim().toUpperCase() === "MAIN" || String(choice || "").trim().toUpperCase() === "SOURCE"
+    ? "SOURCE"
+    : normalizeStoneItemKey(choice);
+  if (!choices.includes(selectedKey)) {
     alert("Stone chart item not found.");
     return;
   }
-  if (!confirm(`Remove ${stoneItemInputValue(selectedKey)} stone chart from ${designText(design)}? Stone detail rows will remain for checking/editing.`)) return;
-  await deleteStoneChartImage(design.id, selectedKey);
-  markDesignStoneChart(design, selectedKey, false);
+  if (!confirm(`Remove ${labelForChoice(selectedKey)} stone chart from ${designText(design)}? Stone detail rows will remain for checking/editing.`)) return;
+  if (selectedKey === "SOURCE") {
+    await deleteStoneChartSourceImage(design.id);
+    design.hasStoneChartSource = false;
+    design.stoneChartSourceName = "";
+  } else {
+    await deleteStoneChartImage(design.id, selectedKey);
+    markDesignStoneChart(design, selectedKey, false);
+  }
   saveState();
   renderDesigns();
   if (document.getElementById("design-category-dialog").open) {
@@ -7320,6 +7388,13 @@ async function mergeDesignRecords(source, target) {
     ];
   }
   target.stoneDetails = designStoneDetailsText(target.stoneItems || []);
+  if (!target.hasStoneChartSource && source.hasStoneChartSource) {
+    const sourceMainChart = await getStoneChartSourceImage(source.id).catch(() => "");
+    if (sourceMainChart) {
+      await saveStoneChartSourceImage(target.id, sourceMainChart);
+      markDesignStoneChartSource(target, source.stoneChartSourceName || "Merged main stone chart image");
+    }
+  }
   for (const itemKey of designStoneChartItemKeys(source)) {
     if (designHasStoneChartForItem(target, itemKey)) continue;
     const sourceChart = await getStoneChartImage(source.id, itemKey).catch(() => "");
@@ -7527,6 +7602,22 @@ function stoneChartKey(id, itemKey = DEFAULT_STONE_ITEM_KEY) {
     : `stone-chart-${id}-${stoneItemStorageSuffix(key)}`;
 }
 
+function stoneChartSourceKey(id) {
+  return `stone-chart-source-${id}`;
+}
+
+async function saveStoneChartSourceImage(id, imageData) {
+  return saveDesignImage(stoneChartSourceKey(id), imageData);
+}
+
+async function getStoneChartSourceImage(id) {
+  return getDesignImage(stoneChartSourceKey(id));
+}
+
+async function deleteStoneChartSourceImage(id) {
+  return deleteDesignImage(stoneChartSourceKey(id));
+}
+
 async function saveStoneChartImage(id, imageData, itemKey = DEFAULT_STONE_ITEM_KEY) {
   return saveDesignImage(stoneChartKey(id, itemKey), imageData);
 }
@@ -7541,6 +7632,7 @@ async function deleteStoneChartImage(id, itemKey = DEFAULT_STONE_ITEM_KEY) {
 
 async function deleteAllStoneChartImages(design) {
   if (!design) return;
+  await deleteStoneChartSourceImage(design.id).catch(() => {});
   const keys = new Set([DEFAULT_STONE_ITEM_KEY, ...designStoneChartItemKeys(design)]);
   for (const itemKey of keys) {
     await deleteStoneChartImage(design.id, itemKey).catch(() => {});
@@ -7621,6 +7713,15 @@ async function loadDesignThumbnails() {
     } catch (error) {
       image.removeAttribute("src");
       image.alt = "Stone chart not available";
+    }
+  }
+  const stoneChartSources = [...document.querySelectorAll("[data-stone-chart-source-image]")];
+  for (const image of stoneChartSources) {
+    try {
+      image.src = await getStoneChartSourceImage(image.dataset.stoneChartSourceImage);
+    } catch (error) {
+      image.removeAttribute("src");
+      image.alt = "Main stone chart not available";
     }
   }
 }
@@ -10394,6 +10495,8 @@ function normalizeState(currentState) {
         itemKey: normalizeStoneItemKey(item.itemKey || item),
         label: item.label || stoneItemLabel(item.itemKey || item),
       })),
+      hasStoneChartSource: Boolean(design.hasStoneChartSource),
+      stoneChartSourceName: design.stoneChartSourceName || "",
       hasStoneChart: Boolean(design.hasStoneChart || design.stoneChartItems?.length),
     };
   });
