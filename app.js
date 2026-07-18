@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v204";
+const APP_VERSION = "v205";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -31,6 +31,7 @@ const STONE_ITEM_PRESETS = [
   ["CMB", "CMB - Chams Bracelet"],
   ["CME", "CME - Chams Ear Rings"],
 ];
+const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
@@ -325,6 +326,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
       item: item.item || designLabel(item.designId) || item.category || item.remarks,
       size: item.size,
       ringType: item.ringType,
+      cmItemType: item.cmItemType,
       clSize: item.clSize,
       cgSize: item.cgSize,
       color: item.color,
@@ -615,6 +617,7 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
     updateOrderItemCategoryFields(row);
   }
   if (event.target.name === "ringType") updateOrderItemCategoryFields(row);
+  if (event.target.name === "cmItemType") updateOrderItemCategoryFields(row);
   if (event.target.name === "designId") {
     syncOrderDesignSearch(row, event.target.value);
     applyDesignToOrderItem(row, event.target.value);
@@ -1211,6 +1214,7 @@ document.getElementById("item-edit-form").addEventListener("change", (event) => 
     updateItemEditCategoryFields(form);
   }
   if (event.target.name === "ringType") updateItemEditCategoryFields(form);
+  if (event.target.name === "cmItemType") updateItemEditCategoryFields(form);
   if (event.target.name === "designId") applyDesignToItemEdit(form, event.target.value);
 });
 
@@ -1224,6 +1228,7 @@ document.getElementById("item-edit-form").addEventListener("submit", (event) => 
   order.designNumber = design ? designText(design) : "";
   order.category = data.category || "";
   order.ringType = data.ringType || "";
+  order.cmItemType = data.cmItemType || "";
   order.clSize = data.clSize || "";
   order.cgSize = data.cgSize || "";
   order.size = data.size || "";
@@ -2287,6 +2292,11 @@ function entryOrderItemRowHtml(item = {}) {
         ${renderRingTypeOptions(item.ringType)}
       </select>
     </label>
+    <label class="cm-field">CM Item
+      <select name="cmItemType">
+        ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForCategory(item.category))}
+      </select>
+    </label>
     <label class="normal-size-field">Size <input name="size" value="${escapeHtml(item.size || "")}" placeholder="Size"></label>
     <label class="cb-field cl-size-field">CL Size <input name="clSize" value="${escapeHtml(item.clSize || "")}" placeholder="Ladies size"></label>
     <label class="cb-field cg-size-field">CG Size <input name="cgSize" value="${escapeHtml(item.cgSize || "")}" placeholder="Gents size"></label>
@@ -2320,6 +2330,9 @@ function savedOrderItemRowHtml(item = {}) {
     ${["CG", "CL+CG"].includes(item.ringType) ? `<span class="saved-item-cell"><b>CG Size</b>${escapeHtml(item.cgSize || item.size || "-")}</span>` : ""}
   `
     : "";
+  const cmDetails = isCmCategory(item.category)
+    ? `<span class="saved-item-cell"><b>CM Item</b>${escapeHtml(cmItemTypeLabel(item.cmItemType || defaultCmItemTypeForCategory(item.category)))}</span>`
+    : "";
   const normalSize = needsNormalSize(item.category)
     ? `<span class="saved-item-cell"><b>Size</b>${escapeHtml(item.size || "-")}</span>`
     : "";
@@ -2329,6 +2342,7 @@ function savedOrderItemRowHtml(item = {}) {
     <input type="hidden" name="item" value="${escapeHtml(item.item || "")}">
     <input type="hidden" name="size" value="${escapeHtml(item.size || "")}">
     <input type="hidden" name="ringType" value="${escapeHtml(item.ringType || "")}">
+    <input type="hidden" name="cmItemType" value="${escapeHtml(item.cmItemType || "")}">
     <input type="hidden" name="clSize" value="${escapeHtml(item.clSize || "")}">
     <input type="hidden" name="cgSize" value="${escapeHtml(item.cgSize || "")}">
     <input type="hidden" name="color" value="${escapeHtml(item.color || "")}">
@@ -2338,6 +2352,7 @@ function savedOrderItemRowHtml(item = {}) {
     <span class="saved-item-cell"><b>Category</b>${escapeHtml(item.category || "-")}</span>
     <span class="saved-item-cell"><b>Design</b>${escapeHtml(design)}</span>
     ${cbDetails}
+    ${cmDetails}
     ${normalSize}
     <span class="saved-item-cell"><b>Color</b>${escapeHtml(item.color || "-")}</span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
@@ -2369,12 +2384,47 @@ function ringTypeLabel(value = "") {
   }[value] || "-";
 }
 
+function renderCmItemTypeOptions(selected = "") {
+  return [
+    ["", "Select CM item"],
+    ["CM", "CM - Chams"],
+    ["CME", "CME - Chams Ear Rings"],
+    ["CMB", "CMB - Chams Bracelet"],
+    ["CM+CME", "CM + CME"],
+    ["CM+CMB", "CM + CMB"],
+    ["CME+CMB", "CME + CMB"],
+    ["CM+CME+CMB", "All CM + CME + CMB"],
+  ].map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function cmItemTypeKeys(value = "") {
+  return String(value || "")
+    .split("+")
+    .map((key) => categoryCode(key))
+    .filter((key, index, list) => CM_ITEM_KEYS.includes(key) && list.indexOf(key) === index);
+}
+
+function cmItemTypeLabel(value = "") {
+  const keys = cmItemTypeKeys(value);
+  if (!keys.length) return "-";
+  return keys.map((key) => stoneItemLabel(key)).join(" + ");
+}
+
+function defaultCmItemTypeForCategory(value = "") {
+  const category = categoryCode(value);
+  return CM_ITEM_KEYS.includes(category) ? category : "";
+}
+
 function categoryCode(value = "") {
   return String(value).trim().toUpperCase();
 }
 
 function isCbCategory(value = "") {
   return ["CB", "CBR"].includes(categoryCode(value));
+}
+
+function isCmCategory(value = "") {
+  return CM_ITEM_KEYS.includes(categoryCode(value));
 }
 
 function needsNormalSize(value = "") {
@@ -2386,8 +2436,10 @@ function updateOrderItemCategoryFields(row) {
   const category = row.querySelector('[name="category"]').value;
   const ringType = row.querySelector('[name="ringType"]').value;
   const showCb = isCbCategory(category);
+  const showCm = isCmCategory(category);
   const showNormalSize = needsNormalSize(category);
   row.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
+  row.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
   row.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(ringType)));
   row.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(ringType)));
   row.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
@@ -2398,6 +2450,11 @@ function updateOrderItemCategoryFields(row) {
   } else {
     if (!["CL", "CL+CG"].includes(ringType)) row.querySelector('[name="clSize"]').value = "";
     if (!["CG", "CL+CG"].includes(ringType)) row.querySelector('[name="cgSize"]').value = "";
+  }
+  if (!showCm) {
+    row.querySelector('[name="cmItemType"]').value = "";
+  } else if (!row.querySelector('[name="cmItemType"]').value) {
+    row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForCategory(category);
   }
   if (!showNormalSize) row.querySelector('[name="size"]').value = "";
 }
@@ -2415,7 +2472,7 @@ function commitCurrentOrderItem() {
     alert("Enter item details first.");
     return;
   }
-  expandCbBothRingItem(item).forEach((orderItem) => addOrderItemRow(orderItem, "saved"));
+  expandOrderItemCombinations(item).forEach((orderItem) => addOrderItemRow(orderItem, "saved"));
   clearOrderEntryRow(entryRow);
   renderOrderEntrySummary();
 }
@@ -2426,6 +2483,7 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="designSearch"]').value = "";
   row.querySelector('[name="category"]').value = "";
   row.querySelector('[name="ringType"]').value = "";
+  row.querySelector('[name="cmItemType"]').value = "";
   row.querySelector('[name="clSize"]').value = "";
   row.querySelector('[name="cgSize"]').value = "";
   row.querySelector('[name="color"]').value = "";
@@ -2439,8 +2497,12 @@ function getOrderFormItems(form) {
   return [...form.querySelectorAll(".order-item-row")]
     .filter((row) => row.dataset.mode === "saved")
     .map(getOrderItemFromRow)
-    .flatMap(expandCbBothRingItem)
+    .flatMap(expandOrderItemCombinations)
     .filter(hasOrderItemDetails);
+}
+
+function expandOrderItemCombinations(item) {
+  return expandCmSetItem(item).flatMap(expandCbBothRingItem);
 }
 
 function expandCbBothRingItem(item) {
@@ -2461,6 +2523,17 @@ function expandCbBothRingItem(item) {
   ];
 }
 
+function expandCmSetItem(item) {
+  if (!item || !isCmCategory(item.category)) return [item].filter(Boolean);
+  const keys = cmItemTypeKeys(item.cmItemType || defaultCmItemTypeForCategory(item.category));
+  if (!keys.length) return [item].filter(Boolean);
+  return keys.map((key) => ({
+    ...item,
+    cmItemType: key,
+    item: key,
+  }));
+}
+
 function getOrderItemFromRow(row) {
   if (!row) return null;
   return {
@@ -2468,6 +2541,7 @@ function getOrderItemFromRow(row) {
     category: row.querySelector('[name="category"]').value,
     item: row.querySelector('[name="item"]')?.value || "",
     ringType: row.querySelector('[name="ringType"]')?.value || "",
+    cmItemType: row.querySelector('[name="cmItemType"]')?.value || "",
     clSize: row.querySelector('[name="clSize"]')?.value || "",
     cgSize: row.querySelector('[name="cgSize"]')?.value || "",
     size: row.querySelector('[name="size"]')?.value || "",
@@ -2479,7 +2553,7 @@ function getOrderItemFromRow(row) {
 }
 
 function hasOrderItemDetails(item) {
-  return Boolean(item?.designId || item?.category || item?.ringType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
+  return Boolean(item?.designId || item?.category || item?.ringType || item?.cmItemType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
 }
 
 function renderOrderEntrySummary() {
@@ -2499,6 +2573,10 @@ function applyDesignToOrderItem(row, designId) {
   const design = findById("designs", designId);
   if (!row || !design) return;
   row.querySelector('[name="category"]').value = design.category || "";
+  if (isCmCategory(design.category) && !row.querySelector('[name="cmItemType"]').value) {
+    row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForCategory(design.category);
+  }
+  updateOrderItemCategoryFields(row);
   renderOrderEntrySummary();
 }
 
@@ -2896,6 +2974,7 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Due Date", order.dueDate || "-")}
         ${jobItemDetailCell("Category", order.category || "-")}
         ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+        ${isCmCategory(order.category) ? jobItemDetailCell("CM Item", cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category))) : ""}
         ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
         ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
         ${jobItemDetailCell("Colour", order.color || "-")}
@@ -2953,6 +3032,7 @@ function itemBarcodeDetails(order = {}) {
     phone: customer.phone || "",
     design: order.designNumber || designText(design) || "",
     category: order.category || design.category || "",
+    cmItem: isCmCategory(order.category || design.category) ? cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category)) : "",
     size: soldItemSizeText(order) || "",
     color: order.color || "",
     purity: order.purity || "",
@@ -2997,6 +3077,7 @@ function itemBarcodeDetailGridHtml(order = {}) {
       ${jobItemDetailCell("Phone", details.phone)}
       ${jobItemDetailCell("Design", details.design)}
       ${jobItemDetailCell("Category", details.category)}
+      ${details.cmItem ? jobItemDetailCell("CM Item", details.cmItem) : ""}
       ${jobItemDetailCell("Size", details.size)}
       ${jobItemDetailCell("Colour", details.color)}
       ${jobItemDetailCell("Purity", details.purity)}
@@ -3246,6 +3327,7 @@ function openItemEdit(orderId) {
   form.category.value = order.category || "";
   updateItemEditDesignOptions(form, order.designId || "");
   form.ringType.value = order.ringType || "";
+  form.cmItemType.value = order.cmItemType || defaultCmItemTypeForCategory(order.category || "");
   form.size.value = order.size || "";
   form.clSize.value = order.clSize || "";
   form.cgSize.value = order.cgSize || "";
@@ -3281,8 +3363,10 @@ function updateItemEditCategoryFields(form) {
   const category = form.category.value;
   const ringType = form.ringType.value;
   const showCb = isCbCategory(category);
+  const showCm = isCmCategory(category);
   const showNormalSize = needsNormalSize(category);
   form.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
+  form.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
   form.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(ringType)));
   form.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(ringType)));
   form.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
@@ -3293,6 +3377,11 @@ function updateItemEditCategoryFields(form) {
   } else {
     if (!["CL", "CL+CG"].includes(ringType)) form.clSize.value = "";
     if (!["CG", "CL+CG"].includes(ringType)) form.cgSize.value = "";
+  }
+  if (!showCm) {
+    form.cmItemType.value = "";
+  } else if (!form.cmItemType.value) {
+    form.cmItemType.value = defaultCmItemTypeForCategory(category);
   }
   if (!showNormalSize) form.size.value = "";
 }
@@ -3306,6 +3395,8 @@ function cleanItemSizeFields(order) {
     if (!["CL", "CL+CG"].includes(order.ringType)) order.clSize = "";
     if (!["CG", "CL+CG"].includes(order.ringType)) order.cgSize = "";
   }
+  if (!isCmCategory(order.category)) order.cmItemType = "";
+  else if (!order.cmItemType) order.cmItemType = defaultCmItemTypeForCategory(order.category);
   if (!needsNormalSize(order.category)) order.size = "";
 }
 
@@ -3320,6 +3411,9 @@ function orderSizeDetailHtml(order) {
   if (needsNormalSize(order.category)) {
     return `<span><b>Size</b>${escapeHtml(order.size || "-")}</span>`;
   }
+  if (isCmCategory(order.category)) {
+    return `<span><b>CM Item</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category)))}</span>`;
+  }
   return "";
 }
 
@@ -3333,6 +3427,9 @@ function printSizeDetailHtml(order) {
   }
   if (needsNormalSize(order.category)) {
     return `<span><b>Size</b>${escapeHtml(order.size || "-")}</span>`;
+  }
+  if (isCmCategory(order.category)) {
+    return `<span><b>CM Item</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category)))}</span>`;
   }
   return "";
 }
@@ -5144,6 +5241,8 @@ function designStoneItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
 function orderStoneItemKeys(order = {}) {
   const category = categoryCode(order.category || "");
   const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
+  const selectedCmKeys = cmItemTypeKeys(order.cmItemType);
+  if (selectedCmKeys.length) return selectedCmKeys;
   const isCbrOrder = category === "CBR" || /\bCBR\b/.test(itemText);
   if (isCbrOrder) {
     if (order.ringType === "CL+CG") return ["CLR", "CGR"];
@@ -5156,10 +5255,12 @@ function orderStoneItemKeys(order = {}) {
     if (order.ringType === "CL+CG") return ["CL", "CG"];
     if (["CL", "CG"].includes(order.ringType)) return [order.ringType];
   }
-  if (["CM", "CMB", "CME"].includes(category)) return [category];
+  if (/\bCME\b/.test(itemText)) return ["CME"];
+  if (/\bCMB\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
+  if (["CM", "CMB", "CME"].includes(category)) return [category];
   if (["LR", "GR"].includes(category)) return [category];
   if (/\bGR\b/.test(itemText) || /\bGENTS?\b/.test(itemText)) return ["GR"];
   if (/\bLR\b/.test(itemText) || /\bLADIES?\b/.test(itemText)) return ["LR"];
@@ -8596,6 +8697,7 @@ async function openOfficeItemView(key) {
             ${soldDetailCell("Sales Team", item.salesTeam)}
             ${soldDetailCell("Design", order.designNo || designLabel(order.designId))}
             ${soldDetailCell("Category", order.category || design.category)}
+            ${isCmCategory(order.category || design.category) ? soldDetailCell("CM Item", cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category))) : ""}
             ${soldDetailCell("Ring Type", ringTypeLabel(order.ringType))}
             ${soldDetailCell("Size", soldItemSizeText(order))}
             ${soldDetailCell("Colour", order.color)}
@@ -10584,6 +10686,7 @@ function normalizeState(currentState) {
     order.category = order.category || design?.category || "";
     order.size = order.size || "";
     order.ringType = order.ringType || "";
+    order.cmItemType = order.cmItemType || (isCmCategory(order.category) && CM_ITEM_KEYS.includes(categoryCode(order.item || "")) ? categoryCode(order.item) : defaultCmItemTypeForCategory(order.category));
     order.clSize = order.clSize || order.size || "";
     order.cgSize = order.cgSize || "";
     order.color = order.color || "";
