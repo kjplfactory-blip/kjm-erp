@@ -479,7 +479,7 @@
             <h2 id="department-form-title">Add Department</h2>
             <input type="hidden" name="departmentId">
             <label>Department Name <input name="name" required></label>
-            <label>Process <input name="speciality" placeholder="Casting, setting, polishing" required></label>
+            <label>Process / Work Type <input name="speciality" placeholder="Casting, Filing, Fitting, Setting" required></label>
             <label>Process Rate / g <input name="rate" type="number" min="0" step="0.01" required></label>
             <button id="department-submit" type="submit">Save Department</button>
             <button id="cancel-department-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
@@ -777,7 +777,7 @@
           <p class="dialog-note">Reduced = Wax Stone + Hand Stone. Net Wt = GW - Reduced. Difference minus means weight added.</p>
         </div>
         <label>From Department <input name="fromDepartment" placeholder="Casting, Filing / Fitting, Setting" required></label>
-        <label>To Department <input name="toDepartment" placeholder="Polishing, QC, stone setting" required></label>
+        <label>Process In New Department <select name="toDepartment" required></select></label>
         <label>Reason / Remarks <input name="reason" placeholder="Next process, repair, balance work" required></label>
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-transfer">Cancel</button>
@@ -979,6 +979,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=185"></script>
+  <script src="app.js?v=186"></script>
   </body>
 </html>

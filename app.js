@@ -83,9 +83,9 @@ const demoState = {
   lots: [],
   melting: [],
   karigars: [
-    { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", rate: 720 },
-    { id: crypto.randomUUID(), name: "Setting Department", speciality: "Stone setting", rate: 650 },
-    { id: crypto.randomUUID(), name: "Polishing Department", speciality: "Polishing", rate: 280 },
+    { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
+    { id: crypto.randomUUID(), name: "Setting Department", speciality: "Stone setting", processes: ["Stone setting"], rate: 650 },
+    { id: crypto.randomUUID(), name: "Polishing Department", speciality: "Polishing", processes: ["Polishing"], rate: 280 },
   ],
   ledger: [
     { id: crypto.randomUUID(), date: today(), type: "In", purity: "24K", weight: 500, reference: "Opening stock" },
@@ -683,8 +683,8 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     karigarName: karigar.name,
     issueKarigarId: karigar.id,
     issueKarigarName: karigar.name,
-    issueDepartment: karigar.speciality,
-    currentDepartment: karigar.speciality,
+    issueDepartment: primaryDepartmentProcess(karigar),
+    currentDepartment: primaryDepartmentProcess(karigar),
     metalPurity,
     grossIssuedWeight: issuedWeight,
     waxStoneWeight,
@@ -833,16 +833,20 @@ document.getElementById("karigar-form").addEventListener("submit", (event) => {
   }
   const data = getFormData(event.target);
   const existing = data.departmentId ? findById("karigars", data.departmentId) : null;
+  const processes = departmentProcessesFromText(data.speciality);
+  const speciality = processes.join(", ");
   if (existing) {
     existing.name = data.name;
-    existing.speciality = data.speciality;
+    existing.speciality = speciality;
+    existing.processes = processes;
     existing.rate = Number(data.rate);
     updateDepartmentReferences(existing);
   } else {
     state.karigars.push({
       id: crypto.randomUUID(),
       name: data.name,
-      speciality: data.speciality,
+      speciality,
+      processes,
       rate: Number(data.rate),
     });
   }
@@ -1232,6 +1236,10 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   const lot = findById("lots", data.lotId);
   const newKarigar = findById("karigars", data.karigarId);
   if (!lot || !newKarigar) return;
+  if (!data.toDepartment) {
+    alert("Select process in the new department.");
+    return;
+  }
 
   const editingTransfer = data.transferId ? (lot.transfers || []).find((transfer) => transfer.id === data.transferId) : null;
   if (!editingTransfer && lot.karigarId === newKarigar.id) {
@@ -1326,11 +1334,14 @@ document.getElementById("transfer-form").addEventListener("input", (event) => {
 });
 
 document.getElementById("transfer-form").addEventListener("change", (event) => {
-  if (event.target.name !== "karigarId") return;
   const form = event.currentTarget;
-  const department = findById("karigars", form.karigarId.value);
-  if (!department) return;
-  form.toDepartment.value = department.speciality || department.name || form.toDepartment.value;
+  if (event.target.name === "karigarId") {
+    renderTransferProcessOptions(form.karigarId.value);
+    updateTransferReasonFromProcess();
+  }
+  if (event.target.name === "toDepartment") {
+    updateTransferReasonFromProcess();
+  }
 });
 
 document.getElementById("close-history").addEventListener("click", () => {
@@ -3729,6 +3740,7 @@ function openTransferEdit(lotId, transferId) {
   document.getElementById("transfer-form-title").textContent = `Edit Transfer - ${lot.number}`;
   renderTransferOptions({ karigarId: transfer.fromKarigarId });
   form.karigarId.value = transfer.toKarigarId || "";
+  renderTransferProcessOptions(form.karigarId.value, transfer.toDepartment || "");
   form.transferWeight.value = weight3(transfer.transferWeight);
   form.grossReceivedWeight.value = weight3(transfer.grossReceivedWeight);
   form.waxStoneWeight.value = weight3(transfer.waxStoneWeight);
@@ -3737,7 +3749,6 @@ function openTransferEdit(lotId, transferId) {
   form.receivedWeight.value = weight3(transfer.receivedWeight);
   form.departmentBalance.value = weight3(transfer.departmentBalance);
   form.fromDepartment.value = transfer.fromDepartment || "";
-  form.toDepartment.value = transfer.toDepartment || "";
   form.reason.value = transfer.reason || "";
   document.getElementById("transfer-current").textContent = `Editing transfer for ${lot.number}.`;
   document.getElementById("transfer-dialog").showModal();
@@ -3792,7 +3803,7 @@ function recalculateLotAfterTransferChange(lot) {
 }
 
 function isBillTransferDestination(data, karigar) {
-  return [data.toDepartment, karigar?.name, karigar?.speciality]
+  return [data.toDepartment, karigar?.name, karigar?.speciality, karigar ? departmentProcessText(karigar) : ""]
     .some((value) => String(value || "").trim().toLowerCase().includes("bill"));
 }
 
@@ -3828,9 +3839,37 @@ function currentTransferIssueWeight(lot) {
 function renderTransferOptions(lot) {
   const options = state.karigars
     .filter((karigar) => karigar.id !== lot.karigarId)
-    .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(karigar.speciality)}</option>`)
+    .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
     .join("");
-  document.querySelector('#transfer-form select[name="karigarId"]').innerHTML = options || '<option value="">No other department available</option>';
+  document.querySelector('#transfer-form select[name="karigarId"]').innerHTML = options
+    ? `<option value="">Select new department</option>${options}`
+    : '<option value="">No other department available</option>';
+  renderTransferProcessOptions("");
+}
+
+function renderTransferProcessOptions(departmentId, selectedProcess = "") {
+  const form = document.getElementById("transfer-form");
+  const select = form?.toDepartment;
+  if (!select) return;
+  const department = findById("karigars", departmentId);
+  const processes = department ? departmentProcesses(department) : [];
+  const selected = String(selectedProcess || "").trim();
+  const optionValues = selected && !processes.includes(selected) ? [...processes, selected] : processes;
+  select.innerHTML = optionValues.length
+    ? `<option value="">Select process</option>${optionValues.map((process) => `<option value="${escapeHtml(process)}">${escapeHtml(process)}</option>`).join("")}`
+    : '<option value="">Select department first</option>';
+  select.value = selected && optionValues.includes(selected)
+    ? selected
+    : (optionValues.length === 1 ? optionValues[0] : "");
+}
+
+function updateTransferReasonFromProcess() {
+  const form = document.getElementById("transfer-form");
+  if (!form) return;
+  const process = form.toDepartment.value;
+  const currentReason = String(form.reason.value || "").trim();
+  if (!process || (currentReason && !currentReason.toLowerCase().startsWith("next process:"))) return;
+  form.reason.value = `Next process: ${process}`;
 }
 
 function applyProductionFlowDefaults(lot) {
@@ -3839,7 +3878,7 @@ function applyProductionFlowDefaults(lot) {
   if (!nextStep) return;
   const targetDepartment = findFlowDepartment(nextStep, lot.karigarId);
   if (targetDepartment) form.karigarId.value = targetDepartment.id;
-  form.toDepartment.value = nextStep.label;
+  renderTransferProcessOptions(form.karigarId.value, nextStep.label);
   form.reason.value = `Next process: ${nextStep.label}`;
 }
 
@@ -3860,7 +3899,7 @@ function nextProductionFlowStep(lot) {
 function findFlowDepartment(step, currentDepartmentId = "") {
   return state.karigars.find((karigar) =>
     karigar.id !== currentDepartmentId &&
-    textMatchesAny(`${karigar.name || ""} ${karigar.speciality || ""}`, step.departmentMatches)
+    textMatchesAny(`${karigar.name || ""} ${departmentProcessText(karigar)}`, step.departmentMatches)
   );
 }
 
@@ -4312,6 +4351,31 @@ function stoneLookupCode(stone) {
   return `${stone.stoneType || ""}${stone.shape || ""}${stone.size || ""}`.replace(/\s+/g, "").toUpperCase();
 }
 
+function departmentProcessesFromText(value = "") {
+  const parts = String(value || "")
+    .split(/[,;|\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return [...new Set(parts)];
+}
+
+function departmentProcesses(department = {}) {
+  const savedProcesses = Array.isArray(department.processes)
+    ? department.processes.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const textProcesses = departmentProcessesFromText(department.speciality || "");
+  const processes = [...new Set([...savedProcesses, ...textProcesses])];
+  return processes.length ? processes : [department.name || "Process"];
+}
+
+function departmentProcessText(department = {}) {
+  return departmentProcesses(department).join(", ");
+}
+
+function primaryDepartmentProcess(department = {}) {
+  return departmentProcesses(department)[0] || department.speciality || department.name || "";
+}
+
 function formatStoneWeight(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
@@ -4333,7 +4397,7 @@ function renderSelects() {
     })
     .join("");
   const karigarOptions = state.karigars
-    .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(karigar.speciality)}</option>`)
+    .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
     .join("");
   document.querySelectorAll('#production-form select[name="jobNumber"]').forEach((select) => {
     const selected = select.value;
@@ -9000,7 +9064,7 @@ function renderKarigars() {
     return `
       <tr>
         <td>${escapeHtml(karigar.name)}</td>
-        <td>${escapeHtml(karigar.speciality)}</td>
+        <td>${escapeHtml(departmentProcessText(karigar))}</td>
         <td>${currency.format(karigar.rate)}</td>
         <td>${gram(inHand)}</td>
         ${isOwner() ? `<td><div class="row-actions"><button onclick="editDepartment('${karigar.id}')">Edit</button><button class="delete-btn" onclick="removeItem('karigars', '${karigar.id}')">Delete</button></div></td>` : ""}
@@ -9021,7 +9085,7 @@ function editDepartment(id) {
   const form = document.getElementById("karigar-form");
   form.departmentId.value = department.id;
   form.name.value = department.name;
-  form.speciality.value = department.speciality;
+  form.speciality.value = departmentProcessText(department);
   form.rate.value = department.rate;
   document.getElementById("department-form-title").textContent = "Edit Department";
   document.getElementById("department-submit").textContent = "Update Department";
@@ -9041,7 +9105,7 @@ function updateDepartmentReferences(department) {
   state.lots.forEach((lot) => {
     if (lot.karigarId === department.id) {
       lot.karigarName = department.name;
-      lot.currentDepartment = department.speciality;
+      lot.currentDepartment = primaryDepartmentProcess(department);
     }
     (lot.transfers || []).forEach((transfer) => {
       if (transfer.fromKarigarId === department.id) transfer.fromKarigarName = department.name;
@@ -9621,7 +9685,14 @@ function normalizeState(currentState) {
     const bill = currentState.bills.find((item) => item.lotId === lot.id);
     if (bill) lot.bill = bill;
   });
-  currentState.karigars = currentState.karigars || [];
+  currentState.karigars = (currentState.karigars || []).map((department) => {
+    const processes = departmentProcesses(department);
+    return {
+      ...department,
+      speciality: processes.join(", "),
+      processes,
+    };
+  });
   currentState.ledger = currentState.ledger || [];
   applyWaxStoneIssueLedgerMigration(currentState);
   return currentState;
