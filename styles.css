@@ -1360,6 +1360,78 @@ th {
   letter-spacing: 1px;
 }
 
+.detail-barcode-wrap {
+  width: 100%;
+  gap: 8px;
+}
+
+.detail-barcode-wrap .code128-barcode {
+  width: 100%;
+  height: 96px;
+}
+
+.detail-barcode-wrap small {
+  letter-spacing: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.barcode-generator-dialog {
+  width: min(980px, calc(100vw - 24px));
+}
+
+.barcode-generator-content {
+  display: grid;
+  gap: 14px;
+}
+
+.barcode-generator-card {
+  display: grid;
+  gap: 14px;
+}
+
+.generated-barcode-box,
+.barcode-readable-text {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.barcode-readable-text {
+  display: grid;
+  gap: 8px;
+}
+
+.barcode-readable-text p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.barcode-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.barcode-detail-grid span {
+  display: block;
+  min-height: 54px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+  overflow-wrap: anywhere;
+}
+
+.barcode-detail-grid b {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .design-thumb {
   width: 64px;
   height: 64px;
@@ -4006,7 +4078,8 @@ dialog::backdrop {
 @media print {
   body.printing-bill,
   body.printing-packing-list,
-  body.printing-hallmark-tags {
+  body.printing-hallmark-tags,
+  body.printing-barcode {
     background: #fff;
     margin: 0;
     display: block;
@@ -4016,6 +4089,8 @@ dialog::backdrop {
   body.printing-bill > *:not(.global-print-area),
   body.printing-packing-list > *:not(.global-print-area),
   body.printing-hallmark-tags > *:not(.global-print-area),
+  body.printing-barcode > *:not(.global-print-area),
+  body.printing-barcode dialog::backdrop,
   body.printing-hallmark-tags dialog::backdrop,
   body.printing-packing-list dialog::backdrop,
   body.printing-bill dialog::backdrop {
@@ -4069,6 +4144,27 @@ dialog::backdrop {
   body.printing-hallmark-tags .hallmark-tags-document {
     width: 210mm;
     min-height: 297mm;
+  }
+
+  body.printing-barcode .order-print-area {
+    display: block !important;
+    position: static;
+    width: 190mm;
+    min-height: auto;
+    overflow: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.printing-barcode .barcode-print-document {
+    width: 190mm;
+    color: #111827;
+  }
+
+  body.printing-barcode .detail-barcode-wrap .code128-barcode {
+    width: 100%;
+    height: 32mm;
+    fill: #111827;
   }
 }
 

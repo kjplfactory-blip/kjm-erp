@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v197";
+const APP_VERSION = "v198";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -1120,6 +1120,12 @@ document.getElementById("close-order").addEventListener("click", () => {
 document.getElementById("close-job-item-detail").addEventListener("click", () => {
   closeJobItemDetail();
 });
+
+document.getElementById("close-barcode-generator").addEventListener("click", () => {
+  document.getElementById("barcode-generator-dialog").close();
+});
+
+document.getElementById("print-generated-barcode").addEventListener("click", printGeneratedBarcode);
 
 document.getElementById("print-order").addEventListener("click", () => {
   printOpenJobOrder();
@@ -2542,14 +2548,34 @@ function sortedDesigns() {
 
 function openOrderByBarcode(value) {
   const query = String(value || "").trim().toUpperCase();
+  const candidates = barcodeSearchCandidates(query);
   const order = state.orders.find((item) =>
-    [item.barcode, item.productionNo, item.number].some((code) => String(code || "").toUpperCase() === query)
+    [item.barcode, item.productionNo, item.number].some((code) => {
+      const normalized = String(code || "").toUpperCase();
+      return normalized && (candidates.includes(normalized) || query.includes(normalized));
+    })
   );
   if (!order) {
     alert("No product found for this barcode.");
     return;
   }
   openOrderDetail(order.id);
+}
+
+function barcodeSearchCandidates(value = "") {
+  const text = String(value || "").trim().toUpperCase();
+  const values = new Set([text]);
+  const patterns = [
+    /\bPR\s*[:#-]?\s*([A-Z0-9-]+)/,
+    /\bPRODUCTION\s*[:#-]?\s*([A-Z0-9-]+)/,
+    /\bITEM\s*[:#-]?\s*([A-Z0-9-]+)/,
+    /\bBARCODE\s*[:#-]?\s*([A-Z0-9-]+)/,
+  ];
+  patterns.forEach((pattern) => {
+    const match = text.match(pattern);
+    if (match?.[1]) values.add(match[1]);
+  });
+  return [...values].filter(Boolean);
 }
 
 function barcodeSvg(value) {
@@ -2578,6 +2604,50 @@ function barcodeSvg(value) {
     x += 1;
   });
   return `<div class="barcode-wrap"><svg class="barcode" viewBox="0 0 ${x} 34" preserveAspectRatio="none">${bars.join("")}</svg><small>${escapeHtml(value)}</small></div>`;
+}
+
+const code128Patterns = [
+  "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
+  "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
+  "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211",
+  "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313",
+  "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331",
+  "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
+  "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214",
+  "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111",
+  "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
+  "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141",
+  "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
+];
+
+function barcodeSafeText(value = "", maxLength = 180) {
+  return String(value || "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function code128BarcodeSvg(value, options = {}) {
+  const text = barcodeSafeText(value, options.maxLength || 180);
+  const codes = [104];
+  [...text].forEach((char) => {
+    const code = char.charCodeAt(0) - 32;
+    codes.push(code >= 0 && code <= 95 ? code : 13);
+  });
+  const checksum = codes.reduce((sum, code, index) => sum + (index === 0 ? code : code * index), 0) % 103;
+  codes.push(checksum, 106);
+  let x = 0;
+  const bars = [];
+  codes.forEach((code) => {
+    const pattern = code128Patterns[code] || code128Patterns[13];
+    [...pattern].forEach((widthText, index) => {
+      const width = Number(widthText);
+      if (index % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${width}" height="60"></rect>`);
+      x += width;
+    });
+  });
+  return `<div class="barcode-wrap detail-barcode-wrap"><svg class="barcode code128-barcode" viewBox="0 0 ${x} 60" preserveAspectRatio="none">${bars.join("")}</svg><small>${escapeHtml(text)}</small></div>`;
 }
 
 function findById(collection, id) {
@@ -2815,6 +2885,7 @@ function jobItemDetailHtml(order) {
       ${jobItemTransferHistoryHtml(lotEntries)}
       <div class="row-actions job-item-detail-actions">
         <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
+        <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Phone Barcode</button>
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
         <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
       </div>
@@ -2829,6 +2900,114 @@ function jobItemDetailCell(label, value) {
       ${escapeHtml(value || "-")}
     </span>
   `;
+}
+
+function itemBarcodeDetails(order = {}) {
+  const design = findById("designs", order.designId) || {};
+  const lot = lotsForOrder(order).find((item) => item.status !== "Completed") || lotsForOrder(order)[0] || {};
+  const customer = findById("customers", order.customerId) || {};
+  const billEntry = findBillItemForOrder(order);
+  const billItem = billEntry?.item || {};
+  return {
+    productionNo: order.productionNo || order.number || "",
+    jobNumber: order.jobNumber || "",
+    customer: order.customer || customer.name || "",
+    phone: customer.phone || "",
+    design: order.designNumber || designText(design) || "",
+    category: order.category || design.category || "",
+    size: soldItemSizeText(order) || "",
+    color: order.color || "",
+    purity: order.purity || "",
+    status: orderCurrentStage(order),
+    dueDate: order.dueDate || "",
+    lot: lot.number || "",
+    department: lot.currentDepartment || lot.karigarName || "",
+    gw: billItem.finalGw !== undefined ? weight3(billItem.finalGw) : "",
+    netWeight: billItem.netWeight !== undefined ? weight3(billItem.netWeight) : "",
+  };
+}
+
+function itemBarcodePayload(order = {}) {
+  const details = itemBarcodeDetails(order);
+  return barcodeSafeText([
+    `KJM`,
+    `PR:${details.productionNo}`,
+    `JOB:${details.jobNumber}`,
+    `CUSTOMER:${details.customer}`,
+    details.phone ? `PHONE:${details.phone}` : "",
+    `DESIGN:${details.design}`,
+    `CAT:${details.category}`,
+    details.size ? `SIZE:${details.size}` : "",
+    `COLOR:${details.color}`,
+    `PURITY:${details.purity}`,
+    `STATUS:${details.status}`,
+    details.dueDate ? `DUE:${details.dueDate}` : "",
+    details.lot ? `LOT:${details.lot}` : "",
+    details.department ? `DEPT:${details.department}` : "",
+    details.gw ? `GW:${details.gw}` : "",
+    details.netWeight ? `NET:${details.netWeight}` : "",
+  ].filter(Boolean).join(" | "));
+}
+
+function itemBarcodeDetailGridHtml(order = {}) {
+  const details = itemBarcodeDetails(order);
+  return `
+    <div class="barcode-detail-grid">
+      ${jobItemDetailCell("Production No", details.productionNo)}
+      ${jobItemDetailCell("Job No", details.jobNumber)}
+      ${jobItemDetailCell("Customer", details.customer)}
+      ${jobItemDetailCell("Phone", details.phone)}
+      ${jobItemDetailCell("Design", details.design)}
+      ${jobItemDetailCell("Category", details.category)}
+      ${jobItemDetailCell("Size", details.size)}
+      ${jobItemDetailCell("Colour", details.color)}
+      ${jobItemDetailCell("Purity", details.purity)}
+      ${jobItemDetailCell("Status", details.status)}
+      ${jobItemDetailCell("Lot", details.lot)}
+      ${jobItemDetailCell("Department", details.department)}
+    </div>
+  `;
+}
+
+function itemBarcodeGeneratorHtml(order = {}) {
+  const payload = itemBarcodePayload(order);
+  return `
+    <section class="barcode-generator-card">
+      <div class="generated-barcode-box">
+        ${code128BarcodeSvg(payload)}
+      </div>
+      <div class="barcode-readable-text">
+        <b>Phone scanner will show this text:</b>
+        <p>${escapeHtml(payload)}</p>
+      </div>
+      ${itemBarcodeDetailGridHtml(order)}
+    </section>
+  `;
+}
+
+function openItemBarcodeGenerator(orderId) {
+  const order = findById("orders", orderId);
+  if (!order) return;
+  document.getElementById("barcode-generator-summary").textContent = `${order.productionNo || order.number} / ${order.customer || "-"} / ${order.designNumber || designLabel(order.designId) || "-"}`;
+  document.getElementById("barcode-generator-content").innerHTML = itemBarcodeGeneratorHtml(order);
+  document.getElementById("barcode-generator-dialog").showModal();
+}
+
+function printGeneratedBarcode() {
+  const content = document.getElementById("barcode-generator-content").innerHTML;
+  if (!content.trim()) return;
+  const printArea = getGlobalPrintArea();
+  printArea.innerHTML = `<section class="barcode-print-document">${content}</section>`;
+  setPrintPageSize("barcode");
+  document.body.classList.add("printing-barcode");
+  const cleanup = () => {
+    document.body.classList.remove("printing-barcode");
+    printArea.innerHTML = "";
+    setPrintPageSize("job");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(() => window.print(), 100);
 }
 
 function lotsForOrder(order) {
@@ -3160,6 +3339,8 @@ function setPrintPageSize(mode = "job") {
     style.textContent = "@media print { @page { size: 297mm 210mm; margin: 0; } }";
   } else if (mode === "hallmark-tags") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
+  } else if (mode === "barcode") {
+    style.textContent = "@media print { @page { size: A4 portrait; margin: 10mm; } }";
   } else if (mode === "single") {
     style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } }";
   } else {
