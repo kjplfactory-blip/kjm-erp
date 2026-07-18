@@ -665,7 +665,7 @@ button:hover {
 }
 
 .order-item-row.entry {
-  grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(170px, 1.1fr) 115px 78px 78px 90px 80px minmax(140px, 1fr) auto;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(170px, 1.1fr) 115px 78px 78px 90px 80px minmax(140px, 1fr) minmax(190px, auto);
 }
 
 .order-item-row.saved {
@@ -704,6 +704,27 @@ button:hover {
 
 .order-item-row .delete-btn {
   justify-self: start;
+}
+
+.order-item-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-item-action-buttons button {
+  min-height: 42px;
+  padding: 9px 12px;
+}
+
+.order-add-item-button {
+  background: #0f766e;
+  color: #fff;
+}
+
+.order-add-item-button:hover {
+  background: #0b514c;
 }
 
 .saved-item-cell {

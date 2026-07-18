@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v195";
+const APP_VERSION = "v197";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -161,6 +161,16 @@ document.querySelectorAll("[data-stone-page]").forEach((button) => {
 document.querySelectorAll("[data-production-page]").forEach((button) => {
   button.addEventListener("click", () => switchProductionPage(button.dataset.productionPage));
 });
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.defaultPrevented) return;
+  const target = event.target;
+  if (!target || target.closest("button, a, [role='button']")) return;
+  if (target.tagName === "TEXTAREA" || target.isContentEditable) return;
+  const form = target.closest("form");
+  if (!form) return;
+  if (["INPUT", "SELECT"].includes(target.tagName)) event.preventDefault();
+}, true);
 
 document.querySelectorAll("[data-office-page]").forEach((button) => {
   button.addEventListener("click", () => switchOfficePage(button.dataset.officePage));
@@ -1749,11 +1759,11 @@ function syncStatusForError(error, fallback) {
     return "Sync: Internet Error";
   }
   if (message.includes("could not load") || message.includes("cdn")) return "Sync: CDN Blocked";
-  if (message.includes("erp_state") || message.includes("schema cache") || message.includes("relation") || message.includes("does not exist")) {
-    return "Sync: Setup Missing";
-  }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level security") || message.includes("401") || message.includes("403")) {
     return "Sync: Permission Error";
+  }
+  if (message.includes("erp_state") || message.includes("schema cache") || message.includes("relation") || message.includes("does not exist")) {
+    return "Sync: Setup Missing";
   }
   return fallback;
 }
@@ -2203,10 +2213,17 @@ function addOrderItemRow(item = {}, mode = "entry") {
     updateOrderItemDesignOptions(row, item.designId || "");
     updateOrderItemCategoryFields(row);
   }
-  row.querySelector("button").addEventListener("click", () => {
-    if (isSaved) {
+  row.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const action = button.dataset.orderItemAction || (isSaved ? "remove" : "clear");
+    if (action === "add") {
+      commitCurrentOrderItem();
+      return;
+    }
+    if (action === "remove") {
       row.remove();
-    } else {
+    } else if (action === "clear") {
       clearOrderEntryRow(row);
     }
     if (!document.querySelector('#order-item-list .order-item-row[data-mode="entry"]')) addOrderItemRow();
@@ -2243,7 +2260,10 @@ function entryOrderItemRowHtml(item = {}) {
       </select>
     </label>
     <label>Remark <input name="remarks" value="${escapeHtml(item.remarks || "")}" placeholder="Remark"></label>
-    <button class="delete-btn" type="button">Clear Entry</button>
+    <div class="order-item-action-buttons">
+      <button class="order-add-item-button" type="button" data-order-item-action="add">Add Item</button>
+      <button class="delete-btn" type="button" data-order-item-action="clear">Clear Item</button>
+    </div>
   `;
 }
 
@@ -2278,7 +2298,7 @@ function savedOrderItemRowHtml(item = {}) {
     <span class="saved-item-cell"><b>Color</b>${escapeHtml(item.color || "-")}</span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
     <span class="saved-item-cell"><b>Remark</b>${escapeHtml(item.remarks || "-")}</span>
-    <button class="delete-btn" type="button">Remove</button>
+    <button class="delete-btn" type="button" data-order-item-action="remove">Remove</button>
   `;
 }
 
