@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v194";
+const APP_VERSION = "v195";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -1932,8 +1932,7 @@ async function syncStateToSupabase(options = {}) {
           id: supabaseStateId,
           data: state,
           updated_at: updatedAt,
-        })
-        .catch((error) => ({ error })),
+        }),
       "Supabase save timeout."
     );
     error = result?.error || null;
@@ -1972,8 +1971,7 @@ async function loadSupabaseState(options = {}) {
         .from("erp_state")
         .select("data, updated_at")
         .eq("id", supabaseStateId)
-        .maybeSingle()
-        .catch((error) => ({ data: null, error })),
+        .maybeSingle(),
       "Supabase load timeout."
     );
     data = result?.data || null;
