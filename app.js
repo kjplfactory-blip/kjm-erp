@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v201";
+const APP_VERSION = "v202";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -23,6 +23,8 @@ const STONE_ITEM_PRESETS = [
   ["GENERAL", "General"],
   ["CL", "CL - Ladies Ring"],
   ["CG", "CG - Gents Ring"],
+  ["CLR", "CLR - CBR Ladies Ring"],
+  ["CGR", "CGR - CBR Gents Ring"],
   ["CM", "CM - Chams"],
   ["CMB", "CMB - Chams Bracelet"],
   ["CME", "CME - Chams Ear Rings"],
@@ -2362,7 +2364,7 @@ function categoryCode(value = "") {
 }
 
 function isCbCategory(value = "") {
-  return categoryCode(value) === "CB";
+  return ["CB", "CBR"].includes(categoryCode(value));
 }
 
 function needsNormalSize(value = "") {
@@ -4972,8 +4974,35 @@ function stoneItemInputValue(itemKey = "") {
   return key === DEFAULT_STONE_ITEM_KEY ? "General" : key;
 }
 
+function isCbrStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return category === "CBR" || /\bCBR\b/.test(designTextValue);
+}
+
+function isCmSetStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return ["CM", "CMB", "CME"].includes(category) || /\bCM(E|B)?\b/.test(designTextValue) || /\bCHAMS?\b/.test(designTextValue);
+}
+
+function baseStoneItemKeysForDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  if (isCbrStoneDesign(design)) return ["CLR", "CGR"];
+  if (category === "CB") return ["CL", "CG"];
+  if (isCmSetStoneDesign(design)) return ["CM", "CME", "CMB"];
+  return [DEFAULT_STONE_ITEM_KEY];
+}
+
+function defaultStoneItemKeyForDesign(design = null) {
+  return baseStoneItemKeysForDesign(design)[0] || DEFAULT_STONE_ITEM_KEY;
+}
+
 function stoneItemKeyFromFileName(fileName = "", design = null) {
   const name = ` ${designNameFromFile(fileName).toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
+  const isCbr = isCbrStoneDesign(design);
+  if (/\bCGR\b/.test(name) || (isCbr && /\bCG\b/.test(name))) return "CGR";
+  if (/\bCLR\b/.test(name) || (isCbr && /\bCL\b/.test(name))) return "CLR";
   if (/\bCME\b/.test(name)) return "CME";
   if (/\bCMB\b/.test(name)) return "CMB";
   if (/\bCHAMS?\b/.test(name) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(name)) return "CME";
@@ -4986,25 +5015,22 @@ function stoneItemKeyFromFileName(fileName = "", design = null) {
 }
 
 function stoneItemOptionKeysForDesign(design = null) {
-  const keys = new Set([DEFAULT_STONE_ITEM_KEY]);
+  const baseKeys = baseStoneItemKeysForDesign(design);
+  const isSpecificMultiItemDesign = isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design);
+  const keys = new Set(baseKeys);
   const category = categoryCode(design?.category || "");
-  if (category === "CB") {
-    keys.add("CL");
-    keys.add("CG");
-  }
-  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
-  if (["CM", "CMB", "CME"].includes(category) || /\bCM(E|B)?\b/.test(designTextValue) || /\bCHAMS?\b/.test(designTextValue)) {
-    keys.add("CM");
-    keys.add("CMB");
-    keys.add("CME");
-  }
-  if (category && !["CB"].includes(category)) keys.add(category);
-  (design?.stoneChartItems || []).forEach((item) => keys.add(normalizeStoneItemKey(item.itemKey || item)));
-  (design?.stoneItems || []).forEach((item) => keys.add(normalizeStoneItemKey(item.itemKey)));
+  if (!isSpecificMultiItemDesign && category) keys.add(category);
+  const addExistingKey = (value) => {
+    const key = normalizeStoneItemKey(value);
+    if (key === DEFAULT_STONE_ITEM_KEY && isSpecificMultiItemDesign) return;
+    keys.add(key);
+  };
+  (design?.stoneChartItems || []).forEach((item) => addExistingKey(item.itemKey || item));
+  (design?.stoneItems || []).forEach((item) => addExistingKey(item.itemKey));
   state.orders
     .filter((order) => design?.id && order.designId === design.id)
     .flatMap(orderStoneItemKeys)
-    .forEach((key) => keys.add(key));
+    .forEach(addExistingKey);
   return [...keys];
 }
 
@@ -5060,13 +5086,21 @@ function designStoneItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
 }
 
 function orderStoneItemKeys(order = {}) {
+  const category = categoryCode(order.category || "");
+  const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
+  const isCbrOrder = category === "CBR" || /\bCBR\b/.test(itemText);
+  if (isCbrOrder) {
+    if (order.ringType === "CL+CG") return ["CLR", "CGR"];
+    if (order.ringType === "CL" || order.ringType === "CLR") return ["CLR"];
+    if (order.ringType === "CG" || order.ringType === "CGR") return ["CGR"];
+    if (/\bCGR\b/.test(itemText)) return ["CGR"];
+    if (/\bCLR\b/.test(itemText)) return ["CLR"];
+  }
   if (isCbCategory(order.category)) {
     if (order.ringType === "CL+CG") return ["CL", "CG"];
     if (["CL", "CG"].includes(order.ringType)) return [order.ringType];
   }
-  const category = categoryCode(order.category || "");
   if (["CM", "CMB", "CME"].includes(category)) return [category];
-  const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
@@ -5406,7 +5440,9 @@ function updateStoneCropItemOptions(itemKey = "") {
   updateStoneItemDatalist(design);
   const input = document.getElementById("stone-crop-item-key");
   if (!input) return;
-  const selectedKey = normalizeStoneItemKey(itemKey || input.value || currentStoneEntryItemKey());
+  const optionKeys = stoneItemOptionKeysForDesign(design);
+  const requestedKey = normalizeStoneItemKey(itemKey || input.value || currentStoneEntryItemKey() || defaultStoneItemKeyForDesign(design));
+  const selectedKey = optionKeys.includes(requestedKey) ? requestedKey : defaultStoneItemKeyForDesign(design);
   input.value = stoneItemInputValue(selectedKey);
 }
 
@@ -6101,7 +6137,9 @@ async function loadStoneEntry(designId, itemKey = "") {
   if (form.stoneDesignSearch) form.stoneDesignSearch.value = designText(design);
   form.stoneChart.value = "";
   updateStoneItemDatalist(design);
-  const selectedItemKey = normalizeStoneItemKey(itemKey || form.stoneItemKey?.value || DEFAULT_STONE_ITEM_KEY);
+  const optionKeys = stoneItemOptionKeysForDesign(design);
+  const requestedItemKey = normalizeStoneItemKey(itemKey || form.stoneItemKey?.value || defaultStoneItemKeyForDesign(design));
+  const selectedItemKey = optionKeys.includes(requestedItemKey) ? requestedItemKey : defaultStoneItemKeyForDesign(design);
   if (form.stoneItemKey) form.stoneItemKey.value = stoneItemInputValue(selectedItemKey);
   renderDesignStoneEntryOptions();
   resetDesignStoneEntryFields();
