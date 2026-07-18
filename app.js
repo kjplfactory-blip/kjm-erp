@@ -15,6 +15,7 @@ const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
 const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const SUPABASE_SAVE_DELAY_MS = 300;
+const SUPABASE_REQUEST_TIMEOUT_MS = 12000;
 const MAX_PRODUCTION_DAYS = 10;
 let supabaseClient = null;
 let supabaseSaveTimer = null;
@@ -1566,16 +1567,38 @@ function loadSupabaseLibrary() {
       resolve(window.supabase);
       return;
     }
+    const timeout = setTimeout(() => {
+      reject(new Error("Supabase CDN load timeout."));
+    }, SUPABASE_REQUEST_TIMEOUT_MS);
     const script = document.createElement("script");
     script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-    script.onload = () => resolve(window.supabase);
-    script.onerror = () => reject(new Error("Supabase library could not load."));
+    script.onload = () => {
+      clearTimeout(timeout);
+      resolve(window.supabase);
+    };
+    script.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error("Supabase library could not load."));
+    };
     document.head.appendChild(script);
   });
 }
 
 function normalizeSupabaseUrl(url) {
   return String(url || "").replace(/\/+$/, "");
+}
+
+function supabaseFetch(input, init = {}) {
+  if (!window.fetch) return Promise.reject(new Error("Browser fetch is not available."));
+  if (init.signal || typeof AbortController === "undefined") return fetch(input, init);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS);
+  return fetch(input, { ...init, signal: controller.signal })
+    .finally(() => clearTimeout(timeout))
+    .catch((error) => {
+      if (error?.name === "AbortError") throw new Error("Supabase request timeout.");
+      throw error;
+    });
 }
 
 function createFetchSupabaseClient(url, anonKey) {
@@ -1612,7 +1635,7 @@ function createFetchSupabaseClient(url, anonKey) {
           const params = new URLSearchParams({ select: query.select, limit: "1" });
           Object.entries(query.filters).forEach(([column, value]) => params.set(column, value));
           try {
-            const response = await fetch(`${tableUrl}?${params.toString()}`, {
+            const response = await supabaseFetch(`${tableUrl}?${params.toString()}`, {
               headers: headers({ Accept: "application/json" }),
             });
             if (!response.ok) return { data: null, error: await asError(response) };
@@ -1624,7 +1647,7 @@ function createFetchSupabaseClient(url, anonKey) {
         },
         async upsert(row) {
           try {
-            const response = await fetch(`${tableUrl}?on_conflict=id`, {
+            const response = await supabaseFetch(`${tableUrl}?on_conflict=id`, {
               method: "POST",
               headers: headers({
                 "Content-Type": "application/json",
@@ -1647,7 +1670,7 @@ function createFetchSupabaseClient(url, anonKey) {
         return {
           async upload(path, blob, options = {}) {
             try {
-              const response = await fetch(`${objectUrl}/${encodeURI(path)}`, {
+              const response = await supabaseFetch(`${objectUrl}/${encodeURI(path)}`, {
                 method: "POST",
                 headers: headers({
                   "Content-Type": options.contentType || blob.type || "application/octet-stream",
@@ -1663,7 +1686,7 @@ function createFetchSupabaseClient(url, anonKey) {
           },
           async download(path) {
             try {
-              const response = await fetch(`${objectUrl}/${encodeURI(path)}`, {
+              const response = await supabaseFetch(`${objectUrl}/${encodeURI(path)}`, {
                 headers: headers(),
               });
               if (!response.ok) return { data: null, error: await asError(response) };
@@ -1674,7 +1697,7 @@ function createFetchSupabaseClient(url, anonKey) {
           },
           async remove(paths) {
             try {
-              const response = await fetch(objectUrl, {
+              const response = await supabaseFetch(objectUrl, {
                 method: "DELETE",
                 headers: headers({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ prefixes: paths }),
@@ -1694,7 +1717,9 @@ function createFetchSupabaseClient(url, anonKey) {
 async function createSupabaseClient() {
   try {
     const supabaseLibrary = await loadSupabaseLibrary();
-    return supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey);
+    return supabaseLibrary.createClient(supabaseSettings.url, supabaseSettings.anonKey, {
+      global: { fetch: supabaseFetch },
+    });
   } catch (error) {
     console.warn("Supabase CDN library did not load. Trying direct Supabase connection.", error);
     if (!window.fetch) throw error;
@@ -1713,10 +1738,10 @@ function setSyncStatus(status, message, detail = "") {
 
 function syncStatusForError(error, fallback) {
   const message = String(error?.message || error || "").toLowerCase();
-  if (message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
+  if (message.includes("timeout") || message.includes("abort") || message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
     return "Sync: Internet Error";
   }
-  if (message.includes("could not load")) return "Sync: CDN Blocked";
+  if (message.includes("could not load") || message.includes("cdn")) return "Sync: CDN Blocked";
   if (message.includes("erp_state") || message.includes("schema cache") || message.includes("relation") || message.includes("does not exist")) {
     return "Sync: Setup Missing";
   }
