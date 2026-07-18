@@ -8451,6 +8451,11 @@ function renderBillTotals(items = []) {
   `;
 }
 
+function billOrderDesignCode(order = {}) {
+  const design = findById("designs", order.designId) || {};
+  return order.designNo || order.designNumber || design.number || designText(design) || order.category || "";
+}
+
 function renderBillItems(lot, bill = {}) {
   const body = document.getElementById("bill-item-table");
   if (!body) return;
@@ -8466,14 +8471,14 @@ function renderBillItems(lot, bill = {}) {
     const purity = saved.purity || order.purity || "18K";
     const qcStatus = saved.qcStatus || "Pending QC";
     const qcNote = saved.reworkLotNumber ? `Returned: ${saved.reworkLotNumber}` : (saved.officeStatus ? saved.officeStatus : "");
+    const designCode = billOrderDesignCode(order);
     const itemLabel = [
-      `Item ${index + 1}`,
+      designCode || `Item ${index + 1}`,
       order.productionNo || order.number || "",
-      order.designNo ? `Design ${order.designNo}` : "",
       order.ringType || "",
     ].filter(Boolean).join(" / ");
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}${order.size ? ` / Size ${escapeHtml(order.size)}` : ""}</small>
@@ -8541,6 +8546,7 @@ function billItemRows(existingItems = []) {
       ...existing,
       orderId: row.dataset.orderId || "",
       productionNo: row.dataset.productionNo || "",
+      designNo: row.dataset.designNo || existing.designNo || "",
       purity: row.dataset.purity || "",
       finalGw: Number(weight3(finalGw)),
       bbNo,
