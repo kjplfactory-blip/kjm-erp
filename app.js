@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v198";
+const APP_VERSION = "v199";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -209,9 +209,6 @@ document.getElementById("reset-stone-crop").addEventListener("click", () => {
 });
 document.getElementById("save-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(false);
-});
-document.getElementById("save-crop-split-design").addEventListener("click", async () => {
-  await saveStoneCropToDesign(false, { splitDesignImage: true });
 });
 document.getElementById("read-cropped-stone-chart").addEventListener("click", async () => {
   await saveStoneCropToDesign(true);
@@ -5070,6 +5067,10 @@ async function saveStoneChartFileForDesign(design, file) {
   return imageData;
 }
 
+function confirmStoneChartCrop(message) {
+  return confirm(`${message}\n\nOnly the stone chart crop will be saved. The design image will stay unchanged.`);
+}
+
 async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
   const saveDesign = options.saveDesign !== false;
   if (!design || !file) return { designSaved: false, chartAttached: false, autoSplit: false };
@@ -5081,40 +5082,40 @@ async function saveDesignUploadImageAndAutoChart(design, file, options = {}) {
     console.warn("Auto stone chart crop failed", error);
     return null;
   });
+  let designSaved = false;
   if (saveDesign) {
-    await saveDesignImage(design.id, split?.designImageData || await compressImageFile(file));
+    await saveDesignImage(design.id, await compressImageFile(file));
+    designSaved = true;
   }
+  let chartAttached = false;
   if (split?.stoneChartImageData) {
-    await saveStoneChartImage(design.id, split.stoneChartImageData);
-    design.hasStoneChart = true;
+    const shouldSaveChart = confirmStoneChartCrop(`Stone chart detected in ${file.name}. Save this cropped chart to ${designText(design)}?`);
+    if (shouldSaveChart) {
+      await saveStoneChartImage(design.id, split.stoneChartImageData);
+      design.hasStoneChart = true;
+      chartAttached = true;
+    }
   }
   return {
-    designSaved: saveDesign,
-    chartAttached: Boolean(split?.stoneChartImageData),
-    autoSplit: Boolean(split?.stoneChartImageData),
+    designSaved,
+    chartAttached,
+    autoSplit: chartAttached,
   };
 }
 
 async function autoSplitDesignAndStoneChart(file) {
   const imageData = await readFileAsDataUrl(file);
   const split = await autoSplitDesignAndStoneChartDataUrl(imageData);
-  if (!split) return null;
-  return {
-    ...split,
-    designImageData: split.designImageData || await compressImageFile(file),
-  };
+  if (!split?.stoneChartImageData) return null;
+  return split;
 }
 
 async function autoSplitDesignAndStoneChartDataUrl(imageData) {
   const image = await loadImageFromDataUrl(imageData);
   const chartRect = detectStoneChartRectFromImage(image);
   if (!chartRect) return null;
-  const designRect = designRectAfterRemovingChart(image, chartRect);
   const stoneChartImageData = cropImageToDataUrl(image, chartRect, { maxSize: 1800, quality: 0.94 });
-  const designImageData = designRect
-    ? cropImageToDataUrl(image, designRect, { maxSize: 900, quality: 0.72 })
-    : cropImageToDataUrl(image, { x: 0, y: 0, width: image.naturalWidth || image.width, height: image.naturalHeight || image.height }, { maxSize: 900, quality: 0.72 });
-  return { designImageData, stoneChartImageData, chartRect, designRect };
+  return { stoneChartImageData, chartRect };
 }
 
 async function autoAssignStoneChartFiles(files = []) {
@@ -5230,7 +5231,7 @@ async function reuploadStoneCropImage(file) {
   const status = document.getElementById("stone-crop-status");
   if (status) {
     status.className = "dialog-note ocr-quality-note";
-    status.textContent = "Reuploaded full image is visible. Use Auto Detect or Manual Crop, then Save Crop & Split Design Image.";
+    status.textContent = "Reuploaded full image is visible. Use Auto Detect or Manual Crop, then Save Crop To Stone Chart. Design image will not be changed.";
   }
 }
 
@@ -5836,42 +5837,32 @@ function expandImageRect(rect, width, height, padding = 0) {
   }, width, height);
 }
 
-async function saveStoneCropToDesign(readAfterSave = false, options = {}) {
+async function saveStoneCropToDesign(readAfterSave = false) {
   const design = findById("designs", document.getElementById("stone-crop-design").value);
   const status = document.getElementById("stone-crop-status");
   if (!design) {
     alert("Select design to save this crop.");
     return;
   }
-  const cropRect = currentStoneCropNaturalRect();
   const imageData = croppedStoneChartDataUrl();
   if (!imageData) {
     alert("Select crop area first.");
     return;
   }
-  await saveStoneChartImage(design.id, imageData);
-  let designImageUpdated = false;
-  if (options.splitDesignImage) {
-    const designRect = designRectAfterRemovingChart(stoneCropState.image, cropRect);
-    if (!designRect) {
-      alert("Could not find remaining design area outside this crop. Stone chart saved, but design image was not replaced.");
-    } else {
-      const designImageData = cropImageToDataUrl(stoneCropState.image, designRect, { maxSize: 900, quality: 0.72 });
-      await saveDesignImage(design.id, designImageData);
-      designImageUpdated = true;
-    }
+  const action = readAfterSave ? "Save this crop as stone chart and read OCR" : "Save this crop as stone chart";
+  if (!confirmStoneChartCrop(`${action} for ${designText(design)}?`)) {
+    return;
   }
+  await saveStoneChartImage(design.id, imageData);
   design.hasStoneChart = true;
   saveState();
   renderDesigns();
   await loadStoneEntry(design.id);
   status.className = "dialog-note ocr-quality-note good";
-  status.textContent = designImageUpdated
-    ? `Cropped stone chart saved and design image replaced for ${designText(design)}.`
-    : `Cropped stone chart saved to ${designText(design)}.`;
+  status.textContent = `Cropped stone chart saved to ${designText(design)}. Design image was not changed.`;
   if (readAfterSave) {
     await readStoneChartImageDataForDesign(design, imageData);
-    document.getElementById("stone-crop-status").textContent = `Crop saved and OCR read for ${designText(design)}.`;
+    document.getElementById("stone-crop-status").textContent = `Crop saved and OCR read for ${designText(design)}. Design image was not changed.`;
   }
 }
 
@@ -6760,13 +6751,13 @@ async function autoCropExistingDesigns() {
     ? state.designs.filter((design) => selectedDesignIds.has(design.id))
     : state.designs;
   if (!selected.length) {
-    alert("No designs available for auto crop.");
+    alert("No designs available for stone chart detection.");
     return;
   }
   const scopeText = selectedDesignIds.size
     ? `${selected.length} selected design(s)`
     : `all ${selected.length} design(s)`;
-  if (!confirm(`Auto crop old uploaded images for ${scopeText}?\n\nThis will save the Gem Reporter panel as Stone Chart and keep the remaining part as Design Image when a chart is detected.`)) {
+  if (!confirmStoneChartCrop(`Auto detect and save stone chart crops for ${scopeText}?`)) {
     return;
   }
   button.disabled = true;
@@ -6785,16 +6776,15 @@ async function autoCropExistingDesigns() {
           continue;
         }
         const split = await autoSplitDesignAndStoneChartDataUrl(imageData);
-        if (!split?.stoneChartImageData || !split?.designImageData) {
+        if (!split?.stoneChartImageData) {
           noChart += 1;
           continue;
         }
-        await saveDesignImage(design.id, split.designImageData);
         await saveStoneChartImage(design.id, split.stoneChartImageData);
         design.hasStoneChart = true;
         cropped += 1;
       } catch (error) {
-        console.warn("Could not auto crop old design", design, error);
+        console.warn("Could not detect stone chart in old design", design, error);
         failed += 1;
       }
     }
@@ -6805,9 +6795,9 @@ async function autoCropExistingDesigns() {
       if (category) openDesignCategory(encodeURIComponent(category));
     }
     if (status) {
-      status.textContent = `Old design auto crop complete: ${cropped} cropped, ${noChart} no chart found, ${failed} failed.`;
+      status.textContent = `Stone chart auto detect complete: ${cropped} chart(s) saved, ${noChart} no chart found, ${failed} failed. Design images were not changed.`;
     }
-    alert(`Auto crop complete.\nCropped: ${cropped}\nNo chart found: ${noChart}\nFailed: ${failed}`);
+    alert(`Stone chart auto detect complete.\nCharts saved: ${cropped}\nNo chart found: ${noChart}\nFailed: ${failed}\n\nDesign images were not changed.`);
   } finally {
     button.disabled = false;
   }
@@ -7101,7 +7091,7 @@ function resetDesignForm() {
   form.designId.value = "";
   document.getElementById("design-form-title").textContent = "Add Design";
   document.getElementById("design-submit").textContent = "Upload Design(s)";
-  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time. If a design image also contains a stone chart, the app will try to crop and attach the chart automatically.";
+  document.getElementById("design-upload-status").textContent = "You can upload up to 500 images at one time. If a design image also contains a stone chart, the app will ask before attaching only the stone chart crop. Design image stays unchanged.";
   document.getElementById("cancel-design-edit").classList.add("hidden");
 }
 
