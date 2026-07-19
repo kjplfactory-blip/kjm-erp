@@ -10,10 +10,13 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v227";
+const APP_VERSION = "v228";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
+const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
+const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
+const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -50,7 +53,8 @@ let supabaseIsSaving = false;
 let supabaseIsLoading = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
-let factoryResetLockUntil = Number(localStorage.getItem("gold-jewellery-erp-reset-lock-until") || 0);
+let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
+let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
 
 const users = {
@@ -87,30 +91,32 @@ const loginAccessPages = [
 ];
 
 const demoState = {
-  nextOrder: 1004,
-  nextLot: 204,
+  nextOrder: 1001,
+  nextLot: 201,
   userPasswords: defaultUserPasswords,
   customUsers: [],
   userAccessOverrides: {},
-  customers: [
-    { id: crypto.randomUUID(), name: "Shree Jewellers", phone: "", city: "", gst: "", address: "" },
-    { id: crypto.randomUUID(), name: "Mehta Gold", phone: "", city: "", gst: "", address: "" },
-    { id: crypto.randomUUID(), name: "Retail Counter", phone: "", city: "", gst: "", address: "" },
-  ],
+  customers: [],
   officeCustomers: [],
   designs: [],
   stones: [],
   bills: [],
   safeItems: [],
-  metalSafeMovements: [],
-  metalSafeSeededFromLedger: false,
+  metalSafeMovements: [{
+    id: "factory-default-metal-safe",
+    date: today(),
+    type: "Opening Stock",
+    direction: "in",
+    purity: FACTORY_RESET_STOCK_PURITY,
+    weight: FACTORY_RESET_STOCK_WEIGHT,
+    reference: "Factory opening stock",
+    sourceType: "factory-default",
+    sourceId: "factory-default-ledger",
+  }],
+  metalSafeSeededFromLedger: true,
   stoneOptions: { stoneType: [], shape: [], size: [] },
   stoneLibrarySeeded: false,
-  orders: [
-    { id: crypto.randomUUID(), number: "JO-1001", customer: "Shree Jewellers", item: "22K Chain", purity: "22K", targetWeight: 45, dueDate: "2026-07-20", status: "In Production" },
-    { id: crypto.randomUUID(), number: "JO-1002", customer: "Mehta Gold", item: "Bangle Pair", purity: "22K", targetWeight: 62, dueDate: "2026-07-24", status: "Pending" },
-    { id: crypto.randomUUID(), number: "JO-1003", customer: "Retail Counter", item: "18K Ring", purity: "18K", targetWeight: 8.5, dueDate: "2026-07-18", status: "Pending" },
-  ],
+  orders: [],
   lots: [],
   melting: [],
   karigars: [
@@ -119,8 +125,7 @@ const demoState = {
     { id: crypto.randomUUID(), name: "Polishing Department", speciality: "Polishing", processes: ["Polishing"], rate: 280 },
   ],
   ledger: [
-    { id: crypto.randomUUID(), date: today(), type: "In", purity: "24K", weight: 500, reference: "Opening stock" },
-    { id: crypto.randomUUID(), date: today(), type: "In", purity: "22K", weight: 250, reference: "Customer gold" },
+    { id: "factory-default-ledger", date: today(), type: "In", purity: FACTORY_RESET_STOCK_PURITY, weight: FACTORY_RESET_STOCK_WEIGHT, reference: "Factory opening stock" },
   ],
 };
 
@@ -1704,12 +1709,14 @@ function loadState() {
   try {
     const saved = localStorage.getItem("gold-jewellery-erp-state");
     const normalized = normalizeState(saved ? JSON.parse(saved) : structuredClone(demoState));
+    rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
   } catch (error) {
     console.warn("Saved ERP data could not be read. Starting with safe demo data.", error);
     localStorage.removeItem("gold-jewellery-erp-state");
     const normalized = normalizeState(structuredClone(demoState));
+    rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
   }
@@ -1825,22 +1832,27 @@ function applyAccessControl() {
 }
 
 function saveState() {
+  attachLocalFactoryResetMarkerToState();
+  rememberFactoryResetMarker(stateFactoryResetAt(state));
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
 }
 
 function saveStateLocalOnly() {
+  attachLocalFactoryResetMarkerToState();
+  rememberFactoryResetMarker(stateFactoryResetAt(state));
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
 }
 
 async function resetFactoryData() {
-  setFactoryResetProtection(true);
+  const resetAt = new Date().toISOString();
+  setFactoryResetProtection(true, resetAt);
   supabasePendingCloudState = null;
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
-  clearJobCards();
+  clearJobCards(resetAt);
   saveStateLocalOnly();
   render();
   setDefaultOrderDates(document.getElementById("order-form"));
@@ -1863,18 +1875,19 @@ async function resetFactoryData() {
     setFactoryResetProtection(false);
     startSupabaseAutoRefresh();
   } else {
-    setFactoryResetProtection(true);
+    setFactoryResetProtection(true, resetAt);
     setSyncStatus("offline", "Reset: Local Only", "Live sync was not updated. Run reset SQL or upload this laptop data after sync connects.");
   }
   return cloudSaved;
 }
 
-function setFactoryResetProtection(active) {
+function setFactoryResetProtection(active, resetAt = "") {
+  if (active) rememberFactoryResetMarker(resetAt);
   factoryResetLockUntil = active ? Date.now() + FACTORY_RESET_PROTECTION_MS : 0;
   if (factoryResetLockUntil) {
-    localStorage.setItem("gold-jewellery-erp-reset-lock-until", String(factoryResetLockUntil));
+    localStorage.setItem(FACTORY_RESET_LOCK_KEY, String(factoryResetLockUntil));
   } else {
-    localStorage.removeItem("gold-jewellery-erp-reset-lock-until");
+    localStorage.removeItem(FACTORY_RESET_LOCK_KEY);
   }
 }
 
@@ -1883,6 +1896,53 @@ function isFactoryResetProtected() {
   if (Date.now() < factoryResetLockUntil) return true;
   setFactoryResetProtection(false);
   return false;
+}
+
+function stateFactoryResetAt(source = state) {
+  return source?.factoryResetAt || source?.lastFactoryResetAt || "";
+}
+
+function factoryResetTimestamp(resetAt) {
+  const timestamp = Date.parse(resetAt || "");
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function rememberFactoryResetMarker(resetAt) {
+  if (!resetAt) return;
+  if (factoryResetTimestamp(resetAt) < factoryResetTimestamp(localFactoryResetAt)) return;
+  localFactoryResetAt = resetAt;
+  localStorage.setItem(FACTORY_RESET_MARKER_KEY, resetAt);
+}
+
+function attachLocalFactoryResetMarkerToState() {
+  if (!localFactoryResetAt) return;
+  if (factoryResetTimestamp(stateFactoryResetAt(state)) >= factoryResetTimestamp(localFactoryResetAt)) return;
+  state.factoryResetAt = localFactoryResetAt;
+  state.factoryResetReason = state.factoryResetReason || FACTORY_RESET_REASON;
+}
+
+function localFactoryResetTimestamp() {
+  return Math.max(factoryResetTimestamp(localFactoryResetAt), factoryResetTimestamp(stateFactoryResetAt(state)));
+}
+
+function isCloudStateOlderThanLocalReset(cloudState = {}) {
+  const localResetTime = localFactoryResetTimestamp();
+  if (!localResetTime) return false;
+  return factoryResetTimestamp(stateFactoryResetAt(cloudState)) < localResetTime;
+}
+
+function blockOlderCloudState(cloudState = {}, options = {}) {
+  if (!isCloudStateOlderThanLocalReset(cloudState)) return false;
+  supabasePendingCloudState = null;
+  const detail = "Old live data is blocked. Uploading the cleared factory data again.";
+  setSyncStatus("saving", "Reset Protected", detail);
+  if (options.manual) {
+    alert("Old live data was blocked. The cleared data will stay, and this laptop will upload it to live sync again.");
+  }
+  if (supabaseClient && !supabaseIsSaving) {
+    syncStateToSupabase({ force: true });
+  }
+  return true;
 }
 
 function userPassword(userId) {
@@ -2209,11 +2269,6 @@ async function initializeSupabase() {
 }
 
 async function refreshLiveData() {
-  if (isFactoryResetProtected()) {
-    alert("Factory reset is protected locally because live sync was not updated yet. Run the reset SQL in Supabase or click Upload This Laptop Data after sync connects.");
-    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
-    return;
-  }
   if (!supabaseClient) {
     alert("Live sync is not connected on this laptop. Check internet and refresh the website.");
     setSyncStatus("offline", "Sync: Offline");
@@ -2222,6 +2277,7 @@ async function refreshLiveData() {
   if (supabasePendingCloudState) {
     const pending = supabasePendingCloudState;
     supabasePendingCloudState = null;
+    if (blockOlderCloudState(pending.data, { manual: true })) return;
     applyCloudState(pending.data, pending.updated_at, { manual: true });
     return;
   }
@@ -2296,6 +2352,7 @@ async function syncStateToSupabase(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   supabaseIsSaving = true;
@@ -2336,10 +2393,6 @@ async function loadSupabaseState(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
-  if (isFactoryResetProtected()) {
-    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
-    return false;
-  }
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
   if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
@@ -2369,20 +2422,18 @@ async function loadSupabaseState(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  let handledCloudState = false;
   if (data?.data) {
-    applyCloudStateFromRow(data, options);
+    handledCloudState = applyCloudStateFromRow(data, options);
   } else {
-    await syncStateToSupabase();
+    handledCloudState = await syncStateToSupabase();
   }
-  if (options.initial) setSyncStatus("online", "Live Sync: Auto");
+  if (options.initial && handledCloudState) setSyncStatus("online", "Live Sync: Auto");
   return true;
 }
 
 function applyCloudStateFromRow(row = {}, options = {}) {
-  if (isFactoryResetProtected()) {
-    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
-    return false;
-  }
+  if (blockOlderCloudState(row.data, options)) return false;
   const cloudUpdatedAt = row.updated_at || "";
   const isAuto = Boolean(options.auto || options.realtime);
   if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
@@ -2402,19 +2453,21 @@ function applyCloudStateFromRow(row = {}, options = {}) {
 }
 
 function applyPendingCloudState(source = "auto") {
-  if (isFactoryResetProtected()) {
-    supabasePendingCloudState = null;
-    return false;
-  }
   if (!supabasePendingCloudState || isUserActivelyEditing()) return false;
   const pending = supabasePendingCloudState;
   supabasePendingCloudState = null;
+  if (blockOlderCloudState(pending.data, { auto: source === "auto" })) return false;
   applyCloudState(pending.data, pending.updated_at, { auto: source === "auto" });
   return true;
 }
 
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   state = normalizeState(cloudState);
+  const appliedResetAt = stateFactoryResetAt(state);
+  if (appliedResetAt) {
+    rememberFactoryResetMarker(appliedResetAt);
+    setFactoryResetProtection(false);
+  }
   supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   render();
@@ -3913,8 +3966,10 @@ async function removeItem(collection, id) {
   render();
 }
 
-function clearJobCards() {
+function clearJobCards(resetAt = new Date().toISOString()) {
   const openingStockId = crypto.randomUUID();
+  state.factoryResetAt = resetAt;
+  state.factoryResetReason = FACTORY_RESET_REASON;
   state.orders = [];
   state.lots = [];
   state.bills = [];
@@ -12582,6 +12637,8 @@ function seedMetalSafeFromLedger(currentState) {
 }
 
 function normalizeState(currentState) {
+  currentState.factoryResetAt = currentState.factoryResetAt || "";
+  currentState.factoryResetReason = currentState.factoryResetReason || "";
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
   currentState.userPasswords = { ...defaultUserPasswords, ...(currentState.userPasswords || {}) };
