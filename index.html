@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=120">
+    <link rel="stylesheet" href="styles.css?v=121">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v213</small>
+            <small class="app-version-badge">App v214</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span class="app-version-badge">App v213</span>
+          <span class="app-version-badge">App v214</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -950,11 +950,15 @@
         <input type="hidden" name="meltingId">
         <p id="melting-receive-summary" class="dialog-note"></p>
         <label>Final Weight Issued (g) <input name="finalWeight" type="number" readonly></label>
-        <label>Casting Item Weight (g) <input name="castingItemWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label>Tree Cut Weight (g) <input name="treeCutWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label>Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label>Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label>Other Received Weight (g) <input name="otherReceivedWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Casting Item Weight (g) <input name="castingItemWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Tree Cut Weight (g) <input name="treeCutWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Other Received Weight (g) <input name="otherReceivedWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-rod hidden">Rod 1 Received (g) <input name="rod1Weight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-rod hidden">Rod 2 Received (g) <input name="rod2Weight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-rod hidden">Wastage 1 Received (g) <input name="wastage1Weight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-rod hidden">Wastage 2 Received (g) <input name="wastage2Weight" type="number" min="0" step="0.001" value="0"></label>
         <label>Total Received Weight (g) <input name="receivedWeight" type="number" readonly required></label>
         <label>Loss Booked (g) <input name="meltingLoss" type="number" readonly></label>
         <div class="dialog-actions">
@@ -1086,6 +1090,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=213"></script>
+  <script src="app.js?v=214"></script>
 </body>
 </html>

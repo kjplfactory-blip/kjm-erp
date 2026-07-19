@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v213";
+const APP_VERSION = "v214";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -940,7 +940,7 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
 });
 
 document.getElementById("melting-receive-form").addEventListener("input", (event) => {
-  if (meltingReceiveWeightFields().includes(event.target.name)) updateMeltingReceiveLoss();
+  if (allMeltingReceiveWeightFields().includes(event.target.name)) updateMeltingReceiveLoss();
 });
 
 document.getElementById("melting-receive-form").addEventListener("submit", (event) => {
@@ -951,7 +951,7 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
   if (!melting) return;
   const receivedWeight = Number(data.receivedWeight || 0);
   const meltingLoss = Number(data.meltingLoss || 0);
-  const receiveBreakup = getMeltingReceiveBreakup(data);
+  const receiveBreakup = getMeltingReceiveBreakup(data, melting);
   melting.receivedDate = melting.receivedDate || today();
   melting.receivedWeight = receivedWeight;
   melting.meltingLoss = meltingLoss;
@@ -3034,6 +3034,10 @@ function syncMeltingReceiveSafeItems(melting) {
   const locker = safeLockerForPurity(melting.targetPurity);
   const source = `${melting.colour || ""} melting / ${melting.departmentName || "department"}`.trim();
   const lines = [
+    ["rod1Weight", "Rod 1"],
+    ["rod2Weight", "Rod 2"],
+    ["wastage1Weight", "Wastage 1"],
+    ["wastage2Weight", "Wastage 2"],
     ["castingItemWeight", "Rod / Casting Item"],
     ["treeCutWeight", "Tree Cut"],
     ["wastageWeight", "Wastage"],
@@ -11439,14 +11443,20 @@ function openMeltingReceive(meltingId) {
   const form = document.getElementById("melting-receive-form");
   const breakup = melting.receiveBreakup || {};
   const defaultItemWeight = Number(melting.receivedWeight || melting.finalWeight || 0);
+  const isRodReceive = isMeltingDepartmentReceive(melting);
   document.getElementById("melting-receive-title").textContent = melting.status === "Received" ? "Edit Melting Receive" : "Receive Melting";
   form.meltingId.value = melting.id;
   form.finalWeight.value = weight3(melting.finalWeight);
-  form.castingItemWeight.value = weight3(breakup.castingItemWeight ?? defaultItemWeight);
+  form.castingItemWeight.value = weight3(isRodReceive ? 0 : (breakup.castingItemWeight ?? defaultItemWeight));
   form.treeCutWeight.value = weight3(breakup.treeCutWeight);
   form.wastageWeight.value = weight3(breakup.wastageWeight);
   form.scrapDustWeight.value = weight3(breakup.scrapDustWeight);
   form.otherReceivedWeight.value = weight3(breakup.otherReceivedWeight);
+  form.rod1Weight.value = weight3(isRodReceive ? (breakup.rod1Weight ?? breakup.castingItemWeight ?? defaultItemWeight) : breakup.rod1Weight);
+  form.rod2Weight.value = weight3(breakup.rod2Weight);
+  form.wastage1Weight.value = weight3(breakup.wastage1Weight ?? (isRodReceive ? breakup.wastageWeight : 0));
+  form.wastage2Weight.value = weight3(breakup.wastage2Weight);
+  toggleMeltingReceiveMode(isRodReceive);
   document.getElementById("melting-receive-summary").textContent =
     `${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
   updateMeltingReceiveLoss();
@@ -11513,11 +11523,7 @@ function openMeltingView(meltingId) {
       <div class="history-body">
         <div class="history-title"><strong>Receive & Loss</strong><span>${escapeHtml(melting.receivedDate || "-")}</span></div>
         <div class="history-grid">
-          <span><b>Casting Item</b>${gram(breakup.castingItemWeight)}</span>
-          <span><b>Tree Cut</b>${gram(breakup.treeCutWeight)}</span>
-          <span><b>Wastage Received</b>${gram(breakup.wastageWeight)}</span>
-          <span><b>Scrap / Dust</b>${gram(breakup.scrapDustWeight)}</span>
-          <span><b>Other Received</b>${gram(breakup.otherReceivedWeight)}</span>
+          ${meltingReceiveBreakupDetailHtml(melting)}
           <span><b>Total Received</b>${gram(melting.receivedWeight)}</span>
           <span><b>Loss Booked</b>${gram(melting.meltingLoss)}</span>
         </div>
@@ -11536,12 +11542,46 @@ function updateMeltingReceiveLoss() {
   form.meltingLoss.value = weight3(Math.max(finalWeight - receivedWeight, 0));
 }
 
-function meltingReceiveWeightFields() {
-  return ["castingItemWeight", "treeCutWeight", "wastageWeight", "scrapDustWeight", "otherReceivedWeight"];
+function allMeltingReceiveWeightFields() {
+  return [
+    "castingItemWeight",
+    "treeCutWeight",
+    "wastageWeight",
+    "scrapDustWeight",
+    "otherReceivedWeight",
+    "rod1Weight",
+    "rod2Weight",
+    "wastage1Weight",
+    "wastage2Weight",
+  ];
 }
 
-function getMeltingReceiveBreakup(data) {
+function meltingReceiveWeightFields() {
+  const melting = findById("melting", document.getElementById("melting-receive-form")?.meltingId?.value);
+  return isMeltingDepartmentReceive(melting)
+    ? ["rod1Weight", "rod2Weight", "wastage1Weight", "wastage2Weight"]
+    : ["castingItemWeight", "treeCutWeight", "wastageWeight", "scrapDustWeight", "otherReceivedWeight"];
+}
+
+function getMeltingReceiveBreakup(data, melting = {}) {
+  if (isMeltingDepartmentReceive(melting)) {
+    return {
+      rod1Weight: Number(data.rod1Weight || 0),
+      rod2Weight: Number(data.rod2Weight || 0),
+      wastage1Weight: Number(data.wastage1Weight || 0),
+      wastage2Weight: Number(data.wastage2Weight || 0),
+      castingItemWeight: 0,
+      treeCutWeight: 0,
+      wastageWeight: 0,
+      scrapDustWeight: 0,
+      otherReceivedWeight: 0,
+    };
+  }
   return {
+    rod1Weight: 0,
+    rod2Weight: 0,
+    wastage1Weight: 0,
+    wastage2Weight: 0,
     castingItemWeight: Number(data.castingItemWeight || 0),
     treeCutWeight: Number(data.treeCutWeight || 0),
     wastageWeight: Number(data.wastageWeight || 0),
@@ -11551,6 +11591,14 @@ function getMeltingReceiveBreakup(data) {
 }
 
 function meltingReceiveBreakupText(breakup) {
+  if (Number(breakup.rod1Weight || breakup.rod2Weight || breakup.wastage1Weight || breakup.wastage2Weight)) {
+    return [
+      `rod 1 ${gram(breakup.rod1Weight)}`,
+      `rod 2 ${gram(breakup.rod2Weight)}`,
+      `wastage 1 ${gram(breakup.wastage1Weight)}`,
+      `wastage 2 ${gram(breakup.wastage2Weight)}`,
+    ].join(", ");
+  }
   return [
     `item ${gram(breakup.castingItemWeight)}`,
     `tree ${gram(breakup.treeCutWeight)}`,
@@ -11558,6 +11606,34 @@ function meltingReceiveBreakupText(breakup) {
     `scrap/dust ${gram(breakup.scrapDustWeight)}`,
     `other ${gram(breakup.otherReceivedWeight)}`,
   ].join(", ");
+}
+
+function meltingReceiveBreakupDetailHtml(melting) {
+  const breakup = melting.receiveBreakup || {};
+  if (isMeltingDepartmentReceive(melting)) {
+    return `
+      <span><b>Rod 1</b>${gram(breakup.rod1Weight ?? breakup.castingItemWeight)}</span>
+      <span><b>Rod 2</b>${gram(breakup.rod2Weight)}</span>
+      <span><b>Wastage 1</b>${gram(breakup.wastage1Weight ?? breakup.wastageWeight)}</span>
+      <span><b>Wastage 2</b>${gram(breakup.wastage2Weight)}</span>
+    `;
+  }
+  return `
+    <span><b>Casting Item</b>${gram(breakup.castingItemWeight)}</span>
+    <span><b>Tree Cut</b>${gram(breakup.treeCutWeight)}</span>
+    <span><b>Wastage Received</b>${gram(breakup.wastageWeight)}</span>
+    <span><b>Scrap / Dust</b>${gram(breakup.scrapDustWeight)}</span>
+    <span><b>Other Received</b>${gram(breakup.otherReceivedWeight)}</span>
+  `;
+}
+
+function isMeltingDepartmentReceive(melting = {}) {
+  return meltingDepartmentOptionValue(melting) === "Melting Department";
+}
+
+function toggleMeltingReceiveMode(isRodReceive) {
+  document.querySelectorAll(".melting-receive-casting").forEach((field) => field.classList.toggle("hidden", isRodReceive));
+  document.querySelectorAll(".melting-receive-rod").forEach((field) => field.classList.toggle("hidden", !isRodReceive));
 }
 
 function meltingDepartment(name) {
