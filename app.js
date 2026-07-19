@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v221";
+const APP_VERSION = "v222";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -239,6 +239,19 @@ function openOperationPage(viewId, pageId) {
   section.querySelectorAll(".operation-page").forEach((page) => {
     page.classList.toggle("active-operation-page", page.dataset.operationPage === pageId);
   });
+  refreshOperationPage(viewId, pageId);
+}
+
+function refreshOperationPage(viewId, pageId) {
+  if (viewId === "melting" && pageId === "history") renderMelting();
+  if (viewId === "safe") renderSafe();
+  if (viewId === "stock" && pageId === "ledger") renderLedger();
+  if (viewId === "customers" && pageId === "master") renderCustomers();
+  if (viewId === "karigars" && pageId === "master") renderKarigars();
+  if (viewId === "billing" && pageId === "bill") renderBills();
+  if (viewId === "transfer-history" && pageId === "history") renderOnlineTransferHistory();
+  if (viewId === "reports" && pageId === "summary") renderReports();
+  if (viewId === "users" && pageId === "login") renderLoginUsers();
 }
 
 function resetOperationPage(viewId) {
