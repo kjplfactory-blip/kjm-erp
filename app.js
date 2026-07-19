@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v224";
+const APP_VERSION = "v225";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -8224,7 +8224,7 @@ function dashboardTransferItem({ lot, transfer }) {
 function renderDepartmentMetal() {
   const departments = departmentMetalInHand();
   const rows = Object.entries(departments)
-    .sort((a, b) => b[1].gross - a[1].gross)
+    .sort((a, b) => (b[1].gross + b[1].loss) - (a[1].gross + a[1].loss))
     .map(([department, totals]) => `
       <article class="department-card">
         <span>${escapeHtml(department)}</span>
@@ -8234,6 +8234,8 @@ function renderDepartmentMetal() {
           <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
           <small><b>Hand Stone</b>${gram(totals.handStone)}</small>
           <small><b>Total Stone</b>${gram(totals.waxStone + totals.handStone)}</small>
+          ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
+          ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
         </div>
         ${renderDepartmentPuritySplit(totals)}
         ${renderDepartmentSplit(totals)}
@@ -8245,18 +8247,19 @@ function renderDepartmentMetal() {
 
 function renderDepartmentPuritySplit(totals) {
   const purities = Object.entries(totals.purities || {}).filter(([, purity]) =>
-    purity.gross !== 0 || purity.gold !== 0 || purity.waxStone !== 0 || purity.handStone !== 0
+    purity.gross !== 0 || purity.gold !== 0 || purity.waxStone !== 0 || purity.handStone !== 0 || purity.loss !== 0
   );
   if (!purities.length) return "";
   return `
     <div class="department-purity-split">
-      <div class="department-purity-head"><span>Purity</span><span>Gold</span><span>Stone</span><span>Fine</span></div>
+      <div class="department-purity-head"><span>Purity</span><span>Gold</span><span>Stone</span><span>Loss</span><span>Fine</span></div>
       ${purities.map(([purity, item]) => `
         <div class="department-purity-row">
           <span>${escapeHtml(purity)}</span>
           <span>${gram(item.gold)}</span>
           <span>${gram(item.waxStone + item.handStone)}</span>
-          <span>${gram(item.fineGold)}</span>
+          <span>${gram(item.loss)}</span>
+          <span>${gram(item.fineGold + item.lossFineGold)}</span>
         </div>
       `).join("")}
     </div>
@@ -8265,13 +8268,13 @@ function renderDepartmentPuritySplit(totals) {
 
 function renderDepartmentSplit(totals) {
   const sections = Object.entries(totals.sections || {}).filter(([, section]) =>
-    section.gross !== 0 || section.gold !== 0 || section.waxStone !== 0 || section.handStone !== 0
+    section.gross !== 0 || section.gold !== 0 || section.waxStone !== 0 || section.handStone !== 0 || section.loss !== 0
   );
   if (sections.length <= 1) return "";
   return `
     <div class="department-split">
       ${sections.map(([label, section]) => `
-        <small><b>${escapeHtml(label)}</b><span>Gold ${gram(section.gold)} / GW ${gram(section.gross)}</span></small>
+        <small><b>${escapeHtml(label)}</b><span>Gold ${gram(section.gold)} / GW ${gram(section.gross)}${Number(section.loss || 0) ? ` / Loss ${gram(section.loss)}` : ""}</span></small>
       `).join("")}
     </div>
   `;
@@ -8292,7 +8295,37 @@ function departmentMetalInHand() {
       addDepartmentWeight(departments, lot.currentDepartment || lot.karigarName || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
-  return Object.fromEntries(Object.entries(departments).filter(([, totals]) => totals.gross !== 0 || totals.gold !== 0 || totals.waxStone !== 0 || totals.handStone !== 0));
+  addMeltingCastingDashboardWeights(departments);
+  return Object.fromEntries(Object.entries(departments).filter(([, totals]) =>
+    totals.gross !== 0 || totals.gold !== 0 || totals.waxStone !== 0 || totals.handStone !== 0 || totals.loss !== 0
+  ));
+}
+
+function addMeltingCastingDashboardWeights(departments) {
+  (state.melting || []).forEach((melting) => {
+    const department = meltingDashboardDepartmentName(melting);
+    const purity = melting.targetPurity || "";
+    if ((melting.status || "Issued") !== "Received") {
+      const inHand = Number(melting.finalWeight || melting.sourceWeight || 0);
+      addDepartmentWeight(departments, department, {
+        gross: inHand,
+        gold: inHand,
+        purity,
+      });
+    }
+    const loss = Number(melting.meltingLoss || 0);
+    if (loss > 0) {
+      addDepartmentWeight(departments, department, {
+        loss,
+        lossFineGold: fineGoldWeight(loss, purity),
+        purity,
+      });
+    }
+  });
+}
+
+function meltingDashboardDepartmentName(melting = {}) {
+  return meltingBatchType(melting) === "MELTING" ? "Melting Department" : "Casting Department";
 }
 
 function departmentCurrentLotTotals(lot) {
@@ -8312,16 +8345,18 @@ function addDepartmentWeight(departments, department, totals = {}) {
   const rawDepartment = department || "Unassigned";
   const key = departmentDashboardHeader(rawDepartment);
   const splitKey = departmentDashboardSplitLabel(rawDepartment);
-  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0, sections: {}, purities: {} };
-  const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0 };
+  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0, loss: 0, lossFineGold: 0, sections: {}, purities: {} };
+  const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, loss: 0, lossFineGold: 0 };
   const purityKey = displayPurity(totals.purity);
-  const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0 };
+  const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0, loss: 0, lossFineGold: 0 };
   const added = {
     gross: Number(totals.gross || 0),
     gold: Number(totals.gold || 0),
     waxStone: Number(totals.waxStone || 0),
     handStone: Number(totals.handStone || 0),
     fineGold: Number(totals.fineGold ?? fineGoldWeight(totals.gold || 0, totals.purity || 0)),
+    loss: Number(totals.loss || 0),
+    lossFineGold: Number(totals.lossFineGold ?? fineGoldWeight(totals.loss || 0, totals.purity || 0)),
   };
   departments[key] = {
     gross: Number(weight3(current.gross + added.gross)),
@@ -8329,6 +8364,8 @@ function addDepartmentWeight(departments, department, totals = {}) {
     waxStone: Number(weight3(current.waxStone + added.waxStone)),
     handStone: Number(weight3(current.handStone + added.handStone)),
     fineGold: Number(weight3(current.fineGold + added.fineGold)),
+    loss: Number(weight3(current.loss + added.loss)),
+    lossFineGold: Number(weight3(current.lossFineGold + added.lossFineGold)),
     sections: {
       ...current.sections,
       [splitKey]: {
@@ -8336,6 +8373,8 @@ function addDepartmentWeight(departments, department, totals = {}) {
         gold: Number(weight3(currentSection.gold + added.gold)),
         waxStone: Number(weight3(currentSection.waxStone + added.waxStone)),
         handStone: Number(weight3(currentSection.handStone + added.handStone)),
+        loss: Number(weight3(currentSection.loss + added.loss)),
+        lossFineGold: Number(weight3(currentSection.lossFineGold + added.lossFineGold)),
       },
     },
     purities: {
@@ -8346,6 +8385,8 @@ function addDepartmentWeight(departments, department, totals = {}) {
         waxStone: Number(weight3(currentPurity.waxStone + added.waxStone)),
         handStone: Number(weight3(currentPurity.handStone + added.handStone)),
         fineGold: Number(weight3(currentPurity.fineGold + added.fineGold)),
+        loss: Number(weight3(currentPurity.loss + added.loss)),
+        lossFineGold: Number(weight3(currentPurity.lossFineGold + added.lossFineGold)),
       },
     },
   };

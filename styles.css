@@ -770,10 +770,14 @@ form.active-operation-page,
 .department-purity-head,
 .department-purity-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 0.9fr 1fr 1fr 1fr 1fr;
   gap: 6px;
   align-items: center;
   font-size: 11px;
+}
+
+.department-breakup .loss-row {
+  color: var(--danger);
 }
 
 .department-purity-head {
