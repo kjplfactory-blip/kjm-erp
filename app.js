@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v214";
+const APP_VERSION = "v215";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -731,9 +731,9 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   }
 
   const issueLocker = safeLockerForPurity(metalPurity);
-  const lockerAvailable = safeLockerBalance(issueLocker);
+  const lockerAvailable = safeLockerBalance(issueLocker, "rod");
   if (netMetalIssuedWeight > lockerAvailable) {
-    alert(`${issueLocker} Safe has only ${gram(lockerAvailable)} available for issue. Receive melting/casting into this safe first.`);
+    alert(`${issueLocker} Safe has only ${gram(lockerAvailable)} rod/casting item available for issue. Wastage must be remelted before production issue.`);
     return;
   }
 
@@ -766,7 +766,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   });
   const productionReference = `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}`;
   state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference });
-  issueFromSafeLocker(issueLocker, netMetalIssuedWeight, productionReference, lotNumber);
+  issueFromSafeLocker(issueLocker, netMetalIssuedWeight, productionReference, lotNumber, "rod");
   event.target.reset();
   saveState();
   render();
@@ -858,6 +858,11 @@ document.getElementById("add-melting-rod-source").addEventListener("click", () =
   updateMeltingCalculation();
 });
 
+document.getElementById("add-melting-wastage-source").addEventListener("click", () => {
+  addMeltingSourceRow("", "", "top", true, "wastage");
+  updateMeltingCalculation();
+});
+
 document.getElementById("melting-form").addEventListener("input", (event) => {
   if (["sourcePurity", "sourceWeightLine", "targetPurity"].includes(event.target.name)) {
     updateMeltingCalculation();
@@ -874,6 +879,10 @@ document.getElementById("melting-form").addEventListener("change", (event) => {
     updateMeltingCalculation();
   }
   if (event.target.name === "sourceSafeLocker") {
+    applySafeLockerSelectionToMeltingRow(event.target);
+    updateMeltingCalculation();
+  }
+  if (event.target.name === "sourceWastageLocker") {
     applySafeLockerSelectionToMeltingRow(event.target);
     updateMeltingCalculation();
   }
@@ -898,7 +907,7 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
   }
   const existingMelting = data.meltingId ? findById("melting", data.meltingId) : null;
   const previousSourceMetals = existingMelting ? cloneMeltingSourceMetals(existingMelting.sourceMetals) : [];
-  const safeIssueError = validateMetalSafeIssue(sourceMetals, previousSourceMetals) || validateSafeLockerRodIssue(sourceMetals, previousSourceMetals);
+  const safeIssueError = validateMetalSafeIssue(sourceMetals, previousSourceMetals) || validateSafeLockerSourceIssue(sourceMetals, previousSourceMetals);
   if (safeIssueError) {
     alert(safeIssueError);
     return;
@@ -2921,17 +2930,54 @@ function safeItemStockWeight() {
     .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0);
 }
 
-function safeLockerBalance(locker) {
+function safeLockerBalance(locker, safeKind = "all") {
   return Number(weight3((state.safeItems || [])
-    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker)
+    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker && safeItemMatchesKind(item, safeKind))
     .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0)));
 }
 
-function issueFromSafeLocker(locker, weight, reference, sourceId = "") {
+function safeItemMatchesKind(item, safeKind = "all") {
+  const kind = normalizeSafeKind(safeKind);
+  return kind === "all" || safeItemKind(item) === kind;
+}
+
+function normalizeSafeKind(value = "") {
+  const text = String(value || "").toLowerCase().trim();
+  if (["rod", "wastage"].includes(text)) return text;
+  return "all";
+}
+
+function safeItemKind(item = {}) {
+  const savedKind = normalizeSafeKind(item.safeKind);
+  if (savedKind !== "all") return savedKind;
+  const sourceLine = String(item.sourceLine || "").toLowerCase();
+  const description = String(item.description || "").toLowerCase();
+  if (["rod1weight", "rod2weight", "castingitemweight"].includes(sourceLine)) return "rod";
+  if (description.includes("rod") || description.includes("casting item")) return "rod";
+  if (
+    sourceLine.includes("wastage")
+    || sourceLine === "treecutweight"
+    || sourceLine === "scrapdustweight"
+    || sourceLine === "otherreceivedweight"
+    || description.includes("wastage")
+    || description.includes("tree cut")
+    || description.includes("scrap")
+    || description.includes("dust")
+    || description.includes("other received")
+  ) return "wastage";
+  return "rod";
+}
+
+function safeKindLabel(kindOrItem = "") {
+  const kind = typeof kindOrItem === "string" ? normalizeSafeKind(kindOrItem) : safeItemKind(kindOrItem);
+  return kind === "wastage" ? "Wastage / Scrap" : "Rod / Casting";
+}
+
+function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind = "all") {
   let remaining = Number(weight3(weight));
   if (remaining <= 0) return true;
   const activeItems = (state.safeItems || [])
-    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker)
+    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker && safeItemMatchesKind(item, safeKind))
     .slice()
     .reverse();
   for (const item of activeItems) {
@@ -2956,6 +3002,8 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "") {
         source: reference,
         sourceType: "factory-issue",
         sourceId,
+        sourceLine: item.sourceLine || "",
+        safeKind: safeItemKind(item),
         grossWeight: grossTake,
         netWeight: take,
         status: "Out",
@@ -2994,6 +3042,7 @@ function addSafeItem(item) {
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceLine: item.sourceLine || "",
+    safeKind: safeItemKind(item),
     grossWeight: Number(weight3(item.grossWeight || 0)),
     netWeight: Number(weight3(item.netWeight ?? item.grossWeight ?? 0)),
     status: item.status || "In Safe",
@@ -3141,13 +3190,24 @@ function renderMetalSafeSourceOptions(selected = "") {
 
 function renderSafeLockerRodOptions(selected = "") {
   const options = SAFE_LOCKERS
-    .map((locker) => ({ locker, weight: safeLockerBalance(locker) }))
+    .map((locker) => ({ locker, weight: safeLockerBalance(locker, "rod") }))
     .filter((item) => item.weight > 0 || item.locker === selected)
     .map((item) =>
       `<option value="${escapeHtml(item.locker)}" ${item.locker === selected ? "selected" : ""}>${escapeHtml(item.locker)} Safe / Rod ${gram(item.weight)}</option>`
     )
     .join("");
   return options || '<option value="">No rod in safe</option>';
+}
+
+function renderSafeLockerWastageOptions(selected = "") {
+  const options = SAFE_LOCKERS
+    .map((locker) => ({ locker, weight: safeLockerBalance(locker, "wastage") }))
+    .filter((item) => item.weight > 0 || item.locker === selected)
+    .map((item) =>
+      `<option value="${escapeHtml(item.locker)}" ${item.locker === selected ? "selected" : ""}>${escapeHtml(item.locker)} Safe / Wastage ${gram(item.weight)}</option>`
+    )
+    .join("");
+  return options || '<option value="">No wastage in safe</option>';
 }
 
 function refreshMeltingSafeSourceOptions() {
@@ -3159,6 +3219,12 @@ function refreshMeltingSafeSourceOptions() {
   document.querySelectorAll('select[name="sourceSafeLocker"]').forEach((select) => {
     const selected = select.value;
     select.innerHTML = renderSafeLockerRodOptions(selected);
+    if (selected && ![...select.options].some((option) => option.value === selected)) select.value = "";
+    updateMeltingSourceRowMode(select.closest(".source-row"));
+  });
+  document.querySelectorAll('select[name="sourceWastageLocker"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = renderSafeLockerWastageOptions(selected);
     if (selected && ![...select.options].some((option) => option.value === selected)) select.value = "";
     updateMeltingSourceRowMode(select.closest(".source-row"));
   });
@@ -3186,25 +3252,30 @@ function updateMeltingSourceRowMode(row) {
   if (!row) return;
   const sourceKind = row.querySelector('[name="sourceKind"]')?.value || "metal";
   const isRod = sourceKind === "rod";
-  row.querySelector(".melting-metal-safe-field")?.classList.toggle("hidden", isRod);
+  const isWastage = sourceKind === "wastage";
+  row.querySelector(".melting-metal-safe-field")?.classList.toggle("hidden", isRod || isWastage);
   row.querySelector(".melting-rod-safe-field")?.classList.toggle("hidden", !isRod);
+  row.querySelector(".melting-wastage-safe-field")?.classList.toggle("hidden", !isWastage);
   const metalSelect = row.querySelector('[name="sourceMetalSafePurity"]');
   const lockerSelect = row.querySelector('[name="sourceSafeLocker"]');
-  if (metalSelect) metalSelect.disabled = isRod;
+  const wastageSelect = row.querySelector('[name="sourceWastageLocker"]');
+  if (metalSelect) metalSelect.disabled = isRod || isWastage;
   if (lockerSelect) lockerSelect.disabled = !isRod;
+  if (wastageSelect) wastageSelect.disabled = !isWastage;
   if (isRod) applySafeLockerSelectionToMeltingRow(lockerSelect);
+  else if (isWastage) applySafeLockerSelectionToMeltingRow(wastageSelect);
   else applyMetalSafeSelectionToMeltingRow(metalSelect);
 }
 
 function validateMetalSafeIssue(sourceMetals = [], creditMetals = []) {
   const requiredByPurity = sourceMetals.reduce((acc, metal) => {
-    if (metal.sourceKind === "rod" || !metal.safePurity) return acc;
+    if (["rod", "wastage"].includes(metal.sourceKind) || !metal.safePurity) return acc;
     const purity = normalizeMetalSafePurity(metal.safePurity);
     acc[purity] = Number(weight3((acc[purity] || 0) + Number(metal.weight || 0)));
     return acc;
   }, {});
   const creditByPurity = creditMetals.reduce((acc, metal) => {
-    if (metal.sourceKind === "rod" || !metal.safePurity) return acc;
+    if (["rod", "wastage"].includes(metal.sourceKind) || !metal.safePurity) return acc;
     const purity = normalizeMetalSafePurity(metal.safePurity);
     acc[purity] = Number(weight3((acc[purity] || 0) + Number(metal.weight || 0)));
     return acc;
@@ -3219,23 +3290,26 @@ function validateMetalSafeIssue(sourceMetals = [], creditMetals = []) {
   return "";
 }
 
-function validateSafeLockerRodIssue(sourceMetals = [], creditMetals = []) {
+function validateSafeLockerSourceIssue(sourceMetals = [], creditMetals = []) {
   const requiredByLocker = sourceMetals.reduce((acc, metal) => {
-    if (metal.sourceKind !== "rod" || !metal.safeLocker) return acc;
+    if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return acc;
     const locker = safeLockerForPurity(metal.safeLocker);
-    acc[locker] = Number(weight3((acc[locker] || 0) + Number(metal.weight || 0)));
+    const key = `${metal.sourceKind}:${locker}`;
+    acc[key] = Number(weight3((acc[key] || 0) + Number(metal.weight || 0)));
     return acc;
   }, {});
   const creditByLocker = creditMetals.reduce((acc, metal) => {
-    if (metal.sourceKind !== "rod" || !metal.safeLocker) return acc;
+    if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return acc;
     const locker = safeLockerForPurity(metal.safeLocker);
-    acc[locker] = Number(weight3((acc[locker] || 0) + Number(metal.weight || 0)));
+    const key = `${metal.sourceKind}:${locker}`;
+    acc[key] = Number(weight3((acc[key] || 0) + Number(metal.weight || 0)));
     return acc;
   }, {});
-  for (const [locker, required] of Object.entries(requiredByLocker)) {
-    const available = Number(weight3(safeLockerBalance(locker) + Number(creditByLocker[locker] || 0)));
+  for (const [key, required] of Object.entries(requiredByLocker)) {
+    const [kind, locker] = key.split(":");
+    const available = Number(weight3(safeLockerBalance(locker, kind) + Number(creditByLocker[key] || 0)));
     if (required > available) {
-      return `${locker} Safe has only ${gram(available)} rod available. Required for this melting/casting is ${gram(required)}.`;
+      return `${locker} Safe has only ${gram(available)} ${kind} available. Required for this melting is ${gram(required)}.`;
     }
   }
   return "";
@@ -3243,7 +3317,7 @@ function validateSafeLockerRodIssue(sourceMetals = [], creditMetals = []) {
 
 function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentName = "") {
   sourceMetals.forEach((metal) => {
-    if (metal.sourceKind === "rod" || !metal.safePurity) return;
+    if (["rod", "wastage"].includes(metal.sourceKind) || !metal.safePurity) return;
     addMetalSafeMovement({
       type: "Melt Issue",
       direction: "out",
@@ -3258,13 +3332,15 @@ function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentNa
 
 function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departmentName = "") {
   sourceMetals.forEach((metal) => {
-    if (metal.sourceKind !== "rod" || !metal.safeLocker) return;
+    if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return;
     const locker = safeLockerForPurity(metal.safeLocker);
+    const label = metal.sourceKind === "wastage" ? "Wastage" : "Rod";
     issueFromSafeLocker(
       locker,
       metal.weight,
-      `Rod from ${locker} Safe used in melting/casting ${meltingId}, issued to ${departmentName || "department"}`,
-      meltingId
+      `${label} from ${locker} Safe used in melting ${meltingId}, issued to ${departmentName || "department"}`,
+      meltingId,
+      metal.sourceKind
     );
   });
 }
@@ -3286,16 +3362,18 @@ function removeMeltingIssueRecords(meltingId) {
 
 function restoreMeltingRodIssues(sourceMetals = [], meltingId, reason = "Melting issue corrected") {
   sourceMetals.forEach((metal) => {
-    if (metal.sourceKind !== "rod" || !metal.safeLocker || Number(metal.weight || 0) <= 0) return;
+    if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker || Number(metal.weight || 0) <= 0) return;
     const locker = safeLockerForPurity(metal.safeLocker);
+    const safeKind = metal.sourceKind === "wastage" ? "wastage" : "rod";
     addSafeItem({
       date: today(),
       locker,
       purity: locker,
-      description: "Rod returned - melting correction",
+      description: `${safeKind === "wastage" ? "Wastage" : "Rod"} returned - melting correction`,
       source: reason,
       sourceType: "melting-rod-return",
       sourceId: meltingId,
+      safeKind,
       grossWeight: metal.weight,
       netWeight: metal.weight,
       status: "In Safe",
@@ -10908,6 +10986,8 @@ function renderSafeLockers() {
       count: items.length,
       grossWeight: Number(weight3(items.reduce((total, item) => total + Number(item.grossWeight || 0), 0))),
       netWeight: Number(weight3(items.reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0))),
+      rodWeight: safeLockerBalance(locker, "rod"),
+      wastageWeight: safeLockerBalance(locker, "wastage"),
     };
     return acc;
   }, {});
@@ -10917,6 +10997,7 @@ function renderSafeLockers() {
       <button class="safe-locker-card ${filter === locker ? "active" : ""}" type="button" onclick="selectSafeLocker('${locker}')">
         <span>${locker} Safe</span>
         <strong>${gram(totals[locker].netWeight)}</strong>
+        <small>Rod ${gram(totals[locker].rodWeight)} / Wstg ${gram(totals[locker].wastageWeight)}</small>
         <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"} / GW ${gram(totals[locker].grossWeight)}</small>
       </button>
     `).join("");
@@ -10927,6 +11008,7 @@ function renderSafeLockers() {
       <tr>
         <td>${escapeHtml(item.date || "-")}</td>
         <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
+        <td>${escapeHtml(safeKindLabel(item))}</td>
         <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
         <td>${escapeHtml(item.source || "-")}</td>
         <td>${gram(item.grossWeight)}</td>
@@ -10936,7 +11018,7 @@ function renderSafeLockers() {
       </tr>
     `).join("");
   const table = document.getElementById("safe-item-table");
-  if (table) table.innerHTML = rows || tableEmpty(8, "No item in this safe locker yet.");
+  if (table) table.innerHTML = rows || tableEmpty(9, "No item in this safe locker yet.");
 }
 
 function selectSafeLocker(locker) {
@@ -11002,12 +11084,14 @@ function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shou
   row.innerHTML = `
     <label>Source Type
       <select name="sourceKind">
-        <option value="metal" ${sourceKind !== "rod" ? "selected" : ""}>Metal Safe / Manual</option>
+        <option value="metal" ${!["rod", "wastage"].includes(sourceKind) ? "selected" : ""}>Metal Safe / Manual</option>
         <option value="rod" ${sourceKind === "rod" ? "selected" : ""}>Rod From Safe Locker</option>
+        <option value="wastage" ${sourceKind === "wastage" ? "selected" : ""}>Wastage From Safe Locker</option>
       </select>
     </label>
     <label class="melting-metal-safe-field">Metal Safe <select name="sourceMetalSafePurity">${renderMetalSafeSourceOptions(safePurity)}</select></label>
     <label class="melting-rod-safe-field">Rod Safe <select name="sourceSafeLocker">${renderSafeLockerRodOptions(safeLocker)}</select></label>
+    <label class="melting-wastage-safe-field">Wastage Safe <select name="sourceWastageLocker">${renderSafeLockerWastageOptions(safeLocker)}</select></label>
     <label>Weight (g) <input name="sourceWeightLine" type="number" min="0.001" step="0.001" value="${escapeHtml(weight)}" required></label>
     <label>Purity (%) <input name="sourcePurity" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(purity)}" required></label>
     <button class="delete-btn" type="button">Remove</button>
@@ -11049,7 +11133,11 @@ function getMeltingSourceMetals() {
   return [...document.querySelectorAll("#melting-sources .source-row")]
     .map((row) => {
       const sourceKind = row.querySelector('[name="sourceKind"]')?.value || "metal";
-      const safeLocker = sourceKind === "rod" ? row.querySelector('[name="sourceSafeLocker"]')?.value || "" : "";
+      const safeLocker = sourceKind === "rod"
+        ? row.querySelector('[name="sourceSafeLocker"]')?.value || ""
+        : sourceKind === "wastage"
+          ? row.querySelector('[name="sourceWastageLocker"]')?.value || ""
+          : "";
       const safePurity = sourceKind === "metal" ? row.querySelector('[name="sourceMetalSafePurity"]')?.value || "" : "";
       const puritySource = safeLocker || safePurity;
       const purity = puritySource ? purityPercent(puritySource) : Number(row.querySelector('[name="sourcePurity"]').value || 0);
@@ -11097,6 +11185,8 @@ function renderMeltingSources(item) {
   return metals.map((metal) => {
     const sourceText = metal.sourceKind === "rod" && metal.safeLocker
       ? `Rod ${safeLockerForPurity(metal.safeLocker)} Safe`
+      : metal.sourceKind === "wastage" && metal.safeLocker
+        ? `Wastage ${safeLockerForPurity(metal.safeLocker)} Safe`
       : metal.safePurity
         ? `Metal Safe ${normalizeMetalSafePurity(metal.safePurity)}`
         : "Manual";
@@ -11700,6 +11790,7 @@ function normalizeState(currentState) {
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceLine: item.sourceLine || "",
+    safeKind: safeItemKind(item),
     grossWeight: Number(item.grossWeight || 0),
     netWeight: Number(item.netWeight ?? item.grossWeight ?? 0),
     status: item.status || "In Safe",
