@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v209";
+const APP_VERSION = "v213";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -21,6 +21,7 @@ const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const SUPABASE_SAVE_DELAY_MS = 300;
 const SUPABASE_REQUEST_TIMEOUT_MS = 12000;
 const MAX_PRODUCTION_DAYS = 10;
+const SAFE_LOCKERS = ["9K", "14K", "18K", "22K"];
 const DEFAULT_STONE_ITEM_KEY = "GENERAL";
 const STONE_ITEM_PRESETS = [
   ["GENERAL", "General"],
@@ -51,7 +52,7 @@ let selectedDesignIds = new Set();
 const users = {
   owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
   order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "production", "billing"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "melting", "production", "billing", "safe"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
@@ -74,6 +75,7 @@ const loginAccessPages = [
   "production",
   "billing",
   "office",
+  "safe",
   "stock",
   "karigars",
   "transfer-history",
@@ -95,6 +97,9 @@ const demoState = {
   designs: [],
   stones: [],
   bills: [],
+  safeItems: [],
+  metalSafeMovements: [],
+  metalSafeSeededFromLedger: false,
   stoneOptions: { stoneType: [], shape: [], size: [] },
   stoneLibrarySeeded: false,
   orders: [
@@ -142,6 +147,7 @@ const pageInfo = {
   production: ["Production", "Issue gold to departments and complete finished lots."],
   billing: ["Bill", "Create bills for completed job cards."],
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
+  safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
   stock: ["Raw Gold Stock", "Maintain only raw gold movement ledger. Production stock and office stock are separate."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
@@ -724,9 +730,10 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     return;
   }
 
-  const available = rawGoldStock();
-  if (netMetalIssuedWeight > available) {
-    alert(`Only ${gram(available)} raw gold is available.`);
+  const issueLocker = safeLockerForPurity(metalPurity);
+  const lockerAvailable = safeLockerBalance(issueLocker);
+  if (netMetalIssuedWeight > lockerAvailable) {
+    alert(`${issueLocker} Safe has only ${gram(lockerAvailable)} available for issue. Receive melting/casting into this safe first.`);
     return;
   }
 
@@ -757,7 +764,9 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     status: "Issued",
     transfers: [],
   });
-  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}` });
+  const productionReference = `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}`;
+  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference });
+  issueFromSafeLocker(issueLocker, netMetalIssuedWeight, productionReference, lotNumber);
   event.target.reset();
   saveState();
   render();
@@ -767,7 +776,7 @@ document.getElementById("stock-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
   const designText = designLabel(data.designId);
-  state.ledger.unshift({
+  const ledgerEntry = {
     id: crypto.randomUUID(),
     date: today(),
     type: "In",
@@ -775,19 +784,97 @@ document.getElementById("stock-form").addEventListener("submit", (event) => {
     weight: Number(data.weight),
     designId: data.designId || "",
     reference: designText ? `${data.source} / ${designText}` : data.source,
+  };
+  state.ledger.unshift(ledgerEntry);
+  addMetalSafeMovement({
+    type: "In",
+    direction: "in",
+    purity: data.purity,
+    weight: Number(data.weight),
+    reference: ledgerEntry.reference,
+    sourceType: "raw-stock",
+    sourceId: ledgerEntry.id,
   });
   event.target.reset();
   saveState();
   render();
 });
 
+document.getElementById("safe-item-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  addSafeItem({
+    date: today(),
+    locker: data.locker,
+    purity: data.locker,
+    description: data.description,
+    source: data.source || "Manual safe entry",
+    grossWeight: Number(data.grossWeight),
+    netWeight: Number(data.grossWeight),
+    status: "In Safe",
+    sourceType: "manual",
+  });
+  event.target.reset();
+  saveState();
+  render();
+});
+
+document.getElementById("metal-safe-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const ledgerEntry = {
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "In",
+    purity: data.purity,
+    weight: Number(data.weight),
+    reference: `Metal Safe / ${data.reference}`,
+  };
+  state.ledger.unshift(ledgerEntry);
+  addMetalSafeMovement({
+    type: "Office In",
+    direction: "in",
+    purity: data.purity,
+    weight: Number(data.weight),
+    reference: `Office In / ${data.reference}`,
+    sourceType: "metal-safe",
+    sourceId: ledgerEntry.id,
+  });
+  event.target.reset();
+  saveState();
+  render();
+});
+
+document.getElementById("safe-locker-filter").addEventListener("change", renderSafe);
+document.getElementById("metal-safe-search").addEventListener("input", renderSafe);
+
 document.getElementById("add-melting-source").addEventListener("click", () => {
-  addMeltingSourceRow("", "", "top", true);
+  addMeltingSourceRow("", "", "top", true, "metal");
+  updateMeltingCalculation();
+});
+
+document.getElementById("add-melting-rod-source").addEventListener("click", () => {
+  addMeltingSourceRow("", "", "top", true, "rod");
   updateMeltingCalculation();
 });
 
 document.getElementById("melting-form").addEventListener("input", (event) => {
   if (["sourcePurity", "sourceWeightLine", "targetPurity"].includes(event.target.name)) {
+    updateMeltingCalculation();
+  }
+});
+
+document.getElementById("melting-form").addEventListener("change", (event) => {
+  if (event.target.name === "sourceMetalSafePurity") {
+    applyMetalSafeSelectionToMeltingRow(event.target);
+    updateMeltingCalculation();
+  }
+  if (event.target.name === "sourceKind") {
+    updateMeltingSourceRowMode(event.target.closest(".source-row"));
+    updateMeltingCalculation();
+  }
+  if (event.target.name === "sourceSafeLocker") {
+    applySafeLockerSelectionToMeltingRow(event.target);
     updateMeltingCalculation();
   }
 });
@@ -809,10 +896,23 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
     alert("Select department / caster for melting issue.");
     return;
   }
-  const meltingId = crypto.randomUUID();
-  state.melting.unshift({
-    id: meltingId,
+  const existingMelting = data.meltingId ? findById("melting", data.meltingId) : null;
+  const previousSourceMetals = existingMelting ? cloneMeltingSourceMetals(existingMelting.sourceMetals) : [];
+  const safeIssueError = validateMetalSafeIssue(sourceMetals, previousSourceMetals) || validateSafeLockerRodIssue(sourceMetals, previousSourceMetals);
+  if (safeIssueError) {
+    alert(safeIssueError);
+    return;
+  }
+  const melting = existingMelting || {
+    id: crypto.randomUUID(),
     date: today(),
+    status: "Issued",
+    receivedWeight: 0,
+    meltingLoss: 0,
+  };
+  if (!existingMelting) state.melting.unshift(melting);
+  if (existingMelting) restoreMeltingRodIssues(previousSourceMetals, melting.id, "Melting issue edited");
+  Object.assign(melting, {
     sourceMetals,
     sourcePurity: Number(data.averagePurity),
     sourceWeight,
@@ -823,21 +923,17 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
     alloyWeight: Number(data.alloyWeight),
     departmentId: department.id,
     departmentName: department.name,
-    status: "Issued",
-    receivedWeight: 0,
-    meltingLoss: 0,
   });
-  state.ledger.unshift({
-    id: crypto.randomUUID(),
-    meltingId,
-    date: today(),
-    type: "Melt Issue",
-    purity: `${targetPurity}%`,
-    weight: finalWeight,
-    reference: `${sourceMetals.length} source metals ${gram(sourceWeight)} to ${targetPurity}% ${data.colour}, issued to ${department.name}`,
-  });
-  event.target.reset();
-  resetMeltingSources();
+  if (melting.status === "Received") {
+    melting.meltingLoss = Number(weight3(Math.max(Number(melting.finalWeight || 0) - Number(melting.receivedWeight || 0), 0)));
+  } else {
+    melting.status = "Issued";
+    melting.receivedWeight = 0;
+    melting.meltingLoss = 0;
+  }
+  syncMeltingIssueRecords(melting);
+  if (melting.status === "Received") syncMeltingReceiveRecords(melting);
+  resetMeltingIssueForm();
   updateMeltingCalculation();
   saveState();
   render();
@@ -856,32 +952,12 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
   const receivedWeight = Number(data.receivedWeight || 0);
   const meltingLoss = Number(data.meltingLoss || 0);
   const receiveBreakup = getMeltingReceiveBreakup(data);
-  melting.receivedDate = today();
+  melting.receivedDate = melting.receivedDate || today();
   melting.receivedWeight = receivedWeight;
   melting.meltingLoss = meltingLoss;
   melting.receiveBreakup = receiveBreakup;
   melting.status = "Received";
-  state.ledger = state.ledger.filter((entry) => entry.meltingId !== melting.id || entry.type === "Melt Issue");
-  state.ledger.unshift({
-    id: crypto.randomUUID(),
-    meltingId: melting.id,
-    date: today(),
-    type: "Melt Received",
-    purity: `${formatPurity(melting.targetPurity)}`,
-    weight: receivedWeight,
-    reference: `${melting.colour} melting received from ${melting.departmentName || "department"} (${meltingReceiveBreakupText(receiveBreakup)}), loss ${gram(meltingLoss)}`,
-  });
-  if (meltingLoss > 0) {
-    state.ledger.unshift({
-      id: crypto.randomUUID(),
-      meltingId: melting.id,
-      date: today(),
-      type: "Melt Loss",
-      purity: `${formatPurity(melting.targetPurity)}`,
-      weight: meltingLoss,
-      reference: `${melting.colour} melting loss booked for ${melting.departmentName || "department"}`,
-    });
-  }
+  syncMeltingReceiveRecords(melting);
   document.getElementById("melting-receive-dialog").close();
   saveState();
   render();
@@ -1127,10 +1203,10 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   if (existingIndex >= 0) state.bills[existingIndex] = bill;
   else state.bills.unshift(bill);
   lot.bill = bill;
-  lot.billingStage = lot.billingStage || "Sales Office QC";
-  lot.salesDepartment = lot.salesDepartment || "Sales Office";
-  lot.currentDepartment = "Sales Office";
-  lot.karigarName = "Sales Office Department";
+  lot.productionStockWeight = billProductionStockWeight(bill);
+  lot.billingStage = lot.billingStage || "Bill / QC";
+  lot.currentDepartment = lot.billingStage;
+  lot.karigarName = "Bill / QC";
   if (closeDialog) {
     document.getElementById("bill-dialog").close();
   }
@@ -1145,6 +1221,10 @@ document.getElementById("cancel-bill").addEventListener("click", () => {
 
 document.getElementById("cancel-melting-receive").addEventListener("click", () => {
   document.getElementById("melting-receive-dialog").close();
+});
+
+document.getElementById("cancel-melting-issue-edit").addEventListener("click", () => {
+  resetMeltingIssueForm();
 });
 
 document.getElementById("close-melting-view").addEventListener("click", () => {
@@ -2826,11 +2906,453 @@ function billableOrdersForLot(lot = {}, bill = {}) {
 }
 
 function rawGoldStock() {
+  const metalSafeTotal = metalSafeBalanceTotal();
+  if (state.metalSafeMovements?.length) return metalSafeTotal;
   return state.ledger.reduce((total, item) => {
     if (item.type === "In") return total + item.weight;
     if (item.type === "Out") return total - item.weight;
     return total;
   }, 0);
+}
+
+function safeItemStockWeight() {
+  return (state.safeItems || [])
+    .filter((item) => item.status !== "Out")
+    .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0);
+}
+
+function safeLockerBalance(locker) {
+  return Number(weight3((state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker)
+    .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0)));
+}
+
+function issueFromSafeLocker(locker, weight, reference, sourceId = "") {
+  let remaining = Number(weight3(weight));
+  if (remaining <= 0) return true;
+  const activeItems = (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker)
+    .slice()
+    .reverse();
+  for (const item of activeItems) {
+    if (remaining <= 0) break;
+    const itemNet = Number(item.netWeight ?? item.grossWeight ?? 0);
+    if (itemNet <= 0) continue;
+    const take = Number(weight3(Math.min(itemNet, remaining)));
+    const itemGross = Number(item.grossWeight || itemNet);
+    const grossTake = itemNet ? Number(weight3((take / itemNet) * itemGross)) : take;
+    if (take >= itemNet - 0.0005) {
+      item.status = "Out";
+      item.outDate = today();
+      item.remarks = reference;
+    } else {
+      item.netWeight = Number(weight3(itemNet - take));
+      item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+      addSafeItem({
+        date: today(),
+        locker,
+        purity: item.purity || locker,
+        description: `${item.description || locker} - Factory Issue`,
+        source: reference,
+        sourceType: "factory-issue",
+        sourceId,
+        grossWeight: grossTake,
+        netWeight: take,
+        status: "Out",
+        outDate: today(),
+        remarks: reference,
+      });
+    }
+    remaining = Number(weight3(remaining - take));
+  }
+  return remaining <= 0.0005;
+}
+
+function factoryInWeight() {
+  const safeStock = safeItemStockWeight();
+  const activeProduction = state.lots
+    .filter((lot) => lot.status !== "Completed")
+    .reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || lot.issuedWeight || 0), 0);
+  const billPending = state.lots.reduce((total, lot) => {
+    if (lot.status !== "Completed") return total;
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (bill?.items?.length) return total + billProductionStockWeight(bill);
+    return total + Number(lot.finishedWeight || 0);
+  }, 0);
+  return Number(weight3(safeStock + activeProduction + billPending));
+}
+
+function addSafeItem(item) {
+  state.safeItems = state.safeItems || [];
+  state.safeItems.unshift({
+    id: item.id || crypto.randomUUID(),
+    date: item.date || today(),
+    locker: safeLockerForPurity(item.locker || item.purity),
+    purity: item.purity || item.locker || "",
+    description: item.description || "",
+    source: item.source || "",
+    sourceType: item.sourceType || "",
+    sourceId: item.sourceId || "",
+    sourceLine: item.sourceLine || "",
+    grossWeight: Number(weight3(item.grossWeight || 0)),
+    netWeight: Number(weight3(item.netWeight ?? item.grossWeight ?? 0)),
+    status: item.status || "In Safe",
+    outDate: item.outDate || "",
+    remarks: item.remarks || "",
+  });
+}
+
+function moveSafeItemOut(itemId) {
+  const item = findById("safeItems", itemId);
+  if (!item) return;
+  const reason = prompt(`Move ${item.description || item.locker} out of safe? Enter reason/reference:`, "Issued from safe");
+  if (reason === null) return;
+  item.status = "Out";
+  item.outDate = today();
+  item.remarks = reason || "Issued from safe";
+  saveState();
+  render();
+}
+
+function safeLockerForPurity(value) {
+  const text = String(value || "").toUpperCase().trim();
+  if (SAFE_LOCKERS.includes(text)) return text;
+  const percent = purityPercent(value);
+  if (!Number.isFinite(percent) || percent <= 0) return "18K";
+  const karat = (percent / 100) * 24;
+  return SAFE_LOCKERS.reduce((closest, locker) => {
+    const currentDiff = Math.abs(Number(locker.replace("K", "")) - karat);
+    const closestDiff = Math.abs(Number(closest.replace("K", "")) - karat);
+    return currentDiff < closestDiff ? locker : closest;
+  }, "18K");
+}
+
+function syncMeltingReceiveSafeItems(melting) {
+  const sourceId = melting.id;
+  state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === sourceId));
+  const breakup = melting.receiveBreakup || {};
+  const locker = safeLockerForPurity(melting.targetPurity);
+  const source = `${melting.colour || ""} melting / ${melting.departmentName || "department"}`.trim();
+  const lines = [
+    ["castingItemWeight", "Rod / Casting Item"],
+    ["treeCutWeight", "Tree Cut"],
+    ["wastageWeight", "Wastage"],
+    ["scrapDustWeight", "Scrap / Dust"],
+    ["otherReceivedWeight", "Other Received"],
+  ];
+  lines.forEach(([field, label]) => {
+    const weight = Number(breakup[field] || 0);
+    if (weight <= 0) return;
+    addSafeItem({
+      date: melting.receivedDate || today(),
+      locker,
+      purity: formatPurity(melting.targetPurity),
+      description: `${label} - ${melting.colour || "Melting"}`,
+      source,
+      sourceType: "melting-receive",
+      sourceId,
+      sourceLine: field,
+      grossWeight: weight,
+      netWeight: weight,
+      status: "In Safe",
+    });
+  });
+}
+
+function addMetalSafeMovement(movement) {
+  state.metalSafeMovements = state.metalSafeMovements || [];
+  const weight = Number(weight3(movement.weight || 0));
+  if (weight <= 0) return;
+  state.metalSafeMovements.unshift({
+    id: movement.id || crypto.randomUUID(),
+    date: movement.date || today(),
+    type: movement.type || (movement.direction === "out" ? "Out" : "In"),
+    direction: movement.direction || "in",
+    purity: movement.purity || "",
+    weight,
+    reference: movement.reference || "",
+    sourceType: movement.sourceType || "",
+    sourceId: movement.sourceId || "",
+  });
+}
+
+function metalSafeMovementSign(movement = {}) {
+  if (movement.direction === "out") return -1;
+  if (movement.direction === "in") return 1;
+  return ["out", "issue", "melt issue", "production issue", "casting issue"].some((word) => String(movement.type || "").toLowerCase().includes(word)) ? -1 : 1;
+}
+
+function metalSafeBalances() {
+  return (state.metalSafeMovements || []).reduce((balances, movement) => {
+    const purity = normalizeMetalSafePurity(movement.purity);
+    const current = balances[purity] || { purity, weight: 0, fineGold: 0 };
+    const signedWeight = metalSafeMovementSign(movement) * Number(movement.weight || 0);
+    current.weight = Number(weight3(current.weight + signedWeight));
+    current.fineGold = Number(weight3(current.fineGold + fineGoldWeight(signedWeight, purity)));
+    balances[purity] = current;
+    return balances;
+  }, {});
+}
+
+function metalSafeBalanceTotal() {
+  return Object.values(metalSafeBalances()).reduce((total, item) => Number(weight3(total + Number(item.weight || 0))), 0);
+}
+
+function metalSafeBalanceForPurity(purity) {
+  return Number(metalSafeBalances()[normalizeMetalSafePurity(purity)]?.weight || 0);
+}
+
+function normalizeMetalSafePurity(value) {
+  const text = String(value || "").trim().toUpperCase();
+  if (!text) return "-";
+  if (text.endsWith("%")) {
+    const percentValue = Number(text.replace("%", ""));
+    return Number.isFinite(percentValue) ? `${percentValue.toFixed(2)}%` : text;
+  }
+  if (text.endsWith("K")) return text;
+  const percent = Number(text);
+  return Number.isFinite(percent) ? `${percent.toFixed(2)}%` : text;
+}
+
+function metalSafeAvailableOptions() {
+  return Object.values(metalSafeBalances())
+    .filter((item) => Number(item.weight || 0) > 0)
+    .sort((a, b) => a.purity.localeCompare(b.purity));
+}
+
+function renderMetalSafeSourceOptions(selected = "") {
+  const selectedPurity = selected ? normalizeMetalSafePurity(selected) : "";
+  const available = metalSafeAvailableOptions();
+  if (selectedPurity && !available.some((item) => item.purity === selectedPurity)) {
+    available.unshift({ purity: selectedPurity, weight: 0, selectedOnly: true });
+  }
+  const options = available.map((item) => {
+    const label = item.selectedOnly
+      ? `${item.purity} / already issued`
+      : `${item.purity} / ${gram(item.weight)}`;
+    return `<option value="${escapeHtml(item.purity)}" ${item.purity === selectedPurity ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  }).join("");
+  return `<option value="">Manual source</option>${options}`;
+}
+
+function renderSafeLockerRodOptions(selected = "") {
+  const options = SAFE_LOCKERS
+    .map((locker) => ({ locker, weight: safeLockerBalance(locker) }))
+    .filter((item) => item.weight > 0 || item.locker === selected)
+    .map((item) =>
+      `<option value="${escapeHtml(item.locker)}" ${item.locker === selected ? "selected" : ""}>${escapeHtml(item.locker)} Safe / Rod ${gram(item.weight)}</option>`
+    )
+    .join("");
+  return options || '<option value="">No rod in safe</option>';
+}
+
+function refreshMeltingSafeSourceOptions() {
+  document.querySelectorAll('select[name="sourceMetalSafePurity"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = renderMetalSafeSourceOptions(selected);
+    if (selected && ![...select.options].some((option) => option.value === selected)) select.value = "";
+  });
+  document.querySelectorAll('select[name="sourceSafeLocker"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = renderSafeLockerRodOptions(selected);
+    if (selected && ![...select.options].some((option) => option.value === selected)) select.value = "";
+    updateMeltingSourceRowMode(select.closest(".source-row"));
+  });
+}
+
+function applyMetalSafeSelectionToMeltingRow(select) {
+  const row = select.closest(".source-row");
+  if (!row) return;
+  const purity = select.value;
+  if (!purity) return;
+  const purityInput = row.querySelector('[name="sourcePurity"]');
+  if (purityInput) purityInput.value = weight3(purityPercent(purity)).replace(/\.000$/, "");
+}
+
+function applySafeLockerSelectionToMeltingRow(select) {
+  const row = select.closest(".source-row");
+  if (!row) return;
+  const locker = select.value;
+  if (!locker) return;
+  const purityInput = row.querySelector('[name="sourcePurity"]');
+  if (purityInput) purityInput.value = weight3(purityPercent(locker)).replace(/\.000$/, "");
+}
+
+function updateMeltingSourceRowMode(row) {
+  if (!row) return;
+  const sourceKind = row.querySelector('[name="sourceKind"]')?.value || "metal";
+  const isRod = sourceKind === "rod";
+  row.querySelector(".melting-metal-safe-field")?.classList.toggle("hidden", isRod);
+  row.querySelector(".melting-rod-safe-field")?.classList.toggle("hidden", !isRod);
+  const metalSelect = row.querySelector('[name="sourceMetalSafePurity"]');
+  const lockerSelect = row.querySelector('[name="sourceSafeLocker"]');
+  if (metalSelect) metalSelect.disabled = isRod;
+  if (lockerSelect) lockerSelect.disabled = !isRod;
+  if (isRod) applySafeLockerSelectionToMeltingRow(lockerSelect);
+  else applyMetalSafeSelectionToMeltingRow(metalSelect);
+}
+
+function validateMetalSafeIssue(sourceMetals = [], creditMetals = []) {
+  const requiredByPurity = sourceMetals.reduce((acc, metal) => {
+    if (metal.sourceKind === "rod" || !metal.safePurity) return acc;
+    const purity = normalizeMetalSafePurity(metal.safePurity);
+    acc[purity] = Number(weight3((acc[purity] || 0) + Number(metal.weight || 0)));
+    return acc;
+  }, {});
+  const creditByPurity = creditMetals.reduce((acc, metal) => {
+    if (metal.sourceKind === "rod" || !metal.safePurity) return acc;
+    const purity = normalizeMetalSafePurity(metal.safePurity);
+    acc[purity] = Number(weight3((acc[purity] || 0) + Number(metal.weight || 0)));
+    return acc;
+  }, {});
+  const balances = metalSafeBalances();
+  for (const [purity, required] of Object.entries(requiredByPurity)) {
+    const available = Number(weight3(Number(balances[purity]?.weight || 0) + Number(creditByPurity[purity] || 0)));
+    if (required > available) {
+      return `Metal Safe has only ${gram(available)} of ${purity}. Required for melting is ${gram(required)}.`;
+    }
+  }
+  return "";
+}
+
+function validateSafeLockerRodIssue(sourceMetals = [], creditMetals = []) {
+  const requiredByLocker = sourceMetals.reduce((acc, metal) => {
+    if (metal.sourceKind !== "rod" || !metal.safeLocker) return acc;
+    const locker = safeLockerForPurity(metal.safeLocker);
+    acc[locker] = Number(weight3((acc[locker] || 0) + Number(metal.weight || 0)));
+    return acc;
+  }, {});
+  const creditByLocker = creditMetals.reduce((acc, metal) => {
+    if (metal.sourceKind !== "rod" || !metal.safeLocker) return acc;
+    const locker = safeLockerForPurity(metal.safeLocker);
+    acc[locker] = Number(weight3((acc[locker] || 0) + Number(metal.weight || 0)));
+    return acc;
+  }, {});
+  for (const [locker, required] of Object.entries(requiredByLocker)) {
+    const available = Number(weight3(safeLockerBalance(locker) + Number(creditByLocker[locker] || 0)));
+    if (required > available) {
+      return `${locker} Safe has only ${gram(available)} rod available. Required for this melting/casting is ${gram(required)}.`;
+    }
+  }
+  return "";
+}
+
+function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentName = "") {
+  sourceMetals.forEach((metal) => {
+    if (metal.sourceKind === "rod" || !metal.safePurity) return;
+    addMetalSafeMovement({
+      type: "Melt Issue",
+      direction: "out",
+      purity: metal.safePurity,
+      weight: metal.weight,
+      reference: `Melting ${meltingId} issued to ${departmentName || "department"}`,
+      sourceType: "melting",
+      sourceId: meltingId,
+    });
+  });
+}
+
+function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departmentName = "") {
+  sourceMetals.forEach((metal) => {
+    if (metal.sourceKind !== "rod" || !metal.safeLocker) return;
+    const locker = safeLockerForPurity(metal.safeLocker);
+    issueFromSafeLocker(
+      locker,
+      metal.weight,
+      `Rod from ${locker} Safe used in melting/casting ${meltingId}, issued to ${departmentName || "department"}`,
+      meltingId
+    );
+  });
+}
+
+function cloneMeltingSourceMetals(sourceMetals = []) {
+  return (sourceMetals || []).map((metal) => ({
+    weight: Number(metal.weight || 0),
+    purity: purityPercent(metal.purity),
+    sourceKind: metal.sourceKind || (metal.safeLocker ? "rod" : "metal"),
+    safeLocker: metal.safeLocker || "",
+    safePurity: metal.safePurity || "",
+  }));
+}
+
+function removeMeltingIssueRecords(meltingId) {
+  state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== meltingId || entry.type !== "Melt Issue");
+  state.metalSafeMovements = (state.metalSafeMovements || []).filter((movement) => !(movement.sourceType === "melting" && movement.sourceId === meltingId));
+}
+
+function restoreMeltingRodIssues(sourceMetals = [], meltingId, reason = "Melting issue corrected") {
+  sourceMetals.forEach((metal) => {
+    if (metal.sourceKind !== "rod" || !metal.safeLocker || Number(metal.weight || 0) <= 0) return;
+    const locker = safeLockerForPurity(metal.safeLocker);
+    addSafeItem({
+      date: today(),
+      locker,
+      purity: locker,
+      description: "Rod returned - melting correction",
+      source: reason,
+      sourceType: "melting-rod-return",
+      sourceId: meltingId,
+      grossWeight: metal.weight,
+      netWeight: metal.weight,
+      status: "In Safe",
+      remarks: reason,
+    });
+  });
+}
+
+function syncMeltingIssueRecords(melting) {
+  removeMeltingIssueRecords(melting.id);
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    meltingId: melting.id,
+    date: melting.date || today(),
+    type: "Melt Issue",
+    purity: `${formatPurity(melting.targetPurity)}`,
+    weight: Number(melting.finalWeight || 0),
+    reference: `${melting.sourceMetals?.length || 1} source metals ${gram(melting.sourceWeight)} to ${formatPurity(melting.targetPurity)} ${melting.colour}, issued to ${melting.departmentName || "department"}`,
+  });
+  recordMeltingMetalSafeIssues(melting.sourceMetals, melting.id, melting.departmentName);
+  recordMeltingSafeLockerRodIssues(melting.sourceMetals, melting.id, melting.departmentName);
+}
+
+function syncMeltingReceiveRecords(melting) {
+  state.ledger = state.ledger || [];
+  state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== melting.id || entry.type === "Melt Issue");
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    meltingId: melting.id,
+    date: melting.receivedDate || today(),
+    type: "Melt Received",
+    purity: `${formatPurity(melting.targetPurity)}`,
+    weight: Number(melting.receivedWeight || 0),
+    reference: `${melting.colour} melting received from ${melting.departmentName || "department"} (${meltingReceiveBreakupText(melting.receiveBreakup || {})}), loss ${gram(melting.meltingLoss)}`,
+  });
+  if (Number(melting.meltingLoss || 0) > 0) {
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      meltingId: melting.id,
+      date: melting.receivedDate || today(),
+      type: "Melt Loss",
+      purity: `${formatPurity(melting.targetPurity)}`,
+      weight: Number(melting.meltingLoss || 0),
+      reference: `${melting.colour} melting loss booked for ${melting.departmentName || "department"}`,
+    });
+  }
+  syncMeltingReceiveSafeItems(melting);
+}
+
+function deleteMeltingEntry(meltingId) {
+  const melting = findById("melting", meltingId);
+  if (!melting) return;
+  if (!confirm("Delete this melting entry? Issue, receive, loss and safe locker records for this melting will be corrected.")) return;
+  restoreMeltingRodIssues(cloneMeltingSourceMetals(melting.sourceMetals), melting.id, "Melting entry deleted");
+  removeMeltingIssueRecords(melting.id);
+  state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== melting.id);
+  state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === melting.id));
+  state.melting = (state.melting || []).filter((item) => item.id !== melting.id);
+  saveState();
+  render();
 }
 
 function finishedStock() {
@@ -2847,9 +3369,13 @@ function officeStockWeight() {
   }, 0);
 }
 
+function isFactoryOutBillItem(item = {}) {
+  return item.factoryStatus === "Factory Out" || item.officeStatus === "Office";
+}
+
 function billProductionStockWeight(bill = {}) {
   return Number(weight3((bill.items || [])
-    .filter((item) => item.qcStatus !== "QC OK" && !isRepairItem(item))
+    .filter((item) => !isFactoryOutBillItem(item) && !isRepairItem(item) && !isDiscardedItem(item))
     .reduce((total, item) => total + Number(item.netWeight || item.finalGw || 0), 0)));
 }
 
@@ -4815,6 +5341,7 @@ function render() {
   renderProduction();
   renderBills();
   renderOffice();
+  renderSafe();
   renderLedger();
   renderMelting();
   renderKarigars();
@@ -7050,7 +7577,9 @@ function designStoneSummaryText(items = []) {
 
 function renderDashboard() {
   document.getElementById("metric-raw").textContent = gram(rawGoldStock());
+  document.getElementById("metric-factory-in").textContent = gram(factoryInWeight());
   document.getElementById("metric-wip").textContent = gram(workInProgress());
+  document.getElementById("metric-safe-items").textContent = gram(safeItemStockWeight());
   document.getElementById("metric-production-stock").textContent = gram(finishedStock());
   document.getElementById("metric-office-stock").textContent = gram(officeStockWeight());
   document.getElementById("metric-orders").textContent = state.orders.filter((order) => order.status !== "Completed").length;
@@ -9949,7 +10478,14 @@ function transferQcOkItemsToOffice() {
     if (isDiscardedItem(item)) return item;
     if (item.qcStatus !== "QC OK") return item;
     moved += 1;
-    return { ...item, officeStatus: "Office", qcDate: today() };
+    return {
+      ...item,
+      officeStatus: "Office",
+      qcDate: today(),
+      factoryStatus: "Factory Out",
+      factoryOutDate: today(),
+      holder: "Office",
+    };
   });
   if (!moved) {
     alert("Select QC OK for at least one item.");
@@ -10353,6 +10889,94 @@ function renderLedger() {
   document.getElementById("stock-table").innerHTML = rows || tableEmpty(5, "No stock movements recorded.");
 }
 
+function renderSafe() {
+  renderSafeLockers();
+  renderMetalSafe();
+  refreshMeltingSafeSourceOptions();
+}
+
+function renderSafeLockers() {
+  const filter = document.getElementById("safe-locker-filter")?.value || "";
+  const activeItems = (state.safeItems || []).filter((item) => item.status !== "Out");
+  const totals = SAFE_LOCKERS.reduce((acc, locker) => {
+    const items = activeItems.filter((item) => safeLockerForPurity(item.locker || item.purity) === locker);
+    acc[locker] = {
+      count: items.length,
+      grossWeight: Number(weight3(items.reduce((total, item) => total + Number(item.grossWeight || 0), 0))),
+      netWeight: Number(weight3(items.reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0))),
+    };
+    return acc;
+  }, {});
+  const tileContainer = document.getElementById("safe-locker-tiles");
+  if (tileContainer) {
+    tileContainer.innerHTML = SAFE_LOCKERS.map((locker) => `
+      <button class="safe-locker-card ${filter === locker ? "active" : ""}" type="button" onclick="selectSafeLocker('${locker}')">
+        <span>${locker} Safe</span>
+        <strong>${gram(totals[locker].netWeight)}</strong>
+        <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"} / GW ${gram(totals[locker].grossWeight)}</small>
+      </button>
+    `).join("");
+  }
+  const rows = (state.safeItems || [])
+    .filter((item) => !filter || safeLockerForPurity(item.locker || item.purity) === filter)
+    .map((item) => `
+      <tr>
+        <td>${escapeHtml(item.date || "-")}</td>
+        <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
+        <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
+        <td>${escapeHtml(item.source || "-")}</td>
+        <td>${gram(item.grossWeight)}</td>
+        <td>${gram(item.netWeight ?? item.grossWeight)}</td>
+        <td><span class="status ${statusClass(item.status || "In Safe")}">${escapeHtml(item.status || "In Safe")}</span>${item.remarks ? `<br><small>${escapeHtml(item.remarks)}</small>` : ""}</td>
+        <td>${item.status === "Out" ? escapeHtml(item.outDate || "-") : `<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button>`}</td>
+      </tr>
+    `).join("");
+  const table = document.getElementById("safe-item-table");
+  if (table) table.innerHTML = rows || tableEmpty(8, "No item in this safe locker yet.");
+}
+
+function selectSafeLocker(locker) {
+  const filter = document.getElementById("safe-locker-filter");
+  if (filter) filter.value = filter.value === locker ? "" : locker;
+  renderSafeLockers();
+}
+
+function renderMetalSafe() {
+  const query = (document.getElementById("metal-safe-search")?.value || "").toLowerCase();
+  const balances = Object.values(metalSafeBalances())
+    .filter((item) => item.weight !== 0)
+    .sort((a, b) => a.purity.localeCompare(b.purity));
+  const summary = document.getElementById("metal-safe-summary");
+  if (summary) {
+    summary.innerHTML = balances.length
+      ? balances.map((item) => `
+        <article class="metal-safe-balance">
+          <span>${escapeHtml(item.purity)}</span>
+          <strong>${gram(item.weight)}</strong>
+          <small>Fine ${gram(item.fineGold)}</small>
+        </article>
+      `).join("")
+      : '<div class="empty">No metal in safe yet.</div>';
+  }
+  const rows = (state.metalSafeMovements || [])
+    .filter((item) => {
+      if (!query) return true;
+      return [item.type, item.purity, item.reference, item.sourceType].join(" ").toLowerCase().includes(query);
+    })
+    .map((item) => `
+      <tr>
+        <td>${escapeHtml(item.date || "-")}</td>
+        <td><span class="status ${statusClass(item.type || item.direction || "In")}">${escapeHtml(item.type || "-")}</span></td>
+        <td>${escapeHtml(normalizeMetalSafePurity(item.purity))}</td>
+        <td>${metalSafeMovementSign(item) < 0 ? "-" : "+"}${gram(item.weight)}</td>
+        <td>${gram(fineGoldWeight(item.weight, item.purity))}</td>
+        <td>${escapeHtml(item.reference || "-")}</td>
+      </tr>
+    `).join("");
+  const table = document.getElementById("metal-safe-table");
+  if (table) table.innerHTML = rows || tableEmpty(6, "No metal safe movements recorded.");
+}
+
 function updateMeltingCalculation() {
   const form = document.getElementById("melting-form");
   const sourceMetals = getMeltingSourceMetals();
@@ -10368,10 +10992,18 @@ function updateMeltingCalculation() {
   form.alloyWeight.value = weight3(Math.max(finalWeight - sourceWeight, 0));
 }
 
-function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shouldFocus = false) {
+function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shouldFocus = false, sourceKind = "metal", safePurity = "", safeLocker = "") {
   const row = document.createElement("div");
   row.className = "source-row";
   row.innerHTML = `
+    <label>Source Type
+      <select name="sourceKind">
+        <option value="metal" ${sourceKind !== "rod" ? "selected" : ""}>Metal Safe / Manual</option>
+        <option value="rod" ${sourceKind === "rod" ? "selected" : ""}>Rod From Safe Locker</option>
+      </select>
+    </label>
+    <label class="melting-metal-safe-field">Metal Safe <select name="sourceMetalSafePurity">${renderMetalSafeSourceOptions(safePurity)}</select></label>
+    <label class="melting-rod-safe-field">Rod Safe <select name="sourceSafeLocker">${renderSafeLockerRodOptions(safeLocker)}</select></label>
     <label>Weight (g) <input name="sourceWeightLine" type="number" min="0.001" step="0.001" value="${escapeHtml(weight)}" required></label>
     <label>Purity (%) <input name="sourcePurity" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(purity)}" required></label>
     <button class="delete-btn" type="button">Remove</button>
@@ -10389,6 +11021,7 @@ function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shou
   } else {
     list.appendChild(row);
   }
+  updateMeltingSourceRowMode(row);
   if (shouldFocus) row.querySelector('[name="sourceWeightLine"]').focus();
 }
 
@@ -10397,12 +11030,33 @@ function resetMeltingSources() {
   addMeltingSourceRow();
 }
 
+function resetMeltingIssueForm() {
+  const form = document.getElementById("melting-form");
+  form.reset();
+  form.meltingId.value = "";
+  resetMeltingSources();
+  document.getElementById("melting-form-title").textContent = "Melting Conversion";
+  document.getElementById("melting-submit").textContent = "Save & Issue Melting";
+  document.getElementById("cancel-melting-issue-edit").classList.add("hidden");
+  updateMeltingCalculation();
+}
+
 function getMeltingSourceMetals() {
   return [...document.querySelectorAll("#melting-sources .source-row")]
-    .map((row) => ({
-      weight: Number(row.querySelector('[name="sourceWeightLine"]').value || 0),
-      purity: Number(row.querySelector('[name="sourcePurity"]').value || 0),
-    }))
+    .map((row) => {
+      const sourceKind = row.querySelector('[name="sourceKind"]')?.value || "metal";
+      const safeLocker = sourceKind === "rod" ? row.querySelector('[name="sourceSafeLocker"]')?.value || "" : "";
+      const safePurity = sourceKind === "metal" ? row.querySelector('[name="sourceMetalSafePurity"]')?.value || "" : "";
+      const puritySource = safeLocker || safePurity;
+      const purity = puritySource ? purityPercent(puritySource) : Number(row.querySelector('[name="sourcePurity"]').value || 0);
+      return {
+        weight: Number(row.querySelector('[name="sourceWeightLine"]').value || 0),
+        purity,
+        safePurity,
+        sourceKind,
+        safeLocker,
+      };
+    })
     .filter((metal) => metal.weight > 0 && metal.purity > 0);
 }
 
@@ -10419,7 +11073,14 @@ function renderMelting() {
       <td>${gram(item.finalWeight)}</td>
       <td>${item.status === "Received" ? meltingReceivedCell(item) : "-"}</td>
       <td>${item.status === "Received" ? gram(item.meltingLoss) : "-"}</td>
-      <td><div class="row-actions"><button class="ghost-button" onclick="openMeltingView('${item.id}')">View</button><button onclick="openMeltingReceive('${item.id}')">${item.status === "Received" ? "Edit" : "Receive"}</button></div></td>
+      <td>
+        <div class="row-actions">
+          <button class="ghost-button" onclick="openMeltingView('${item.id}')">View</button>
+          <button class="ghost-button" onclick="openMeltingIssueEdit('${item.id}')">Edit Issue</button>
+          <button onclick="openMeltingReceive('${item.id}')">${item.status === "Received" ? "Edit Receive" : "Receive"}</button>
+          <button class="delete-btn" onclick="deleteMeltingEntry('${item.id}')">Delete</button>
+        </div>
+      </td>
     </tr>
   `).join("");
   document.getElementById("melting-table").innerHTML = rows || tableEmpty(11, "No melting records yet.");
@@ -10429,7 +11090,14 @@ function renderMeltingSources(item) {
   const metals = item.sourceMetals?.length
     ? item.sourceMetals
     : [{ weight: item.sourceWeight, purity: item.sourcePurity }];
-  return metals.map((metal) => `${gram(metal.weight)} @ ${formatPurity(metal.purity)}`).join("<br>");
+  return metals.map((metal) => {
+    const sourceText = metal.sourceKind === "rod" && metal.safeLocker
+      ? `Rod ${safeLockerForPurity(metal.safeLocker)} Safe`
+      : metal.safePurity
+        ? `Metal Safe ${normalizeMetalSafePurity(metal.safePurity)}`
+        : "Manual";
+    return `${gram(metal.weight)} @ ${formatPurity(metal.purity)}<br><small>${escapeHtml(sourceText)}</small>`;
+  }).join("<br>");
 }
 
 function meltingReceivedCell(item) {
@@ -10452,8 +11120,12 @@ function fineGoldWeight(weight, purity) {
 }
 
 function purityPercent(value) {
-  if (typeof value === "string" && value.includes("K")) {
-    return (Number(value.replace("K", "")) / 24) * 100;
+  if (typeof value === "string") {
+    const text = value.trim().toUpperCase();
+    if (text.includes("K")) {
+      return (Number(text.replace("K", "")) / 24) * 100;
+    }
+    return Number(text.replace("%", "") || 0);
   }
   return Number(value || 0);
 }
@@ -10781,6 +11453,40 @@ function openMeltingReceive(meltingId) {
   document.getElementById("melting-receive-dialog").showModal();
 }
 
+function openMeltingIssueEdit(meltingId) {
+  const melting = findById("melting", meltingId);
+  if (!melting) return;
+  const form = document.getElementById("melting-form");
+  form.meltingId.value = melting.id;
+  document.getElementById("melting-sources").innerHTML = "";
+  cloneMeltingSourceMetals(melting.sourceMetals).forEach((metal) => {
+    addMeltingSourceRow(
+      weight3(metal.weight),
+      weight3(metal.purity).replace(/\.000$/, ""),
+      "bottom",
+      false,
+      metal.sourceKind,
+      metal.safePurity,
+      metal.safeLocker
+    );
+  });
+  if (!document.querySelectorAll("#melting-sources .source-row").length) addMeltingSourceRow();
+  form.targetPurity.value = weight3(melting.targetPurity).replace(/\.000$/, "");
+  form.colour.value = melting.colour || "Yellow";
+  form.meltingDepartmentId.value = meltingDepartmentOptionValue(melting);
+  updateMeltingCalculation();
+  document.getElementById("melting-form-title").textContent = "Edit Melting Issue";
+  document.getElementById("melting-submit").textContent = "Update Melting Issue";
+  document.getElementById("cancel-melting-issue-edit").classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function meltingDepartmentOptionValue(melting = {}) {
+  const text = `${melting.departmentName || ""} ${melting.departmentId || ""}`.toLowerCase();
+  if (text.includes("melting")) return "Melting Department";
+  return "Casting Department";
+}
+
 function openMeltingView(meltingId) {
   const melting = findById("melting", meltingId);
   if (!melting) return;
@@ -10863,6 +11569,30 @@ function meltingDepartment(name) {
   return existing || { id: selectedName, name: selectedName };
 }
 
+function seedMetalSafeFromLedger(currentState) {
+  if (currentState.metalSafeSeededFromLedger) return;
+  const existingSources = new Set((currentState.metalSafeMovements || []).map((movement) => movement.sourceId).filter(Boolean));
+  (currentState.ledger || []).forEach((entry, index) => {
+    const type = String(entry.type || "");
+    const normalizedType = type.toLowerCase();
+    if (!["in", "melt issue"].includes(normalizedType)) return;
+    const sourceId = entry.id || `ledger-${index}-${entry.date || ""}-${type}`;
+    if (existingSources.has(sourceId)) return;
+    currentState.metalSafeMovements.unshift({
+      id: crypto.randomUUID(),
+      date: entry.date || today(),
+      type: normalizedType === "in" ? "Office In" : "Melt Issue",
+      direction: normalizedType === "in" ? "in" : "out",
+      purity: entry.purity || "",
+      weight: Number(entry.weight || 0),
+      reference: entry.reference || "Migrated from raw gold ledger",
+      sourceType: "ledger-migration",
+      sourceId,
+    });
+  });
+  currentState.metalSafeSeededFromLedger = true;
+}
+
 function normalizeState(currentState) {
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
@@ -10884,6 +11614,36 @@ function normalizeState(currentState) {
   ]).filter(([id]) => users[id] && id !== "owner"));
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
+  currentState.safeItems = (currentState.safeItems || []).map((item) => ({
+    id: item.id || crypto.randomUUID(),
+    date: item.date || today(),
+    locker: safeLockerForPurity(item.locker || item.purity),
+    purity: item.purity || item.locker || "",
+    description: item.description || "",
+    source: item.source || "",
+    sourceType: item.sourceType || "",
+    sourceId: item.sourceId || "",
+    sourceLine: item.sourceLine || "",
+    grossWeight: Number(item.grossWeight || 0),
+    netWeight: Number(item.netWeight ?? item.grossWeight ?? 0),
+    status: item.status || "In Safe",
+    outDate: item.outDate || "",
+    remarks: item.remarks || "",
+  }));
+  currentState.metalSafeMovements = (currentState.metalSafeMovements || []).map((movement) => ({
+    id: movement.id || crypto.randomUUID(),
+    date: movement.date || today(),
+    type: movement.type || (movement.direction === "out" ? "Out" : "In"),
+    direction: movement.direction || (["out", "issue", "melt issue", "production issue", "casting issue"].some((word) => String(movement.type || "").toLowerCase().includes(word)) ? "out" : "in"),
+    purity: movement.purity || "",
+    weight: Number(movement.weight || 0),
+    reference: movement.reference || "",
+    sourceType: movement.sourceType || "",
+    sourceId: movement.sourceId || "",
+  })).filter((movement) =>
+    movement.sourceType !== "production"
+    && !String(movement.type || "").toLowerCase().includes("production issue")
+  );
   currentState.bills = (currentState.bills || []).map((bill) => ({
     id: bill.id || crypto.randomUUID(),
     lotId: bill.lotId || "",
@@ -10926,6 +11686,8 @@ function normalizeState(currentState) {
       qcStatus: item.qcStatus || "Pending QC",
       qcDate: item.qcDate || "",
       officeStatus: item.qcStatus === "QC Failed" && !item.discardStatus ? "" : (item.officeStatus || ""),
+      factoryStatus: item.factoryStatus || (item.officeStatus === "Office" ? "Factory Out" : "Factory In"),
+      factoryOutDate: item.factoryOutDate || (item.officeStatus === "Office" ? item.qcDate || today() : ""),
       hallmarkStatus: item.hallmarkStatus || "",
       hallmarkIssueDate: item.hallmarkIssueDate || "",
       hallmarkIssueIsoDate: item.hallmarkIssueIsoDate || "",
@@ -11036,8 +11798,20 @@ function normalizeState(currentState) {
     sourceProductionNo: item.sourceProductionNo || "",
     discardReason: item.discardReason || "",
     sourceMetals: item.sourceMetals?.length
-      ? item.sourceMetals.map((metal) => ({ weight: Number(metal.weight || 0), purity: purityPercent(metal.purity) }))
-      : [{ weight: Number(item.sourceWeight || 0), purity: purityPercent(item.sourcePurity) }],
+      ? item.sourceMetals.map((metal) => ({
+          weight: Number(metal.weight || 0),
+          purity: purityPercent(metal.purity),
+          sourceKind: metal.sourceKind || (metal.safeLocker ? "rod" : "metal"),
+          safeLocker: metal.safeLocker || "",
+          safePurity: metal.safePurity || "",
+        }))
+      : [{
+          weight: Number(item.sourceWeight || 0),
+          purity: purityPercent(item.sourcePurity),
+          sourceKind: "metal",
+          safeLocker: "",
+          safePurity: "",
+        }],
   }));
   currentState.orders = currentState.orders || [];
   currentState.orders.forEach((order) => {
@@ -11111,6 +11885,7 @@ function normalizeState(currentState) {
   });
   currentState.ledger = currentState.ledger || [];
   applyWaxStoneIssueLedgerMigration(currentState);
+  seedMetalSafeFromLedger(currentState);
   return currentState;
 }
 

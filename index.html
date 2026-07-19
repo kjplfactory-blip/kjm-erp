@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=117">
+    <link rel="stylesheet" href="styles.css?v=120">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v209</small>
+            <small class="app-version-badge">App v213</small>
           </div>
         </div>
         <label>User
@@ -72,6 +72,7 @@
         <button class="nav-item" data-view="production">Production</button>
         <button class="nav-item" data-view="billing">Bill</button>
         <button class="nav-item" data-view="office">Office</button>
+        <button class="nav-item" data-view="safe">Safe Locker</button>
         <button class="nav-item" data-view="stock">Raw Gold Stock</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
@@ -88,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span class="app-version-badge">App v209</span>
+          <span class="app-version-badge">App v213</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -100,8 +101,10 @@
 
       <section id="dashboard" class="view active-view">
         <div class="metric-grid">
-          <article class="metric"><span>Raw Gold Stock</span><strong id="metric-raw">0 g</strong></article>
+          <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong></article>
+          <article class="metric"><span>Factory In Total</span><strong id="metric-factory-in">0 g</strong></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong></article>
+          <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong></article>
           <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong></article>
           <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong></article>
           <article class="metric"><span>Open Orders</span><strong id="metric-orders">0</strong></article>
@@ -412,6 +415,64 @@
         </div>
       </section>
 
+      <section id="safe" class="view">
+        <div class="safe-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Item Safe Lockers</h2>
+              <select id="safe-locker-filter" class="search compact-search" aria-label="Filter safe locker">
+                <option value="">All Lockers</option>
+                <option value="9K">9K Safe</option>
+                <option value="14K">14K Safe</option>
+                <option value="18K">18K Safe</option>
+                <option value="22K">22K Safe</option>
+              </select>
+            </div>
+            <div id="safe-locker-tiles" class="safe-locker-grid"></div>
+            <form id="safe-item-form" class="inline-form safe-inline-form">
+              <label>Locker
+                <select name="locker" required>
+                  <option value="9K">9K Safe</option>
+                  <option value="14K">14K Safe</option>
+                  <option value="18K">18K Safe</option>
+                  <option value="22K" selected>22K Safe</option>
+                </select>
+              </label>
+              <label>Item / Reference <input name="description" placeholder="Casting item, chain, tree cut" required></label>
+              <label>GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
+              <label>Source <input name="source" placeholder="Melting, casting, manual receive"></label>
+              <button type="submit">Add To Safe</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Locker</th><th>Item / Ref</th><th>Source</th><th>GW</th><th>Net</th><th>Status</th><th></th></tr></thead>
+                <tbody id="safe-item-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Metal Safe / Office In</h2>
+              <input id="metal-safe-search" class="search compact-search" placeholder="Search purity or reference">
+            </div>
+            <div id="metal-safe-summary" class="safe-metal-summary"></div>
+            <form id="metal-safe-form" class="inline-form safe-inline-form">
+              <label>Purity <input name="purity" list="metal-purity-options" value="99.9%" placeholder="99.9%, 24K, 22K" required></label>
+              <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+              <label>Reference <input name="reference" placeholder="Office transfer, old metal, customer gold" required></label>
+              <button type="submit">Receive Metal From Office</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Type</th><th>Purity</th><th>Weight</th><th>Fine Gold</th><th>Reference</th></tr></thead>
+                <tbody id="metal-safe-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section id="stock" class="view">
         <div class="workbench">
           <form id="stock-form" class="form-panel">
@@ -419,9 +480,13 @@
             <label>Design / Stock Item <select name="designId"></select></label>
             <label>Purity
               <select name="purity">
+                <option>99.9%</option>
+                <option>99.5%</option>
                 <option>24K</option>
                 <option>22K</option>
                 <option>18K</option>
+                <option>14K</option>
+                <option>9K</option>
               </select>
             </label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
@@ -443,10 +508,14 @@
       <section id="melting" class="view">
         <div class="workbench">
           <form id="melting-form" class="form-panel">
-            <h2>Melting Conversion</h2>
+            <h2 id="melting-form-title">Melting Conversion</h2>
+            <input type="hidden" name="meltingId">
             <div class="panel-heading">
               <h2>Source Metals</h2>
-              <button id="add-melting-source" class="ghost-button" type="button">Add Metal</button>
+              <div class="row-actions">
+                <button id="add-melting-source" class="ghost-button" type="button">Add Metal</button>
+                <button id="add-melting-rod-source" class="ghost-button" type="button">Add Rod From Safe</button>
+              </div>
             </div>
             <div id="melting-sources" class="source-list"></div>
             <input name="averagePurity" type="hidden">
@@ -464,7 +533,8 @@
             <label>Pure Gold Content (g) <input name="pureGold" type="number" readonly></label>
             <label>Final Weight (g) <input name="finalWeight" type="number" readonly></label>
             <label>Alloy To Add (g) <input name="alloyWeight" type="number" readonly></label>
-            <button type="submit">Save & Issue Melting</button>
+            <button id="melting-submit" type="submit">Save & Issue Melting</button>
+            <button id="cancel-melting-issue-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
           <section class="panel table-panel">
             <div class="panel-heading"><h2>Melting History</h2></div>
@@ -1016,6 +1086,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=209"></script>
-  </body>
+  <script src="app.js?v=213"></script>
+</body>
 </html>
