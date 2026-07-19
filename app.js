@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v208";
+const APP_VERSION = "v209";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -2987,6 +2987,135 @@ function nextSplitJobNumber(jobNumber = "") {
   return candidate;
 }
 
+function splitJobGwValue() {
+  const input = document.getElementById("split-job-gw");
+  return Number(input?.value || 0);
+}
+
+function clearSplitJobGw() {
+  const input = document.getElementById("split-job-gw");
+  if (input) input.value = "";
+}
+
+function lotOrderNumberFromIds(orderIds = [], fallback = "") {
+  const jobNumbers = [...new Set(orderIds.map((id) => {
+    const order = findById("orders", id);
+    return order?.jobNumber || order?.productionNo || order?.number || "";
+  }).filter(Boolean))];
+  return jobNumbers.length ? jobNumbers.join(", ") : fallback;
+}
+
+function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
+  return Number(weight3(Math.max(Number(grossWeight || 0) - Number(waxStoneWeight || 0) - Number(handStoneWeight || 0), 0)));
+}
+
+function splitLotAdjustmentTransfer(lot, transferWeight, grossReceivedWeight, waxStoneWeight, handStoneWeight, reason) {
+  const department = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
+  const reducedWeight = Number(weight3(Number(waxStoneWeight || 0) + Number(handStoneWeight || 0)));
+  return {
+    id: crypto.randomUUID(),
+    date: today(),
+    fromKarigarId: lot.karigarId || "",
+    fromKarigarName: lot.karigarName || department || "",
+    toKarigarId: lot.karigarId || "",
+    toKarigarName: lot.karigarName || department || "",
+    transferWeight: Number(weight3(transferWeight)),
+    grossReceivedWeight: Number(weight3(grossReceivedWeight)),
+    waxStoneWeight: Number(weight3(waxStoneWeight || 0)),
+    stoneWeight: Number(weight3(handStoneWeight || 0)),
+    handStoneWeight: Number(weight3(handStoneWeight || 0)),
+    reducedWeight,
+    receivedWeight: splitLotNetWeight(grossReceivedWeight, waxStoneWeight, handStoneWeight),
+    departmentBalance: 0,
+    differencePurity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
+    differenceFineGold: 0,
+    balanceDepartment: department,
+    fromDepartment: department,
+    toDepartment: department,
+    reason,
+    splitAdjustment: true,
+  };
+}
+
+function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
+  const lotIds = getLotOrderIds(lot);
+  const selectedLotIds = lotIds.filter((id) => selectedIdSet.has(id));
+  const remainingIds = lotIds.filter((id) => !selectedIdSet.has(id));
+  const selectedOrders = selectedLotIds.map((id) => findById("orders", id)).filter(Boolean);
+  const remainingOrders = remainingIds.map((id) => findById("orders", id)).filter(Boolean);
+  const currentGw = Number(weight3(currentTransferIssueWeight(lot)));
+  const remainingGw = Number(weight3(currentGw - splitGw));
+  const selectedWax = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "wax").weight));
+  const remainingWax = Number(weight3(productionStoneTotalsForOrders(remainingOrders, "wax").weight));
+  const currentHand = Number(weight3(currentHandStoneWeight(lot)));
+  const selectedHandTotal = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "hand").weight));
+  const selectedHand = currentHand > 0 ? Number(weight3(Math.min(selectedHandTotal, currentHand))) : 0;
+  const remainingHand = Number(weight3(Math.max(currentHand - selectedHand, 0)));
+  const originalNetWeight = Number(lot.issuedWeight || splitLotNetWeight(currentGw, lot.waxStoneWeight, currentHand));
+  const splitNetWeight = Number(weight3(Math.min(splitLotNetWeight(splitGw, selectedWax, selectedHand), originalNetWeight)));
+  const remainingNetWeight = Number(weight3(Math.max(originalNetWeight - splitNetWeight, 0)));
+  const splitLotNumber = `LOT-${state.nextLot++}`;
+  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
+  const splitReason = `Split ${gram(splitGw)} GW from ${lot.number} to ${splitJobNumber}`;
+
+  lot.orderIds = remainingIds;
+  lot.orderId = remainingIds[0] || "";
+  lot.orderNumber = lotOrderNumberFromIds(remainingIds, lot.orderNumber);
+  lot.grossIssuedWeight = Number(weight3(Math.max(Number(lot.grossIssuedWeight || currentGw) - splitGw, 0)));
+  lot.waxStoneWeight = remainingWax;
+  lot.issuedWeight = remainingNetWeight;
+  lot.transfers = lot.transfers || [];
+  lot.transfers.push(splitLotAdjustmentTransfer(lot, currentGw, remainingGw, remainingWax, remainingHand, `${splitReason}; balance remains in original job card`));
+  recalculateLotAfterTransferChange(lot);
+
+  const splitLot = {
+    id: crypto.randomUUID(),
+    number: splitLotNumber,
+    issueDate: today(),
+    orderId: selectedLotIds[0] || "",
+    orderIds: selectedLotIds,
+    orderNumber: splitJobNumber,
+    karigarId: lot.karigarId || "",
+    karigarName: lot.karigarName || currentDepartment,
+    issueKarigarId: lot.karigarId || "",
+    issueKarigarName: lot.karigarName || currentDepartment,
+    issueDepartment: currentDepartment,
+    currentDepartment,
+    metalPurity: lot.metalPurity || selectedOrders[0]?.purity || "",
+    grossIssuedWeight: Number(weight3(splitGw)),
+    waxStoneWeight: selectedWax,
+    issuedWeight: splitNetWeight,
+    expectedWastage: Number(lot.expectedWastage || 0),
+    finishedWeight: 0,
+    actualWastage: 0,
+    status: lot.status || "Issued",
+    transfers: [
+      splitLotAdjustmentTransfer({
+        ...lot,
+        orderIds: selectedLotIds,
+        orderNumber: splitJobNumber,
+        grossIssuedWeight: splitGw,
+        issuedWeight: splitNetWeight,
+        waxStoneWeight: selectedWax,
+        currentDepartment,
+      }, splitGw, splitGw, selectedWax, selectedHand, `Split lot created from ${lot.number}; ${splitReason}`),
+    ],
+    splitFromLotId: lot.id,
+    splitFromLotNumber: lot.number,
+    splitDate: today(),
+  };
+  state.lots.unshift(splitLot);
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Split",
+    purity: splitLot.metalPurity || "-",
+    weight: 0,
+    reference: `${splitLot.number} created for ${splitJobNumber} from ${lot.number}; split GW ${gram(splitGw)}. No stock movement booked.`,
+  });
+  return splitLot;
+}
+
 function splitSelectedJobItems() {
   const form = document.getElementById("update-order-form");
   const currentOrder = findById("orders", form.orderId.value);
@@ -3011,27 +3140,46 @@ function splitSelectedJobItems() {
     alert("Completed item cannot be split.");
     return;
   }
-  const mixedLiveLot = state.lots.find((lot) => {
+  const mixedLiveLots = state.lots.filter((lot) => {
     if (lot.status === "Completed") return false;
     const ids = getLotOrderIds(lot);
     const hasSelected = ids.some((id) => selectedIdSet.has(id));
-    const hasRemainingSameJob = ids.some((id) => !selectedIdSet.has(id) && jobOrderIds.has(id));
-    return hasSelected && hasRemainingSameJob;
+    const hasRemaining = ids.some((id) => !selectedIdSet.has(id));
+    return hasSelected && hasRemaining;
   });
-  if (mixedLiveLot) {
-    alert(`Selected item is already mixed with other items in production lot ${mixedLiveLot.number}. Split before issuing to production, or move the full lot separately first.`);
+  if (mixedLiveLots.length > 1) {
+    alert("Selected items are in more than one live production lot. Split one production lot at a time.");
     return;
+  }
+  const mixedLiveLot = mixedLiveLots[0] || null;
+  let splitGw = 0;
+  if (mixedLiveLot) {
+    const availableGw = Number(weight3(currentTransferIssueWeight(mixedLiveLot)));
+    splitGw = Number(weight3(splitJobGwValue()));
+    if (!splitGw) {
+      const entered = prompt(`Selected item is already in production lot ${mixedLiveLot.number}.\n\nEnter GW to move to the split job card.\nAvailable current GW: ${gram(availableGw)}`, "");
+      splitGw = Number(weight3(Number(entered || 0)));
+    }
+    if (splitGw <= 0 || splitGw >= availableGw) {
+      alert(`Split GW must be more than 0 and less than current lot GW ${gram(availableGw)}.`);
+      return;
+    }
   }
   const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
   const splitJobNumber = nextSplitJobNumber(originalJobNumber);
-  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
+  const productionSplitText = mixedLiveLot ? `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.` : "";
+  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
   selectedOrders.forEach((order) => {
     order.jobNumber = splitJobNumber;
     order.splitFromJobNumber = originalJobNumber;
     order.splitDate = today();
     order.urgent = true;
   });
+  if (mixedLiveLot) {
+    splitProductionLot(mixedLiveLot, selectedIdSet, splitJobNumber, splitGw);
+  }
   state.lots.forEach((lot) => {
+    if (mixedLiveLot && lot.id === mixedLiveLot.id) return;
     const ids = getLotOrderIds(lot);
     if (!ids.length || !ids.some((id) => selectedIdSet.has(id))) return;
     if (ids.every((id) => selectedIdSet.has(id))) {
@@ -3042,6 +3190,7 @@ function splitSelectedJobItems() {
   });
   saveState();
   render();
+  clearSplitJobGw();
   openJobOrder(splitJobNumber, "active");
   alert(`${splitJobNumber} created with ${selectedOrders.length} urgent item(s).`);
 }
