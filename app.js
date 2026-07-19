@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v220";
+const APP_VERSION = "v221";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -156,6 +156,41 @@ const pageInfo = {
   users: ["Login Details", "Owner can retrieve and change user passwords."],
 };
 
+const operationTileConfigs = {
+  customers: [
+    { id: "add", title: "Add Customer", description: "Create or edit customer details", selector: "#customer-form" },
+    { id: "master", title: "Customer Master", description: "Search and manage customers", selector: "#customers .table-panel" },
+  ],
+  safe: [
+    { id: "items", title: "Item Safe Lockers", description: "View 9K, 14K, 18K, 22K item lockers", selector: ".safe-locker-panel" },
+    { id: "metal", title: "Metal Safe / Office In", description: "Receive raw metal and view metal safe ledger", selector: ".metal-safe-panel" },
+  ],
+  stock: [
+    { id: "add", title: "Add Raw Gold", description: "Receive raw gold into metal safe", selector: "#stock-form" },
+    { id: "ledger", title: "Raw Gold Ledger", description: "View raw gold stock movements", selector: "#stock .table-panel" },
+  ],
+  melting: [
+    { id: "conversion", title: "Melting Conversion", description: "Issue metal, rod, or wastage for melting/casting", selector: "#melting-form" },
+    { id: "history", title: "Melting / Casting History", description: "View, receive, edit, or delete entries", selector: "#melting .table-panel" },
+  ],
+  karigars: [
+    { id: "add", title: "Add Department", description: "Owner can add or edit department master", selector: "#karigar-form" },
+    { id: "master", title: "Department Master", description: "View departments, processes, and metal in hand", selector: "#karigars .table-panel" },
+  ],
+  reports: [
+    { id: "summary", title: "Reports Summary", description: "View wastage, department difference, charges, and completed orders", selector: "#reports .report-grid" },
+  ],
+  users: [
+    { id: "login", title: "Login Details", description: "Owner can add users and change passwords", selector: "#users .login-user-panel" },
+  ],
+  billing: [
+    { id: "bill", title: "Bill / Packing", description: "Open completed job cards for bill, QC, and packing list", selector: "#billing .table-panel" },
+  ],
+  "transfer-history": [
+    { id: "history", title: "Online Transfer History", description: "View all lot movement in one table", selector: "#transfer-history .table-panel" },
+  ],
+};
+
 const productionFlow = [
   { label: "Filing / Fitting", matches: ["filer", "filing", "fitting", "back to filer"], departmentMatches: ["filer", "filing", "fitting", "vinod"] },
   { label: "Paper", matches: ["paper"], departmentMatches: ["paper"] },
@@ -169,6 +204,58 @@ const productionFlow = [
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.view));
 });
+
+function initializeOperationTiles() {
+  Object.entries(operationTileConfigs).forEach(([viewId, operations]) => {
+    const section = document.getElementById(viewId);
+    if (!section || section.querySelector(".operation-tile-grid")) return;
+    const tileGrid = document.createElement("div");
+    tileGrid.className = `tile-grid operation-tile-grid ${viewId}-operation-tiles`;
+    tileGrid.innerHTML = operations.map((operation) => `
+      <button class="action-tile" type="button" data-operation-view="${escapeHtml(viewId)}" data-operation-page="${escapeHtml(operation.id)}">
+        <strong>${escapeHtml(operation.title)}</strong>
+        <span>${escapeHtml(operation.description)}</span>
+      </button>
+    `).join("");
+    section.insertBefore(tileGrid, section.firstElementChild);
+    operations.forEach((operation) => {
+      const target = section.querySelector(operation.selector);
+      if (!target) return;
+      target.classList.add("operation-page");
+      target.dataset.operationPage = operation.id;
+    });
+  });
+  document.querySelectorAll("[data-operation-view][data-operation-page]").forEach((button) => {
+    button.addEventListener("click", () => openOperationPage(button.dataset.operationView, button.dataset.operationPage));
+  });
+}
+
+function openOperationPage(viewId, pageId) {
+  const section = document.getElementById(viewId);
+  if (!section) return;
+  section.querySelectorAll("[data-operation-view]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.operationPage === pageId);
+  });
+  section.querySelectorAll(".operation-page").forEach((page) => {
+    page.classList.toggle("active-operation-page", page.dataset.operationPage === pageId);
+  });
+}
+
+function resetOperationPage(viewId) {
+  const section = document.getElementById(viewId);
+  if (!section || !operationTileConfigs[viewId]) return;
+  section.querySelectorAll("[data-operation-view]").forEach((button) => button.classList.remove("active"));
+  section.querySelectorAll(".operation-page").forEach((page) => page.classList.remove("active-operation-page"));
+}
+
+function resetBuiltInTilePage(view) {
+  if (view === "orders") switchOrderPage("");
+  if (view === "designs") switchDesignPage("");
+  if (view === "stone-library") switchStonePage("");
+  if (view === "production") switchProductionPage("");
+  if (view === "office") clearOfficePages();
+  resetOperationPage(view);
+}
 
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
@@ -2264,7 +2351,7 @@ function switchView(view) {
   document.querySelectorAll(".view").forEach((section) => section.classList.toggle("active-view", section.id === view));
   document.getElementById("page-title").textContent = pageInfo[view][0];
   document.getElementById("page-subtitle").textContent = pageInfo[view][1];
-  if (view === "office") clearOfficePages();
+  resetBuiltInTilePage(view);
 }
 
 function switchOrderPage(page) {
@@ -12705,6 +12792,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+initializeOperationTiles();
 applyLoginState();
 render();
 migrateLegacyDesignImages().catch(() => {

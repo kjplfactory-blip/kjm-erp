@@ -628,7 +628,9 @@ button:hover {
 .production-page,
 .workbench.production-page,
 .office-page,
-.workbench.office-page {
+.workbench.office-page,
+.operation-page,
+.workbench .operation-page {
   display: none;
 }
 
@@ -641,7 +643,8 @@ button:hover {
 .active-production-page,
 .workbench.active-production-page,
 .active-office-page,
-.workbench.active-office-page {
+.workbench.active-office-page,
+.active-operation-page {
   display: block;
 }
 
@@ -649,8 +652,29 @@ button:hover {
 .workbench.active-design-page,
 .workbench.active-stone-page,
 .workbench.active-production-page,
-.workbench.active-office-page {
+.workbench.active-office-page,
+.workbench.active-operation-page,
+form.active-operation-page,
+.form-panel.active-operation-page,
+.report-grid.active-operation-page {
   display: grid;
+}
+
+.safe-locker-panel.active-operation-page,
+.metal-safe-panel.active-operation-page {
+  display: flex;
+}
+
+.owner-only.operation-page.active-operation-page {
+  display: none;
+}
+
+.is-owner .owner-only.operation-page.active-operation-page {
+  display: grid;
+}
+
+.workbench > .operation-page.active-operation-page {
+  grid-column: 1 / -1;
 }
 
 .metric,
