@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v215";
+const APP_VERSION = "v216";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -703,9 +703,14 @@ document.getElementById("cancel-customer-edit").addEventListener("click", () => 
 
 document.getElementById("customer-search").addEventListener("input", renderCustomers);
 
-document.getElementById("production-form").addEventListener("input", updateIssueMetalSummary);
+document.getElementById("production-form").addEventListener("input", (event) => {
+  if (event.target.name === "metalPurity") updateProductionCastingItemOptions();
+  updateIssueMetalSummary();
+});
 document.getElementById("production-form").addEventListener("change", (event) => {
   if (event.target.name === "jobNumber") applyIssuePurityFromJob();
+  if (["jobNumber", "metalPurity"].includes(event.target.name)) updateProductionCastingItemOptions();
+  if (event.target.name === "castingSafeItemId") applyCastingSafeItemToIssueForm();
   updateIssueMetalSummary();
 });
 
@@ -720,22 +725,33 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const issuedWeight = Number(data.issuedWeight);
   const waxStoneWeight = productionStoneTotalsForOrders(selectedOrders, "wax").weight;
   const netMetalIssuedWeight = Number(weight3(issuedWeight - waxStoneWeight));
+  const castingSafeItem = findById("safeItems", data.castingSafeItemId);
   if (!selectedOrders.length) {
     alert("Select one open job card to issue metal.");
     return;
   }
   if (!karigar) return;
+  if (!castingSafeItem || castingSafeItem.status === "Out" || safeItemKind(castingSafeItem) !== "rod") {
+    alert("Select the casting item / rod from Safe Locker for this job card.");
+    return;
+  }
   if (netMetalIssuedWeight <= 0) {
     alert("Metal issued weight must be more than wax-set stone weight.");
     return;
   }
 
   const issueLocker = safeLockerForPurity(metalPurity);
-  const lockerAvailable = safeLockerBalance(issueLocker, "rod");
-  if (netMetalIssuedWeight > lockerAvailable) {
-    alert(`${issueLocker} Safe has only ${gram(lockerAvailable)} rod/casting item available for issue. Wastage must be remelted before production issue.`);
+  const selectedLocker = safeLockerForPurity(castingSafeItem.locker || castingSafeItem.purity);
+  if (selectedLocker !== issueLocker) {
+    alert(`Selected casting item is in ${selectedLocker} Safe, but this job needs ${issueLocker} Safe.`);
     return;
   }
+  const castingItemAvailable = safeItemAvailableWeight(castingSafeItem);
+  if (netMetalIssuedWeight > castingItemAvailable) {
+    alert(`Selected casting item has only ${gram(castingItemAvailable)} available. Required for this job card is ${gram(netMetalIssuedWeight)}.`);
+    return;
+  }
+  const balanceAfterIssue = Number(weight3(castingItemAvailable - netMetalIssuedWeight));
 
   selectedOrders.forEach((order) => {
     order.status = "In Production";
@@ -758,15 +774,19 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     grossIssuedWeight: issuedWeight,
     waxStoneWeight,
     issuedWeight: netMetalIssuedWeight,
+    castingSafeItemId: castingSafeItem.id,
+    castingSafeItemDescription: castingSafeItem.description || "",
+    rodColour: safeItemColour(castingSafeItem),
+    rodDesiredPurity: displayPurity(safeItemDesiredPurity(castingSafeItem)),
     expectedWastage: Number(data.wastagePercent || 0),
     finishedWeight: 0,
     actualWastage: 0,
     status: "Issued",
     transfers: [],
   });
-  const productionReference = `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}`;
+  const productionReference = `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; ${castingSafeItem.description || "Casting item"} ${safeItemColour(castingSafeItem) || ""} ${displayPurity(safeItemDesiredPurity(castingSafeItem))}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
   state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference });
-  issueFromSafeLocker(issueLocker, netMetalIssuedWeight, productionReference, lotNumber, "rod");
+  issueFromSafeItem(castingSafeItem.id, netMetalIssuedWeight, productionReference, lotNumber);
   event.target.reset();
   saveState();
   render();
@@ -2973,6 +2993,26 @@ function safeKindLabel(kindOrItem = "") {
   return kind === "wastage" ? "Wastage / Scrap" : "Rod / Casting";
 }
 
+function safeItemColour(item = {}) {
+  if (item.colour) return item.colour;
+  const description = String(item.description || "");
+  const descParts = description.split(" - ").map((part) => part.trim()).filter(Boolean);
+  if (descParts.length > 1) {
+    const candidate = descParts.at(-1);
+    if (!/(correction|factory issue|issued|return)/i.test(candidate)) return candidate;
+  }
+  const sourceMatch = String(item.source || "").match(/^(.+?)\s+melting/i);
+  return sourceMatch ? sourceMatch[1].trim() : "";
+}
+
+function safeItemDesiredPurity(item = {}) {
+  return item.desiredPurity || item.purity || item.locker || "";
+}
+
+function safeItemAvailableWeight(item = {}) {
+  return Number(weight3(item.netWeight ?? item.grossWeight ?? 0));
+}
+
 function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind = "all") {
   let remaining = Number(weight3(weight));
   if (remaining <= 0) return true;
@@ -3003,6 +3043,8 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
         sourceType: "factory-issue",
         sourceId,
         sourceLine: item.sourceLine || "",
+        colour: item.colour || safeItemColour(item),
+        desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
         safeKind: safeItemKind(item),
         grossWeight: grossTake,
         netWeight: take,
@@ -3014,6 +3056,43 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
     remaining = Number(weight3(remaining - take));
   }
   return remaining <= 0.0005;
+}
+
+function issueFromSafeItem(itemId, weight, reference, sourceId = "") {
+  const item = findById("safeItems", itemId);
+  if (!item || item.status === "Out") return false;
+  const take = Number(weight3(weight));
+  const itemNet = safeItemAvailableWeight(item);
+  if (take <= 0 || take > itemNet + 0.0005) return false;
+  const itemGross = Number(item.grossWeight || itemNet);
+  const grossTake = itemNet ? Number(weight3((take / itemNet) * itemGross)) : take;
+  if (take >= itemNet - 0.0005) {
+    item.status = "Out";
+    item.outDate = today();
+    item.remarks = reference;
+  } else {
+    item.netWeight = Number(weight3(itemNet - take));
+    item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+    addSafeItem({
+      date: today(),
+      locker: item.locker || item.purity,
+      purity: item.purity || item.locker,
+      description: `${item.description || "Casting item"} - Factory Issue`,
+      source: reference,
+      sourceType: "factory-issue",
+      sourceId,
+      sourceLine: item.sourceLine || "",
+      colour: safeItemColour(item),
+      desiredPurity: safeItemDesiredPurity(item),
+      safeKind: safeItemKind(item),
+      grossWeight: grossTake,
+      netWeight: take,
+      status: "Out",
+      outDate: today(),
+      remarks: reference,
+    });
+  }
+  return true;
 }
 
 function factoryInWeight() {
@@ -3042,6 +3121,8 @@ function addSafeItem(item) {
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceLine: item.sourceLine || "",
+    colour: item.colour || safeItemColour(item),
+    desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
     safeKind: safeItemKind(item),
     grossWeight: Number(weight3(item.grossWeight || 0)),
     netWeight: Number(weight3(item.netWeight ?? item.grossWeight ?? 0)),
@@ -3105,6 +3186,8 @@ function syncMeltingReceiveSafeItems(melting) {
       sourceType: "melting-receive",
       sourceId,
       sourceLine: field,
+      colour: melting.colour || "",
+      desiredPurity: formatPurity(melting.targetPurity),
       grossWeight: weight,
       netWeight: weight,
       status: "In Safe",
@@ -5109,8 +5192,13 @@ function updateIssueMetalSummary() {
     summary.textContent = "Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.";
     return;
   }
+  const castingItem = findById("safeItems", form.castingSafeItemId?.value);
+  const castingAvailable = castingItem ? safeItemAvailableWeight(castingItem) : 0;
+  const castingNote = castingItem
+    ? ` Casting Item: ${safeItemOptionLabel(castingItem)}. Balance after issue ${gram(Math.max(castingAvailable - Math.max(netMetal, 0), 0))}.`
+    : ` Select casting item from ${safeLockerForPurity(form.metalPurity.value || purities[0] || "18K")} Safe.`;
   const purityNote = purities.length > 1 ? ` Multiple purities in job: ${purities.join(", ")}.` : ` Purity: ${purities[0] || form.metalPurity.value || "-"}.`;
-  summary.textContent = `Gold Issue ${gram(grossIssue)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${purityNote}`;
+  summary.textContent = `Gold Issue ${gram(grossIssue)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${purityNote}${castingNote}`;
   summary.classList.toggle("warn", grossIssue > 0 && netMetal <= 0);
 }
 
@@ -5122,6 +5210,51 @@ function applyIssuePurityFromJob() {
   );
   const purities = [...new Set(selectedOrders.map((order) => order.purity).filter(Boolean))];
   if (purities.length) form.metalPurity.value = purities[0];
+}
+
+function castingSafeItemsForPurity(purity = "") {
+  const locker = safeLockerForPurity(purity || "18K");
+  return (state.safeItems || [])
+    .filter((item) =>
+      item.status !== "Out"
+      && safeItemKind(item) === "rod"
+      && safeLockerForPurity(item.locker || item.purity) === locker
+      && safeItemAvailableWeight(item) > 0
+    );
+}
+
+function safeItemOptionLabel(item = {}) {
+  const colour = safeItemColour(item) || "-";
+  const desiredPurity = displayPurity(safeItemDesiredPurity(item));
+  return `${item.description || "Casting item"} / ${colour} / ${desiredPurity} / Avl ${gram(safeItemAvailableWeight(item))}`;
+}
+
+function updateProductionCastingItemOptions() {
+  const form = document.getElementById("production-form");
+  const select = form?.castingSafeItemId;
+  if (!select) return;
+  const selected = select.value;
+  const locker = safeLockerForPurity(form.metalPurity.value || "18K");
+  const items = castingSafeItemsForPurity(form.metalPurity.value);
+  select.innerHTML = items.length
+    ? `<option value="">Select casting item from ${escapeHtml(locker)} Safe</option>${items.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(safeItemOptionLabel(item))}</option>`).join("")}`
+    : `<option value="">No casting item in ${escapeHtml(locker)} Safe</option>`;
+  if (items.some((item) => item.id === selected)) {
+    select.value = selected;
+  } else if (items.length === 1) {
+    select.value = items[0].id;
+  } else {
+    select.value = "";
+  }
+  applyCastingSafeItemToIssueForm();
+}
+
+function applyCastingSafeItemToIssueForm() {
+  const form = document.getElementById("production-form");
+  if (!form) return;
+  const item = findById("safeItems", form.castingSafeItemId?.value);
+  form.rodColour.value = item ? safeItemColour(item) || "-" : "";
+  form.rodDesiredPurity.value = item ? displayPurity(safeItemDesiredPurity(item)) : "";
 }
 
 function openTransferFromOrder(lotId) {
@@ -5871,6 +6004,7 @@ function renderSelects() {
     select.value = groupedJobOrders().some((job) => job.jobNumber === selected && job.status === "Pending") ? selected : "";
   });
   applyIssuePurityFromJob();
+  updateProductionCastingItemOptions();
   updateIssueMetalSummary();
   document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
     select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
@@ -11790,6 +11924,8 @@ function normalizeState(currentState) {
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceLine: item.sourceLine || "",
+    colour: item.colour || safeItemColour(item),
+    desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
     safeKind: safeItemKind(item),
     grossWeight: Number(item.grossWeight || 0),
     netWeight: Number(item.netWeight ?? item.grossWeight ?? 0),

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=122">
+    <link rel="stylesheet" href="styles.css?v=123">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v215</small>
+            <small class="app-version-badge">App v216</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span class="app-version-badge">App v215</span>
+          <span class="app-version-badge">App v216</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -373,6 +373,9 @@
             <label>Job Card <select name="jobNumber" required></select></label>
             <label>Department <select name="karigarId" required></select></label>
             <label>Metal Purity <input name="metalPurity" list="metal-purity-options" value="18K" required></label>
+            <label>Casting Item From Safe <select name="castingSafeItemId" required></select></label>
+            <label>Rod Colour <input name="rodColour" placeholder="Auto from safe rod" readonly></label>
+            <label>Rod Desired Purity <input name="rodDesiredPurity" placeholder="Auto from safe rod" readonly></label>
             <datalist id="metal-purity-options">
               <option value="24K"></option>
               <option value="22K"></option>
@@ -1091,6 +1094,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=215"></script>
+  <script src="app.js?v=216"></script>
 </body>
 </html>
