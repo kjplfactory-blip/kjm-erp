@@ -10,7 +10,9 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v222";
+const APP_VERSION = "v223";
+const FACTORY_RESET_STOCK_WEIGHT = 4000;
+const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -270,6 +272,12 @@ function resetBuiltInTilePage(view) {
   resetOperationPage(view);
 }
 
+function openDefaultOperationPage(view) {
+  if (view === "melting" && state.melting.length) {
+    openOperationPage("melting", "history");
+  }
+}
+
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
 });
@@ -400,7 +408,7 @@ document.getElementById("reset-demo").addEventListener("click", () => {
     alert("Wrong master password. Job cards were not cleared.");
     return;
   }
-  if (!confirm("Remove only job cards and production history? Departments and stock will remain.")) return;
+  if (!confirm("This will clear all job cards, production, bills, melting/casting history, safe locker stock, and old factory stock.\n\nIt will then create fresh factory stock: 4000.000 g of 99.5% gold.\n\nCustomer, design, stone, department, and user masters will remain.")) return;
   clearJobCards();
   saveState();
   render();
@@ -2365,6 +2373,7 @@ function switchView(view) {
   document.getElementById("page-title").textContent = pageInfo[view][0];
   document.getElementById("page-subtitle").textContent = pageInfo[view][1];
   resetBuiltInTilePage(view);
+  openDefaultOperationPage(view);
 }
 
 function switchOrderPage(page) {
@@ -3821,12 +3830,34 @@ async function removeItem(collection, id) {
 }
 
 function clearJobCards() {
+  const openingStockId = crypto.randomUUID();
   state.orders = [];
   state.lots = [];
   state.bills = [];
+  state.melting = [];
+  state.safeItems = [];
   state.nextOrder = 1001;
   state.nextLot = 201;
-  state.ledger = state.ledger.filter((item) => !["Out", "Transfer", "Finished"].includes(item.type));
+  state.ledger = [{
+    id: openingStockId,
+    date: today(),
+    type: "In",
+    purity: FACTORY_RESET_STOCK_PURITY,
+    weight: FACTORY_RESET_STOCK_WEIGHT,
+    reference: "Factory reset opening stock",
+  }];
+  state.metalSafeMovements = [{
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Opening Stock",
+    direction: "in",
+    purity: FACTORY_RESET_STOCK_PURITY,
+    weight: FACTORY_RESET_STOCK_WEIGHT,
+    reference: "Factory reset opening stock",
+    sourceType: "factory-reset",
+    sourceId: openingStockId,
+  }];
+  state.metalSafeSeededFromLedger = true;
   closeOpenDialogs();
 }
 
