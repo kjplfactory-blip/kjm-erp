@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v225";
+const APP_VERSION = "v226";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -221,7 +221,8 @@ function initializeOperationTiles() {
         <span>${escapeHtml(operation.description)}</span>
       </button>
     `).join("");
-    section.insertBefore(tileGrid, section.firstElementChild);
+    const dashboard = section.querySelector(".operation-dashboard");
+    section.insertBefore(tileGrid, dashboard ? dashboard.nextSibling : section.firstElementChild);
     operations.forEach((operation) => {
       const target = section.querySelector(operation.selector);
       if (!target) return;
@@ -11718,8 +11719,109 @@ function getMeltingSourceMetals() {
     .filter((metal) => metal.weight > 0 && metal.purity > 0);
 }
 
+function renderMeltingDashboard() {
+  const records = state.melting || [];
+  const totals = records.reduce((acc, item) => {
+    const type = meltingBatchType(item);
+    const issuedWeight = Number(item.finalWeight || item.sourceWeight || 0);
+    const receivedWeight = Number(item.receivedWeight || 0);
+    const loss = Number(item.meltingLoss || 0);
+    acc.total += 1;
+    acc.issuedWeight = Number(weight3(acc.issuedWeight + issuedWeight));
+    if ((item.status || "Issued") === "Received") {
+      acc.received += 1;
+      acc.receivedWeight = Number(weight3(acc.receivedWeight + receivedWeight));
+      acc.loss = Number(weight3(acc.loss + loss));
+      acc.lossFineGold = Number(weight3(acc.lossFineGold + fineGoldWeight(loss, item.targetPurity)));
+      if (type === "MELTING") acc.meltingLoss = Number(weight3(acc.meltingLoss + loss));
+      else acc.castingLoss = Number(weight3(acc.castingLoss + loss));
+    } else {
+      acc.pending += 1;
+      acc.inHand = Number(weight3(acc.inHand + issuedWeight));
+      if (type === "MELTING") {
+        acc.meltingInHand = Number(weight3(acc.meltingInHand + issuedWeight));
+        acc.meltingPending += 1;
+      } else {
+        acc.castingInHand = Number(weight3(acc.castingInHand + issuedWeight));
+        acc.castingPending += 1;
+      }
+    }
+    return acc;
+  }, {
+    total: 0,
+    pending: 0,
+    meltingPending: 0,
+    castingPending: 0,
+    received: 0,
+    issuedWeight: 0,
+    receivedWeight: 0,
+    inHand: 0,
+    meltingInHand: 0,
+    castingInHand: 0,
+    loss: 0,
+    meltingLoss: 0,
+    castingLoss: 0,
+    lossFineGold: 0,
+  });
+
+  const summary = document.getElementById("melting-summary-grid");
+  if (summary) {
+    summary.innerHTML = `
+      ${meltingSummaryCard("Metal With Melting", gram(totals.meltingInHand), [`Pending melting ${totals.meltingPending}`, `Loss booked ${gram(totals.meltingLoss)}`])}
+      ${meltingSummaryCard("Metal With Casting", gram(totals.castingInHand), [`Pending casting ${totals.castingPending}`, `Loss booked ${gram(totals.castingLoss)}`])}
+      ${meltingSummaryCard("Total Loss", gram(totals.loss), [`Fine gold loss ${gram(totals.lossFineGold)}`, `Received batches ${totals.received}`], "loss")}
+      ${meltingSummaryCard("History", `${totals.total}`, [`Pending ${totals.pending}`, `Received NT ${gram(totals.receivedWeight)}`])}
+    `;
+  }
+
+  const tiles = document.getElementById("melting-history-tiles");
+  if (tiles) {
+    tiles.innerHTML = records.length
+      ? records.slice(0, 12).map(renderMeltingHistoryTile).join("")
+      : '<div class="empty">No melting or casting history yet. Open New Melting to create first batch.</div>';
+  }
+}
+
+function meltingSummaryCard(title, value, lines = [], variant = "") {
+  return `
+    <article class="melting-summary-card ${variant}">
+      <span>${escapeHtml(title)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
+    </article>
+  `;
+}
+
+function renderMeltingHistoryTile(item) {
+  const status = item.status || "Issued";
+  const isReceived = status === "Received";
+  const department = meltingDashboardDepartmentName(item);
+  const inHand = isReceived ? 0 : Number(item.finalWeight || item.sourceWeight || 0);
+  const receivedText = isReceived
+    ? `Received NT ${gram(item.receivedWeight)} / Loss ${gram(item.meltingLoss)}`
+    : `Metal in hand ${gram(inHand)}`;
+  return `
+    <article class="melting-history-card ${isReceived ? "received" : "pending"}">
+      <div>
+        <span>${escapeHtml(department)}</span>
+        <strong>${escapeHtml(item.batchName || assignMeltingBatchName(item))}</strong>
+      </div>
+      <small>${escapeHtml(item.date || "-")} / ${escapeHtml(formatPurity(item.targetPurity))} / ${escapeHtml(item.colour || "-")}</small>
+      <small>${escapeHtml(receivedText)}</small>
+      <div class="melting-history-card-footer">
+        <span class="status ${statusClass(status)}">${escapeHtml(status)}</span>
+        <div class="row-actions">
+          <button class="ghost-button" type="button" onclick="openMeltingView('${item.id}')">View</button>
+          <button type="button" onclick="openMeltingReceive('${item.id}')">${isReceived ? "Edit Receive" : "Receive"}</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 function renderMelting() {
-  const rows = state.melting.map((item) => `
+  renderMeltingDashboard();
+  const rows = (state.melting || []).map((item) => `
     <tr>
       <td>${item.date}</td>
       <td><strong>${escapeHtml(item.batchName || assignMeltingBatchName(item))}</strong></td>
@@ -11742,7 +11844,8 @@ function renderMelting() {
       </td>
     </tr>
   `).join("");
-  document.getElementById("melting-table").innerHTML = rows || tableEmpty(12, "No melting records yet.");
+  const table = document.getElementById("melting-table");
+  if (table) table.innerHTML = rows || tableEmpty(12, "No melting records yet.");
 }
 
 function renderMeltingSources(item) {

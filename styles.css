@@ -780,6 +780,76 @@ form.active-operation-page,
   color: var(--danger);
 }
 
+.melting-dashboard-panel {
+  margin-bottom: 18px;
+}
+
+.compact-heading {
+  margin-top: 16px;
+}
+
+.compact-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.melting-summary-grid,
+.melting-history-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+}
+
+.melting-summary-card,
+.melting-history-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.melting-summary-card span,
+.melting-history-card span,
+.melting-history-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.melting-summary-card strong,
+.melting-history-card strong {
+  color: var(--ink);
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
+.melting-summary-card.loss {
+  border-color: #f1b8b3;
+  background: #fff7f7;
+}
+
+.melting-summary-card.loss strong {
+  color: var(--danger);
+}
+
+.melting-history-card.pending {
+  border-left: 4px solid var(--warning);
+}
+
+.melting-history-card.received {
+  border-left: 4px solid var(--success);
+}
+
+.melting-history-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .department-purity-head {
   color: var(--muted);
   font-weight: 800;

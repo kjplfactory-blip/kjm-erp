@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v225</small>
+            <small class="app-version-badge">App v226</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v225</span>
+          <span class="app-version-badge">App v226</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -511,6 +511,20 @@
       </section>
 
       <section id="melting" class="view">
+        <section class="panel melting-dashboard-panel operation-dashboard">
+          <div class="panel-heading">
+            <h2>Melting / Casting Dashboard</h2>
+            <div class="row-actions">
+              <button class="ghost-button" type="button" onclick="openOperationPage('melting', 'conversion')">New Melting</button>
+              <button type="button" onclick="openOperationPage('melting', 'history')">Open Full History</button>
+            </div>
+          </div>
+          <div id="melting-summary-grid" class="melting-summary-grid"></div>
+          <div class="panel-heading compact-heading">
+            <h3>Melting / Casting History Tiles</h3>
+          </div>
+          <div id="melting-history-tiles" class="melting-history-tiles"></div>
+        </section>
         <div class="workbench">
           <form id="melting-form" class="form-panel">
             <h2 id="melting-form-title">Melting Conversion</h2>
@@ -1098,6 +1112,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=225"></script>
+  <script src="app.js?v=226"></script>
 </body>
 </html>
