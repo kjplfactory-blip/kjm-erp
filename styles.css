@@ -2298,6 +2298,30 @@ dialog::backdrop {
   gap: 10px;
 }
 
+.job-item-select-card {
+  display: grid;
+  gap: 6px;
+}
+
+.job-split-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 5px 9px;
+  border: 1px solid #c9e5df;
+  border-radius: 999px;
+  background: #f7fbfa;
+  color: #153d36;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.job-split-select input {
+  width: 15px;
+  height: 15px;
+}
+
 .job-item-open-button {
   position: relative;
   display: grid;

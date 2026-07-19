@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v207";
+const APP_VERSION = "v208";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -1166,6 +1166,8 @@ document.getElementById("close-order").addEventListener("click", () => {
 document.getElementById("close-job-item-detail").addEventListener("click", () => {
   closeJobItemDetail();
 });
+
+document.getElementById("split-job-items").addEventListener("click", splitSelectedJobItems);
 
 document.getElementById("close-barcode-generator").addEventListener("click", () => {
   document.getElementById("barcode-generator-dialog").close();
@@ -2936,13 +2938,19 @@ function renderJobItemsDetail(orders) {
         const stage = orderCurrentStage(order);
         const deliveryText = orderDeliveryText(order);
         return `
-          <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
-            <strong>${escapeHtml(order.productionNo || order.number)}</strong>
-            <span>${escapeHtml(order.designNumber || designLabel(order.designId) || order.category || "-")}</span>
-            <small>${escapeHtml(stage)}</small>
-            ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
-            ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
-          </button>
+          <article class="job-item-select-card">
+            <label class="job-split-select">
+              <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
+              <span>Split</span>
+            </label>
+            <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
+              <strong>${escapeHtml(order.productionNo || order.number)}</strong>
+              <span>${escapeHtml(order.designNumber || designLabel(order.designId) || order.category || "-")}</span>
+              <small>${escapeHtml(stage)}</small>
+              ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
+              ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
+            </button>
+          </article>
         `;
       }).join("")}
     </div>
@@ -2955,6 +2963,87 @@ function closeJobItemDetail() {
   if (panel) panel.classList.add("hidden");
   if (detail) detail.innerHTML = "";
   document.querySelectorAll(".job-item-open-button").forEach((button) => button.classList.remove("active"));
+}
+
+function selectedJobSplitIds() {
+  return [...document.querySelectorAll("#order-items-detail .job-split-check:checked")]
+    .map((input) => input.value)
+    .filter(Boolean);
+}
+
+function splitJobRootNumber(jobNumber = "") {
+  return String(jobNumber || "").replace(/-S\d+$/i, "");
+}
+
+function nextSplitJobNumber(jobNumber = "") {
+  const root = splitJobRootNumber(jobNumber) || jobNumber || `JOB-${state.nextOrder}`;
+  const existing = new Set(state.orders.map((order) => order.jobNumber || order.productionNo || order.number).filter(Boolean));
+  let index = 1;
+  let candidate = `${root}-S${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `${root}-S${index}`;
+  }
+  return candidate;
+}
+
+function splitSelectedJobItems() {
+  const form = document.getElementById("update-order-form");
+  const currentOrder = findById("orders", form.orderId.value);
+  if (!currentOrder) {
+    alert("Open a job order first.");
+    return;
+  }
+  const jobOrders = getJobOrders(currentOrder);
+  const jobOrderIds = new Set(jobOrders.map((order) => order.id));
+  const selectedIds = selectedJobSplitIds().filter((id) => jobOrderIds.has(id));
+  if (!selectedIds.length) {
+    alert("Select one or more item to split.");
+    return;
+  }
+  if (selectedIds.length >= jobOrders.length) {
+    alert("Keep at least one item in the original job card. Select fewer items to split.");
+    return;
+  }
+  const selectedIdSet = new Set(selectedIds);
+  const selectedOrders = jobOrders.filter((order) => selectedIdSet.has(order.id));
+  if (selectedOrders.some(isCompletedOrder)) {
+    alert("Completed item cannot be split.");
+    return;
+  }
+  const mixedLiveLot = state.lots.find((lot) => {
+    if (lot.status === "Completed") return false;
+    const ids = getLotOrderIds(lot);
+    const hasSelected = ids.some((id) => selectedIdSet.has(id));
+    const hasRemainingSameJob = ids.some((id) => !selectedIdSet.has(id) && jobOrderIds.has(id));
+    return hasSelected && hasRemainingSameJob;
+  });
+  if (mixedLiveLot) {
+    alert(`Selected item is already mixed with other items in production lot ${mixedLiveLot.number}. Split before issuing to production, or move the full lot separately first.`);
+    return;
+  }
+  const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
+  const splitJobNumber = nextSplitJobNumber(originalJobNumber);
+  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
+  selectedOrders.forEach((order) => {
+    order.jobNumber = splitJobNumber;
+    order.splitFromJobNumber = originalJobNumber;
+    order.splitDate = today();
+    order.urgent = true;
+  });
+  state.lots.forEach((lot) => {
+    const ids = getLotOrderIds(lot);
+    if (!ids.length || !ids.some((id) => selectedIdSet.has(id))) return;
+    if (ids.every((id) => selectedIdSet.has(id))) {
+      lot.orderNumber = splitJobNumber;
+      lot.orderId = ids[0] || lot.orderId;
+      lot.orderIds = ids;
+    }
+  });
+  saveState();
+  render();
+  openJobOrder(splitJobNumber, "active");
+  alert(`${splitJobNumber} created with ${selectedOrders.length} urgent item(s).`);
 }
 
 function openJobItemDetail(orderId) {
@@ -2996,6 +3085,8 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Current Production Stage", currentStage)}
         ${orderDeliveryText(order) ? jobItemDetailCell("Days Remaining", orderDeliveryText(order)) : ""}
         ${jobItemDetailCell("Order Status", order.status || "-")}
+        ${order.splitFromJobNumber ? jobItemDetailCell("Split From", order.splitFromJobNumber) : ""}
+        ${order.splitDate ? jobItemDetailCell("Split Date", order.splitDate) : ""}
         ${jobItemDetailCell("Urgent", order.urgent ? "Yes" : "No")}
         ${jobItemDetailCell("Customer", order.customer || "-")}
         ${jobItemDetailCell("Order Date", order.orderDate || "-")}
