@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=123">
+    <link rel="stylesheet" href="styles.css?v=126">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v216</small>
+            <small class="app-version-badge">App v219</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards</button>
-          <span class="app-version-badge">App v216</span>
+          <span class="app-version-badge">App v219</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -418,9 +418,9 @@
         </div>
       </section>
 
-      <section id="safe" class="view">
+      <section id="safe" class="view safe-view">
         <div class="safe-layout">
-          <section class="panel">
+          <section class="panel safe-locker-panel">
             <div class="panel-heading">
               <h2>Item Safe Lockers</h2>
               <select id="safe-locker-filter" class="search compact-search" aria-label="Filter safe locker">
@@ -443,18 +443,20 @@
               </label>
               <label>Item / Reference <input name="description" placeholder="Casting item, chain, tree cut" required></label>
               <label>GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
+              <label>Wax Stone (g) <input name="waxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Source <input name="source" placeholder="Melting, casting, manual receive"></label>
               <button type="submit">Add To Safe</button>
             </form>
+            <div id="safe-casting-shelves" class="safe-casting-shelf-grid"></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Locker</th><th>Kind</th><th>Item / Ref</th><th>Source</th><th>GW</th><th>Net</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Locker</th><th>Kind</th><th>Item / Ref</th><th>Source</th><th>Full GW</th><th>Wax Stone</th><th>NT Weight</th><th>Status</th><th></th></tr></thead>
                 <tbody id="safe-item-table"></tbody>
               </table>
             </div>
           </section>
 
-          <section class="panel">
+          <section class="panel metal-safe-panel">
             <div class="panel-heading">
               <h2>Metal Safe / Office In</h2>
               <input id="metal-safe-search" class="search compact-search" placeholder="Search purity or reference">
@@ -544,7 +546,7 @@
             <div class="panel-heading"><h2>Melting History</h2></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Source Metals</th><th>Target</th><th>Colour</th><th>Department</th><th>Status</th><th>Pure Gold</th><th>Final</th><th>Received</th><th>Loss</th><th>Action</th></tr></thead>
+                <thead><tr><th>Date</th><th>Batch Name</th><th>Source Metals</th><th>Target</th><th>Colour</th><th>Department</th><th>Status</th><th>Pure Gold</th><th>Final</th><th>Received NT</th><th>Loss</th><th>Action</th></tr></thead>
                 <tbody id="melting-table"></tbody>
               </table>
             </div>
@@ -955,6 +957,8 @@
         <p id="melting-receive-summary" class="dialog-note"></p>
         <label>Final Weight Issued (g) <input name="finalWeight" type="number" readonly></label>
         <label class="melting-receive-casting">Casting Item Weight (g) <input name="castingItemWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Wax Set Stone Weight (g) <input name="castingWaxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Casting Item NT / Reduced (g) <input name="castingItemNetWeight" type="number" readonly value="0"></label>
         <label class="melting-receive-casting">Tree Cut Weight (g) <input name="treeCutWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
@@ -963,7 +967,7 @@
         <label class="melting-receive-rod hidden">Rod 2 Received (g) <input name="rod2Weight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-rod hidden">Wastage 1 Received (g) <input name="wastage1Weight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-rod hidden">Wastage 2 Received (g) <input name="wastage2Weight" type="number" min="0" step="0.001" value="0"></label>
-        <label>Total Received Weight (g) <input name="receivedWeight" type="number" readonly required></label>
+        <label>Gold Received / NT Weight (g) <input name="receivedWeight" type="number" readonly required></label>
         <label>Loss Booked (g) <input name="meltingLoss" type="number" readonly></label>
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-melting-receive">Cancel</button>
@@ -1094,6 +1098,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=216"></script>
+  <script src="app.js?v=219"></script>
 </body>
 </html>

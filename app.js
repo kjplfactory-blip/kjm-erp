@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v216";
+const APP_VERSION = "v219";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -725,14 +725,14 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const issuedWeight = Number(data.issuedWeight);
   const waxStoneWeight = productionStoneTotalsForOrders(selectedOrders, "wax").weight;
   const netMetalIssuedWeight = Number(weight3(issuedWeight - waxStoneWeight));
-  const castingSafeItem = findById("safeItems", data.castingSafeItemId);
+  const castingSafeItem = findSafeItemOrGroup(data.castingSafeItemId, metalPurity);
   if (!selectedOrders.length) {
     alert("Select one open job card to issue metal.");
     return;
   }
   if (!karigar) return;
-  if (!castingSafeItem || castingSafeItem.status === "Out" || safeItemKind(castingSafeItem) !== "rod") {
-    alert("Select the casting item / rod from Safe Locker for this job card.");
+  if (!safeItemIssueSelectionAvailable(castingSafeItem)) {
+    alert("Select the casting shelf item from Safe Locker for this job card.");
     return;
   }
   if (netMetalIssuedWeight <= 0) {
@@ -752,6 +752,8 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     return;
   }
   const balanceAfterIssue = Number(weight3(castingItemAvailable - netMetalIssuedWeight));
+  const issueSourceName = safeIssueSourceName(castingSafeItem);
+  const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
 
   selectedOrders.forEach((order) => {
     order.status = "In Production";
@@ -776,6 +778,9 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     issuedWeight: netMetalIssuedWeight,
     castingSafeItemId: castingSafeItem.id,
     castingSafeItemDescription: castingSafeItem.description || "",
+    issueSourceName,
+    issueSourceDetail,
+    issueSourceLocker: issueLocker,
     rodColour: safeItemColour(castingSafeItem),
     rodDesiredPurity: displayPurity(safeItemDesiredPurity(castingSafeItem)),
     expectedWastage: Number(data.wastagePercent || 0),
@@ -784,9 +789,12 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     status: "Issued",
     transfers: [],
   });
-  const productionReference = `${lotNumber} for ${data.jobNumber} issued to ${karigar.name}; ${castingSafeItem.description || "Casting item"} ${safeItemColour(castingSafeItem) || ""} ${displayPurity(safeItemDesiredPurity(castingSafeItem))}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
+  const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
   state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference });
-  issueFromSafeItem(castingSafeItem.id, netMetalIssuedWeight, productionReference, lotNumber);
+  issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
+    grossWeight: issuedWeight,
+    waxStoneWeight,
+  });
   event.target.reset();
   saveState();
   render();
@@ -823,14 +831,21 @@ document.getElementById("stock-form").addEventListener("submit", (event) => {
 document.getElementById("safe-item-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
+  const grossWeight = Number(data.grossWeight || 0);
+  const waxStoneWeight = Number(data.waxStoneWeight || 0);
+  if (waxStoneWeight > grossWeight) {
+    alert("Wax stone weight cannot be more than safe item GW.");
+    return;
+  }
   addSafeItem({
     date: today(),
     locker: data.locker,
     purity: data.locker,
     description: data.description,
     source: data.source || "Manual safe entry",
-    grossWeight: Number(data.grossWeight),
-    netWeight: Number(data.grossWeight),
+    grossWeight,
+    waxStoneWeight,
+    netWeight: safeItemNetFromGross(grossWeight, waxStoneWeight),
     status: "In Safe",
     sourceType: "manual",
   });
@@ -953,6 +968,7 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
     departmentId: department.id,
     departmentName: department.name,
   });
+  assignMeltingBatchName(melting, state.melting, false);
   if (melting.status === "Received") {
     melting.meltingLoss = Number(weight3(Math.max(Number(melting.finalWeight || 0) - Number(melting.receivedWeight || 0), 0)));
   } else {
@@ -981,11 +997,17 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
   const receivedWeight = Number(data.receivedWeight || 0);
   const meltingLoss = Number(data.meltingLoss || 0);
   const receiveBreakup = getMeltingReceiveBreakup(data, melting);
+  if (!isMeltingDepartmentReceive(melting) && Number(receiveBreakup.castingWaxStoneWeight || 0) > Number(receiveBreakup.castingItemWeight || 0)) {
+    alert("Wax set stone weight cannot be more than Casting Item Weight.");
+    return;
+  }
   melting.receivedDate = melting.receivedDate || today();
+  melting.grossReceivedWeight = meltingReceiveGrossWeight(receiveBreakup, melting);
   melting.receivedWeight = receivedWeight;
   melting.meltingLoss = meltingLoss;
   melting.receiveBreakup = receiveBreakup;
   melting.status = "Received";
+  assignMeltingBatchName(melting, state.melting, meltingBatchType(melting) === "CASTING");
   syncMeltingReceiveRecords(melting);
   document.getElementById("melting-receive-dialog").close();
   saveState();
@@ -2947,13 +2969,13 @@ function rawGoldStock() {
 function safeItemStockWeight() {
   return (state.safeItems || [])
     .filter((item) => item.status !== "Out")
-    .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0);
+    .reduce((total, item) => total + Number(item.netWeight ?? item.grossWeight ?? 0), 0);
 }
 
 function safeLockerBalance(locker, safeKind = "all") {
   return Number(weight3((state.safeItems || [])
     .filter((item) => item.status !== "Out" && safeLockerForPurity(item.locker || item.purity) === locker && safeItemMatchesKind(item, safeKind))
-    .reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0)));
+    .reduce((total, item) => total + Number(item.netWeight ?? item.grossWeight ?? 0), 0)));
 }
 
 function safeItemMatchesKind(item, safeKind = "all") {
@@ -2993,6 +3015,69 @@ function safeKindLabel(kindOrItem = "") {
   return kind === "wastage" ? "Wastage / Scrap" : "Rod / Casting";
 }
 
+function safeTextKey(value = "") {
+  return String(value || "-").trim() || "-";
+}
+
+function safeShelfKey(parts = []) {
+  return parts.map((part) => encodeURIComponent(safeTextKey(part))).join("|");
+}
+
+function safeShelfId(parts = []) {
+  return `shelf:${safeShelfKey(parts)}`;
+}
+
+function isSafeShelfId(value = "") {
+  return String(value || "").startsWith("shelf:");
+}
+
+function isCastingIssueStock(item = {}) {
+  if (!item || item.status === "Out" || safeItemKind(item) !== "rod") return false;
+  const sourceLine = String(item.sourceLine || "").toLowerCase();
+  const description = String(item.description || "").toLowerCase();
+  return sourceLine === "castingitemweight"
+    || description.includes("casting item")
+    || description.includes("casting shelf");
+}
+
+function castingShelfGroups(purity = "") {
+  const lockerFilter = purity ? safeLockerForPurity(purity) : "";
+  const groups = new Map();
+  (state.safeItems || [])
+    .filter((item) => isCastingIssueStock(item) && (!lockerFilter || safeLockerForPurity(item.locker || item.purity) === lockerFilter))
+    .forEach((item) => {
+      const locker = safeLockerForPurity(item.locker || item.purity);
+      const colour = safeTextKey(safeItemColour(item) || "Mixed");
+      const desiredPurity = displayPurity(safeItemDesiredPurity(item));
+      const key = safeShelfKey([locker, colour, desiredPurity]);
+      const existing = groups.get(key) || {
+        id: safeShelfId([locker, colour, desiredPurity]),
+        virtualSafeGroup: true,
+        locker,
+        purity: desiredPurity,
+        description: `${safeIssueSourceName({ locker })} Casting Shelf`,
+        source: "Combined Casting Shelf",
+        sourceLine: "castingItemWeight",
+        colour,
+        desiredPurity,
+        safeKind: "rod",
+        status: "In Safe",
+        grossWeight: 0,
+        waxStoneWeight: 0,
+        netWeight: 0,
+        items: [],
+      };
+      existing.grossWeight = Number(weight3(existing.grossWeight + Number(item.grossWeight || 0)));
+      existing.waxStoneWeight = Number(weight3(existing.waxStoneWeight + safeItemWaxStoneWeight(item)));
+      existing.netWeight = Number(weight3(existing.netWeight + safeItemAvailableWeight(item)));
+      existing.items.push(item);
+      groups.set(key, existing);
+    });
+  return [...groups.values()].sort((a, b) =>
+    `${a.locker} ${a.colour} ${a.desiredPurity}`.localeCompare(`${b.locker} ${b.colour} ${b.desiredPurity}`)
+  );
+}
+
 function safeItemColour(item = {}) {
   if (item.colour) return item.colour;
   const description = String(item.description || "");
@@ -3007,6 +3092,17 @@ function safeItemColour(item = {}) {
 
 function safeItemDesiredPurity(item = {}) {
   return item.desiredPurity || item.purity || item.locker || "";
+}
+
+function safeItemNetFromGross(grossWeight, waxStoneWeight = 0) {
+  return Number(weight3(Math.max(Number(grossWeight || 0) - Number(waxStoneWeight || 0), 0)));
+}
+
+function safeItemWaxStoneWeight(item = {}) {
+  const grossWeight = Number(item.grossWeight || 0);
+  const netWeight = Number(item.netWeight ?? grossWeight);
+  const inferredWax = Math.max(grossWeight - netWeight, 0);
+  return Number(weight3(item.waxStoneWeight ?? inferredWax));
 }
 
 function safeItemAvailableWeight(item = {}) {
@@ -3026,13 +3122,16 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
     if (itemNet <= 0) continue;
     const take = Number(weight3(Math.min(itemNet, remaining)));
     const itemGross = Number(item.grossWeight || itemNet);
-    const grossTake = itemNet ? Number(weight3((take / itemNet) * itemGross)) : take;
+    const itemWax = safeItemWaxStoneWeight(item);
+    const waxTake = itemNet ? Number(weight3((take / itemNet) * itemWax)) : 0;
+    const grossTake = Number(weight3(Math.min(itemGross, take + waxTake)));
     if (take >= itemNet - 0.0005) {
       item.status = "Out";
       item.outDate = today();
       item.remarks = reference;
     } else {
       item.netWeight = Number(weight3(itemNet - take));
+      item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
       item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
       addSafeItem({
         date: today(),
@@ -3047,6 +3146,7 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
         desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
         safeKind: safeItemKind(item),
         grossWeight: grossTake,
+        waxStoneWeight: waxTake,
         netWeight: take,
         status: "Out",
         outDate: today(),
@@ -3058,20 +3158,28 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
   return remaining <= 0.0005;
 }
 
-function issueFromSafeItem(itemId, weight, reference, sourceId = "") {
+function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetails = {}) {
   const item = findById("safeItems", itemId);
   if (!item || item.status === "Out") return false;
   const take = Number(weight3(weight));
   const itemNet = safeItemAvailableWeight(item);
   if (take <= 0 || take > itemNet + 0.0005) return false;
   const itemGross = Number(item.grossWeight || itemNet);
-  const grossTake = itemNet ? Number(weight3((take / itemNet) * itemGross)) : take;
+  const itemWax = safeItemWaxStoneWeight(item);
+  const explicitWax = Object.prototype.hasOwnProperty.call(issueDetails, "waxStoneWeight");
+  const waxTake = explicitWax
+    ? Number(weight3(Math.min(itemWax, Number(issueDetails.waxStoneWeight || 0))))
+    : itemNet
+      ? Number(weight3((take / itemNet) * itemWax))
+      : 0;
+  const grossTake = Number(weight3(Math.min(itemGross, take + waxTake)));
   if (take >= itemNet - 0.0005) {
     item.status = "Out";
     item.outDate = today();
     item.remarks = reference;
   } else {
     item.netWeight = Number(weight3(itemNet - take));
+    item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
     item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
     addSafeItem({
       date: today(),
@@ -3086,6 +3194,7 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "") {
       desiredPurity: safeItemDesiredPurity(item),
       safeKind: safeItemKind(item),
       grossWeight: grossTake,
+      waxStoneWeight: waxTake,
       netWeight: take,
       status: "Out",
       outDate: today(),
@@ -3093,6 +3202,32 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "") {
     });
   }
   return true;
+}
+
+function issueFromSafeSelection(selection, weight, reference, sourceId = "", issueDetails = {}) {
+  if (!selection) return false;
+  if (selection.virtualSafeGroup) return issueFromSafeGroup(selection, weight, reference, sourceId, issueDetails);
+  return issueFromSafeItem(selection.id, weight, reference, sourceId, issueDetails);
+}
+
+function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetails = {}) {
+  let remainingNet = Number(weight3(weight));
+  let remainingWax = Number(weight3(issueDetails.waxStoneWeight || 0));
+  const totalNet = remainingNet;
+  const items = [...(group.items || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  for (const item of items) {
+    if (remainingNet <= 0.0005) break;
+    const itemNet = safeItemAvailableWeight(item);
+    if (itemNet <= 0) continue;
+    const takeNet = Number(weight3(Math.min(itemNet, remainingNet)));
+    const proportionalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * Number(issueDetails.waxStoneWeight || 0))) : 0;
+    const targetWax = remainingNet - takeNet <= 0.0005 ? remainingWax : proportionalWax;
+    const takeWax = Number(weight3(Math.min(safeItemWaxStoneWeight(item), remainingWax, targetWax)));
+    issueFromSafeItem(item.id, takeNet, reference, sourceId, { waxStoneWeight: takeWax });
+    remainingNet = Number(weight3(remainingNet - takeNet));
+    remainingWax = Number(weight3(Math.max(remainingWax - takeWax, 0)));
+  }
+  return remainingNet <= 0.0005;
 }
 
 function factoryInWeight() {
@@ -3111,6 +3246,9 @@ function factoryInWeight() {
 
 function addSafeItem(item) {
   state.safeItems = state.safeItems || [];
+  const grossWeight = Number(weight3(item.grossWeight || 0));
+  const waxStoneWeight = Number(weight3(item.waxStoneWeight ?? Math.max(grossWeight - Number(item.netWeight ?? grossWeight), 0)));
+  const netWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight)));
   state.safeItems.unshift({
     id: item.id || crypto.randomUUID(),
     date: item.date || today(),
@@ -3124,8 +3262,9 @@ function addSafeItem(item) {
     colour: item.colour || safeItemColour(item),
     desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
     safeKind: safeItemKind(item),
-    grossWeight: Number(weight3(item.grossWeight || 0)),
-    netWeight: Number(weight3(item.netWeight ?? item.grossWeight ?? 0)),
+    grossWeight,
+    waxStoneWeight,
+    netWeight,
     status: item.status || "In Safe",
     outDate: item.outDate || "",
     remarks: item.remarks || "",
@@ -3162,7 +3301,8 @@ function syncMeltingReceiveSafeItems(melting) {
   state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === sourceId));
   const breakup = melting.receiveBreakup || {};
   const locker = safeLockerForPurity(melting.targetPurity);
-  const source = `${melting.colour || ""} melting / ${melting.departmentName || "department"}`.trim();
+  const batchName = melting.batchName || assignMeltingBatchName(melting);
+  const source = `${batchName} / ${melting.departmentName || "department"}`.trim();
   const lines = [
     ["rod1Weight", "Rod 1"],
     ["rod2Weight", "Rod 2"],
@@ -3177,6 +3317,7 @@ function syncMeltingReceiveSafeItems(melting) {
   lines.forEach(([field, label]) => {
     const weight = Number(breakup[field] || 0);
     if (weight <= 0) return;
+    const waxStoneWeight = field === "castingItemWeight" ? meltingReceiveWaxStoneWeight(breakup) : 0;
     addSafeItem({
       date: melting.receivedDate || today(),
       locker,
@@ -3189,7 +3330,8 @@ function syncMeltingReceiveSafeItems(melting) {
       colour: melting.colour || "",
       desiredPurity: formatPurity(melting.targetPurity),
       grossWeight: weight,
-      netWeight: weight,
+      waxStoneWeight,
+      netWeight: safeItemNetFromGross(weight, waxStoneWeight),
       status: "In Safe",
     });
   });
@@ -3398,7 +3540,7 @@ function validateSafeLockerSourceIssue(sourceMetals = [], creditMetals = []) {
   return "";
 }
 
-function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentName = "") {
+function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentName = "", batchName = "") {
   sourceMetals.forEach((metal) => {
     if (["rod", "wastage"].includes(metal.sourceKind) || !metal.safePurity) return;
     addMetalSafeMovement({
@@ -3406,14 +3548,14 @@ function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentNa
       direction: "out",
       purity: metal.safePurity,
       weight: metal.weight,
-      reference: `Melting ${meltingId} issued to ${departmentName || "department"}`,
+      reference: `${batchName || `Melting ${meltingId}`} issued to ${departmentName || "department"}`,
       sourceType: "melting",
       sourceId: meltingId,
     });
   });
 }
 
-function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departmentName = "") {
+function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departmentName = "", batchName = "") {
   sourceMetals.forEach((metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return;
     const locker = safeLockerForPurity(metal.safeLocker);
@@ -3421,7 +3563,7 @@ function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departme
     issueFromSafeLocker(
       locker,
       metal.weight,
-      `${label} from ${locker} Safe used in melting ${meltingId}, issued to ${departmentName || "department"}`,
+      `${label} from ${locker} Safe used in ${batchName || `melting ${meltingId}`}, issued to ${departmentName || "department"}`,
       meltingId,
       metal.sourceKind
     );
@@ -3467,6 +3609,7 @@ function restoreMeltingRodIssues(sourceMetals = [], meltingId, reason = "Melting
 
 function syncMeltingIssueRecords(melting) {
   removeMeltingIssueRecords(melting.id);
+  const batchName = melting.batchName || assignMeltingBatchName(melting);
   state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -3475,14 +3618,18 @@ function syncMeltingIssueRecords(melting) {
     type: "Melt Issue",
     purity: `${formatPurity(melting.targetPurity)}`,
     weight: Number(melting.finalWeight || 0),
-    reference: `${melting.sourceMetals?.length || 1} source metals ${gram(melting.sourceWeight)} to ${formatPurity(melting.targetPurity)} ${melting.colour}, issued to ${melting.departmentName || "department"}`,
+    reference: `${batchName}: ${melting.sourceMetals?.length || 1} source metals ${gram(melting.sourceWeight)} to ${formatPurity(melting.targetPurity)} ${melting.colour}, issued to ${melting.departmentName || "department"}`,
   });
-  recordMeltingMetalSafeIssues(melting.sourceMetals, melting.id, melting.departmentName);
-  recordMeltingSafeLockerRodIssues(melting.sourceMetals, melting.id, melting.departmentName);
+  recordMeltingMetalSafeIssues(melting.sourceMetals, melting.id, melting.departmentName, batchName);
+  recordMeltingSafeLockerRodIssues(melting.sourceMetals, melting.id, melting.departmentName, batchName);
 }
 
 function syncMeltingReceiveRecords(melting) {
   state.ledger = state.ledger || [];
+  const receiveBreakup = melting.receiveBreakup || {};
+  const grossReceivedWeight = melting.grossReceivedWeight ?? meltingReceiveGrossWeight(receiveBreakup, melting);
+  const waxStoneWeight = meltingReceiveWaxStoneWeight(receiveBreakup);
+  const batchName = melting.batchName || assignMeltingBatchName(melting);
   state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== melting.id || entry.type === "Melt Issue");
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -3491,7 +3638,7 @@ function syncMeltingReceiveRecords(melting) {
     type: "Melt Received",
     purity: `${formatPurity(melting.targetPurity)}`,
     weight: Number(melting.receivedWeight || 0),
-    reference: `${melting.colour} melting received from ${melting.departmentName || "department"} (${meltingReceiveBreakupText(melting.receiveBreakup || {})}), loss ${gram(melting.meltingLoss)}`,
+    reference: `${batchName}: ${melting.colour} received from ${melting.departmentName || "department"} (${meltingReceiveBreakupText(receiveBreakup)}), GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, NT ${gram(melting.receivedWeight)}, loss ${gram(melting.meltingLoss)}`,
   });
   if (Number(melting.meltingLoss || 0) > 0) {
     state.ledger.unshift({
@@ -3501,7 +3648,7 @@ function syncMeltingReceiveRecords(melting) {
       type: "Melt Loss",
       purity: `${formatPurity(melting.targetPurity)}`,
       weight: Number(melting.meltingLoss || 0),
-      reference: `${melting.colour} melting loss booked for ${melting.departmentName || "department"}`,
+      reference: `${batchName}: ${melting.colour} loss booked for ${melting.departmentName || "department"}`,
     });
   }
   syncMeltingReceiveSafeItems(melting);
@@ -5192,7 +5339,7 @@ function updateIssueMetalSummary() {
     summary.textContent = "Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.";
     return;
   }
-  const castingItem = findById("safeItems", form.castingSafeItemId?.value);
+  const castingItem = findSafeItemOrGroup(form.castingSafeItemId?.value, form.metalPurity.value || purities[0] || "18K");
   const castingAvailable = castingItem ? safeItemAvailableWeight(castingItem) : 0;
   const castingNote = castingItem
     ? ` Casting Item: ${safeItemOptionLabel(castingItem)}. Balance after issue ${gram(Math.max(castingAvailable - Math.max(netMetal, 0), 0))}.`
@@ -5213,20 +5360,29 @@ function applyIssuePurityFromJob() {
 }
 
 function castingSafeItemsForPurity(purity = "") {
-  const locker = safeLockerForPurity(purity || "18K");
-  return (state.safeItems || [])
-    .filter((item) =>
-      item.status !== "Out"
-      && safeItemKind(item) === "rod"
-      && safeLockerForPurity(item.locker || item.purity) === locker
-      && safeItemAvailableWeight(item) > 0
-    );
+  return castingShelfGroups(purity).filter((item) => safeItemAvailableWeight(item) > 0);
 }
 
 function safeItemOptionLabel(item = {}) {
   const colour = safeItemColour(item) || "-";
   const desiredPurity = displayPurity(safeItemDesiredPurity(item));
-  return `${item.description || "Casting item"} / ${colour} / ${desiredPurity} / Avl ${gram(safeItemAvailableWeight(item))}`;
+  const source = item.virtualSafeGroup ? safeIssueSourceName(item) : item.description || "Casting item";
+  const itemCount = item.virtualSafeGroup ? ` / ${item.items?.length || 0} entries` : "";
+  return `${source} / ${colour} / ${desiredPurity} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
+}
+
+function safeIssueSourceName(item = {}) {
+  return `SHELF${safeLockerForPurity(item.locker || item.purity || "18K")}`;
+}
+
+function safeItemIssueSelectionAvailable(item = null) {
+  return Boolean(item && item.status !== "Out" && safeItemKind(item) === "rod" && safeItemAvailableWeight(item) > 0);
+}
+
+function findSafeItemOrGroup(id = "", purity = "") {
+  if (!id) return null;
+  if (isSafeShelfId(id)) return castingShelfGroups(purity).find((item) => item.id === id) || null;
+  return findById("safeItems", id);
 }
 
 function updateProductionCastingItemOptions() {
@@ -5252,7 +5408,7 @@ function updateProductionCastingItemOptions() {
 function applyCastingSafeItemToIssueForm() {
   const form = document.getElementById("production-form");
   if (!form) return;
-  const item = findById("safeItems", form.castingSafeItemId?.value);
+  const item = findSafeItemOrGroup(form.castingSafeItemId?.value, form.metalPurity.value);
   form.rodColour.value = item ? safeItemColour(item) || "-" : "";
   form.rodDesiredPurity.value = item ? displayPurity(safeItemDesiredPurity(item)) : "";
 }
@@ -11119,7 +11275,8 @@ function renderSafeLockers() {
     acc[locker] = {
       count: items.length,
       grossWeight: Number(weight3(items.reduce((total, item) => total + Number(item.grossWeight || 0), 0))),
-      netWeight: Number(weight3(items.reduce((total, item) => total + Number(item.netWeight || item.grossWeight || 0), 0))),
+      waxStoneWeight: Number(weight3(items.reduce((total, item) => total + safeItemWaxStoneWeight(item), 0))),
+      netWeight: Number(weight3(items.reduce((total, item) => total + Number(item.netWeight ?? item.grossWeight ?? 0), 0))),
       rodWeight: safeLockerBalance(locker, "rod"),
       wastageWeight: safeLockerBalance(locker, "wastage"),
     };
@@ -11130,11 +11287,30 @@ function renderSafeLockers() {
     tileContainer.innerHTML = SAFE_LOCKERS.map((locker) => `
       <button class="safe-locker-card ${filter === locker ? "active" : ""}" type="button" onclick="selectSafeLocker('${locker}')">
         <span>${locker} Safe</span>
-        <strong>${gram(totals[locker].netWeight)}</strong>
-        <small>Rod ${gram(totals[locker].rodWeight)} / Wstg ${gram(totals[locker].wastageWeight)}</small>
-        <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"} / GW ${gram(totals[locker].grossWeight)}</small>
+        <strong>GW ${gram(totals[locker].grossWeight)}</strong>
+        <small>Wax Stone ${gram(totals[locker].waxStoneWeight)} / NT ${gram(totals[locker].netWeight)}</small>
+        <small>Rod NT ${gram(totals[locker].rodWeight)} / Wstg NT ${gram(totals[locker].wastageWeight)}</small>
+        <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"}</small>
       </button>
     `).join("");
+  }
+  const shelfContainer = document.getElementById("safe-casting-shelves");
+  if (shelfContainer) {
+    const shelfGroups = castingShelfGroups(filter);
+    shelfContainer.innerHTML = shelfGroups.length
+      ? shelfGroups.map((group) => `
+        <article class="safe-casting-shelf-card">
+          <span>${escapeHtml(safeIssueSourceName(group))}</span>
+          <strong>${escapeHtml(safeItemColour(group) || "-")}</strong>
+          <small>${escapeHtml(displayPurity(safeItemDesiredPurity(group)))} / ${group.items.length} casting entr${group.items.length === 1 ? "y" : "ies"}</small>
+          <div>
+            <b>GW ${gram(group.grossWeight)}</b>
+            <b>Wax ${gram(safeItemWaxStoneWeight(group))}</b>
+            <b>NT ${gram(safeItemAvailableWeight(group))}</b>
+          </div>
+        </article>
+      `).join("")
+      : '<div class="empty">No combined casting shelf stock yet.</div>';
   }
   const rows = (state.safeItems || [])
     .filter((item) => !filter || safeLockerForPurity(item.locker || item.purity) === filter)
@@ -11146,13 +11322,14 @@ function renderSafeLockers() {
         <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
         <td>${escapeHtml(item.source || "-")}</td>
         <td>${gram(item.grossWeight)}</td>
+        <td>${gram(safeItemWaxStoneWeight(item))}</td>
         <td>${gram(item.netWeight ?? item.grossWeight)}</td>
         <td><span class="status ${statusClass(item.status || "In Safe")}">${escapeHtml(item.status || "In Safe")}</span>${item.remarks ? `<br><small>${escapeHtml(item.remarks)}</small>` : ""}</td>
         <td>${item.status === "Out" ? escapeHtml(item.outDate || "-") : `<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button>`}</td>
       </tr>
     `).join("");
   const table = document.getElementById("safe-item-table");
-  if (table) table.innerHTML = rows || tableEmpty(9, "No item in this safe locker yet.");
+  if (table) table.innerHTML = rows || tableEmpty(10, "No item in this safe locker yet.");
 }
 
 function selectSafeLocker(locker) {
@@ -11290,6 +11467,7 @@ function renderMelting() {
   const rows = state.melting.map((item) => `
     <tr>
       <td>${item.date}</td>
+      <td><strong>${escapeHtml(item.batchName || assignMeltingBatchName(item))}</strong></td>
       <td>${renderMeltingSources(item)}</td>
       <td>${formatPurity(item.targetPurity)}</td>
       <td>${escapeHtml(item.colour)}</td>
@@ -11309,7 +11487,7 @@ function renderMelting() {
       </td>
     </tr>
   `).join("");
-  document.getElementById("melting-table").innerHTML = rows || tableEmpty(11, "No melting records yet.");
+  document.getElementById("melting-table").innerHTML = rows || tableEmpty(12, "No melting records yet.");
 }
 
 function renderMeltingSources(item) {
@@ -11331,7 +11509,9 @@ function renderMeltingSources(item) {
 function meltingReceivedCell(item) {
   const breakup = item.receiveBreakup || {};
   const title = item.receiveBreakup ? meltingReceiveBreakupText(breakup) : "";
-  return `<span title="${escapeHtml(title)}">${gram(item.receivedWeight)}</span>`;
+  const grossWeight = item.grossReceivedWeight ?? meltingReceiveGrossWeight(breakup, item);
+  const waxStoneWeight = meltingReceiveWaxStoneWeight(breakup);
+  return `<span title="${escapeHtml(title)}">NT ${gram(item.receivedWeight)}<br><small>GW ${gram(grossWeight)} / Wax ${gram(waxStoneWeight)}</small></span>`;
 }
 
 function formatPurity(value) {
@@ -11448,7 +11628,7 @@ function renderOnlineTransferHistory() {
   })
     .filter(({ lot, transfer, type }) => {
       const text = type === "issue"
-        ? `${lot.number} gold issue ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
+        ? `${lot.number} gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
         : `${lot.number} ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
       return text.includes(query);
     })
@@ -11471,12 +11651,14 @@ function transferFineGold(transfer, lot = null) {
 function renderTransferHistoryRow(entry) {
   const { lot, transfer, type } = entry;
   if (type === "issue") {
+    const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
+    const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
     return `
       <tr>
         <td>${escapeHtml(transfer.date || "-")}</td>
         <td>${escapeHtml(lot.number)}</td>
-        <td>Gold Issue</td>
-        <td>- to ${escapeHtml(transfer.toKarigarName || "-")}</td>
+        <td>${escapeHtml(sourceName)} to ${escapeHtml(firstDepartment)}</td>
+        <td>${escapeHtml(sourceName)} to ${escapeHtml(transfer.toKarigarName || firstDepartment)}</td>
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
@@ -11525,9 +11707,13 @@ function goldIssueHistoryEntry(lot) {
       receivedWeight: lot.issuedWeight,
       differencePurity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
       differenceFineGold: 0,
-      reason: `Gold issued to ${lot.currentDepartment || lot.karigarName || "-"}${Number(lot.waxStoneWeight || 0) ? `; Gold Issue - Wax Stone = Net Wt, Wax Stone ${gram(lot.waxStoneWeight)}` : ""}`,
+      reason: `Gold issued from ${lot.issueSourceName || lotIssueSourceName(lot)} to ${lot.currentDepartment || lot.karigarName || "-"}${Number(lot.waxStoneWeight || 0) ? `; Gold Issue - Wax Stone = Net Wt, Wax Stone ${gram(lot.waxStoneWeight)}` : ""}`,
     },
   };
+}
+
+function lotIssueSourceName(lot = {}) {
+  return lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K")}`;
 }
 
 function stackItem(title, value) {
@@ -11580,12 +11766,14 @@ function renderLotHistoryTable(lot) {
 function renderGoldIssueHistoryRow(lot) {
   const issueGw = Number(lot.grossIssuedWeight || lot.issuedWeight || 0);
   const waxStone = Number(lot.waxStoneWeight || 0);
+  const sourceName = lotIssueSourceName(lot);
+  const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
   return `
     <tr>
       <td>1</td>
       <td>${escapeHtml(lot.issueDate || "-")}</td>
-      <td>Gold Issue</td>
-      <td>- to ${escapeHtml(lot.karigarName || "-")}</td>
+      <td>${escapeHtml(sourceName)} to ${escapeHtml(firstDepartment)}</td>
+      <td>${escapeHtml(sourceName)} to ${escapeHtml(lot.karigarName || firstDepartment)}</td>
       <td>${gram(issueGw)}</td>
       <td>${gram(issueGw)}</td>
       <td>${gram(waxStone)}</td>
@@ -11595,7 +11783,7 @@ function renderGoldIssueHistoryRow(lot) {
       <td>-</td>
       <td>${escapeHtml(displayPurity(lot.metalPurity || "-"))}</td>
       <td>${gram(0)}</td>
-      <td>${escapeHtml(`Purity ${lot.metalPurity || "-"}; Gold Issue - Wax Stone = Net Wt`)}</td>
+      <td>${escapeHtml(`${sourceName}; Purity ${lot.metalPurity || "-"}; Gold Issue - Wax Stone = Net Wt`)}</td>
       <td>-</td>
     </tr>
   `;
@@ -11672,6 +11860,8 @@ function openMeltingReceive(meltingId) {
   form.meltingId.value = melting.id;
   form.finalWeight.value = weight3(melting.finalWeight);
   form.castingItemWeight.value = weight3(isRodReceive ? 0 : (breakup.castingItemWeight ?? defaultItemWeight));
+  form.castingWaxStoneWeight.value = weight3(isRodReceive ? 0 : (breakup.castingWaxStoneWeight ?? breakup.waxStoneWeight ?? 0));
+  form.castingItemNetWeight.value = weight3(isRodReceive ? 0 : safeItemNetFromGross(form.castingItemWeight.value, form.castingWaxStoneWeight.value));
   form.treeCutWeight.value = weight3(breakup.treeCutWeight);
   form.wastageWeight.value = weight3(breakup.wastageWeight);
   form.scrapDustWeight.value = weight3(breakup.scrapDustWeight);
@@ -11721,18 +11911,74 @@ function meltingDepartmentOptionValue(melting = {}) {
   return "Casting Department";
 }
 
+function parseAppDate(value = "") {
+  const text = String(value || "").trim();
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const dmy = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function batchDateLabel(value = today()) {
+  const date = parseAppDate(value);
+  const months = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+  return `${date.getDate()}${months[date.getMonth()]}${date.getFullYear()}`;
+}
+
+function batchColourLabel(colour = "") {
+  return String(colour || "MIXED").toUpperCase().replace(/[^A-Z0-9]/g, "") || "MIXED";
+}
+
+function meltingBatchType(melting = {}) {
+  return meltingDepartmentOptionValue(melting) === "Melting Department" ? "MELTING" : "CASTING";
+}
+
+function meltingBatchDateValue(melting = {}) {
+  return meltingBatchType(melting) === "CASTING" && melting.receivedDate ? melting.receivedDate : melting.date || today();
+}
+
+function meltingBatchSequenceFromName(name = "") {
+  const match = String(name || "").match(/\/(\d+)\//);
+  return match ? Number(match[1]) : 0;
+}
+
+function assignMeltingBatchName(melting, collection = state.melting, force = false) {
+  if (!melting) return "";
+  if (melting.batchName && !force) return melting.batchName;
+  const type = meltingBatchType(melting);
+  const colour = batchColourLabel(melting.colour);
+  const dateText = batchDateLabel(meltingBatchDateValue(melting));
+  const prefix = `${colour}${type}`;
+  const existingSequence = meltingBatchSequenceFromName(melting.batchName);
+  const existingSequences = (collection || [])
+    .filter((item) => item.id !== melting.id)
+    .filter((item) =>
+      batchColourLabel(item.colour) === colour
+      && meltingBatchType(item) === type
+      && batchDateLabel(meltingBatchDateValue(item)) === dateText
+    )
+    .map((item) => meltingBatchSequenceFromName(item.batchName))
+    .filter((sequence) => sequence > 0);
+  const sequence = existingSequence || (existingSequences.length ? Math.max(...existingSequences) + 1 : 1);
+  melting.batchName = `${prefix}/${sequence}/${dateText}`;
+  return melting.batchName;
+}
+
 function openMeltingView(meltingId) {
   const melting = findById("melting", meltingId);
   if (!melting) return;
   const breakup = melting.receiveBreakup || {};
   document.getElementById("melting-view-summary").textContent =
-    `${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
+    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
   document.getElementById("melting-view-body").innerHTML = `
     <article class="history-item">
       <div class="history-step">1</div>
       <div class="history-body">
         <div class="history-title"><strong>Source & Issue</strong><span>${escapeHtml(melting.status || "Issued")}</span></div>
         <div class="history-grid">
+          <span><b>Batch Name</b>${escapeHtml(melting.batchName || assignMeltingBatchName(melting))}</span>
           <span><b>Source Metals</b>${renderMeltingSources(melting)}</span>
           <span><b>Target Purity</b>${formatPurity(melting.targetPurity)}</span>
           <span><b>Colour</b>${escapeHtml(melting.colour || "-")}</span>
@@ -11748,7 +11994,9 @@ function openMeltingView(meltingId) {
         <div class="history-title"><strong>Receive & Loss</strong><span>${escapeHtml(melting.receivedDate || "-")}</span></div>
         <div class="history-grid">
           ${meltingReceiveBreakupDetailHtml(melting)}
-          <span><b>Total Received</b>${gram(melting.receivedWeight)}</span>
+          <span><b>Full GW Received</b>${gram(melting.grossReceivedWeight ?? meltingReceiveGrossWeight(breakup, melting))}</span>
+          <span><b>Wax Stone</b>${gram(meltingReceiveWaxStoneWeight(breakup))}</span>
+          <span><b>Gold / NT Received</b>${gram(melting.receivedWeight)}</span>
           <span><b>Loss Booked</b>${gram(melting.meltingLoss)}</span>
         </div>
       </div>
@@ -11760,8 +12008,15 @@ function openMeltingView(meltingId) {
 function updateMeltingReceiveLoss() {
   const form = document.getElementById("melting-receive-form");
   const finalWeight = Number(form.finalWeight.value || 0);
-  const receivedWeight = meltingReceiveWeightFields()
+  const melting = findById("melting", form?.meltingId?.value);
+  const isRodReceive = isMeltingDepartmentReceive(melting);
+  const grossReceivedWeight = meltingReceiveWeightFields()
     .reduce((total, field) => total + Number(form[field].value || 0), 0);
+  const castingItemWeight = isRodReceive ? 0 : Number(form.castingItemWeight.value || 0);
+  const waxStoneWeight = isRodReceive ? 0 : Number(form.castingWaxStoneWeight.value || 0);
+  const castingItemNetWeight = safeItemNetFromGross(castingItemWeight, waxStoneWeight);
+  if (form.castingItemNetWeight) form.castingItemNetWeight.value = weight3(castingItemNetWeight);
+  const receivedWeight = isRodReceive ? grossReceivedWeight : Number(weight3(grossReceivedWeight - Math.min(waxStoneWeight, castingItemWeight)));
   form.receivedWeight.value = weight3(receivedWeight);
   form.meltingLoss.value = weight3(Math.max(finalWeight - receivedWeight, 0));
 }
@@ -11769,6 +12024,7 @@ function updateMeltingReceiveLoss() {
 function allMeltingReceiveWeightFields() {
   return [
     "castingItemWeight",
+    "castingWaxStoneWeight",
     "treeCutWeight",
     "wastageWeight",
     "scrapDustWeight",
@@ -11787,6 +12043,21 @@ function meltingReceiveWeightFields() {
     : ["castingItemWeight", "treeCutWeight", "wastageWeight", "scrapDustWeight", "otherReceivedWeight"];
 }
 
+function meltingReceiveGrossWeight(breakup = {}, melting = {}) {
+  const fields = isMeltingDepartmentReceive(melting)
+    ? ["rod1Weight", "rod2Weight", "wastage1Weight", "wastage2Weight"]
+    : ["castingItemWeight", "treeCutWeight", "wastageWeight", "scrapDustWeight", "otherReceivedWeight"];
+  return Number(weight3(fields.reduce((total, field) => total + Number(breakup[field] || 0), 0)));
+}
+
+function meltingReceiveWaxStoneWeight(breakup = {}) {
+  return Number(weight3(breakup.castingWaxStoneWeight ?? breakup.waxStoneWeight ?? 0));
+}
+
+function meltingReceiveNetWeight(breakup = {}, melting = {}) {
+  return Number(weight3(Math.max(meltingReceiveGrossWeight(breakup, melting) - meltingReceiveWaxStoneWeight(breakup), 0)));
+}
+
 function getMeltingReceiveBreakup(data, melting = {}) {
   if (isMeltingDepartmentReceive(melting)) {
     return {
@@ -11795,6 +12066,8 @@ function getMeltingReceiveBreakup(data, melting = {}) {
       wastage1Weight: Number(data.wastage1Weight || 0),
       wastage2Weight: Number(data.wastage2Weight || 0),
       castingItemWeight: 0,
+      castingWaxStoneWeight: 0,
+      castingItemNetWeight: 0,
       treeCutWeight: 0,
       wastageWeight: 0,
       scrapDustWeight: 0,
@@ -11807,6 +12080,8 @@ function getMeltingReceiveBreakup(data, melting = {}) {
     wastage1Weight: 0,
     wastage2Weight: 0,
     castingItemWeight: Number(data.castingItemWeight || 0),
+    castingWaxStoneWeight: Number(data.castingWaxStoneWeight || 0),
+    castingItemNetWeight: safeItemNetFromGross(data.castingItemWeight, data.castingWaxStoneWeight),
     treeCutWeight: Number(data.treeCutWeight || 0),
     wastageWeight: Number(data.wastageWeight || 0),
     scrapDustWeight: Number(data.scrapDustWeight || 0),
@@ -11825,6 +12100,8 @@ function meltingReceiveBreakupText(breakup) {
   }
   return [
     `item ${gram(breakup.castingItemWeight)}`,
+    `wax stone ${gram(meltingReceiveWaxStoneWeight(breakup))}`,
+    `item net ${gram(breakup.castingItemNetWeight ?? safeItemNetFromGross(breakup.castingItemWeight, meltingReceiveWaxStoneWeight(breakup)))}`,
     `tree ${gram(breakup.treeCutWeight)}`,
     `wastage ${gram(breakup.wastageWeight)}`,
     `scrap/dust ${gram(breakup.scrapDustWeight)}`,
@@ -11844,6 +12121,8 @@ function meltingReceiveBreakupDetailHtml(melting) {
   }
   return `
     <span><b>Casting Item</b>${gram(breakup.castingItemWeight)}</span>
+    <span><b>Wax Set Stone</b>${gram(meltingReceiveWaxStoneWeight(breakup))}</span>
+    <span><b>Casting Item NT</b>${gram(breakup.castingItemNetWeight ?? safeItemNetFromGross(breakup.castingItemWeight, meltingReceiveWaxStoneWeight(breakup)))}</span>
     <span><b>Tree Cut</b>${gram(breakup.treeCutWeight)}</span>
     <span><b>Wastage Received</b>${gram(breakup.wastageWeight)}</span>
     <span><b>Scrap / Dust</b>${gram(breakup.scrapDustWeight)}</span>
@@ -11914,25 +12193,32 @@ function normalizeState(currentState) {
   ]).filter(([id]) => users[id] && id !== "owner"));
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
-  currentState.safeItems = (currentState.safeItems || []).map((item) => ({
-    id: item.id || crypto.randomUUID(),
-    date: item.date || today(),
-    locker: safeLockerForPurity(item.locker || item.purity),
-    purity: item.purity || item.locker || "",
-    description: item.description || "",
-    source: item.source || "",
-    sourceType: item.sourceType || "",
-    sourceId: item.sourceId || "",
-    sourceLine: item.sourceLine || "",
-    colour: item.colour || safeItemColour(item),
-    desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
-    safeKind: safeItemKind(item),
-    grossWeight: Number(item.grossWeight || 0),
-    netWeight: Number(item.netWeight ?? item.grossWeight ?? 0),
-    status: item.status || "In Safe",
-    outDate: item.outDate || "",
-    remarks: item.remarks || "",
-  }));
+  currentState.safeItems = (currentState.safeItems || []).map((item) => {
+    const grossWeight = Number(item.grossWeight ?? item.netWeight ?? 0);
+    const savedNetWeight = Number(item.netWeight ?? grossWeight);
+    const waxStoneWeight = Number(weight3(item.waxStoneWeight ?? Math.max(grossWeight - savedNetWeight, 0)));
+    const netWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight)));
+    return {
+      id: item.id || crypto.randomUUID(),
+      date: item.date || today(),
+      locker: safeLockerForPurity(item.locker || item.purity),
+      purity: item.purity || item.locker || "",
+      description: item.description || "",
+      source: item.source || "",
+      sourceType: item.sourceType || "",
+      sourceId: item.sourceId || "",
+      sourceLine: item.sourceLine || "",
+      colour: item.colour || safeItemColour(item),
+      desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
+      safeKind: safeItemKind(item),
+      grossWeight,
+      waxStoneWeight,
+      netWeight,
+      status: item.status || "In Safe",
+      outDate: item.outDate || "",
+      remarks: item.remarks || "",
+    };
+  });
   currentState.metalSafeMovements = (currentState.metalSafeMovements || []).map((movement) => ({
     id: movement.id || crypto.randomUUID(),
     date: movement.date || today(),
@@ -12093,6 +12379,7 @@ function normalizeState(currentState) {
     departmentName: item.departmentName || "",
     status: item.status || "Issued",
     receivedWeight: Number(item.receivedWeight || 0),
+    grossReceivedWeight: Number(item.grossReceivedWeight ?? (item.receiveBreakup ? meltingReceiveGrossWeight(item.receiveBreakup, item) : item.receivedWeight) ?? 0),
     meltingLoss: Number(item.meltingLoss || 0),
     receiveBreakup: item.receiveBreakup || null,
     sourceType: item.sourceType || "",
@@ -12116,6 +12403,7 @@ function normalizeState(currentState) {
           safePurity: "",
         }],
   }));
+  currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
   currentState.orders = currentState.orders || [];
   currentState.orders.forEach((order) => {
     order.designId = order.designId || "";
@@ -12240,6 +12528,9 @@ function normalizeLotIssueWeights(currentState, lot) {
     grossIssuedWeight,
     waxStoneWeight,
     issuedWeight,
+    issueSourceName: lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K")}`,
+    issueSourceDetail: lot.issueSourceDetail || lot.castingSafeItemDescription || "",
+    issueSourceLocker: lot.issueSourceLocker || safeLockerForPurity(lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K"),
     actualWastage: Number(lot.actualWastage || 0),
     repairAdditionalLoss: Number(lot.repairAdditionalLoss || 0),
     wastageFineGold: Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage || 0, lot.wastagePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0)),
