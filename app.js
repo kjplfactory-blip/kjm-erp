@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v219";
+const APP_VERSION = "v220";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";

@@ -4347,6 +4347,130 @@ dialog::backdrop {
   }
 }
 
+/* Screen fit: use the full browser width and avoid left-right scrolling in the app. */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.sidebar,
+.app,
+.view,
+.panel,
+.dialog-card,
+.workbench,
+.content-grid,
+.table-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app {
+  width: 100%;
+}
+
+.content-grid,
+.workbench {
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+}
+
+.safe-layout {
+  grid-template-columns: 1fr;
+}
+
+.safe-locker-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.safe-casting-shelf-grid,
+.safe-metal-summary {
+  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+}
+
+.safe-locker-card,
+.safe-casting-shelf-card,
+.metal-safe-balance {
+  min-width: 0;
+  padding: 12px;
+}
+
+.safe-locker-card strong,
+.safe-casting-shelf-card strong,
+.metal-safe-balance strong {
+  font-size: clamp(18px, 2vw, 24px);
+}
+
+.safe-inline-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr));
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .table-wrap,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-entry-table,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .bill-item-table,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .design-stone-details,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-transfer-table {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) table {
+  width: 100%;
+  min-width: 0 !important;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) th,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) td {
+  padding: 8px 7px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) th {
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) td,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) td small {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .row-actions {
+  flex-wrap: wrap;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .row-actions button,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .row-actions .ghost-button,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) table button {
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+@media (max-width: 1180px) {
+  .safe-locker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .safe-locker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app {
+    padding-inline: 14px;
+  }
+}
+
 @media print {
   body.printing-bill,
   body.printing-packing-list,
