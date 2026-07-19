@@ -10,9 +10,10 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v223";
+const APP_VERSION = "v224";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
+const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -49,6 +50,7 @@ let supabaseIsSaving = false;
 let supabaseIsLoading = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
+let factoryResetLockUntil = Number(localStorage.getItem("gold-jewellery-erp-reset-lock-until") || 0);
 let selectedDesignIds = new Set();
 
 const users = {
@@ -398,7 +400,7 @@ document.getElementById("logout").addEventListener("click", () => {
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
 document.getElementById("push-live-data")?.addEventListener("click", pushLocalDataToCloud);
 
-document.getElementById("reset-demo").addEventListener("click", () => {
+document.getElementById("reset-demo").addEventListener("click", async (event) => {
   if (!isOwner()) {
     alert("Only Owner can reset data.");
     return;
@@ -409,9 +411,17 @@ document.getElementById("reset-demo").addEventListener("click", () => {
     return;
   }
   if (!confirm("This will clear all job cards, production, bills, melting/casting history, safe locker stock, and old factory stock.\n\nIt will then create fresh factory stock: 4000.000 g of 99.5% gold.\n\nCustomer, design, stone, department, and user masters will remain.")) return;
-  clearJobCards();
-  saveState();
-  render();
+  event.currentTarget.disabled = true;
+  try {
+    const cloudSaved = await resetFactoryData();
+    if (cloudSaved) {
+      alert("Reset done. Job cards and melting/casting are cleared. Factory gold stock is now 4000.000 g of 99.5% gold, and live sync is updated.");
+    } else {
+      alert("Reset done on this laptop. Live sync could not be updated, so other laptops may still show old data.\n\nRun RESET-JOB-CARDS-AND-FACTORY-STOCK.sql in Supabase, or fix sync and click Upload This Laptop Data.");
+    }
+  } finally {
+    event.currentTarget.disabled = false;
+  }
 });
 
 document.getElementById("order-form").addEventListener("submit", (event) => {
@@ -1819,6 +1829,61 @@ function saveState() {
   queueSupabaseSave();
 }
 
+function saveStateLocalOnly() {
+  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  supabaseLastLocalChangeAt = Date.now();
+}
+
+async function resetFactoryData() {
+  setFactoryResetProtection(true);
+  supabasePendingCloudState = null;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  clearJobCards();
+  saveStateLocalOnly();
+  render();
+  setDefaultOrderDates(document.getElementById("order-form"));
+  resetOrderItemRows();
+  resetMeltingSources();
+  updateMeltingCalculation();
+  setSyncStatus("saving", "Reset Saved Locally", "Trying to update live sync now.");
+
+  if (!supabaseClient && supabaseSettings.url && supabaseSettings.anonKey) {
+    try {
+      supabaseClient = await createSupabaseClient();
+    } catch (error) {
+      console.warn("Supabase reset save could not connect.", error);
+      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), error.message || String(error));
+    }
+  }
+
+  const cloudSaved = supabaseClient ? await syncStateToSupabase({ force: true }) : false;
+  if (cloudSaved) {
+    setFactoryResetProtection(false);
+    startSupabaseAutoRefresh();
+  } else {
+    setFactoryResetProtection(true);
+    setSyncStatus("offline", "Reset: Local Only", "Live sync was not updated. Run reset SQL or upload this laptop data after sync connects.");
+  }
+  return cloudSaved;
+}
+
+function setFactoryResetProtection(active) {
+  factoryResetLockUntil = active ? Date.now() + FACTORY_RESET_PROTECTION_MS : 0;
+  if (factoryResetLockUntil) {
+    localStorage.setItem("gold-jewellery-erp-reset-lock-until", String(factoryResetLockUntil));
+  } else {
+    localStorage.removeItem("gold-jewellery-erp-reset-lock-until");
+  }
+}
+
+function isFactoryResetProtected() {
+  if (!factoryResetLockUntil) return false;
+  if (Date.now() < factoryResetLockUntil) return true;
+  setFactoryResetProtection(false);
+  return false;
+}
+
 function userPassword(userId) {
   return state.userPasswords?.[userId] || defaultUserPasswords[userId] || "";
 }
@@ -2143,6 +2208,11 @@ async function initializeSupabase() {
 }
 
 async function refreshLiveData() {
+  if (isFactoryResetProtected()) {
+    alert("Factory reset is protected locally because live sync was not updated yet. Run the reset SQL in Supabase or click Upload This Laptop Data after sync connects.");
+    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
+    return;
+  }
   if (!supabaseClient) {
     alert("Live sync is not connected on this laptop. Check internet and refresh the website.");
     setSyncStatus("offline", "Sync: Offline");
@@ -2171,7 +2241,8 @@ async function pushLocalDataToCloud() {
   }
   if (!confirm("Upload this laptop data to cloud now?\n\nUse this only on the laptop which has the correct latest data. Other laptops will receive this data.")) return;
   supabasePendingCloudState = null;
-  await syncStateToSupabase({ force: true });
+  const saved = await syncStateToSupabase({ force: true });
+  if (saved) setFactoryResetProtection(false);
 }
 
 function startSupabaseAutoRefresh() {
@@ -2264,6 +2335,10 @@ async function loadSupabaseState(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  if (isFactoryResetProtected()) {
+    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
+    return false;
+  }
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
   if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
@@ -2303,6 +2378,10 @@ async function loadSupabaseState(options = {}) {
 }
 
 function applyCloudStateFromRow(row = {}, options = {}) {
+  if (isFactoryResetProtected()) {
+    setSyncStatus("offline", "Reset: Local Only", "Old cloud data is blocked from overwriting this reset.");
+    return false;
+  }
   const cloudUpdatedAt = row.updated_at || "";
   const isAuto = Boolean(options.auto || options.realtime);
   if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
@@ -2322,6 +2401,10 @@ function applyCloudStateFromRow(row = {}, options = {}) {
 }
 
 function applyPendingCloudState(source = "auto") {
+  if (isFactoryResetProtected()) {
+    supabasePendingCloudState = null;
+    return false;
+  }
   if (!supabasePendingCloudState || isUserActivelyEditing()) return false;
   const pending = supabasePendingCloudState;
   supabasePendingCloudState = null;
