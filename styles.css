@@ -1532,6 +1532,11 @@ th {
   background: #fbfcff;
 }
 
+.design-category-item.return-highlight {
+  border-color: #d8b45a;
+  box-shadow: 0 0 0 3px rgba(216, 180, 90, 0.22);
+}
+
 .design-select-check {
   display: inline-flex;
   align-items: center;

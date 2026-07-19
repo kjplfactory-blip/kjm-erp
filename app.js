@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v206";
+const APP_VERSION = "v207";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -121,6 +121,7 @@ let stoneLibraryPage = 1;
 const stoneLibraryPageSize = 100;
 let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
+let stoneCropReturnContext = null;
 const stoneCropState = {
   files: [],
   sourceIndex: 0,
@@ -209,6 +210,7 @@ document.getElementById("assign-stone-charts").addEventListener("click", async (
 document.getElementById("close-stone-crop").addEventListener("click", () => {
   document.getElementById("stone-crop-dialog").close();
 });
+document.getElementById("stone-crop-dialog").addEventListener("close", restoreStoneCropReturnContext);
 document.getElementById("stone-crop-source").addEventListener("change", async (event) => {
   await loadStoneCropSource(Number(event.target.value || 0));
 });
@@ -2218,6 +2220,29 @@ function restoreStoneEntryReturnContext() {
     switchDesignPage("master");
     setTimeout(() => openDesignCategory(encodeURIComponent(context.category)), 0);
   }
+}
+
+function restoreStoneCropReturnContext() {
+  const context = stoneCropReturnContext;
+  stoneCropReturnContext = null;
+  if (!context) return;
+  if (context.type === "design-category" && context.category) {
+    switchView("designs");
+    switchDesignPage("master");
+    setTimeout(() => {
+      openDesignCategory(encodeURIComponent(context.category));
+      setTimeout(() => focusDesignCardInMaster(context.designId), 60);
+    }, 0);
+  }
+}
+
+function focusDesignCardInMaster(designId) {
+  if (!designId) return;
+  const card = document.querySelector(`[data-design-card="${designId}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.classList.add("return-highlight");
+  setTimeout(() => card.classList.remove("return-highlight"), 1800);
 }
 
 function getFormData(form) {
@@ -5588,7 +5613,7 @@ async function openStoneCropDialog() {
   const sources = await stoneCropSourcesFromSelection();
   if (!sources.length) {
     alert("Upload a stone chart or design image first, then crop.");
-    return;
+    return false;
   }
   stoneCropState.files = sources;
   stoneCropState.sourceIndex = 0;
@@ -5597,6 +5622,7 @@ async function openStoneCropDialog() {
   document.getElementById("stone-crop-reupload").value = "";
   document.getElementById("stone-crop-dialog").showModal();
   await loadStoneCropSource(0);
+  return true;
 }
 
 function renderStoneCropSourceOptions() {
@@ -7448,7 +7474,7 @@ function renderDesignCard(design) {
   const hasSource = Boolean(design.hasStoneChartSource);
   const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
   return `
-    <article class="design-category-item">
+    <article class="design-category-item" data-design-card="${escapeHtml(design.id)}">
       <label class="design-select-check">
         <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
         <span>Select</span>
@@ -7515,11 +7541,20 @@ async function openDesignImage(designId) {
 async function openDesignStoneCrop(designId) {
   const design = findById("designs", designId);
   if (!design) return;
+  const categoryDialog = document.getElementById("design-category-dialog");
+  stoneCropReturnContext = {
+    type: "design-category",
+    category: categoryDialog.open
+      ? document.getElementById("design-category-title").textContent || design.category || "Uncategorised"
+      : design.category || "Uncategorised",
+    designId: design.id,
+  };
   if (document.getElementById("design-category-dialog").open) {
     document.getElementById("design-category-dialog").close();
   }
   await loadStoneEntry(design.id, defaultStoneItemKeyForDesign(design));
-  await openStoneCropDialog();
+  const opened = await openStoneCropDialog();
+  if (!opened) stoneCropReturnContext = null;
 }
 
 async function openStoneChart(designId) {
