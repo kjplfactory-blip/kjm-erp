@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v226</small>
+            <small class="app-version-badge">App v227</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v226</span>
+          <span class="app-version-badge">App v227</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -516,7 +516,7 @@
             <h2>Melting / Casting Dashboard</h2>
             <div class="row-actions">
               <button class="ghost-button" type="button" onclick="openOperationPage('melting', 'conversion')">New Melting</button>
-              <button type="button" onclick="openOperationPage('melting', 'history')">Open Full History</button>
+              <button type="button" onclick="openMeltingFullHistory()">Open Full History</button>
             </div>
           </div>
           <div id="melting-summary-grid" class="melting-summary-grid"></div>
@@ -558,6 +558,7 @@
           </form>
           <section class="panel table-panel">
             <div class="panel-heading"><h2>Melting History</h2></div>
+            <div id="melting-full-history-list" class="melting-full-history-list"></div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Date</th><th>Batch Name</th><th>Source Metals</th><th>Target</th><th>Colour</th><th>Department</th><th>Status</th><th>Pure Gold</th><th>Final</th><th>Received NT</th><th>Loss</th><th>Action</th></tr></thead>
@@ -1112,6 +1113,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=226"></script>
+  <script src="app.js?v=227"></script>
 </body>
 </html>

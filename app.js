@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v226";
+const APP_VERSION = "v227";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -11810,10 +11810,7 @@ function renderMeltingHistoryTile(item) {
       <small>${escapeHtml(receivedText)}</small>
       <div class="melting-history-card-footer">
         <span class="status ${statusClass(status)}">${escapeHtml(status)}</span>
-        <div class="row-actions">
-          <button class="ghost-button" type="button" onclick="openMeltingView('${item.id}')">View</button>
-          <button type="button" onclick="openMeltingReceive('${item.id}')">${isReceived ? "Edit Receive" : "Receive"}</button>
-        </div>
+        ${renderMeltingActionButtons(item)}
       </div>
     </article>
   `;
@@ -11821,6 +11818,7 @@ function renderMeltingHistoryTile(item) {
 
 function renderMelting() {
   renderMeltingDashboard();
+  renderMeltingFullHistoryCards();
   const rows = (state.melting || []).map((item) => `
     <tr>
       <td>${item.date}</td>
@@ -11835,17 +11833,69 @@ function renderMelting() {
       <td>${item.status === "Received" ? meltingReceivedCell(item) : "-"}</td>
       <td>${item.status === "Received" ? gram(item.meltingLoss) : "-"}</td>
       <td>
-        <div class="row-actions">
-          <button class="ghost-button" onclick="openMeltingView('${item.id}')">View</button>
-          <button class="ghost-button" onclick="openMeltingIssueEdit('${item.id}')">Edit Issue</button>
-          <button onclick="openMeltingReceive('${item.id}')">${item.status === "Received" ? "Edit Receive" : "Receive"}</button>
-          <button class="delete-btn" onclick="deleteMeltingEntry('${item.id}')">Delete</button>
-        </div>
+        ${renderMeltingActionButtons(item)}
       </td>
     </tr>
   `).join("");
   const table = document.getElementById("melting-table");
   if (table) table.innerHTML = rows || tableEmpty(12, "No melting records yet.");
+}
+
+function renderMeltingActionButtons(item) {
+  const isReceived = (item.status || "Issued") === "Received";
+  return `
+    <div class="row-actions melting-actions">
+      <button class="ghost-button" type="button" onclick="openMeltingView('${item.id}')">View</button>
+      <button class="ghost-button" type="button" onclick="openMeltingIssueEdit('${item.id}')">Edit Issue</button>
+      <button type="button" onclick="openMeltingReceive('${item.id}')">${isReceived ? "Edit Receive" : "Receive"}</button>
+      <button class="delete-btn" type="button" onclick="deleteMeltingEntry('${item.id}')">Delete</button>
+    </div>
+  `;
+}
+
+function renderMeltingFullHistoryCards() {
+  const container = document.getElementById("melting-full-history-list");
+  if (!container) return;
+  const records = state.melting || [];
+  container.innerHTML = records.length
+    ? records.map(renderMeltingFullHistoryCard).join("")
+    : '<div class="empty">No melting records yet.</div>';
+}
+
+function renderMeltingFullHistoryCard(item) {
+  const status = item.status || "Issued";
+  const isReceived = status === "Received";
+  const batchName = item.batchName || assignMeltingBatchName(item);
+  const receivedSummary = isReceived
+    ? `Received NT ${gram(item.receivedWeight)} / Loss ${gram(item.meltingLoss)}`
+    : "Receive pending";
+  return `
+    <article class="melting-full-history-card ${isReceived ? "received" : "pending"}">
+      <div class="melting-full-history-head">
+        <div>
+          <span>${escapeHtml(meltingDashboardDepartmentName(item))}</span>
+          <strong>${escapeHtml(batchName)}</strong>
+        </div>
+        <span class="status ${statusClass(status)}">${escapeHtml(status)}</span>
+      </div>
+      <div class="melting-full-history-grid">
+        <small><b>Date</b>${escapeHtml(item.date || "-")}</small>
+        <small><b>Target</b>${escapeHtml(formatPurity(item.targetPurity))}</small>
+        <small><b>Colour</b>${escapeHtml(item.colour || "-")}</small>
+        <small><b>Department</b>${escapeHtml(item.departmentName || "-")}</small>
+        <small><b>Source</b>${renderMeltingSources(item)}</small>
+        <small><b>Pure Gold</b>${gram(item.pureGold)}</small>
+        <small><b>Final Issue</b>${gram(item.finalWeight)}</small>
+        <small><b>Receive</b>${escapeHtml(receivedSummary)}</small>
+      </div>
+      ${renderMeltingActionButtons(item)}
+    </article>
+  `;
+}
+
+function openMeltingFullHistory() {
+  openOperationPage("melting", "history");
+  document.querySelector("#melting .table-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderMeltingSources(item) {
@@ -12238,6 +12288,7 @@ function openMeltingReceive(meltingId) {
 function openMeltingIssueEdit(meltingId) {
   const melting = findById("melting", meltingId);
   if (!melting) return;
+  openOperationPage("melting", "conversion");
   const form = document.getElementById("melting-form");
   form.meltingId.value = melting.id;
   document.getElementById("melting-sources").innerHTML = "";
