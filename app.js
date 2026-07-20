@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v229";
+const APP_VERSION = "v230";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -562,12 +562,15 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         }
         matchedStoneCharts += chartAttachedForDesign;
       }
-      for (const { group, existingDesign } of duplicateGroups) {
-        status.textContent = `Duplicate found: ${group.designName || existingDesign.number}. Waiting for your choice.`;
-        const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles, { cropPermission: uploadCropPermission });
-        updatedCount += result.updated;
-        createdCount += result.created;
-        matchedStoneCharts += result.chartAttached;
+      if (duplicateGroups.length) {
+        const duplicateAction = chooseDuplicateDesignUploadAction(duplicateGroups);
+        status.textContent = `Applying ${duplicateAction} to ${duplicateGroups.length} duplicate design(s).`;
+        for (const { group, existingDesign } of duplicateGroups) {
+          const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
+          updatedCount += result.updated;
+          createdCount += result.created;
+          matchedStoneCharts += result.chartAttached;
+        }
       }
       const mergedImageCount = imageFiles.length - uploadGroups.length;
       status.dataset.uploadSummary = `${createdCount} design(s) created, ${updatedCount} existing/duplicate design(s) handled. ${mergedImageCount} extra image(s) merged into matching designs. ${matchedStoneCharts} stone chart(s) attached.`;
@@ -6800,9 +6803,36 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
   return { updated: 1, chartAttached };
 }
 
+function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
+  if (!duplicateGroups.length) return "SKIP";
+  const preview = duplicateGroups.slice(0, 20).map(({ group, existingDesign }, index) =>
+    `${index + 1}. ${group.designName || designNameFromFile(group.designFile?.name) || "Design"} -> ${designText(existingDesign)}`
+  ).join("\n");
+  const extra = duplicateGroups.length > 20 ? `\n...and ${duplicateGroups.length - 20} more duplicate(s).` : "";
+  const action = prompt(
+    `${duplicateGroups.length} duplicate design image(s) found.\n\n${preview}${extra}\n\nChoose ONE action for all duplicate images:\nMERGE = attach chart/details to existing design, design image unchanged.\nREPLACE = replace existing design image also.\nNEW = save each duplicate as a new copy with automatic COPY name.\nSKIP = ignore all duplicate images.`,
+    "MERGE"
+  );
+  const choice = String(action || "SKIP").trim().toUpperCase();
+  return ["MERGE", "REPLACE", "NEW", "SKIP"].includes(choice) ? choice : "SKIP";
+}
+
+function uniqueDuplicateDesignCopyName(baseName) {
+  const cleanBase = String(baseName || "Design").trim() || "Design";
+  let suffix = "COPY";
+  let candidate = `${cleanBase}-${suffix}`;
+  let index = 2;
+  while (findDesignByUploadKey(normalizedDesignMatchKey(candidate))) {
+    suffix = `COPY-${index}`;
+    candidate = `${cleanBase}-${suffix}`;
+    index += 1;
+  }
+  return candidate;
+}
+
 async function resolveDuplicateDesignUpload(group, existingDesign, category, stoneChartFiles = [], options = {}) {
   const designName = group.designName || designText(existingDesign);
-  const action = prompt(
+  const action = options.duplicateAction || prompt(
     `Duplicate design number found: ${designName}\nExisting: ${designText(existingDesign)}\n\nType MERGE to attach stone chart/details to existing.\nType REPLACE to also replace existing design image.\nType NEW to keep as separate design.\nType SKIP to ignore this duplicate.`,
     "MERGE"
   );
@@ -6816,7 +6846,7 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     return { created: 0, updated: result.updated, chartAttached: result.chartAttached };
   }
   if (choice === "NEW") {
-    const copyName = prompt("Enter design number for this separate duplicate:", `${designName}-COPY`);
+    const copyName = options.duplicateAction ? uniqueDuplicateDesignCopyName(designName) : prompt("Enter design number for this separate duplicate:", uniqueDuplicateDesignCopyName(designName));
     const cleanCopyName = String(copyName || "").trim();
     if (!cleanCopyName) return { created: 0, updated: 0, chartAttached: 0 };
     const design = createDesignFromUploadGroup(group, category, cleanCopyName);
