@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v228";
+const APP_VERSION = "v229";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -7984,7 +7984,6 @@ function removeDesignStoneItem(stoneItemId) {
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) return;
-  if (!requireOwnerPermission("remove saved stone chart row")) return;
   design.stoneItems = (design.stoneItems || []).filter((item) => item.id !== stoneItemId);
   design.stoneDetails = designStoneDetailsText(design.stoneItems);
   renderDesignStoneItems(designStoneItemsForKey(design, currentStoneEntryItemKey()), currentStoneEntryItemKey());
@@ -8030,7 +8029,6 @@ function saveDesignStoneItemEdit(stoneItemId) {
     alert("Select Type, Shape, Size and enter valid No. Pcs.");
     return;
   }
-  if (!requireOwnerPermission("edit saved stone chart row")) return;
   const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
   const weightPerPc = libraryStone?.weightPerPc || item.weightPerPc || "";
   Object.assign(item, {
@@ -9047,7 +9045,6 @@ async function openStoneChart(designId) {
 async function removeDesignStoneChart(designId) {
   const design = findById("designs", designId);
   if (!design) return;
-  if (!requireOwnerPermission("remove stone chart from design")) return;
   const chartKeys = designStoneChartItemKeys(design);
   const choices = [...(design.hasStoneChartSource ? ["SOURCE"] : []), ...chartKeys];
   if (!choices.length) return;
@@ -9091,7 +9088,6 @@ function findDesignByMergeInput(input, excludeId = "") {
 async function mergeDesignPrompt(sourceDesignId) {
   const source = findById("designs", sourceDesignId);
   if (!source) return;
-  if (!requireOwnerPermission("merge designs")) return;
   const targetInput = prompt(`Merge ${designText(source)} into which design number/name?`);
   const target = findDesignByMergeInput(targetInput, source.id);
   if (!target) {
