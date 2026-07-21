@@ -2537,6 +2537,7 @@ dialog::backdrop {
 .bill-dialog-card {
   align-content: start;
   gap: 16px;
+  background: linear-gradient(180deg, #f7fbfa 0%, #eef7f4 100%);
 }
 
 .bill-dialog-card h2,
@@ -2544,7 +2545,6 @@ dialog::backdrop {
 .bill-dialog-card .bill-item-table,
 .bill-dialog-card .bill-fields,
 .bill-dialog-card .bill-totals,
-.bill-dialog-card .bill-tally,
 .bill-dialog-card .dialog-actions {
   width: 100%;
 }
@@ -2717,114 +2717,195 @@ dialog::backdrop {
   color: #0b514c;
 }
 
-.bill-tally {
-  display: block;
+#bill-dialog .bill-dialog-card {
+  padding: 18px;
 }
 
-.bill-tally-panel {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
+#bill-dialog .bill-dialog-card h2 {
+  margin: 0;
+  padding: 13px 16px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0b514c, #0b7a75);
+  color: #fff;
+  box-shadow: 0 12px 26px rgba(11, 81, 76, 0.16);
+}
+
+#bill-dialog .bill-dialog-card > .dialog-note {
+  margin: 0;
+  padding: 10px 12px;
   border: 1px solid #cfe0dc;
   border-radius: 8px;
-  background: #f8fbfa;
+  background: #fff;
+  color: #47615d;
+  font-weight: 800;
 }
 
-.bill-tally-heading {
-  align-items: center;
-}
-
-.bill-tally-heading h3 {
-  margin: 0;
-  color: var(--brand-dark);
-}
-
-.bill-tally-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.bill-tally-status.match,
-.bill-tally-card.match {
-  border-color: #86d6a0;
-  background: #eefbf1;
-  color: #166534;
-}
-
-.bill-tally-status.mismatch,
-.bill-tally-card.mismatch {
-  border-color: #f5b6b6;
-  background: #fff1f1;
-  color: #991b1b;
-}
-
-.bill-tally-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 8px;
-}
-
-.bill-tally-card {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
+#bill-dialog .bill-fields {
+  padding: 12px;
+  border: 1px solid #d6e4e0;
   border-radius: 8px;
   background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
-.bill-tally-card span {
-  color: var(--muted);
+#bill-dialog .bill-fields label,
+#bill-dialog .bill-non-gold-grid label {
+  color: #52706b;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
-.bill-tally-card strong {
-  color: var(--brand-dark);
-  font-size: 16px;
-  overflow-wrap: anywhere;
+#bill-dialog .bill-totals {
+  top: 0;
+  padding: 6px 0 8px;
+  background: linear-gradient(180deg, #f7fbfa 0%, rgba(247, 251, 250, 0.94) 100%);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
 }
 
-.bill-tally-card small {
-  color: var(--muted);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.bill-tally-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+#bill-dialog .bill-total-card {
+  padding: 9px 10px;
+  border-color: #d6e4e0;
+  border-left: 3px solid #9fd5cc;
   background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
-.bill-tally-table {
-  width: 100%;
-  border-collapse: collapse;
+#bill-dialog .bill-total-card.highlight {
+  border-left-color: #0b7a75;
+  background: #e7f8f3;
+}
+
+#bill-dialog .bill-item-table {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+#bill-dialog .bill-item-table table {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  min-width: 0;
   table-layout: fixed;
 }
 
-.bill-tally-table th,
-.bill-tally-table td {
-  padding: 7px 8px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  overflow-wrap: anywhere;
+#bill-dialog .bill-item-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding: 10px 8px;
+  border: 0;
+  background: #123f3c;
+  color: #fff;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
-.bill-tally-table th {
-  color: var(--muted);
+#bill-dialog .bill-item-table thead th:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+#bill-dialog .bill-item-table thead th:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+#bill-dialog .bill-item-table tbody td {
+  border-top: 1px solid #dbe8e5;
+  border-bottom: 1px solid #dbe8e5;
+  background: #fff;
+  vertical-align: middle;
+}
+
+#bill-dialog .bill-item-table tbody td:first-child {
+  border-left: 1px solid #dbe8e5;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+#bill-dialog .bill-item-table tbody td:last-child {
+  border-right: 1px solid #dbe8e5;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+#bill-dialog .bill-item-table tbody tr:hover td {
+  background: #fbfffd;
+}
+
+#bill-dialog .bill-item-table td:first-child strong {
+  display: block;
+  color: #0b514c;
+  font-size: 13px;
+}
+
+#bill-dialog .bill-item-table small {
+  color: #6b7d7a;
   font-size: 10px;
-  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+#bill-dialog .bill-item-table input,
+#bill-dialog .bill-item-table select,
+#bill-dialog .bill-fields input {
+  min-height: 38px;
+  border-color: #c8d9d5;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#bill-dialog .bill-item-table input:focus,
+#bill-dialog .bill-item-table select:focus,
+#bill-dialog .bill-fields input:focus {
+  outline: 2px solid rgba(11, 122, 117, 0.18);
+  border-color: #0b7a75;
+  box-shadow: 0 0 0 3px rgba(11, 122, 117, 0.08);
+}
+
+#bill-dialog input[name="billItemFinalGw"] {
+  border-color: #dfb52e;
+  background: #fff9db;
+  color: #5c4200;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+#bill-dialog input[readonly] {
+  border-color: #d6dee4;
+  background: #edf2f7;
+  color: #475569;
+}
+
+#bill-dialog .bill-non-gold-grid {
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #e2eeeb;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+#bill-dialog .bill-item-table .dialog-note {
+  border: 1px solid #d6e4e0;
+  border-radius: 0 0 8px 8px;
+  background: #fff;
+  color: #526b67;
+  font-weight: 700;
+}
+
+#bill-dialog .dialog-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d6e4e0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 -10px 22px rgba(15, 23, 42, 0.07);
 }
 
 .transfer-entry-table .dialog-note,

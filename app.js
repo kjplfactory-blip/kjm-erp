@@ -10,7 +10,8 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v243";
+const APP_VERSION = "v249";
+const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -1501,7 +1502,6 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   }
   const items = billItemRows(existingBill.items || []);
   const netWeight = items.reduce((total, item) => total + Number(item.netWeight || 0), 0);
-  const tally = billTallySnapshot(billTallyDetails(lot, items));
   const bill = {
     id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
     lotId: lot.id,
@@ -1519,7 +1519,6 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
     remarks: data.remarks || "",
-    tally,
   };
   state.bills = state.bills || [];
   const existingIndex = state.bills.findIndex((item) => item.lotId === lot.id);
@@ -4109,6 +4108,15 @@ function billCustomerNameForState(source, lot = {}, bill = {}) {
   return firstOrder?.customer || customer?.name || lot.customer || bill.customer || lot.customerName || "Unknown Party";
 }
 
+function isKjplOfficePartyName(name = "") {
+  return /^kjpl(\b|\s*[-/])/.test(String(name || "").trim().toLowerCase());
+}
+
+function billFactoryVendorName(source, lot = {}, bill = {}) {
+  const customerName = billCustomerNameForState(source, lot, bill);
+  return isKjplOfficePartyName(customerName) ? KJPL_OFFICE_VENDOR_NAME : customerName;
+}
+
 function findOrCreateVendorByNameInState(source, name = "") {
   const cleanName = String(name || "").trim() || "Unknown Party";
   source.vendors = source.vendors || [];
@@ -4175,39 +4183,66 @@ function syncFactoryOutLedgerForState(source) {
     if (!bill?.id) return;
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!lot) return;
-    const vendor = findOrCreateVendorByNameInState(source, billCustomerNameForState(source, lot, bill));
-    (bill.items || []).forEach((item, index) => {
-      if (item.discardStatus) return;
+    const customerName = billCustomerNameForState(source, lot, bill);
+    const vendor = findOrCreateVendorByNameInState(source, billFactoryVendorName(source, lot, bill));
+    const billItems = (bill.items || []).map((item, index) => {
       const netWeight = Number(item.netWeight || 0);
-      if (netWeight <= 0) return;
       const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
       const purity = item.purity || order.purity || lot.metalPurity || "18K";
       const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
-      const baseEntry = {
-        id: `bill-${bill.id}-${item.orderId || productionNo || index}`,
-        date: bill.billDate || today(),
-        direction: "out",
-        type: "Bill / Factory Out",
-        vendorId: vendor.id,
-        vendorName: vendor.name,
-        materialType: "bill",
-        purity,
-        weight: Number(weight3(netWeight)),
-        wstgPercent: 0,
-        wastagePercent: 0,
-        baseFineGold: fineGoldWeight(netWeight, purity),
-        wstgFineGold: 0,
-        fineGold: fineGoldWeight(netWeight, purity),
-        stockPosting: "Factory Out By Bill",
-        reference: [bill.billNo || "Bill", lot.orderNumber || bill.jobNumber || "", productionNo].filter(Boolean).join(" / "),
-        remarks: bill.remarks || "",
-        sourceType: "bill",
-        sourceId: bill.id,
-        sourceLine: item.orderId || productionNo || String(index),
-      };
-      const manualEdit = manualBillEdits.get(factoryBillLedgerKey(baseEntry.sourceId, baseEntry.sourceLine));
-      source.factoryLedger.unshift(manualEdit ? mergeFactoryBillLedgerEdit(baseEntry, manualEdit) : baseEntry);
-    });
+      return { item, order, netWeight, purity, productionNo };
+    }).filter(({ item, netWeight }) => !item.discardStatus && netWeight > 0);
+    if (!billItems.length) return;
+    const totalNetWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.netWeight)), 0);
+    const totalFineGold = billItems.reduce((total, entry) => Number(weight3(total + fineGoldWeight(entry.netWeight, entry.purity))), 0);
+    const purities = [...new Set(billItems.map((entry) => entry.purity).filter(Boolean))];
+    const productionNos = billItems.map((entry) => entry.productionNo).filter(Boolean);
+    const pcs = billItems.length;
+    const jobNumber = lot.orderNumber || bill.jobNumber || "";
+    const lotNumber = lot.number || "";
+    const billNo = bill.billNo || "Bill";
+    const purityText = purities.length === 1 ? purities[0] : `Mixed ${purities.join(" / ")}`;
+    const reference = [
+      billNo,
+      jobNumber ? `Job ${jobNumber}` : "",
+      lotNumber ? `Lot ${lotNumber}` : "",
+      `${pcs} pcs`,
+    ].filter(Boolean).join(" / ");
+    const prText = productionNos.length
+      ? `PR ${productionNos.slice(0, 8).join(", ")}${productionNos.length > 8 ? ` +${productionNos.length - 8} more` : ""}`
+      : "";
+    const baseEntry = {
+      id: `bill-${bill.id}`,
+      date: bill.billDate || today(),
+      direction: "out",
+      type: "Bill / Factory Out",
+      vendorId: vendor.id,
+      vendorName: vendor.name,
+      materialType: "bill",
+      purity: purityText,
+      weight: Number(weight3(totalNetWeight)),
+      wstgPercent: 0,
+      wastagePercent: 0,
+      baseFineGold: totalFineGold,
+      wstgFineGold: 0,
+      fineGold: totalFineGold,
+      stockPosting: "Factory Out By Bill - Whole Job Order",
+      reference,
+      remarks: [bill.remarks || "", prText, isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : ""].filter(Boolean).join(" | "),
+      sourceType: "bill",
+      sourceId: bill.id,
+      sourceLine: "job-order",
+      billId: bill.id,
+      billNo,
+      lotId: lot.id,
+      lotNumber,
+      jobNumber,
+      pcs,
+      productionNos,
+      customerName,
+    };
+    const manualEdit = manualBillEdits.get(factoryBillLedgerKey(baseEntry.sourceId, baseEntry.sourceLine));
+    source.factoryLedger.unshift(manualEdit ? mergeFactoryBillLedgerEdit(baseEntry, manualEdit) : baseEntry);
   });
 }
 
@@ -5864,7 +5899,6 @@ function billPrintHtml(lot, bill) {
   const orders = billableOrdersForLot(lot, bill);
   const items = billPrintItems(lot, bill, orders);
   const totals = billTotals(items);
-  const tally = billTallyDetails(lot, items);
   const customer = billPrintCustomer(orders);
   const purityText = [...new Set(items.map((item) => item.purity).filter(Boolean))].join(", ") || "-";
   const fineWeight = items.reduce((sum, item) => sum + fineGoldWeight(item.netWeight, item.purity || item.order?.purity || 0), 0);
@@ -5892,14 +5926,6 @@ function billPrintHtml(lot, bill) {
         <span><b>City</b>${escapeHtml(customer.city || "-")}</span>
         <span><b>Items</b>${totals.pieces}</span>
         <span><b>Purity</b>${escapeHtml(purityText)}</span>
-      </section>
-      <section class="bill-sample-info bill-tally-print-info">
-        <span><b>Job Final GW</b>${gram(tally.jobFinalGw)}</span>
-        <span><b>Bill Final GW</b>${gram(totals.finalGw)}</span>
-        <span><b>GW Diff</b>${gram(tally.billFinalDifference)}</span>
-        <span><b>Job Stone</b>${tally.jobStone.pcs} pcs / ${gram(tally.jobStone.weight)}</span>
-        <span><b>Bill Stone</b>${gram(totals.stoneWeight)}</span>
-        <span><b>Stone Diff</b>${gram(tally.billStoneDifference)}</span>
       </section>
       <table class="bill-print-table bill-sample-table bill-weight-category-table">
         <thead>
@@ -11804,9 +11830,7 @@ function updateBillAmount() {
   const form = document.getElementById("bill-form");
   if (!form) return;
   const itemRows = billItemRows();
-  const lot = findById("lots", form.lotId.value);
   renderBillTotals(itemRows);
-  renderBillTally(lot, itemRows);
 }
 
 function billTotals(items = []) {
@@ -11847,189 +11871,6 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card"><span>Other Wt (g)</span><strong>${gram(total.otherNonGoldWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>
     <div class="bill-total-card highlight"><span>Net Wt (g)</span><strong>${gram(total.netWeight)}</strong></div>
-  `;
-}
-
-function billTallyOrders(lot = {}, items = [], bill = {}) {
-  const billableOrders = billableOrdersForLot(lot, bill);
-  const itemOrderIds = new Set(items.map((item) => item.orderId).filter(Boolean));
-  if (!itemOrderIds.size) return billableOrders;
-  const matchedOrders = billableOrders.filter((order) => itemOrderIds.has(order.id));
-  return matchedOrders.length ? matchedOrders : billableOrders;
-}
-
-function billTallyDetails(lot, items = []) {
-  const emptyStone = { pcs: 0, weight: 0 };
-  if (!lot) {
-    const billTotal = billTotals(items);
-    return {
-      orders: [],
-      billTotal,
-      jobStone: emptyStone,
-      waxStone: emptyStone,
-      handStone: emptyStone,
-      jobFinalGw: 0,
-      currentGw: 0,
-      issueGw: 0,
-      issueNet: 0,
-      jobStoneNet: 0,
-      transferDifference: 0,
-      transferFineGoldTotal: 0,
-      manufacturingLoss: 0,
-      manufacturingLossFineGold: 0,
-      billFinalDifference: Number(weight3(billTotal.finalGw)),
-      billStoneDifference: Number(weight3(billTotal.stoneWeight)),
-    };
-  }
-  const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
-  const orders = billTallyOrders(lot, items, bill);
-  const billTotal = billTotals(items);
-  const jobStone = productionStoneTotalsForOrders(orders);
-  const waxStone = productionStoneTotalsForOrders(orders, "wax");
-  const handStone = productionStoneTotalsForOrders(orders, "hand");
-  const currentGw = Number(weight3(currentTransferIssueWeight(lot) || 0));
-  const jobFinalGw = Number(weight3(lot.finishedWeight || currentGw || 0));
-  const issueGw = Number(weight3(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)) || 0));
-  const issueNet = Number(weight3(lot.issuedWeight || Math.max(issueGw - Number(waxStone.weight || 0), 0)));
-  const transferDifference = (lot.transfers || []).reduce((total, transfer) =>
-    Number(weight3(total + Number(transfer.departmentBalance || 0))), 0);
-  const transferFineGoldTotal = (lot.transfers || []).reduce((total, transfer) =>
-    Number(weight3(total + transferFineGold(transfer, lot))), 0);
-  const manufacturingLoss = Number(weight3(lot.actualWastage || transferDifference || 0));
-  const manufacturingLossFineGold = Number(weight3(lot.wastageFineGold ?? fineGoldWeight(manufacturingLoss, lot.wastagePurity || lot.metalPurity || orders[0]?.purity || 0)));
-  const jobStoneNet = Number(weight3(Math.max(jobFinalGw - Number(jobStone.weight || 0), 0)));
-  return {
-    orders,
-    billTotal,
-    jobStone,
-    waxStone,
-    handStone,
-    jobFinalGw,
-    currentGw,
-    issueGw,
-    issueNet,
-    jobStoneNet,
-    transferDifference: Number(weight3(transferDifference)),
-    transferFineGoldTotal,
-    manufacturingLoss,
-    manufacturingLossFineGold,
-    billFinalDifference: Number(weight3(billTotal.finalGw - jobFinalGw)),
-    billStoneDifference: Number(weight3(billTotal.stoneWeight - Number(jobStone.weight || 0))),
-    billNetVsJobStoneNet: Number(weight3(billTotal.netWeight - jobStoneNet)),
-  };
-}
-
-function billTallySnapshot(tally = {}) {
-  return {
-    jobFinalGw: Number(weight3(tally.jobFinalGw || 0)),
-    billFinalGw: Number(weight3(tally.billTotal?.finalGw || 0)),
-    gwDifference: Number(weight3(tally.billFinalDifference || 0)),
-    jobStonePcs: Number(tally.jobStone?.pcs || 0),
-    jobStoneWeight: Number(weight3(tally.jobStone?.weight || 0)),
-    billStoneWeight: Number(weight3(tally.billTotal?.stoneWeight || 0)),
-    stoneDifference: Number(weight3(tally.billStoneDifference || 0)),
-    billNonGoldWeight: Number(weight3(tally.billTotal?.reducedWeight || 0)),
-    billNetWeight: Number(weight3(tally.billTotal?.netWeight || 0)),
-    manufacturingLoss: Number(weight3(tally.manufacturingLoss || 0)),
-  };
-}
-
-function billTallyDiffClass(value) {
-  return Math.abs(Number(value || 0)) <= 0.001 ? "match" : "mismatch";
-}
-
-function billTallyDiffText(label, value) {
-  return billTallyDiffClass(value) === "match" ? `${label} Match` : `${label} Diff ${gram(value)}`;
-}
-
-function billTallyCard(label, value, note = "", status = "") {
-  const classes = ["bill-tally-card", status].filter(Boolean).join(" ");
-  return `
-    <div class="${classes}">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-      ${note ? `<small>${escapeHtml(note)}</small>` : ""}
-    </div>
-  `;
-}
-
-function billTallyItemForOrder(order = {}, items = []) {
-  return items.find((item) =>
-    (order.id && item.orderId === order.id)
-    || (order.productionNo && item.productionNo === order.productionNo)
-    || (order.number && item.productionNo === order.number)
-  ) || {};
-}
-
-function renderBillTallyRows(orders = [], items = []) {
-  const rows = orders.length
-    ? orders.map((order, index) => ({ order, item: billTallyItemForOrder(order, items), index }))
-    : items.map((item, index) => ({ order: item.order || findById("orders", item.orderId) || {}, item, index }));
-  return rows.map(({ order, item, index }) => {
-    const nonGold = billItemNonGoldBreakup(item, order);
-    const designCode = billOrderDesignCode(order) || item.design || item.designNo || "";
-    const productionNo = item.productionNo || order.productionNo || order.number || "";
-    const finalGw = billNumber(item.finalGw);
-    const reducedWeight = billNumber(item.reducedWeight || nonGold.total);
-    const netWeight = billNumber(item.netWeight || Math.max(finalGw - reducedWeight, 0));
-    return `
-      <tr>
-        <td>${index + 1}</td>
-        <td>${escapeHtml(productionNo || "-")}</td>
-        <td>${escapeHtml(designCode || "-")}</td>
-        <td>${escapeHtml(order.category || item.category || "-")}</td>
-        <td>${gram(finalGw)}</td>
-        <td>${gram(nonGold.stoneWeight)}</td>
-        <td>${gram(reducedWeight)}</td>
-        <td>${gram(netWeight)}</td>
-        <td>${escapeHtml(item.qcStatus || "-")}</td>
-      </tr>
-    `;
-  }).join("") || tableEmpty(9, "No bill item available for tally.");
-}
-
-function renderBillTally(lot, items = []) {
-  const container = document.getElementById("bill-tally");
-  if (!container) return;
-  if (!lot) {
-    container.innerHTML = "";
-    return;
-  }
-  const tally = billTallyDetails(lot, items);
-  const gwStatus = billTallyDiffClass(tally.billFinalDifference);
-  const stoneStatus = billTallyDiffClass(tally.billStoneDifference);
-  const statusText = gwStatus === "match" && stoneStatus === "match"
-    ? "GW and stone matching"
-    : [billTallyDiffText("GW", tally.billFinalDifference), billTallyDiffText("Stone", tally.billStoneDifference)].join(" / ");
-  const departmentText = lot.status === "Completed"
-    ? "Completed"
-    : (lot.currentDepartment || lot.karigarName || lot.status || "-");
-  container.innerHTML = `
-    <section class="bill-tally-panel">
-      <div class="panel-heading bill-tally-heading">
-        <h3>Job Card vs Final Bill Tally</h3>
-        <span class="bill-tally-status ${gwStatus === "match" && stoneStatus === "match" ? "match" : "mismatch"}">${escapeHtml(statusText)}</span>
-      </div>
-      <div class="bill-tally-grid">
-        ${billTallyCard("Job Status", lot.status || "-", departmentText)}
-        ${billTallyCard("Job Card Final GW", gram(tally.jobFinalGw), `Current GW ${gram(tally.currentGw)}`)}
-        ${billTallyCard("Bill Final GW", gram(tally.billTotal.finalGw), billTallyDiffText("GW", tally.billFinalDifference), gwStatus)}
-        ${billTallyCard("Job Card Stone", `${tally.jobStone.pcs} pcs / ${gram(tally.jobStone.weight)}`, `Wax ${gram(tally.waxStone.weight)} / Hand ${gram(tally.handStone.weight)}`)}
-        ${billTallyCard("Bill Stone", gram(tally.billTotal.stoneWeight), billTallyDiffText("Stone", tally.billStoneDifference), stoneStatus)}
-        ${billTallyCard("Bill Non-Gold", gram(tally.billTotal.reducedWeight), `BB ${gram(tally.billTotal.bbWeight)} / Moti ${gram(tally.billTotal.motiWeight)} / Spring ${gram(tally.billTotal.springWeight)} / Other ${gram(tally.billTotal.otherNonGoldWeight)}`)}
-        ${billTallyCard("Bill Net Wt", gram(tally.billTotal.netWeight), `Job GW - job stone ${gram(tally.jobStoneNet)}`)}
-        ${billTallyCard("Gold Issue", gram(tally.issueGw), `Net issue ${gram(tally.issueNet)} / Wax stone ${gram(tally.waxStone.weight)}`)}
-        ${billTallyCard("Mfg Loss", gram(tally.manufacturingLoss), `Fine ${gram(tally.manufacturingLossFineGold)} / Transfer diff ${gram(tally.transferDifference)}`)}
-      </div>
-      <div class="bill-tally-table-wrap">
-        <table class="bill-tally-table">
-          <thead>
-            <tr><th>#</th><th>PR No</th><th>Design</th><th>Category</th><th>Final GW</th><th>Stone Wt</th><th>Non-Gold</th><th>Net Wt</th><th>QC</th></tr>
-          </thead>
-          <tbody>${renderBillTallyRows(tally.orders, items)}</tbody>
-        </table>
-      </div>
-    </section>
   `;
 }
 
@@ -12765,12 +12606,56 @@ function renderVendorBalances() {
   if (table) table.innerHTML = rows || tableEmpty(6, "No vendor balance recorded yet.");
 }
 
+function factoryLedgerReferenceHtml(entry = {}) {
+  const productionNos = Array.isArray(entry.productionNos) ? entry.productionNos : [];
+  const details = entry.sourceType === "bill"
+    ? [
+      entry.billNo ? `Bill ${entry.billNo}` : "",
+      entry.jobNumber ? `Job ${entry.jobNumber}` : "",
+      entry.lotNumber ? `Lot ${entry.lotNumber}` : "",
+      Number(entry.pcs || 0) ? `${entry.pcs} pcs` : "",
+    ].filter(Boolean).join(" / ")
+    : "";
+  const prText = productionNos.length
+    ? `PR ${productionNos.slice(0, 6).join(", ")}${productionNos.length > 6 ? ` +${productionNos.length - 6} more` : ""}`
+    : "";
+  return `
+    ${escapeHtml(entry.reference || "-")}
+    ${details ? `<br><small>${escapeHtml(details)}</small>` : ""}
+    ${prText ? `<br><small>${escapeHtml(prText)}</small>` : ""}
+    ${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}
+  `;
+}
+
+function factoryLedgerActionsHtml(entry = {}) {
+  return `
+    <div class="row-actions">
+      <button class="ghost-button" type="button" onclick="openFactoryLedgerEdit('${entry.id}')">Edit</button>
+      ${entry.sourceType === "bill" ? `<button class="ghost-button" type="button" onclick="openBillFromFactoryLedger('${entry.id}')">View Bill</button>` : ""}
+    </div>
+  `;
+}
+
 function renderFactoryLedger() {
   const query = (document.getElementById("factory-ledger-search")?.value || "").trim().toLowerCase();
   const rows = [...(state.factoryLedger || [])]
     .filter((entry) => {
       if (!query) return true;
-      return [entry.date, entry.type, entry.vendorName, factoryMaterialLabel(entry.materialType), entry.purity, entry.wstgPercent, entry.reference, entry.stockPosting]
+      return [
+        entry.date,
+        entry.type,
+        entry.vendorName,
+        factoryMaterialLabel(entry.materialType),
+        entry.purity,
+        entry.wstgPercent,
+        entry.reference,
+        entry.stockPosting,
+        entry.billNo,
+        entry.jobNumber,
+        entry.lotNumber,
+        entry.customerName,
+        Array.isArray(entry.productionNos) ? entry.productionNos.join(" ") : "",
+      ]
         .join(" ")
         .toLowerCase()
         .includes(query);
@@ -12789,14 +12674,26 @@ function renderFactoryLedger() {
         <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
         <td>${entry.direction === "out" ? "-" : "+"}${gram(fine.fineGold)}<br><small>Base ${gram(fine.baseFineGold)}</small></td>
         <td>${escapeHtml(factoryStockPosting(entry))}</td>
-        <td>${escapeHtml(entry.reference || "-")}${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
-        <td><button class="ghost-button" type="button" onclick="openFactoryLedgerEdit('${entry.id}')">Edit</button></td>
+        <td>${factoryLedgerReferenceHtml(entry)}</td>
+        <td>${factoryLedgerActionsHtml(entry)}</td>
       </tr>
         `;
       })()}
     `).join("");
   const table = document.getElementById("factory-ledger-table");
   if (table) table.innerHTML = rows || tableEmpty(11, "No factory in/out ledger entries yet.");
+}
+
+function openBillFromFactoryLedger(id) {
+  const entry = (state.factoryLedger || []).find((item) => item.id === id);
+  if (!entry) return;
+  const bill = (state.bills || []).find((item) => item.id === (entry.billId || entry.sourceId));
+  const lot = (state.lots || []).find((item) => item.id === (entry.lotId || bill?.lotId));
+  if (!lot) {
+    alert("Bill job card not found.");
+    return;
+  }
+  openBill(lot.id);
 }
 
 function renderFactoryEditVendorOptions(selectedVendorId = "") {
@@ -12822,7 +12719,7 @@ function openFactoryLedgerEdit(id) {
   form.reference.value = entry.reference || "";
   form.remarks.value = entry.remarks || "";
   document.getElementById("factory-entry-edit-note").textContent = entry.sourceType === "bill"
-    ? "Bill factory-out row: corrected details will stay linked to this bill item."
+    ? "Bill factory-out row: corrected details will stay linked to this bill / job card."
     : "Factory in/out row: linked metal/shelf posting will be corrected where possible.";
   document.getElementById("factory-entry-dialog").showModal();
 }
@@ -12834,7 +12731,12 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
   const purity = data.purity || existing.purity || "";
   const weight = Number(weight3(data.weight || existing.weight || 0));
   const wstgPercent = factoryWstgPercent(data.wstgPercent ?? existing.wstgPercent);
-  const baseFineGold = fineGoldWeight(weight, purity);
+  const isBillEntry = existing.sourceType === "bill" || materialType === "bill";
+  const existingWeight = Number(existing.weight || 0);
+  const shouldScaleExistingBillFine = isBillEntry && Number(existing.baseFineGold || 0) > 0 && (!purityPercent(purity) || String(purity || "").toLowerCase().includes("mixed"));
+  const baseFineGold = shouldScaleExistingBillFine
+    ? Number(weight3(existingWeight ? (weight / existingWeight) * Number(existing.baseFineGold || 0) : existing.baseFineGold))
+    : fineGoldWeight(weight, purity);
   const wstgFineGold = Number(weight3(weight * (wstgPercent / 100)));
   const sourceType = existing.sourceType === "bill" ? "bill" : (direction === "out" ? "factory-out" : "factory-in");
   const stockPosting = materialType === "bill"
@@ -14099,6 +14001,14 @@ function normalizeState(currentState) {
       sourceLine: entry.sourceLine || "",
       manualFactoryEdit: Boolean(entry.manualFactoryEdit),
       editedAt: entry.editedAt || "",
+      billId: entry.billId || "",
+      billNo: entry.billNo || "",
+      lotId: entry.lotId || "",
+      lotNumber: entry.lotNumber || "",
+      jobNumber: entry.jobNumber || "",
+      pcs: Number(entry.pcs || 0),
+      productionNos: Array.isArray(entry.productionNos) ? entry.productionNos : [],
+      customerName: entry.customerName || "",
     };
   });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {
