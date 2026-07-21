@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v236";
+const APP_VERSION = "v237";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -1145,6 +1145,14 @@ document.getElementById("factory-out-form").addEventListener("submit", (event) =
 document.getElementById("cancel-vendor-edit").addEventListener("click", resetVendorForm);
 document.getElementById("vendor-search").addEventListener("input", renderFactory);
 document.getElementById("factory-ledger-search").addEventListener("input", renderFactory);
+document.getElementById("print-factory-summary").addEventListener("click", printFactorySummary);
+document.getElementById("factory-entry-edit-form").addEventListener("submit", saveFactoryLedgerEdit);
+document.getElementById("cancel-factory-entry-edit").addEventListener("click", () => {
+  document.getElementById("factory-entry-dialog").close();
+});
+document.getElementById("cancel-factory-entry-edit-bottom").addEventListener("click", () => {
+  document.getElementById("factory-entry-dialog").close();
+});
 
 document.getElementById("add-melting-source").addEventListener("click", () => {
   addMeltingSourceRow("", "", "top", true, "metal");
@@ -3978,6 +3986,69 @@ function addFactoryOutEntry({ vendor, materialType, purity, weight, wstgPercent,
   });
 }
 
+function factoryEntryStockSourceId(entry = {}) {
+  return entry.sourceId || entry.id || "";
+}
+
+function factoryEntrySimpleStockType(entry = {}) {
+  if (entry.sourceType === "bill") return "none";
+  if (entry.direction === "out" && entry.materialType !== "raw-metal") return "ledger-only";
+  if (entry.materialType === "raw-metal") return "metal";
+  return entry.direction === "in" ? "safe-in" : "ledger-only";
+}
+
+function removeFactoryEntryStockPosting(entry = {}) {
+  const sourceId = factoryEntryStockSourceId(entry);
+  if (!sourceId) return;
+  const stockType = factoryEntrySimpleStockType(entry);
+  if (stockType === "metal") {
+    state.metalSafeMovements = (state.metalSafeMovements || []).filter((movement) => movement.sourceId !== sourceId);
+  } else if (stockType === "safe-in") {
+    state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "factory-in" && item.sourceId === sourceId));
+  }
+}
+
+function postFactoryEntryStockPosting(entry = {}) {
+  const stockType = factoryEntrySimpleStockType(entry);
+  if (stockType === "none" || stockType === "ledger-only") return;
+  const sourceId = factoryEntryStockSourceId(entry);
+  const reference = `${entry.vendorName || "Factory"} - ${entry.reference || factoryMaterialLabel(entry.materialType)}`;
+  if (stockType === "metal") {
+    addMetalSafeMovement({
+      date: entry.date || today(),
+      type: entry.direction === "out" ? "Factory Out" : "Factory In",
+      direction: entry.direction || "in",
+      purity: entry.purity,
+      weight: entry.weight,
+      reference,
+      sourceType: entry.sourceType || (entry.direction === "out" ? "factory-out" : "factory-in"),
+      sourceId,
+    });
+  } else if (stockType === "safe-in") {
+    addSafeItem({
+      date: entry.date || today(),
+      locker: safeLockerForPurity(entry.purity),
+      purity: entry.purity,
+      description: entry.reference || factoryMaterialLabel(entry.materialType),
+      source: reference,
+      sourceType: "factory-in",
+      sourceId,
+      sourceLine: entry.materialType || "",
+      safeKind: entry.materialType === "wastage" ? "wastage" : "rod",
+      grossWeight: entry.weight,
+      waxStoneWeight: 0,
+      netWeight: entry.weight,
+      status: "In Safe",
+      remarks: entry.remarks || "",
+    });
+  }
+}
+
+function updateFactoryEntryStockPosting(oldEntry = {}, newEntry = {}) {
+  removeFactoryEntryStockPosting(oldEntry);
+  postFactoryEntryStockPosting(newEntry);
+}
+
 function billCustomerNameForState(source, lot = {}, bill = {}) {
   const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
   const firstOrder = orderIds.map((id) => (source.orders || []).find((order) => order.id === id)).find(Boolean);
@@ -4003,7 +4074,51 @@ function findOrCreateVendorByNameInState(source, name = "") {
   return vendor;
 }
 
+function factoryBillLedgerKey(sourceId = "", sourceLine = "") {
+  return `${sourceId || ""}::${sourceLine || ""}`;
+}
+
+function mergeFactoryBillLedgerEdit(baseEntry = {}, editEntry = {}) {
+  const editableFields = [
+    "date",
+    "direction",
+    "type",
+    "vendorId",
+    "vendorName",
+    "materialType",
+    "purity",
+    "weight",
+    "wstgPercent",
+    "wastagePercent",
+    "reference",
+    "remarks",
+    "stockPosting",
+  ];
+  const merged = { ...baseEntry };
+  editableFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(editEntry, field)) merged[field] = editEntry[field];
+  });
+  merged.sourceType = "bill";
+  merged.sourceId = baseEntry.sourceId;
+  merged.sourceLine = baseEntry.sourceLine;
+  merged.manualFactoryEdit = true;
+  merged.editedAt = editEntry.editedAt || new Date().toISOString();
+  const fine = factoryFineGoldBreakup(merged);
+  merged.baseFineGold = fine.baseFineGold;
+  merged.wstgPercent = fine.wstgPercent;
+  merged.wastagePercent = fine.wstgPercent;
+  merged.wstgFineGold = fine.wstgFineGold;
+  merged.fineGold = fine.fineGold;
+  return merged;
+}
+
 function syncFactoryOutLedgerForState(source) {
+  const manualBillEdits = new Map();
+  (source.factoryLedger || []).forEach((entry) => {
+    if (entry.sourceType === "bill" && entry.manualFactoryEdit) {
+      manualBillEdits.set(factoryBillLedgerKey(entry.sourceId, entry.sourceLine), entry);
+    }
+  });
   source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill");
   (source.bills || []).forEach((bill) => {
     if (!bill?.id) return;
@@ -4017,7 +4132,7 @@ function syncFactoryOutLedgerForState(source) {
       const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
       const purity = item.purity || order.purity || lot.metalPurity || "18K";
       const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
-      source.factoryLedger.unshift({
+      const baseEntry = {
         id: `bill-${bill.id}-${item.orderId || productionNo || index}`,
         date: bill.billDate || today(),
         direction: "out",
@@ -4038,7 +4153,9 @@ function syncFactoryOutLedgerForState(source) {
         sourceType: "bill",
         sourceId: bill.id,
         sourceLine: item.orderId || productionNo || String(index),
-      });
+      };
+      const manualEdit = manualBillEdits.get(factoryBillLedgerKey(baseEntry.sourceId, baseEntry.sourceLine));
+      source.factoryLedger.unshift(manualEdit ? mergeFactoryBillLedgerEdit(baseEntry, manualEdit) : baseEntry);
     });
   });
 }
@@ -5480,6 +5597,102 @@ function printPackingList(lotId, billOverride = null) {
     return;
   }
   startPackingListPrint(packingListPrintHtml(lot, bill));
+}
+
+function printFactorySummary() {
+  startBillPrint(factorySummaryPrintHtml());
+}
+
+function factorySummaryPrintHtml() {
+  const ledger = factoryLedgerTotals();
+  const physical = factoryPhysicalFineStock();
+  const vendorRows = vendorBalanceRows();
+  const payable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
+  const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
+  const entries = [...(state.factoryLedger || [])].slice(0, 10);
+  return `
+    <section class="bill-print-document small-bill-document factory-summary-print-document">
+      <header class="bill-sample-header">
+        <div>
+          <p><b>Name</b> : Factory</p>
+          <p><b>Voucher No</b> : FACTORY</p>
+        </div>
+        <div class="bill-sample-title">
+          <span>KHUSHALI JEWELLS</span>
+          <strong>Summary</strong>
+          <small>Factory In / Out</small>
+        </div>
+        <div>
+          <p><b>Date</b> : ${escapeHtml(today())}</p>
+          <p><b>Page No</b> : 1/1</p>
+        </div>
+      </header>
+      <section class="bill-sample-info">
+        <span><b>Factory In Fine</b>${gram(ledger.inFine)}</span>
+        <span><b>Factory Out Fine</b>${gram(ledger.outFine)}</span>
+        <span><b>Balance Fine</b>${gram(ledger.balanceFine)}</span>
+        <span><b>Physical Fine</b>${gram(physical.totalFine)}</span>
+        <span><b>Payable</b>${gram(payable)}</span>
+        <span><b>Receivable</b>${gram(receivable)}</span>
+      </section>
+      <table class="bill-print-table bill-sample-table bill-weight-category-table">
+        <thead>
+          <tr><th>Sr.</th><th>Weight Category</th><th>Weight (g)</th><th>Remarks</th></tr>
+        </thead>
+        <tbody>
+          ${factorySummaryCategoryRows(ledger, physical, payable, receivable).map((row, index) => `
+            <tr class="${row.highlight ? "bill-sample-total-row" : ""}">
+              <td>${index + 1}</td>
+              <td>${escapeHtml(row.label)}</td>
+              <td>${escapeHtml(row.value)}</td>
+              <td>${escapeHtml(row.note || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <section class="bill-print-section">
+        <h2>Latest Factory In / Out Entries</h2>
+        <table class="bill-print-table bill-print-items-table factory-print-ledger-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Purity</th><th>WSTG</th><th>Weight</th><th>Fine</th></tr></thead>
+          <tbody>
+            ${entries.map((entry) => {
+              const fine = factoryFineGoldBreakup(entry);
+              return `
+                <tr>
+                  <td>${escapeHtml(entry.date || "-")}</td>
+                  <td>${escapeHtml(entry.direction === "out" ? "Out" : "In")}</td>
+                  <td>${escapeHtml(entry.vendorName || "-")}</td>
+                  <td>${escapeHtml(entry.purity || "-")}</td>
+                  <td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}%` : "-"}</td>
+                  <td>${entry.direction === "out" ? "-" : "+"}${weight3(entry.weight)}</td>
+                  <td>${entry.direction === "out" ? "-" : "+"}${weight3(fine.fineGold)}</td>
+                </tr>
+              `;
+            }).join("") || `<tr><td colspan="7">No entries.</td></tr>`}
+          </tbody>
+        </table>
+      </section>
+      <section class="bill-sign-row">
+        <span>Prepared By</span>
+        <span>Checked By</span>
+        <span>Approved By</span>
+      </section>
+    </section>
+  `;
+}
+
+function factorySummaryCategoryRows(ledger, physical, payable, receivable) {
+  return [
+    { label: "Factory In Fine", value: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
+    { label: "Factory Out Fine", value: weight3(ledger.outFine), note: "Bill + metal/stock out" },
+    { label: "Ledger Fine Balance", value: weight3(ledger.balanceFine), note: "Factory in - factory out", highlight: true },
+    { label: "Metal Safe Fine", value: weight3(physical.metalFine), note: "Physical raw metal fine" },
+    { label: "Shelf Fine", value: weight3(physical.shelfFine), note: "Safe locker item fine" },
+    { label: "Production Fine", value: weight3(physical.productionFine), note: "Lots in production" },
+    { label: "Final Physical Fine", value: weight3(physical.totalFine), note: "Metal + shelf + production", highlight: true },
+    { label: "Payable To Vendors", value: weight3(payable), note: "Metal to give to party" },
+    { label: "Receivable From Vendors", value: weight3(receivable), note: "Metal to receive from party" },
+  ];
 }
 
 function printHallmarkedTags(keys = null) {
@@ -12312,12 +12525,107 @@ function renderFactoryLedger() {
         <td>${entry.direction === "out" ? "-" : "+"}${gram(fine.fineGold)}<br><small>Base ${gram(fine.baseFineGold)}</small></td>
         <td>${escapeHtml(factoryStockPosting(entry))}</td>
         <td>${escapeHtml(entry.reference || "-")}${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
+        <td><button class="ghost-button" type="button" onclick="openFactoryLedgerEdit('${entry.id}')">Edit</button></td>
       </tr>
         `;
       })()}
     `).join("");
   const table = document.getElementById("factory-ledger-table");
-  if (table) table.innerHTML = rows || tableEmpty(10, "No factory in/out ledger entries yet.");
+  if (table) table.innerHTML = rows || tableEmpty(11, "No factory in/out ledger entries yet.");
+}
+
+function renderFactoryEditVendorOptions(selectedVendorId = "") {
+  const select = document.querySelector('#factory-entry-edit-form select[name="vendorId"]');
+  if (!select) return;
+  const vendors = [...(state.vendors || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+  select.innerHTML = `<option value="">No vendor / opening stock</option>${vendors.map((vendor) => `<option value="${vendor.id}">${escapeHtml(vendor.name)}</option>`).join("")}`;
+  select.value = vendors.some((vendor) => vendor.id === selectedVendorId) ? selectedVendorId : "";
+}
+
+function openFactoryLedgerEdit(id) {
+  const entry = (state.factoryLedger || []).find((item) => item.id === id);
+  if (!entry) return;
+  const form = document.getElementById("factory-entry-edit-form");
+  renderFactoryEditVendorOptions(entry.vendorId || "");
+  form.entryId.value = entry.id;
+  form.direction.value = entry.direction || "in";
+  form.vendorId.value = entry.vendorId || "";
+  form.materialType.value = entry.materialType || "raw-metal";
+  form.purity.value = entry.purity || "";
+  form.wstgPercent.value = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
+  form.weight.value = weight3(entry.weight || 0);
+  form.reference.value = entry.reference || "";
+  form.remarks.value = entry.remarks || "";
+  document.getElementById("factory-entry-edit-note").textContent = entry.sourceType === "bill"
+    ? "Bill factory-out row: corrected details will stay linked to this bill item."
+    : "Factory in/out row: linked metal/shelf posting will be corrected where possible.";
+  document.getElementById("factory-entry-dialog").showModal();
+}
+
+function editedFactoryLedgerEntry(existing = {}, data = {}) {
+  const vendor = data.vendorId ? findById("vendors", data.vendorId) : null;
+  const direction = data.direction || existing.direction || "in";
+  const materialType = data.materialType || existing.materialType || "raw-metal";
+  const purity = data.purity || existing.purity || "";
+  const weight = Number(weight3(data.weight || existing.weight || 0));
+  const wstgPercent = factoryWstgPercent(data.wstgPercent ?? existing.wstgPercent);
+  const baseFineGold = fineGoldWeight(weight, purity);
+  const wstgFineGold = Number(weight3(weight * (wstgPercent / 100)));
+  const sourceType = existing.sourceType === "bill" ? "bill" : (direction === "out" ? "factory-out" : "factory-in");
+  const stockPosting = materialType === "bill"
+    ? "Factory Out By Bill"
+    : direction === "out"
+      ? factoryOutStockPosting(materialType, purity)
+      : materialType === "raw-metal"
+        ? "Metal Safe"
+        : `${safeLockerForPurity(purity)} Shelf`;
+  return {
+    ...existing,
+    date: existing.date || today(),
+    direction,
+    type: materialType === "bill"
+      ? "Bill / Factory Out"
+      : direction === "out"
+        ? "Metal / Stock Factory Out"
+        : "Factory In",
+    vendorId: vendor?.id || data.vendorId || "",
+    vendorName: vendor?.name || existing.vendorName || "",
+    materialType,
+    purity,
+    weight,
+    wstgPercent,
+    wastagePercent: wstgPercent,
+    baseFineGold,
+    wstgFineGold,
+    fineGold: Number(weight3(baseFineGold + wstgFineGold)),
+    stockPosting,
+    reference: data.reference || "",
+    remarks: data.remarks || "",
+    sourceType,
+    sourceId: existing.sourceId || existing.id,
+    sourceLine: existing.sourceLine || "",
+    manualFactoryEdit: sourceType === "bill" || Boolean(existing.manualFactoryEdit),
+    editedAt: new Date().toISOString(),
+  };
+}
+
+function saveFactoryLedgerEdit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const index = (state.factoryLedger || []).findIndex((entry) => entry.id === data.entryId);
+  if (index < 0) return;
+  const oldEntry = { ...state.factoryLedger[index] };
+  const newEntry = editedFactoryLedgerEntry(oldEntry, data);
+  if (newEntry.weight <= 0) {
+    alert("Enter valid factory weight.");
+    return;
+  }
+  if (oldEntry.sourceType !== "bill") updateFactoryEntryStockPosting(oldEntry, newEntry);
+  state.factoryLedger[index] = newEntry;
+  saveState();
+  render();
+  document.getElementById("factory-entry-dialog").close();
 }
 
 function editVendor(id) {
@@ -13298,6 +13606,8 @@ function normalizeState(currentState) {
       sourceType: entry.sourceType || "",
       sourceId: entry.sourceId || "",
       sourceLine: entry.sourceLine || "",
+      manualFactoryEdit: Boolean(entry.manualFactoryEdit),
+      editedAt: entry.editedAt || "",
     };
   });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {

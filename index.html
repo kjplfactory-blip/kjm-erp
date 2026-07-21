@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v236</small>
+            <small class="app-version-badge">App v237</small>
           </div>
         </div>
         <label>User
@@ -90,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v236</span>
+          <span class="app-version-badge">App v237</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -548,11 +548,14 @@
         <section class="panel table-panel factory-ledger-panel">
           <div class="panel-heading">
             <h2>Factory In / Out Ledger</h2>
-            <input id="factory-ledger-search" class="search compact-search" placeholder="Search vendor, purity, reference">
+            <div class="row-actions">
+              <input id="factory-ledger-search" class="search compact-search" placeholder="Search vendor, purity, reference">
+              <button id="print-factory-summary" class="ghost-button" type="button">Print Summary</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>WSTG</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>WSTG</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th><th></th></tr></thead>
               <tbody id="factory-ledger-table"></tbody>
             </table>
           </div>
@@ -1094,6 +1097,46 @@
       </div>
     </dialog>
 
+    <dialog id="factory-entry-dialog">
+      <form id="factory-entry-edit-form" class="dialog-card history-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Edit Factory Entry</h2>
+            <p id="factory-entry-edit-note" class="dialog-note">Correct factory in/out details. Bill rows stay linked to the bill.</p>
+          </div>
+          <button class="ghost-button" type="button" id="cancel-factory-entry-edit">Close</button>
+        </div>
+        <input type="hidden" name="entryId">
+        <div class="inline-form">
+          <label>Entry Type
+            <select name="direction" required>
+              <option value="in">Factory In</option>
+              <option value="out">Factory Out</option>
+            </select>
+          </label>
+          <label>Vendor / Party <select name="vendorId"></select></label>
+          <label>Material
+            <select name="materialType">
+              <option value="raw-metal">Raw Metal / Pure Gold</option>
+              <option value="casting-item">Casting Item / Rod</option>
+              <option value="wastage">Wastage / Scrap</option>
+              <option value="other">Other Stock Item</option>
+              <option value="bill">Bill / Factory Out</option>
+            </select>
+          </label>
+          <label>Purity <input name="purity" list="metal-purity-options" required></label>
+          <label>WSTG (%) <input name="wstgPercent" type="number" min="0" step="0.01"></label>
+          <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+          <label>Reference <input name="reference" required></label>
+          <label>Remarks <input name="remarks"></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-factory-entry-edit-bottom">Cancel</button>
+          <button type="submit">Save Factory Entry</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="design-image-dialog">
       <div class="dialog-card design-image-dialog">
         <div class="dialog-header">
@@ -1203,6 +1246,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=236"></script>
+  <script src="app.js?v=237"></script>
 </body>
 </html>
