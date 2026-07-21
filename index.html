@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v230</small>
+            <small class="app-version-badge">App v231</small>
           </div>
         </div>
         <label>User
@@ -89,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v230</span>
+          <span class="app-version-badge">App v231</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -515,15 +515,10 @@
           <div class="panel-heading">
             <h2>Melting / Casting Dashboard</h2>
             <div class="row-actions">
-              <button class="ghost-button" type="button" onclick="openOperationPage('melting', 'conversion')">New Melting</button>
-              <button type="button" onclick="openMeltingFullHistory()">Open Full History</button>
+              <button class="ghost-button" type="button" onclick="scrollToMeltingConversion()">New Melting</button>
             </div>
           </div>
           <div id="melting-summary-grid" class="melting-summary-grid"></div>
-          <div class="panel-heading compact-heading">
-            <h3>Melting / Casting History Tiles</h3>
-          </div>
-          <div id="melting-history-tiles" class="melting-history-tiles"></div>
         </section>
         <div class="workbench">
           <form id="melting-form" class="form-panel">
@@ -556,17 +551,13 @@
             <button id="melting-submit" type="submit">Save & Issue Melting</button>
             <button id="cancel-melting-issue-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
-          <section class="panel table-panel">
-            <div class="panel-heading"><h2>Melting History</h2></div>
-            <div id="melting-full-history-list" class="melting-full-history-list"></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Date</th><th>Batch Name</th><th>Source Metals</th><th>Target</th><th>Colour</th><th>Department</th><th>Status</th><th>Pure Gold</th><th>Final</th><th>Received NT</th><th>Loss</th><th>Action</th></tr></thead>
-                <tbody id="melting-table"></tbody>
-              </table>
-            </div>
-          </section>
         </div>
+        <section class="panel melting-history-panel">
+          <div class="panel-heading compact-heading">
+            <h2>Melting / Casting History Tiles</h2>
+          </div>
+          <div id="melting-history-tiles" class="melting-history-tiles"></div>
+        </section>
       </section>
 
       <section id="karigars" class="view">
@@ -1113,6 +1104,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=230"></script>
+  <script src="app.js?v=231"></script>
 </body>
 </html>
