@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v234</small>
+            <small class="app-version-badge">App v235</small>
           </div>
         </div>
         <label>User
@@ -90,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v234</span>
+          <span class="app-version-badge">App v235</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -510,6 +510,24 @@
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
             <button type="submit">Add Factory In</button>
           </form>
+
+          <form id="factory-out-form" class="form-panel factory-out-panel">
+            <h2>Factory Out</h2>
+            <label>Vendor / Party <select name="vendorId" required></select></label>
+            <label>Out Type
+              <select name="materialType">
+                <option value="raw-metal">Metal Out From Metal Safe</option>
+                <option value="casting-item">Rod / Casting Item Out</option>
+                <option value="wastage">Wastage / Scrap Out</option>
+                <option value="other">Other Shelf Stock Out</option>
+              </select>
+            </label>
+            <label>Purity <input name="purity" list="metal-purity-options" value="99.5%" placeholder="99.5%, 18K, 14K" required></label>
+            <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+            <label>Reference / Bill / Memo <input name="reference" placeholder="Bill no, return memo, metal out" required></label>
+            <label>Remarks <input name="remarks" placeholder="Optional note"></label>
+            <button type="submit">Add Factory Out</button>
+          </form>
         </div>
 
         <section class="panel table-panel vendor-balance-panel">
@@ -519,7 +537,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Vendor</th><th>Factory In Fine</th><th>Bill / Factory Out Fine</th><th>Current Balance</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Vendor</th><th>Factory In Fine</th><th>Bill / Metal Factory Out Fine</th><th>Current Balance</th><th>Status</th><th></th></tr></thead>
               <tbody id="vendor-balance-table"></tbody>
             </table>
           </div>
@@ -1183,6 +1201,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=234"></script>
+  <script src="app.js?v=235"></script>
 </body>
 </html>

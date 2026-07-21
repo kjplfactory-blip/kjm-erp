@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v234";
+const APP_VERSION = "v235";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -195,7 +195,9 @@ const operationTileConfigs = {
   ],
   factory: [
     { id: "summary", title: "Factory Summary", description: "Final fine stock, factory in/out, and vendor balance", selector: "#factory-summary-grid" },
-    { id: "in", title: "Factory In", description: "Add vendor metal or other stock into factory", selector: ".factory-workbench" },
+    { id: "vendor", title: "Vendor Master", description: "Add or edit vendor and party details", selector: "#vendor-form" },
+    { id: "in", title: "Factory In", description: "Add vendor metal or other stock into factory", selector: "#factory-in-form" },
+    { id: "out", title: "Factory Out", description: "Send bill, metal, rod, wastage, or stock out of factory", selector: "#factory-out-form" },
     { id: "vendors", title: "Vendor Balance", description: "Check current payable or receivable metal by party", selector: ".vendor-balance-panel" },
     { id: "ledger", title: "Factory Ledger", description: "View every factory in and bill factory out entry", selector: ".factory-ledger-panel" },
   ],
@@ -1098,6 +1100,34 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
     reference: data.reference,
     remarks: data.remarks,
   });
+  event.target.reset();
+  event.target.purity.value = "99.5%";
+  saveState();
+  render();
+});
+
+document.getElementById("factory-out-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const vendor = findById("vendors", data.vendorId);
+  const weight = Number(data.weight || 0);
+  if (!vendor) {
+    alert("Select vendor / party first.");
+    return;
+  }
+  if (weight <= 0) {
+    alert("Enter valid factory out weight.");
+    return;
+  }
+  const result = addFactoryOutEntry({
+    vendor,
+    materialType: data.materialType,
+    purity: data.purity,
+    weight,
+    reference: data.reference,
+    remarks: data.remarks,
+  });
+  if (!result) return;
   event.target.reset();
   event.target.purity.value = "99.5%";
   saveState();
@@ -3841,6 +3871,80 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, reference, re
     });
   }
   return ledgerEntry;
+}
+
+function factorySafeKindForMaterial(materialType = "") {
+  if (materialType === "wastage") return "wastage";
+  if (materialType === "casting-item") return "rod";
+  return "all";
+}
+
+function factoryOutAvailableWeight(materialType = "", purity = "") {
+  if (materialType === "raw-metal") return metalSafeBalanceForPurity(purity);
+  return safeLockerBalance(safeLockerForPurity(purity), factorySafeKindForMaterial(materialType));
+}
+
+function factoryOutStockPosting(materialType = "", purity = "") {
+  if (materialType === "raw-metal") return `Metal Safe ${normalizeMetalSafePurity(purity)}`;
+  const kindText = materialType === "wastage"
+    ? "Wastage"
+    : materialType === "casting-item"
+      ? "Rod / Casting"
+      : "Shelf Stock";
+  return `${safeLockerForPurity(purity)} Shelf ${kindText}`;
+}
+
+function addFactoryOutEntry({ vendor, materialType, purity, weight, reference, remarks }) {
+  const material = materialType || "raw-metal";
+  const cleanPurity = purity || "";
+  const outWeight = Number(weight3(weight || 0));
+  const available = Number(factoryOutAvailableWeight(material, cleanPurity) || 0);
+  if (outWeight <= 0) return null;
+  if (outWeight > available + 0.0005) {
+    alert(`Only ${gram(available)} available for ${factoryOutStockPosting(material, cleanPurity)}.`);
+    return null;
+  }
+  const ledgerId = crypto.randomUUID();
+  const sourceText = `${vendor.name} - ${reference || factoryMaterialLabel(material)} factory out`;
+  if (material === "raw-metal") {
+    addMetalSafeMovement({
+      date: today(),
+      type: "Factory Out",
+      direction: "out",
+      purity: cleanPurity,
+      weight: outWeight,
+      reference: sourceText,
+      sourceType: "factory-out",
+      sourceId: ledgerId,
+    });
+  } else {
+    const issued = issueFromSafeLocker(
+      safeLockerForPurity(cleanPurity),
+      outWeight,
+      sourceText,
+      ledgerId,
+      factorySafeKindForMaterial(material)
+    );
+    if (!issued) {
+      alert(`Could not issue ${gram(outWeight)} from ${factoryOutStockPosting(material, cleanPurity)}.`);
+      return null;
+    }
+  }
+  return addFactoryLedgerEntry({
+    id: ledgerId,
+    direction: "out",
+    type: "Metal / Stock Factory Out",
+    vendorId: vendor.id,
+    vendorName: vendor.name,
+    materialType: material,
+    purity: cleanPurity,
+    weight: outWeight,
+    reference,
+    remarks,
+    stockPosting: factoryOutStockPosting(material, cleanPurity),
+    sourceType: "factory-out",
+    sourceId: ledgerId,
+  });
 }
 
 function billCustomerNameForState(source, lot = {}, bill = {}) {
@@ -12084,14 +12188,14 @@ function renderFactory() {
 }
 
 function renderFactoryVendorOptions() {
-  const select = document.querySelector('#factory-in-form select[name="vendorId"]');
-  if (!select) return;
-  const selected = select.value;
   const vendors = [...(state.vendors || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
-  select.innerHTML = vendors.length
-    ? `<option value="">Select vendor / party</option>${vendors.map((vendor) => `<option value="${vendor.id}">${escapeHtml(vendor.name)}</option>`).join("")}`
-    : '<option value="">Add vendor first</option>';
-  select.value = vendors.some((vendor) => vendor.id === selected) ? selected : "";
+  document.querySelectorAll('#factory-in-form select[name="vendorId"], #factory-out-form select[name="vendorId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = vendors.length
+      ? `<option value="">Select vendor / party</option>${vendors.map((vendor) => `<option value="${vendor.id}">${escapeHtml(vendor.name)}</option>`).join("")}`
+      : '<option value="">Add vendor first</option>';
+    select.value = vendors.some((vendor) => vendor.id === selected) ? selected : "";
+  });
 }
 
 function renderFactorySummary() {
@@ -12104,7 +12208,7 @@ function renderFactorySummary() {
   const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
   grid.innerHTML = [
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + opening stock"),
-    factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills made"),
+    factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus bill out"),
     factorySummaryCard("Final Fine Stock", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
     factorySummaryCard("Payable To Vendors", gram(payable), "Metal to give to party", payable > 0 ? "payable" : ""),
@@ -12174,7 +12278,7 @@ function renderFactoryLedger() {
 function editVendor(id) {
   const vendor = findById("vendors", id);
   if (!vendor) return;
-  openOperationPage("factory", "in");
+  openOperationPage("factory", "vendor");
   const form = document.getElementById("vendor-form");
   form.vendorId.value = vendor.id;
   form.name.value = vendor.name || "";
