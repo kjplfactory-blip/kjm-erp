@@ -497,6 +497,13 @@ button:hover {
   margin-bottom: 14px;
 }
 
+.factory-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
 .safe-casting-shelf-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -506,7 +513,8 @@ button:hover {
 
 .safe-locker-card,
 .metal-safe-balance,
-.safe-casting-shelf-card {
+.safe-casting-shelf-card,
+.factory-summary-card {
   display: grid;
   gap: 8px;
   min-height: 118px;
@@ -537,6 +545,27 @@ button:hover {
   border-color: rgba(180, 83, 9, 0.20);
 }
 
+.factory-summary-card {
+  min-height: 108px;
+  background:
+    radial-gradient(circle at top right, rgba(36, 87, 214, 0.11), transparent 86px),
+    #ffffff;
+}
+
+.factory-summary-card.payable {
+  border-color: rgba(180, 83, 9, 0.35);
+  background:
+    radial-gradient(circle at top right, rgba(180, 83, 9, 0.14), transparent 86px),
+    #fffdf8;
+}
+
+.factory-summary-card.receivable {
+  border-color: rgba(14, 116, 144, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(14, 116, 144, 0.13), transparent 86px),
+    #f6feff;
+}
+
 .safe-casting-shelf-card div {
   display: flex;
   flex-wrap: wrap;
@@ -563,7 +592,8 @@ button:hover {
 
 .safe-locker-card span,
 .metal-safe-balance span,
-.safe-casting-shelf-card span {
+.safe-casting-shelf-card span,
+.factory-summary-card span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
@@ -572,14 +602,16 @@ button:hover {
 
 .safe-locker-card strong,
 .metal-safe-balance strong,
-.safe-casting-shelf-card strong {
+.safe-casting-shelf-card strong,
+.factory-summary-card strong {
   font-size: 28px;
   color: var(--brand-dark);
 }
 
 .safe-locker-card small,
 .metal-safe-balance small,
-.safe-casting-shelf-card small {
+.safe-casting-shelf-card small,
+.factory-summary-card small {
   color: var(--muted);
   line-height: 1.35;
 }
@@ -671,6 +703,22 @@ form.active-operation-page,
 
 .is-owner .owner-only.operation-page.active-operation-page {
   display: grid;
+}
+
+#melting.operation-open > .melting-operation-tiles {
+  display: none;
+}
+
+#melting > .operation-page {
+  display: none !important;
+}
+
+#melting > .operation-page.active-operation-page {
+  display: block !important;
+}
+
+#melting > #melting-conversion-page.active-operation-page {
+  display: grid !important;
 }
 
 .workbench > .operation-page.active-operation-page {
@@ -3790,6 +3838,7 @@ dialog::backdrop {
   .safe-layout,
   .safe-locker-grid,
   .safe-metal-summary,
+  .factory-summary-grid,
   .safe-casting-shelf-grid,
   .workbench {
     grid-template-columns: 1fr;
@@ -4491,20 +4540,23 @@ body {
 }
 
 .safe-casting-shelf-grid,
-.safe-metal-summary {
+.safe-metal-summary,
+.factory-summary-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
 }
 
 .safe-locker-card,
 .safe-casting-shelf-card,
-.metal-safe-balance {
+.metal-safe-balance,
+.factory-summary-card {
   min-width: 0;
   padding: 12px;
 }
 
 .safe-locker-card strong,
 .safe-casting-shelf-card strong,
-.metal-safe-balance strong {
+.metal-safe-balance strong,
+.factory-summary-card strong {
   font-size: clamp(18px, 2vw, 24px);
 }
 

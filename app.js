@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v231";
+const APP_VERSION = "v234";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -60,7 +60,7 @@ let selectedDesignIds = new Set();
 const users = {
   owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
   order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "melting", "production", "billing", "safe"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
@@ -84,6 +84,7 @@ const loginAccessPages = [
   "billing",
   "office",
   "safe",
+  "factory",
   "stock",
   "karigars",
   "transfer-history",
@@ -98,6 +99,23 @@ const demoState = {
   userAccessOverrides: {},
   customers: [],
   officeCustomers: [],
+  vendors: [],
+  factoryLedger: [{
+    id: "factory-default-factory-ledger",
+    date: today(),
+    direction: "in",
+    type: "Opening Stock",
+    vendorId: "",
+    vendorName: "Opening Stock",
+    materialType: "raw-metal",
+    purity: FACTORY_RESET_STOCK_PURITY,
+    weight: FACTORY_RESET_STOCK_WEIGHT,
+    fineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
+    stockPosting: "Metal Safe",
+    reference: "Factory opening stock",
+    sourceType: "factory-default",
+    sourceId: "factory-default-ledger",
+  }],
   designs: [],
   stones: [],
   bills: [],
@@ -157,6 +175,7 @@ const pageInfo = {
   billing: ["Bill", "Create bills for completed job cards."],
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
+  factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and final fine stock."],
   stock: ["Raw Gold Stock", "Maintain only raw gold movement ledger. Production stock and office stock are separate."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
@@ -174,9 +193,20 @@ const operationTileConfigs = {
     { id: "items", title: "Item Safe Lockers", description: "View 9K, 14K, 18K, 22K item lockers", selector: ".safe-locker-panel" },
     { id: "metal", title: "Metal Safe / Office In", description: "Receive raw metal and view metal safe ledger", selector: ".metal-safe-panel" },
   ],
+  factory: [
+    { id: "summary", title: "Factory Summary", description: "Final fine stock, factory in/out, and vendor balance", selector: "#factory-summary-grid" },
+    { id: "in", title: "Factory In", description: "Add vendor metal or other stock into factory", selector: ".factory-workbench" },
+    { id: "vendors", title: "Vendor Balance", description: "Check current payable or receivable metal by party", selector: ".vendor-balance-panel" },
+    { id: "ledger", title: "Factory Ledger", description: "View every factory in and bill factory out entry", selector: ".factory-ledger-panel" },
+  ],
   stock: [
     { id: "add", title: "Add Raw Gold", description: "Receive raw gold into metal safe", selector: "#stock-form" },
     { id: "ledger", title: "Raw Gold Ledger", description: "View raw gold stock movements", selector: "#stock .table-panel" },
+  ],
+  melting: [
+    { id: "dashboard", title: "Melting Dashboard", description: "Metal with melting/casting and loss summary", selector: ".melting-dashboard-panel" },
+    { id: "conversion", title: "Melting Conversion", description: "Issue metal, rod, or wastage for melting/casting", selector: "#melting-conversion-page" },
+    { id: "history", title: "Melting / Casting History", description: "Open history tiles for view, edit, receive, or delete", selector: ".melting-history-panel" },
   ],
   karigars: [
     { id: "add", title: "Add Department", description: "Owner can add or edit department master", selector: "#karigar-form" },
@@ -239,17 +269,22 @@ function initializeOperationTiles() {
 function openOperationPage(viewId, pageId) {
   const section = document.getElementById(viewId);
   if (!section) return;
+  section.classList.add("operation-open");
   section.querySelectorAll("[data-operation-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.operationPage === pageId);
   });
   section.querySelectorAll(".operation-page").forEach((page) => {
-    page.classList.toggle("active-operation-page", page.dataset.operationPage === pageId);
+    const isActivePage = page.dataset.operationPage === pageId;
+    page.classList.toggle("active-operation-page", isActivePage);
+    page.hidden = !isActivePage;
   });
   refreshOperationPage(viewId, pageId);
 }
 
 function refreshOperationPage(viewId, pageId) {
+  if (viewId === "melting") renderMelting();
   if (viewId === "safe") renderSafe();
+  if (viewId === "factory") renderFactory();
   if (viewId === "stock" && pageId === "ledger") renderLedger();
   if (viewId === "customers" && pageId === "master") renderCustomers();
   if (viewId === "karigars" && pageId === "master") renderKarigars();
@@ -262,8 +297,12 @@ function refreshOperationPage(viewId, pageId) {
 function resetOperationPage(viewId) {
   const section = document.getElementById(viewId);
   if (!section || !operationTileConfigs[viewId]) return;
+  section.classList.remove("operation-open");
   section.querySelectorAll("[data-operation-view]").forEach((button) => button.classList.remove("active"));
-  section.querySelectorAll(".operation-page").forEach((page) => page.classList.remove("active-operation-page"));
+  section.querySelectorAll(".operation-page").forEach((page) => {
+    page.classList.remove("active-operation-page");
+    page.hidden = true;
+  });
 }
 
 function resetBuiltInTilePage(view) {
@@ -1002,6 +1041,73 @@ document.getElementById("metal-safe-form").addEventListener("submit", (event) =>
 document.getElementById("safe-locker-filter").addEventListener("change", renderSafe);
 document.getElementById("metal-safe-search").addEventListener("input", renderSafe);
 
+document.getElementById("vendor-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const name = data.name.trim();
+  if (!name) {
+    alert("Enter vendor / party name.");
+    return;
+  }
+  const duplicate = findVendorByName(name);
+  if (duplicate && duplicate.id !== data.vendorId) {
+    alert("This vendor / party already exists. Edit the existing vendor instead.");
+    return;
+  }
+  const vendor = data.vendorId ? findById("vendors", data.vendorId) : null;
+  if (vendor) {
+    Object.assign(vendor, {
+      name,
+      phone: data.phone || "",
+      city: data.city || "",
+      remarks: data.remarks || "",
+    });
+  } else {
+    state.vendors = state.vendors || [];
+    state.vendors.unshift({
+      id: crypto.randomUUID(),
+      name,
+      phone: data.phone || "",
+      city: data.city || "",
+      remarks: data.remarks || "",
+    });
+  }
+  resetVendorForm();
+  saveState();
+  render();
+});
+
+document.getElementById("factory-in-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const vendor = findById("vendors", data.vendorId);
+  const weight = Number(data.weight || 0);
+  if (!vendor) {
+    alert("Select vendor / party first.");
+    return;
+  }
+  if (weight <= 0) {
+    alert("Enter valid factory in weight.");
+    return;
+  }
+  addFactoryInEntry({
+    vendor,
+    materialType: data.materialType,
+    purity: data.purity,
+    weight,
+    reference: data.reference,
+    remarks: data.remarks,
+  });
+  event.target.reset();
+  event.target.purity.value = "99.5%";
+  saveState();
+  render();
+});
+
+document.getElementById("cancel-vendor-edit").addEventListener("click", resetVendorForm);
+document.getElementById("vendor-search").addEventListener("input", renderFactory);
+document.getElementById("factory-ledger-search").addEventListener("input", renderFactory);
+
 document.getElementById("add-melting-source").addEventListener("click", () => {
   addMeltingSourceRow("", "", "top", true, "metal");
   updateMeltingCalculation();
@@ -1373,6 +1479,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   if (existingIndex >= 0) state.bills[existingIndex] = bill;
   else state.bills.unshift(bill);
   lot.bill = bill;
+  syncFactoryOutForBill(lot, bill);
   lot.productionStockWeight = billProductionStockWeight(bill);
   lot.billingStage = lot.billingStage || "Bill / QC";
   lot.currentDepartment = lot.billingStage;
@@ -3621,6 +3728,252 @@ function metalSafeBalanceForPurity(purity) {
   return Number(metalSafeBalances()[normalizeMetalSafePurity(purity)]?.weight || 0);
 }
 
+function factoryMaterialLabel(value = "") {
+  const key = String(value || "").toLowerCase();
+  if (key === "raw-metal") return "Raw Metal / Pure Gold";
+  if (key === "casting-item") return "Casting Item / Rod";
+  if (key === "wastage") return "Wastage / Scrap";
+  if (key === "bill") return "Bill / Factory Out";
+  return "Other Stock Item";
+}
+
+function factoryStockPosting(entry = {}) {
+  if (entry.stockPosting) return entry.stockPosting;
+  if (entry.materialType === "raw-metal") return "Metal Safe";
+  if (entry.direction === "out") return "Factory Out";
+  return `${safeLockerForPurity(entry.purity)} Shelf`;
+}
+
+function findVendorByName(name = "") {
+  const normalized = String(name || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return (state.vendors || []).find((vendor) => String(vendor.name || "").trim().toLowerCase() === normalized) || null;
+}
+
+function findOrCreateVendorByName(name = "") {
+  const cleanName = String(name || "").trim() || "Unknown Party";
+  const existing = findVendorByName(cleanName);
+  if (existing) return existing;
+  const vendor = {
+    id: crypto.randomUUID(),
+    name: cleanName,
+    phone: "",
+    city: "",
+    remarks: "Auto-created from bill factory out",
+  };
+  state.vendors = state.vendors || [];
+  state.vendors.unshift(vendor);
+  return vendor;
+}
+
+function addFactoryLedgerEntry(entry = {}) {
+  state.factoryLedger = state.factoryLedger || [];
+  const weight = Number(weight3(entry.weight || 0));
+  if (weight <= 0) return null;
+  const purity = entry.purity || "";
+  const ledgerEntry = {
+    id: entry.id || crypto.randomUUID(),
+    date: entry.date || today(),
+    direction: entry.direction || "in",
+    type: entry.type || (entry.direction === "out" ? "Factory Out" : "Factory In"),
+    vendorId: entry.vendorId || "",
+    vendorName: entry.vendorName || "",
+    materialType: entry.materialType || "other",
+    purity,
+    weight,
+    fineGold: Number(weight3(entry.fineGold ?? fineGoldWeight(weight, purity))),
+    stockPosting: factoryStockPosting(entry),
+    reference: entry.reference || "",
+    remarks: entry.remarks || "",
+    sourceType: entry.sourceType || "",
+    sourceId: entry.sourceId || "",
+    sourceLine: entry.sourceLine || "",
+  };
+  state.factoryLedger.unshift(ledgerEntry);
+  return ledgerEntry;
+}
+
+function addFactoryInEntry({ vendor, materialType, purity, weight, reference, remarks }) {
+  const material = materialType || "raw-metal";
+  const ledgerEntry = addFactoryLedgerEntry({
+    direction: "in",
+    type: "Factory In",
+    vendorId: vendor.id,
+    vendorName: vendor.name,
+    materialType: material,
+    purity,
+    weight,
+    reference,
+    remarks,
+    stockPosting: material === "raw-metal" ? "Metal Safe" : `${safeLockerForPurity(purity)} Shelf`,
+    sourceType: "factory-in",
+  });
+  if (!ledgerEntry) return null;
+  ledgerEntry.sourceId = ledgerEntry.id;
+  const sourceText = `${vendor.name} - ${reference || factoryMaterialLabel(material)}`;
+  if (material === "raw-metal") {
+    addMetalSafeMovement({
+      date: ledgerEntry.date,
+      type: "Factory In",
+      direction: "in",
+      purity,
+      weight,
+      reference: sourceText,
+      sourceType: "factory-in",
+      sourceId: ledgerEntry.id,
+    });
+  } else {
+    addSafeItem({
+      date: ledgerEntry.date,
+      locker: safeLockerForPurity(purity),
+      purity,
+      description: reference || factoryMaterialLabel(material),
+      source: sourceText,
+      sourceType: "factory-in",
+      sourceId: ledgerEntry.id,
+      sourceLine: material,
+      safeKind: material === "wastage" ? "wastage" : "rod",
+      grossWeight: weight,
+      waxStoneWeight: 0,
+      netWeight: weight,
+      status: "In Safe",
+      remarks: remarks || "",
+    });
+  }
+  return ledgerEntry;
+}
+
+function billCustomerNameForState(source, lot = {}, bill = {}) {
+  const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  const firstOrder = orderIds.map((id) => (source.orders || []).find((order) => order.id === id)).find(Boolean);
+  const customer = firstOrder?.customerId
+    ? (source.customers || []).find((item) => item.id === firstOrder.customerId)
+    : null;
+  return firstOrder?.customer || customer?.name || lot.customer || bill.customer || lot.customerName || "Unknown Party";
+}
+
+function findOrCreateVendorByNameInState(source, name = "") {
+  const cleanName = String(name || "").trim() || "Unknown Party";
+  source.vendors = source.vendors || [];
+  const existing = source.vendors.find((vendor) => String(vendor.name || "").trim().toLowerCase() === cleanName.toLowerCase());
+  if (existing) return existing;
+  const vendor = {
+    id: crypto.randomUUID(),
+    name: cleanName,
+    phone: "",
+    city: "",
+    remarks: "Auto-created from bill factory out",
+  };
+  source.vendors.unshift(vendor);
+  return vendor;
+}
+
+function syncFactoryOutLedgerForState(source) {
+  source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill");
+  (source.bills || []).forEach((bill) => {
+    if (!bill?.id) return;
+    const lot = (source.lots || []).find((item) => item.id === bill.lotId);
+    if (!lot) return;
+    const vendor = findOrCreateVendorByNameInState(source, billCustomerNameForState(source, lot, bill));
+    (bill.items || []).forEach((item, index) => {
+      if (item.discardStatus) return;
+      const netWeight = Number(item.netWeight || 0);
+      if (netWeight <= 0) return;
+      const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
+      const purity = item.purity || order.purity || lot.metalPurity || "18K";
+      const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
+      source.factoryLedger.unshift({
+        id: `bill-${bill.id}-${item.orderId || productionNo || index}`,
+        date: bill.billDate || today(),
+        direction: "out",
+        type: "Bill / Factory Out",
+        vendorId: vendor.id,
+        vendorName: vendor.name,
+        materialType: "bill",
+        purity,
+        weight: Number(weight3(netWeight)),
+        fineGold: fineGoldWeight(netWeight, purity),
+        stockPosting: "Factory Out By Bill",
+        reference: [bill.billNo || "Bill", lot.orderNumber || bill.jobNumber || "", productionNo].filter(Boolean).join(" / "),
+        remarks: bill.remarks || "",
+        sourceType: "bill",
+        sourceId: bill.id,
+        sourceLine: item.orderId || productionNo || String(index),
+      });
+    });
+  });
+}
+
+function syncFactoryOutForBill() {
+  syncFactoryOutLedgerForState(state);
+}
+
+function factoryLedgerTotals() {
+  return (state.factoryLedger || []).reduce((totals, entry) => {
+    const fine = Number(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity));
+    if (entry.direction === "out") totals.outFine = Number(weight3(totals.outFine + fine));
+    else totals.inFine = Number(weight3(totals.inFine + fine));
+    totals.balanceFine = Number(weight3(totals.inFine - totals.outFine));
+    return totals;
+  }, { inFine: 0, outFine: 0, balanceFine: 0 });
+}
+
+function factoryPhysicalFineStock() {
+  const metalFine = Object.values(metalSafeBalances()).reduce((total, item) => Number(weight3(total + Number(item.fineGold || 0))), 0);
+  const shelfFine = (state.safeItems || [])
+    .filter((item) => item.status !== "Out")
+    .reduce((total, item) => Number(weight3(total + fineGoldWeight(item.netWeight ?? item.grossWeight ?? 0, safeItemDesiredPurity(item)))), 0);
+  const productionFine = (state.lots || [])
+    .filter((lot) => lot.status !== "Completed")
+    .reduce((total, lot) => {
+      const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+      return Number(weight3(total + fineGoldWeight(currentTransferIssueWeight(lot) || lot.issuedWeight || 0, purity)));
+    }, 0);
+  return {
+    metalFine,
+    shelfFine,
+    productionFine,
+    totalFine: Number(weight3(metalFine + shelfFine + productionFine)),
+  };
+}
+
+function vendorBalanceRows() {
+  const rows = new Map();
+  (state.vendors || []).forEach((vendor) => {
+    rows.set(vendor.id, {
+      vendor,
+      inFine: 0,
+      outFine: 0,
+      balanceFine: 0,
+    });
+  });
+  (state.factoryLedger || []).forEach((entry) => {
+    const vendorId = entry.vendorId || "";
+    const vendor = vendorId ? findById("vendors", vendorId) : null;
+    const key = vendorId || entry.vendorName || "opening-stock";
+    if (!rows.has(key)) {
+      rows.set(key, {
+        vendor: vendor || { id: key, name: entry.vendorName || "Opening Stock", phone: "", city: "", remarks: "" },
+        inFine: 0,
+        outFine: 0,
+        balanceFine: 0,
+      });
+    }
+    const row = rows.get(key);
+    const fine = Number(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity));
+    if (entry.direction === "out") row.outFine = Number(weight3(row.outFine + fine));
+    else row.inFine = Number(weight3(row.inFine + fine));
+    row.balanceFine = Number(weight3(row.inFine - row.outFine));
+  });
+  return [...rows.values()].sort((a, b) => String(a.vendor.name || "").localeCompare(String(b.vendor.name || ""), undefined, { sensitivity: "base" }));
+}
+
+function factoryBalanceStatus(balanceFine) {
+  if (balanceFine > 0.0005) return "Payable To Vendor";
+  if (balanceFine < -0.0005) return "Receivable From Vendor";
+  return "Settled";
+}
+
 function normalizeMetalSafePurity(value) {
   const text = String(value || "").trim().toUpperCase();
   if (!text) return "-";
@@ -3990,6 +4343,24 @@ function clearJobCards(resetAt = new Date().toISOString()) {
     reference: "Factory reset opening stock",
     sourceType: "factory-reset",
     sourceId: openingStockId,
+  }];
+  state.factoryLedger = [{
+    id: crypto.randomUUID(),
+    date: today(),
+    direction: "in",
+    type: "Opening Stock",
+    vendorId: "",
+    vendorName: "Opening Stock",
+    materialType: "raw-metal",
+    purity: FACTORY_RESET_STOCK_PURITY,
+    weight: FACTORY_RESET_STOCK_WEIGHT,
+    fineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
+    stockPosting: "Metal Safe",
+    reference: "Factory reset opening stock",
+    remarks: "",
+    sourceType: "factory-reset",
+    sourceId: openingStockId,
+    sourceLine: "",
   }];
   state.metalSafeSeededFromLedger = true;
   closeOpenDialogs();
@@ -5978,6 +6349,7 @@ function render() {
   renderBills();
   renderOffice();
   renderSafe();
+  renderFactory();
   renderLedger();
   renderMelting();
   renderKarigars();
@@ -11550,6 +11922,7 @@ function updateSavedBill(bill) {
   const existingIndex = state.bills.findIndex((item) => item.lotId === bill.lotId);
   if (existingIndex >= 0) state.bills[existingIndex] = bill;
   else state.bills.unshift(bill);
+  syncFactoryOutForBill();
 }
 
 function defaultMakingPercentForLot(lot) {
@@ -11701,6 +12074,126 @@ function renderMetalSafe() {
     `).join("");
   const table = document.getElementById("metal-safe-table");
   if (table) table.innerHTML = rows || tableEmpty(6, "No metal safe movements recorded.");
+}
+
+function renderFactory() {
+  renderFactoryVendorOptions();
+  renderFactorySummary();
+  renderVendorBalances();
+  renderFactoryLedger();
+}
+
+function renderFactoryVendorOptions() {
+  const select = document.querySelector('#factory-in-form select[name="vendorId"]');
+  if (!select) return;
+  const selected = select.value;
+  const vendors = [...(state.vendors || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
+  select.innerHTML = vendors.length
+    ? `<option value="">Select vendor / party</option>${vendors.map((vendor) => `<option value="${vendor.id}">${escapeHtml(vendor.name)}</option>`).join("")}`
+    : '<option value="">Add vendor first</option>';
+  select.value = vendors.some((vendor) => vendor.id === selected) ? selected : "";
+}
+
+function renderFactorySummary() {
+  const grid = document.getElementById("factory-summary-grid");
+  if (!grid) return;
+  const ledger = factoryLedgerTotals();
+  const physical = factoryPhysicalFineStock();
+  const vendorRows = vendorBalanceRows();
+  const payable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
+  const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
+  grid.innerHTML = [
+    factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + opening stock"),
+    factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills made"),
+    factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus bill out"),
+    factorySummaryCard("Final Fine Stock", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
+    factorySummaryCard("Payable To Vendors", gram(payable), "Metal to give to party", payable > 0 ? "payable" : ""),
+    factorySummaryCard("Receivable From Vendors", gram(receivable), "Metal to receive from party", receivable > 0 ? "receivable" : ""),
+  ].join("");
+}
+
+function factorySummaryCard(title, value, note, variant = "") {
+  return `
+    <article class="factory-summary-card ${escapeHtml(variant)}">
+      <span>${escapeHtml(title)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(note)}</small>
+    </article>
+  `;
+}
+
+function renderVendorBalances() {
+  const query = (document.getElementById("vendor-search")?.value || "").trim().toLowerCase();
+  const rows = vendorBalanceRows()
+    .filter((row) => !query || [row.vendor.name, row.vendor.phone, row.vendor.city, row.vendor.remarks].join(" ").toLowerCase().includes(query))
+    .map((row) => {
+      const status = factoryBalanceStatus(row.balanceFine);
+      const isManualVendor = Boolean((state.vendors || []).some((vendor) => vendor.id === row.vendor.id));
+      return `
+        <tr>
+          <td><strong>${escapeHtml(row.vendor.name || "-")}</strong><br><small>${escapeHtml([row.vendor.phone, row.vendor.city].filter(Boolean).join(" / ") || row.vendor.remarks || "-")}</small></td>
+          <td>${gram(row.inFine)}</td>
+          <td>${gram(row.outFine)}</td>
+          <td><strong>${row.balanceFine < 0 ? "-" : ""}${gram(Math.abs(row.balanceFine))}</strong></td>
+          <td><span class="status ${statusClass(status)}">${escapeHtml(status)}</span></td>
+          <td>${isManualVendor ? `<button class="ghost-button" type="button" onclick="editVendor('${row.vendor.id}')">Edit</button>` : ""}</td>
+        </tr>
+      `;
+    }).join("");
+  const table = document.getElementById("vendor-balance-table");
+  if (table) table.innerHTML = rows || tableEmpty(6, "No vendor balance recorded yet.");
+}
+
+function renderFactoryLedger() {
+  const query = (document.getElementById("factory-ledger-search")?.value || "").trim().toLowerCase();
+  const rows = [...(state.factoryLedger || [])]
+    .filter((entry) => {
+      if (!query) return true;
+      return [entry.date, entry.type, entry.vendorName, factoryMaterialLabel(entry.materialType), entry.purity, entry.reference, entry.stockPosting]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    })
+    .map((entry) => `
+      <tr>
+        <td>${escapeHtml(entry.date || "-")}</td>
+        <td><span class="status ${statusClass(entry.type || entry.direction)}">${escapeHtml(entry.type || "-")}</span></td>
+        <td>${escapeHtml(entry.vendorName || "-")}</td>
+        <td>${escapeHtml(factoryMaterialLabel(entry.materialType))}</td>
+        <td>${escapeHtml(entry.purity || "-")}</td>
+        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
+        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity))}</td>
+        <td>${escapeHtml(factoryStockPosting(entry))}</td>
+        <td>${escapeHtml(entry.reference || "-")}${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
+      </tr>
+    `).join("");
+  const table = document.getElementById("factory-ledger-table");
+  if (table) table.innerHTML = rows || tableEmpty(9, "No factory in/out ledger entries yet.");
+}
+
+function editVendor(id) {
+  const vendor = findById("vendors", id);
+  if (!vendor) return;
+  openOperationPage("factory", "in");
+  const form = document.getElementById("vendor-form");
+  form.vendorId.value = vendor.id;
+  form.name.value = vendor.name || "";
+  form.phone.value = vendor.phone || "";
+  form.city.value = vendor.city || "";
+  form.remarks.value = vendor.remarks || "";
+  document.getElementById("vendor-form-title").textContent = "Edit Vendor";
+  document.getElementById("vendor-submit").textContent = "Update Vendor";
+  document.getElementById("cancel-vendor-edit").classList.remove("hidden");
+}
+
+function resetVendorForm() {
+  const form = document.getElementById("vendor-form");
+  if (!form) return;
+  form.reset();
+  form.vendorId.value = "";
+  document.getElementById("vendor-form-title").textContent = "Vendor Master";
+  document.getElementById("vendor-submit").textContent = "Save Vendor";
+  document.getElementById("cancel-vendor-edit").classList.add("hidden");
 }
 
 function updateMeltingCalculation() {
@@ -11907,10 +12400,12 @@ function renderMeltingActionButtons(item) {
 
 function scrollToMeltingConversion() {
   resetMeltingIssueForm();
+  openOperationPage("melting", "conversion");
   document.getElementById("melting-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function scrollToMeltingHistoryTiles() {
+  openOperationPage("melting", "history");
   document.querySelector(".melting-history-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -12304,6 +12799,7 @@ function openMeltingReceive(meltingId) {
 function openMeltingIssueEdit(meltingId) {
   const melting = findById("melting", meltingId);
   if (!melting) return;
+  openOperationPage("melting", "conversion");
   const form = document.getElementById("melting-form");
   form.meltingId.value = melting.id;
   document.getElementById("melting-sources").innerHTML = "";
@@ -12619,6 +13115,35 @@ function normalizeState(currentState) {
   ]).filter(([id]) => users[id] && id !== "owner"));
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
+  currentState.vendors = (currentState.vendors || []).map((vendor) => ({
+    id: vendor.id || crypto.randomUUID(),
+    name: vendor.name || "Vendor",
+    phone: vendor.phone || "",
+    city: vendor.city || "",
+    remarks: vendor.remarks || "",
+  }));
+  currentState.factoryLedger = (currentState.factoryLedger || []).map((entry) => {
+    const weight = Number(weight3(entry.weight || 0));
+    const purity = entry.purity || "";
+    return {
+      id: entry.id || crypto.randomUUID(),
+      date: entry.date || today(),
+      direction: entry.direction || (String(entry.type || "").toLowerCase().includes("out") ? "out" : "in"),
+      type: entry.type || "Factory In",
+      vendorId: entry.vendorId || "",
+      vendorName: entry.vendorName || "",
+      materialType: entry.materialType || (String(entry.type || "").toLowerCase().includes("bill") ? "bill" : "raw-metal"),
+      purity,
+      weight,
+      fineGold: Number(weight3(entry.fineGold ?? fineGoldWeight(weight, purity))),
+      stockPosting: entry.stockPosting || "",
+      reference: entry.reference || "",
+      remarks: entry.remarks || "",
+      sourceType: entry.sourceType || "",
+      sourceId: entry.sourceId || "",
+      sourceLine: entry.sourceLine || "",
+    };
+  });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {
     const grossWeight = Number(item.grossWeight ?? item.netWeight ?? 0);
     const savedNetWeight = Number(item.netWeight ?? grossWeight);
@@ -12659,6 +13184,36 @@ function normalizeState(currentState) {
     movement.sourceType !== "production"
     && !String(movement.type || "").toLowerCase().includes("production issue")
   );
+  const hasFactoryOpeningLedger = currentState.factoryLedger.some((entry) =>
+    entry.type === "Opening Stock"
+    || ["factory-default", "factory-reset"].includes(entry.sourceType)
+  );
+  if (!hasFactoryOpeningLedger) {
+    const openingMovement = currentState.metalSafeMovements.find((movement) =>
+      movement.direction === "in"
+      && ["factory-default", "factory-reset"].includes(movement.sourceType)
+    );
+    if (openingMovement) {
+      currentState.factoryLedger.push({
+        id: `${openingMovement.sourceType || "factory"}-factory-ledger-${openingMovement.id}`,
+        date: openingMovement.date || today(),
+        direction: "in",
+        type: "Opening Stock",
+        vendorId: "",
+        vendorName: "Opening Stock",
+        materialType: "raw-metal",
+        purity: openingMovement.purity || FACTORY_RESET_STOCK_PURITY,
+        weight: Number(openingMovement.weight || 0),
+        fineGold: fineGoldWeight(openingMovement.weight || 0, openingMovement.purity || FACTORY_RESET_STOCK_PURITY),
+        stockPosting: "Metal Safe",
+        reference: openingMovement.reference || "Factory opening stock",
+        remarks: "",
+        sourceType: openingMovement.sourceType || "factory-default",
+        sourceId: openingMovement.sourceId || openingMovement.id,
+        sourceLine: "",
+      });
+    }
+  }
   currentState.bills = (currentState.bills || []).map((bill) => ({
     id: bill.id || crypto.randomUUID(),
     lotId: bill.lotId || "",
@@ -12892,6 +13447,7 @@ function normalizeState(currentState) {
     const bill = currentState.bills.find((item) => item.lotId === lot.id);
     if (bill) lot.bill = bill;
   });
+  syncFactoryOutLedgerForState(currentState);
   currentState.karigars = (currentState.karigars || []).map((department) => {
     const processes = departmentProcesses(department);
     return {

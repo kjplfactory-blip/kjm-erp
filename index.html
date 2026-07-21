@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v231</small>
+            <small class="app-version-badge">App v234</small>
           </div>
         </div>
         <label>User
@@ -73,6 +73,7 @@
         <button class="nav-item" data-view="billing">Bill</button>
         <button class="nav-item" data-view="office">Office</button>
         <button class="nav-item" data-view="safe">Safe Locker</button>
+        <button class="nav-item" data-view="factory">Factory In / Out</button>
         <button class="nav-item" data-view="stock">Raw Gold Stock</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
@@ -89,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v231</span>
+          <span class="app-version-badge">App v234</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -478,6 +479,66 @@
         </div>
       </section>
 
+      <section id="factory" class="view">
+        <div id="factory-summary-grid" class="factory-summary-grid"></div>
+        <div class="workbench factory-workbench">
+          <form id="vendor-form" class="form-panel">
+            <h2 id="vendor-form-title">Vendor Master</h2>
+            <input type="hidden" name="vendorId">
+            <label>Vendor / Party Name <input name="name" required></label>
+            <label>Phone <input name="phone"></label>
+            <label>City <input name="city"></label>
+            <label>Remarks <input name="remarks" placeholder="Opening balance, terms, note"></label>
+            <button id="vendor-submit" type="submit">Save Vendor</button>
+            <button id="cancel-vendor-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+
+          <form id="factory-in-form" class="form-panel">
+            <h2>Factory In From Vendor</h2>
+            <label>Vendor / Party <select name="vendorId" required></select></label>
+            <label>Material Type
+              <select name="materialType">
+                <option value="raw-metal">Raw Metal / Pure Gold</option>
+                <option value="casting-item">Casting Item / Rod</option>
+                <option value="wastage">Wastage / Scrap</option>
+                <option value="other">Other Stock Item</option>
+              </select>
+            </label>
+            <label>Purity <input name="purity" list="metal-purity-options" value="99.5%" placeholder="99.5%, 18K, 14K" required></label>
+            <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+            <label>Reference / Item <input name="reference" placeholder="Memo no, old gold, rod, casting item" required></label>
+            <label>Remarks <input name="remarks" placeholder="Optional note"></label>
+            <button type="submit">Add Factory In</button>
+          </form>
+        </div>
+
+        <section class="panel table-panel vendor-balance-panel">
+          <div class="panel-heading">
+            <h2>Vendor Current Balance</h2>
+            <input id="vendor-search" class="search compact-search" placeholder="Search vendor">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Vendor</th><th>Factory In Fine</th><th>Bill / Factory Out Fine</th><th>Current Balance</th><th>Status</th><th></th></tr></thead>
+              <tbody id="vendor-balance-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel table-panel factory-ledger-panel">
+          <div class="panel-heading">
+            <h2>Factory In / Out Ledger</h2>
+            <input id="factory-ledger-search" class="search compact-search" placeholder="Search vendor, purity, reference">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th></tr></thead>
+              <tbody id="factory-ledger-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section id="stock" class="view">
         <div class="workbench">
           <form id="stock-form" class="form-panel">
@@ -511,18 +572,33 @@
       </section>
 
       <section id="melting" class="view">
-        <section class="panel melting-dashboard-panel operation-dashboard">
+        <div class="tile-grid operation-tile-grid melting-operation-tiles">
+          <button class="action-tile" type="button" data-operation-view="melting" data-operation-page="dashboard">
+            <strong>Melting Dashboard</strong>
+            <span>Metal with melting/casting and loss summary</span>
+          </button>
+          <button class="action-tile" type="button" onclick="scrollToMeltingConversion()">
+            <strong>Melting Conversion</strong>
+            <span>Issue metal, rod, or wastage for melting/casting</span>
+          </button>
+          <button class="action-tile" type="button" data-operation-view="melting" data-operation-page="history">
+            <strong>Melting / Casting History</strong>
+            <span>Open history tiles for view, edit, receive, or delete</span>
+          </button>
+        </div>
+        <section class="panel melting-dashboard-panel operation-page" data-operation-page="dashboard" hidden>
           <div class="panel-heading">
             <h2>Melting / Casting Dashboard</h2>
             <div class="row-actions">
-              <button class="ghost-button" type="button" onclick="scrollToMeltingConversion()">New Melting</button>
+              <button class="ghost-button" type="button" onclick="resetOperationPage('melting')">Back to Tiles</button>
             </div>
           </div>
           <div id="melting-summary-grid" class="melting-summary-grid"></div>
         </section>
-        <div class="workbench">
+        <div id="melting-conversion-page" class="workbench operation-page" data-operation-page="conversion" hidden>
           <form id="melting-form" class="form-panel">
             <h2 id="melting-form-title">Melting Conversion</h2>
+            <button class="ghost-button" type="button" onclick="resetOperationPage('melting')">Back to Tiles</button>
             <input type="hidden" name="meltingId">
             <div class="panel-heading">
               <h2>Source Metals</h2>
@@ -552,9 +628,12 @@
             <button id="cancel-melting-issue-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
         </div>
-        <section class="panel melting-history-panel">
+        <section class="panel melting-history-panel operation-page" data-operation-page="history" hidden>
           <div class="panel-heading compact-heading">
             <h2>Melting / Casting History Tiles</h2>
+            <div class="row-actions">
+              <button class="ghost-button" type="button" onclick="resetOperationPage('melting')">Back to Tiles</button>
+            </div>
           </div>
           <div id="melting-history-tiles" class="melting-history-tiles"></div>
         </section>
@@ -1104,6 +1183,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=231"></script>
+  <script src="app.js?v=234"></script>
 </body>
 </html>
