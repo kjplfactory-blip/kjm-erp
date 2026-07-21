@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=131">
+    <link rel="stylesheet" href="styles.css?v=134">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v240</small>
+            <small class="app-version-badge">App v243</small>
           </div>
         </div>
         <label>User
@@ -74,7 +74,6 @@
         <button class="nav-item" data-view="office">Office</button>
         <button class="nav-item" data-view="safe">Safe Locker</button>
         <button class="nav-item" data-view="factory">Factory In / Out</button>
-        <button class="nav-item" data-view="stock">Raw Gold Stock</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
         <button class="nav-item" data-view="reports">Reports</button>
@@ -90,7 +89,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v240</span>
+          <span class="app-version-badge">App v243</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -102,14 +101,14 @@
 
       <section id="dashboard" class="view active-view">
         <div class="metric-grid">
-          <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong></article>
-          <article class="metric"><span>Factory In Total</span><strong id="metric-factory-in">0 g</strong></article>
-          <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong></article>
-          <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong></article>
-          <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong></article>
-          <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong></article>
-          <article class="metric"><span>Open Orders</span><strong id="metric-orders">0</strong></article>
-          <article class="metric"><span>Customers</span><strong id="metric-customers">0</strong></article>
+          <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
+          <article class="metric"><span>Factory In Total</span><strong id="metric-factory-in">0 g</strong><button class="metric-open" type="button" data-dashboard-view="factory" data-dashboard-operation="summary">Open</button></article>
+          <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
+          <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
+          <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="billing" data-dashboard-operation="bill">Open</button></article>
+          <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="office" data-dashboard-page="all">Open</button></article>
+          <article class="metric"><span>Open Orders</span><strong id="metric-orders">0</strong><button class="metric-open" type="button" data-dashboard-view="orders" data-dashboard-page="active">Open</button></article>
+          <article class="metric"><span>Customers</span><strong id="metric-customers">0</strong><button class="metric-open" type="button" data-dashboard-view="customers" data-dashboard-operation="master">Open</button></article>
         </div>
 
         <div class="content-grid">
@@ -560,38 +559,6 @@
             </table>
           </div>
         </section>
-      </section>
-
-      <section id="stock" class="view">
-        <div class="workbench">
-          <form id="stock-form" class="form-panel">
-            <h2>Add Raw Gold</h2>
-            <label>Design / Stock Item <select name="designId"></select></label>
-            <label>Purity
-              <select name="purity">
-                <option>99.9%</option>
-                <option>99.5%</option>
-                <option>24K</option>
-                <option>22K</option>
-                <option>18K</option>
-                <option>14K</option>
-                <option>9K</option>
-              </select>
-            </label>
-            <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
-            <label>Source <input name="source" placeholder="Purchase, customer gold, opening stock" required></label>
-            <button type="submit">Add Raw Gold Stock</button>
-          </form>
-          <section class="panel table-panel">
-            <div class="panel-heading"><h2>Raw Gold Stock Ledger</h2></div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Date</th><th>Type</th><th>Purity</th><th>Weight</th><th>Reference</th></tr></thead>
-                <tbody id="stock-table"></tbody>
-              </table>
-            </div>
-          </section>
-        </div>
       </section>
 
       <section id="melting" class="view">
@@ -1070,6 +1037,7 @@
           <label>Remarks <input name="remarks" placeholder="Bill remarks"></label>
         </div>
         <div id="bill-totals" class="bill-totals"></div>
+        <div id="bill-tally" class="bill-tally"></div>
         <div class="bill-item-table">
           <table>
             <thead>
@@ -1286,6 +1254,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=240"></script>
+  <script src="app.js?v=243"></script>
 </body>
 </html>

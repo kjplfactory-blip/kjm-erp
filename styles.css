@@ -754,6 +754,9 @@ form.active-operation-page,
 }
 
 .metric {
+  display: grid;
+  gap: 10px;
+  align-content: start;
   padding: 18px;
 }
 
@@ -766,6 +769,26 @@ form.active-operation-page,
 .metric strong,
 .report-card strong {
   font-size: 28px;
+}
+
+.metric-open,
+.dashboard-open-button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: 999px;
+  background: #f1faf7;
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.metric-open:hover,
+.dashboard-open-button:hover {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #fff;
 }
 
 .content-grid,
@@ -2521,6 +2544,7 @@ dialog::backdrop {
 .bill-dialog-card .bill-item-table,
 .bill-dialog-card .bill-fields,
 .bill-dialog-card .bill-totals,
+.bill-dialog-card .bill-tally,
 .bill-dialog-card .dialog-actions {
   width: 100%;
 }
@@ -2691,6 +2715,116 @@ dialog::backdrop {
   background: #e9f6f3;
   border-color: #b7dfd8;
   color: #0b514c;
+}
+
+.bill-tally {
+  display: block;
+}
+
+.bill-tally-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #cfe0dc;
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.bill-tally-heading {
+  align-items: center;
+}
+
+.bill-tally-heading h3 {
+  margin: 0;
+  color: var(--brand-dark);
+}
+
+.bill-tally-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.bill-tally-status.match,
+.bill-tally-card.match {
+  border-color: #86d6a0;
+  background: #eefbf1;
+  color: #166534;
+}
+
+.bill-tally-status.mismatch,
+.bill-tally-card.mismatch {
+  border-color: #f5b6b6;
+  background: #fff1f1;
+  color: #991b1b;
+}
+
+.bill-tally-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.bill-tally-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.bill-tally-card span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.bill-tally-card strong {
+  color: var(--brand-dark);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.bill-tally-card small {
+  color: var(--muted);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.bill-tally-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.bill-tally-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.bill-tally-table th,
+.bill-tally-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.bill-tally-table th {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
 .transfer-entry-table .dialog-note,

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v240";
+const APP_VERSION = "v243";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -85,7 +85,6 @@ const loginAccessPages = [
   "office",
   "safe",
   "factory",
-  "stock",
   "karigars",
   "transfer-history",
   "reports",
@@ -170,7 +169,7 @@ const stoneCropState = {
 };
 
 const pageInfo = {
-  dashboard: ["Dashboard", "Track raw gold, production stock, office stock, orders, wastage, and finished jewellery separately."],
+  dashboard: ["Dashboard", "Track metal safe, factory stock, production stock, office stock, orders, wastage, and finished jewellery separately."],
   customers: ["Customers", "Add, edit, and manage customer details."],
   designs: ["Designs", "Upload and manage jewellery designs for stock and customer orders."],
   "stone-library": ["Stone Library", "Master list of stone type, size, weight per pc, and price per pc."],
@@ -180,7 +179,6 @@ const pageInfo = {
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
   factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and total factory fine stock."],
-  stock: ["Raw Gold Stock", "Maintain only raw gold movement ledger. Production stock and office stock are separate."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
   "transfer-history": ["Transfer History", "Online one-line history for every lot transfer."],
@@ -204,10 +202,6 @@ const operationTileConfigs = {
     { id: "out", title: "Factory Out", description: "Send bill, metal, rod, wastage, or stock out of factory", selector: "#factory-out-form" },
     { id: "vendors", title: "Vendor Balance", description: "Check current payable or receivable metal by party", selector: ".vendor-balance-panel" },
     { id: "ledger", title: "Factory Ledger", description: "View every factory in and bill factory out entry", selector: ".factory-ledger-panel" },
-  ],
-  stock: [
-    { id: "add", title: "Add Raw Gold", description: "Receive raw gold into metal safe", selector: "#stock-form" },
-    { id: "ledger", title: "Raw Gold Ledger", description: "View raw gold stock movements", selector: "#stock .table-panel" },
   ],
   melting: [
     { id: "dashboard", title: "Melting Dashboard", description: "Metal with melting/casting and loss summary", selector: ".melting-dashboard-panel" },
@@ -292,7 +286,6 @@ function refreshOperationPage(viewId, pageId) {
   if (viewId === "melting") renderMelting();
   if (viewId === "safe") renderSafe();
   if (viewId === "factory") renderFactory();
-  if (viewId === "stock" && pageId === "ledger") renderLedger();
   if (viewId === "customers" && pageId === "master") renderCustomers();
   if (viewId === "karigars" && pageId === "master") renderKarigars();
   if (viewId === "billing" && pageId === "bill") renderBills();
@@ -339,6 +332,10 @@ document.querySelectorAll("[data-stone-page]").forEach((button) => {
 
 document.querySelectorAll("[data-production-page]").forEach((button) => {
   button.addEventListener("click", () => switchProductionPage(button.dataset.productionPage));
+});
+
+document.querySelectorAll("[data-dashboard-view]").forEach((button) => {
+  button.addEventListener("click", () => openDashboardShortcut(button));
 });
 
 document.addEventListener("keydown", (event) => {
@@ -966,7 +963,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   render();
 });
 
-document.getElementById("stock-form").addEventListener("submit", (event) => {
+document.getElementById("stock-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
   const designText = designLabel(data.designId);
@@ -1504,6 +1501,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   }
   const items = billItemRows(existingBill.items || []);
   const netWeight = items.reduce((total, item) => total + Number(item.netWeight || 0), 0);
+  const tally = billTallySnapshot(billTallyDetails(lot, items));
   const bill = {
     id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
     lotId: lot.id,
@@ -1521,6 +1519,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
     remarks: data.remarks || "",
+    tally,
   };
   state.bills = state.bills || [];
   const existingIndex = state.bills.findIndex((item) => item.lotId === lot.id);
@@ -2665,6 +2664,52 @@ function switchView(view) {
   document.getElementById("page-subtitle").textContent = pageInfo[view][1];
   resetBuiltInTilePage(view);
   openDefaultOperationPage(view);
+}
+
+function openDashboardShortcut(button) {
+  const view = button.dataset.dashboardView;
+  if (!view) return;
+  if (currentUser && !canAccessPage(view)) {
+    alert("This login does not have access to this page.");
+    return;
+  }
+  switchView(view);
+  const operationPage = button.dataset.dashboardOperation;
+  const builtInPage = button.dataset.dashboardPage;
+  if (operationPage) {
+    openOperationPage(view, operationPage);
+  } else if (view === "orders" && builtInPage) {
+    switchOrderPage(builtInPage);
+  } else if (view === "production" && builtInPage) {
+    switchProductionPage(builtInPage);
+  } else if (view === "office" && builtInPage) {
+    switchOfficePage(builtInPage);
+  } else if (view === "designs" && builtInPage) {
+    switchDesignPage(builtInPage);
+  } else if (view === "stone-library" && builtInPage) {
+    switchStonePage(builtInPage);
+  }
+}
+
+function openDashboardDepartment(department) {
+  const label = String(department || "").trim();
+  if (!label) return;
+  if (textMatchesAny(label, ["melting", "casting"])) {
+    if (currentUser && !canAccessPage("melting")) {
+      alert("This login does not have access to this page.");
+      return;
+    }
+    switchView("melting");
+    openOperationPage("melting", "dashboard");
+    return;
+  }
+  if (currentUser && !canAccessPage("transfer-history")) {
+    alert("This login does not have access to this page.");
+    return;
+  }
+  switchView("transfer-history");
+  openOperationPage("transfer-history", "department");
+  openDepartmentTransferHistory(label);
 }
 
 function switchOrderPage(page) {
@@ -5819,6 +5864,7 @@ function billPrintHtml(lot, bill) {
   const orders = billableOrdersForLot(lot, bill);
   const items = billPrintItems(lot, bill, orders);
   const totals = billTotals(items);
+  const tally = billTallyDetails(lot, items);
   const customer = billPrintCustomer(orders);
   const purityText = [...new Set(items.map((item) => item.purity).filter(Boolean))].join(", ") || "-";
   const fineWeight = items.reduce((sum, item) => sum + fineGoldWeight(item.netWeight, item.purity || item.order?.purity || 0), 0);
@@ -5846,6 +5892,14 @@ function billPrintHtml(lot, bill) {
         <span><b>City</b>${escapeHtml(customer.city || "-")}</span>
         <span><b>Items</b>${totals.pieces}</span>
         <span><b>Purity</b>${escapeHtml(purityText)}</span>
+      </section>
+      <section class="bill-sample-info bill-tally-print-info">
+        <span><b>Job Final GW</b>${gram(tally.jobFinalGw)}</span>
+        <span><b>Bill Final GW</b>${gram(totals.finalGw)}</span>
+        <span><b>GW Diff</b>${gram(tally.billFinalDifference)}</span>
+        <span><b>Job Stone</b>${tally.jobStone.pcs} pcs / ${gram(tally.jobStone.weight)}</span>
+        <span><b>Bill Stone</b>${gram(totals.stoneWeight)}</span>
+        <span><b>Stone Diff</b>${gram(tally.billStoneDifference)}</span>
       </section>
       <table class="bill-print-table bill-sample-table bill-weight-category-table">
         <thead>
@@ -9041,6 +9095,7 @@ function dashboardTransferItem({ lot, transfer }) {
     <div class="stack-item dashboard-transfer-item">
       <span>${escapeHtml(title)}</span>
       <strong>${escapeHtml(detail)}</strong>
+      <button class="dashboard-open-button" type="button" onclick="openLotHistory('${lot.id}')">Open</button>
     </div>
   `;
 }
@@ -9063,6 +9118,7 @@ function renderDepartmentMetal() {
         </div>
         ${renderDepartmentPuritySplit(totals)}
         ${renderDepartmentSplit(totals)}
+        <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
       </article>
     `)
     .join("");
@@ -11748,7 +11804,9 @@ function updateBillAmount() {
   const form = document.getElementById("bill-form");
   if (!form) return;
   const itemRows = billItemRows();
+  const lot = findById("lots", form.lotId.value);
   renderBillTotals(itemRows);
+  renderBillTally(lot, itemRows);
 }
 
 function billTotals(items = []) {
@@ -11789,6 +11847,189 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card"><span>Other Wt (g)</span><strong>${gram(total.otherNonGoldWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>
     <div class="bill-total-card highlight"><span>Net Wt (g)</span><strong>${gram(total.netWeight)}</strong></div>
+  `;
+}
+
+function billTallyOrders(lot = {}, items = [], bill = {}) {
+  const billableOrders = billableOrdersForLot(lot, bill);
+  const itemOrderIds = new Set(items.map((item) => item.orderId).filter(Boolean));
+  if (!itemOrderIds.size) return billableOrders;
+  const matchedOrders = billableOrders.filter((order) => itemOrderIds.has(order.id));
+  return matchedOrders.length ? matchedOrders : billableOrders;
+}
+
+function billTallyDetails(lot, items = []) {
+  const emptyStone = { pcs: 0, weight: 0 };
+  if (!lot) {
+    const billTotal = billTotals(items);
+    return {
+      orders: [],
+      billTotal,
+      jobStone: emptyStone,
+      waxStone: emptyStone,
+      handStone: emptyStone,
+      jobFinalGw: 0,
+      currentGw: 0,
+      issueGw: 0,
+      issueNet: 0,
+      jobStoneNet: 0,
+      transferDifference: 0,
+      transferFineGoldTotal: 0,
+      manufacturingLoss: 0,
+      manufacturingLossFineGold: 0,
+      billFinalDifference: Number(weight3(billTotal.finalGw)),
+      billStoneDifference: Number(weight3(billTotal.stoneWeight)),
+    };
+  }
+  const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  const orders = billTallyOrders(lot, items, bill);
+  const billTotal = billTotals(items);
+  const jobStone = productionStoneTotalsForOrders(orders);
+  const waxStone = productionStoneTotalsForOrders(orders, "wax");
+  const handStone = productionStoneTotalsForOrders(orders, "hand");
+  const currentGw = Number(weight3(currentTransferIssueWeight(lot) || 0));
+  const jobFinalGw = Number(weight3(lot.finishedWeight || currentGw || 0));
+  const issueGw = Number(weight3(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)) || 0));
+  const issueNet = Number(weight3(lot.issuedWeight || Math.max(issueGw - Number(waxStone.weight || 0), 0)));
+  const transferDifference = (lot.transfers || []).reduce((total, transfer) =>
+    Number(weight3(total + Number(transfer.departmentBalance || 0))), 0);
+  const transferFineGoldTotal = (lot.transfers || []).reduce((total, transfer) =>
+    Number(weight3(total + transferFineGold(transfer, lot))), 0);
+  const manufacturingLoss = Number(weight3(lot.actualWastage || transferDifference || 0));
+  const manufacturingLossFineGold = Number(weight3(lot.wastageFineGold ?? fineGoldWeight(manufacturingLoss, lot.wastagePurity || lot.metalPurity || orders[0]?.purity || 0)));
+  const jobStoneNet = Number(weight3(Math.max(jobFinalGw - Number(jobStone.weight || 0), 0)));
+  return {
+    orders,
+    billTotal,
+    jobStone,
+    waxStone,
+    handStone,
+    jobFinalGw,
+    currentGw,
+    issueGw,
+    issueNet,
+    jobStoneNet,
+    transferDifference: Number(weight3(transferDifference)),
+    transferFineGoldTotal,
+    manufacturingLoss,
+    manufacturingLossFineGold,
+    billFinalDifference: Number(weight3(billTotal.finalGw - jobFinalGw)),
+    billStoneDifference: Number(weight3(billTotal.stoneWeight - Number(jobStone.weight || 0))),
+    billNetVsJobStoneNet: Number(weight3(billTotal.netWeight - jobStoneNet)),
+  };
+}
+
+function billTallySnapshot(tally = {}) {
+  return {
+    jobFinalGw: Number(weight3(tally.jobFinalGw || 0)),
+    billFinalGw: Number(weight3(tally.billTotal?.finalGw || 0)),
+    gwDifference: Number(weight3(tally.billFinalDifference || 0)),
+    jobStonePcs: Number(tally.jobStone?.pcs || 0),
+    jobStoneWeight: Number(weight3(tally.jobStone?.weight || 0)),
+    billStoneWeight: Number(weight3(tally.billTotal?.stoneWeight || 0)),
+    stoneDifference: Number(weight3(tally.billStoneDifference || 0)),
+    billNonGoldWeight: Number(weight3(tally.billTotal?.reducedWeight || 0)),
+    billNetWeight: Number(weight3(tally.billTotal?.netWeight || 0)),
+    manufacturingLoss: Number(weight3(tally.manufacturingLoss || 0)),
+  };
+}
+
+function billTallyDiffClass(value) {
+  return Math.abs(Number(value || 0)) <= 0.001 ? "match" : "mismatch";
+}
+
+function billTallyDiffText(label, value) {
+  return billTallyDiffClass(value) === "match" ? `${label} Match` : `${label} Diff ${gram(value)}`;
+}
+
+function billTallyCard(label, value, note = "", status = "") {
+  const classes = ["bill-tally-card", status].filter(Boolean).join(" ");
+  return `
+    <div class="${classes}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      ${note ? `<small>${escapeHtml(note)}</small>` : ""}
+    </div>
+  `;
+}
+
+function billTallyItemForOrder(order = {}, items = []) {
+  return items.find((item) =>
+    (order.id && item.orderId === order.id)
+    || (order.productionNo && item.productionNo === order.productionNo)
+    || (order.number && item.productionNo === order.number)
+  ) || {};
+}
+
+function renderBillTallyRows(orders = [], items = []) {
+  const rows = orders.length
+    ? orders.map((order, index) => ({ order, item: billTallyItemForOrder(order, items), index }))
+    : items.map((item, index) => ({ order: item.order || findById("orders", item.orderId) || {}, item, index }));
+  return rows.map(({ order, item, index }) => {
+    const nonGold = billItemNonGoldBreakup(item, order);
+    const designCode = billOrderDesignCode(order) || item.design || item.designNo || "";
+    const productionNo = item.productionNo || order.productionNo || order.number || "";
+    const finalGw = billNumber(item.finalGw);
+    const reducedWeight = billNumber(item.reducedWeight || nonGold.total);
+    const netWeight = billNumber(item.netWeight || Math.max(finalGw - reducedWeight, 0));
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(productionNo || "-")}</td>
+        <td>${escapeHtml(designCode || "-")}</td>
+        <td>${escapeHtml(order.category || item.category || "-")}</td>
+        <td>${gram(finalGw)}</td>
+        <td>${gram(nonGold.stoneWeight)}</td>
+        <td>${gram(reducedWeight)}</td>
+        <td>${gram(netWeight)}</td>
+        <td>${escapeHtml(item.qcStatus || "-")}</td>
+      </tr>
+    `;
+  }).join("") || tableEmpty(9, "No bill item available for tally.");
+}
+
+function renderBillTally(lot, items = []) {
+  const container = document.getElementById("bill-tally");
+  if (!container) return;
+  if (!lot) {
+    container.innerHTML = "";
+    return;
+  }
+  const tally = billTallyDetails(lot, items);
+  const gwStatus = billTallyDiffClass(tally.billFinalDifference);
+  const stoneStatus = billTallyDiffClass(tally.billStoneDifference);
+  const statusText = gwStatus === "match" && stoneStatus === "match"
+    ? "GW and stone matching"
+    : [billTallyDiffText("GW", tally.billFinalDifference), billTallyDiffText("Stone", tally.billStoneDifference)].join(" / ");
+  const departmentText = lot.status === "Completed"
+    ? "Completed"
+    : (lot.currentDepartment || lot.karigarName || lot.status || "-");
+  container.innerHTML = `
+    <section class="bill-tally-panel">
+      <div class="panel-heading bill-tally-heading">
+        <h3>Job Card vs Final Bill Tally</h3>
+        <span class="bill-tally-status ${gwStatus === "match" && stoneStatus === "match" ? "match" : "mismatch"}">${escapeHtml(statusText)}</span>
+      </div>
+      <div class="bill-tally-grid">
+        ${billTallyCard("Job Status", lot.status || "-", departmentText)}
+        ${billTallyCard("Job Card Final GW", gram(tally.jobFinalGw), `Current GW ${gram(tally.currentGw)}`)}
+        ${billTallyCard("Bill Final GW", gram(tally.billTotal.finalGw), billTallyDiffText("GW", tally.billFinalDifference), gwStatus)}
+        ${billTallyCard("Job Card Stone", `${tally.jobStone.pcs} pcs / ${gram(tally.jobStone.weight)}`, `Wax ${gram(tally.waxStone.weight)} / Hand ${gram(tally.handStone.weight)}`)}
+        ${billTallyCard("Bill Stone", gram(tally.billTotal.stoneWeight), billTallyDiffText("Stone", tally.billStoneDifference), stoneStatus)}
+        ${billTallyCard("Bill Non-Gold", gram(tally.billTotal.reducedWeight), `BB ${gram(tally.billTotal.bbWeight)} / Moti ${gram(tally.billTotal.motiWeight)} / Spring ${gram(tally.billTotal.springWeight)} / Other ${gram(tally.billTotal.otherNonGoldWeight)}`)}
+        ${billTallyCard("Bill Net Wt", gram(tally.billTotal.netWeight), `Job GW - job stone ${gram(tally.jobStoneNet)}`)}
+        ${billTallyCard("Gold Issue", gram(tally.issueGw), `Net issue ${gram(tally.issueNet)} / Wax stone ${gram(tally.waxStone.weight)}`)}
+        ${billTallyCard("Mfg Loss", gram(tally.manufacturingLoss), `Fine ${gram(tally.manufacturingLossFineGold)} / Transfer diff ${gram(tally.transferDifference)}`)}
+      </div>
+      <div class="bill-tally-table-wrap">
+        <table class="bill-tally-table">
+          <thead>
+            <tr><th>#</th><th>PR No</th><th>Design</th><th>Category</th><th>Final GW</th><th>Stone Wt</th><th>Non-Gold</th><th>Net Wt</th><th>QC</th></tr>
+          </thead>
+          <tbody>${renderBillTallyRows(tally.orders, items)}</tbody>
+        </table>
+      </div>
+    </section>
   `;
 }
 
@@ -12327,6 +12568,8 @@ function wastageDetailHtml(lot) {
 }
 
 function renderLedger() {
+  const table = document.getElementById("stock-table");
+  if (!table) return;
   const rows = state.ledger.map((item) => `
     <tr>
       <td>${item.date}</td>
@@ -12336,7 +12579,7 @@ function renderLedger() {
       <td>${escapeHtml(item.reference)}</td>
     </tr>
   `).join("");
-  document.getElementById("stock-table").innerHTML = rows || tableEmpty(5, "No stock movements recorded.");
+  table.innerHTML = rows || tableEmpty(5, "No stock movements recorded.");
 }
 
 function renderSafe() {
