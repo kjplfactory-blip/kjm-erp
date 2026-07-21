@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=129">
+    <link rel="stylesheet" href="styles.css?v=131">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v238</small>
+            <small class="app-version-badge">App v240</small>
           </div>
         </div>
         <label>User
@@ -90,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v238</span>
+          <span class="app-version-badge">App v240</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -778,8 +778,48 @@
             </table>
           </div>
         </section>
+        <section class="panel department-transfer-panel">
+          <div class="panel-heading">
+            <h2>Department Transfer History</h2>
+            <input id="department-transfer-search" class="search" placeholder="Search department">
+          </div>
+          <div id="department-transfer-grid" class="department-transfer-grid"></div>
+        </section>
       </section>
     </main>
+
+    <dialog id="department-transfer-dialog">
+      <div class="dialog-card history-dialog department-transfer-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2 id="department-transfer-title">Department Transfer History</h2>
+            <p id="department-transfer-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-department-transfer">Close</button>
+        </div>
+        <div id="department-transfer-total-cards" class="department-transfer-total-cards"></div>
+        <div class="department-transfer-columns">
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>IN To Department</h2></div>
+            <div class="table-wrap compact-transfer-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>From</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <tbody id="department-transfer-in-table"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel table-panel">
+            <div class="panel-heading"><h2>OUT From Department</h2></div>
+            <div class="table-wrap compact-transfer-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <tbody id="department-transfer-out-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="office-details-dialog">
       <div class="dialog-card history-dialog office-details-card">
@@ -1246,6 +1286,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=238"></script>
+  <script src="app.js?v=240"></script>
 </body>
 </html>

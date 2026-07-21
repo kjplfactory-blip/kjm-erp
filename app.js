@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v238";
+const APP_VERSION = "v240";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -229,6 +229,7 @@ const operationTileConfigs = {
   ],
   "transfer-history": [
     { id: "history", title: "Online Transfer History", description: "View all lot movement in one table", selector: "#transfer-history .table-panel" },
+    { id: "department", title: "Department Wise History", description: "Open each department to view IN and OUT entries", selector: ".department-transfer-panel" },
   ],
 };
 
@@ -296,6 +297,7 @@ function refreshOperationPage(viewId, pageId) {
   if (viewId === "karigars" && pageId === "master") renderKarigars();
   if (viewId === "billing" && pageId === "bill") renderBills();
   if (viewId === "transfer-history" && pageId === "history") renderOnlineTransferHistory();
+  if (viewId === "transfer-history" && pageId === "department") renderDepartmentTransferHistoryBoard();
   if (viewId === "reports" && pageId === "summary") renderReports();
   if (viewId === "users" && pageId === "login") renderLoginUsers();
 }
@@ -1831,6 +1833,10 @@ document.getElementById("close-history").addEventListener("click", () => {
 
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("production-transfer-search").addEventListener("input", renderOnlineTransferHistory);
+document.getElementById("department-transfer-search")?.addEventListener("input", renderDepartmentTransferHistoryBoard);
+document.getElementById("close-department-transfer")?.addEventListener("click", () => {
+  document.getElementById("department-transfer-dialog")?.close();
+});
 
 document.getElementById("login-user-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -6723,6 +6729,7 @@ function render() {
   renderMelting();
   renderKarigars();
   renderOnlineTransferHistory();
+  renderDepartmentTransferHistoryBoard();
   renderReports();
   renderLoginUsers();
 }
@@ -13028,6 +13035,232 @@ function renderOnlineTransferHistory() {
   const content = rows || tableEmpty(14, "No transfer history recorded.");
   document.getElementById("transfer-history-table").innerHTML = content;
   document.getElementById("production-transfer-table").innerHTML = content;
+}
+
+function renderDepartmentTransferHistoryBoard() {
+  const grid = document.getElementById("department-transfer-grid");
+  if (!grid) return;
+  const query = (document.getElementById("department-transfer-search")?.value || "").trim().toLowerCase();
+  const departments = departmentTransferSummaries()
+    .filter((department) => !query || `${department.name} ${department.detail}`.toLowerCase().includes(query));
+  grid.innerHTML = departments.length
+    ? departments.map(renderDepartmentTransferTile).join("")
+    : '<div class="empty">No department transfer history recorded.</div>';
+}
+
+function renderDepartmentTransferTile(department) {
+  return `
+    <button class="department-transfer-tile" type="button" onclick="openDepartmentTransferHistory(decodeURIComponent('${encodeURIComponent(department.name)}'))">
+      <span>${escapeHtml(department.name)}</span>
+      <strong>${department.inCount} IN / ${department.outCount} OUT</strong>
+      <div>
+        <small><b>IN GW</b>${gram(department.inGw)}</small>
+        <small><b>OUT GW</b>${gram(department.outGw)}</small>
+        <small><b>Reduced</b>${gram(department.difference)}</small>
+        <small><b>Fine</b>${gram(department.fineGold)}</small>
+      </div>
+      ${department.detail ? `<em>${escapeHtml(department.detail)}</em>` : ""}
+    </button>
+  `;
+}
+
+function openDepartmentTransferHistory(departmentName) {
+  const dialog = document.getElementById("department-transfer-dialog");
+  if (!dialog) return;
+  const events = departmentTransferEvents().filter((event) => event.department === departmentName);
+  const inRows = events.filter((event) => event.direction === "in");
+  const outRows = events.filter((event) => event.direction === "out");
+  const summary = departmentTransferSummaryFromEvents(departmentName, events);
+  document.getElementById("department-transfer-title").textContent = `${departmentName} Transfer History`;
+  document.getElementById("department-transfer-summary").textContent =
+    `${summary.inCount} inward entries and ${summary.outCount} outward entries. Difference and fine are counted when item goes out from this department.`;
+  document.getElementById("department-transfer-total-cards").innerHTML = renderDepartmentTransferTotals(summary);
+  document.getElementById("department-transfer-in-table").innerHTML =
+    inRows.length ? inRows.map((event) => renderDepartmentTransferRow(event, "in")).join("") : tableEmpty(8, "No inward entries for this department.");
+  document.getElementById("department-transfer-out-table").innerHTML =
+    outRows.length ? outRows.map((event) => renderDepartmentTransferRow(event, "out")).join("") : tableEmpty(8, "No outward entries for this department.");
+  if (!dialog.open) dialog.showModal();
+}
+
+function renderDepartmentTransferTotals(summary) {
+  return [
+    factorySummaryCard("Total IN GW", gram(summary.inGw), `${summary.inCount} inward entries`),
+    factorySummaryCard("Total OUT GW", gram(summary.outGw), `${summary.outCount} outward entries`),
+    factorySummaryCard("IN Net Wt", gram(summary.inNet), "Net weight received in department"),
+    factorySummaryCard("OUT Net Wt", gram(summary.outNet), "Net weight moved out"),
+    factorySummaryCard("Total Reduced", gram(summary.difference), "Difference booked to this department", summary.difference ? "payable" : ""),
+    factorySummaryCard("Fine Gold Reduced", gram(summary.fineGold), "Fine gold of department difference", summary.fineGold ? "receivable" : ""),
+  ].join("");
+}
+
+function departmentTransferSummaries() {
+  const summaries = new Map();
+  (state.karigars || []).forEach((department) => {
+    const groupName = departmentTransferGroupName(department.name, primaryDepartmentProcess(department));
+    const summary = ensureDepartmentTransferSummary(summaries, groupName);
+    summary.details.add(department.name || groupName);
+    departmentProcesses(department).forEach((process) => summary.details.add(process));
+  });
+  departmentTransferEvents().forEach((event) => {
+    const summary = ensureDepartmentTransferSummary(summaries, event.department);
+    if (event.departmentDetail) summary.details.add(event.departmentDetail);
+    if (event.direction === "in") {
+      summary.inCount += 1;
+      summary.inGw = Number(weight3(summary.inGw + Number(event.receiveGw || 0)));
+      summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
+    } else {
+      summary.outCount += 1;
+      summary.outGw = Number(weight3(summary.outGw + Number(event.issueGw || 0)));
+      summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
+      summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
+      summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
+    }
+  });
+  return [...summaries.values()]
+    .map((summary) => ({
+      ...summary,
+      detail: [...summary.details].filter((item) => item && item !== summary.name).slice(0, 4).join(" / "),
+    }))
+    .filter((summary) => summary.inCount || summary.outCount || summary.detail)
+    .sort((a, b) => (b.inCount + b.outCount) - (a.inCount + a.outCount) || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+function departmentTransferSummaryFromEvents(name, events = []) {
+  const summaries = new Map();
+  const summary = ensureDepartmentTransferSummary(summaries, name);
+  events.forEach((event) => {
+    if (event.direction === "in") {
+      summary.inCount += 1;
+      summary.inGw = Number(weight3(summary.inGw + Number(event.receiveGw || 0)));
+      summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
+    } else {
+      summary.outCount += 1;
+      summary.outGw = Number(weight3(summary.outGw + Number(event.issueGw || 0)));
+      summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
+      summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
+      summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
+    }
+  });
+  return summary;
+}
+
+function ensureDepartmentTransferSummary(map, name) {
+  const key = name || "Unassigned";
+  if (!map.has(key)) {
+    map.set(key, { name: key, detail: "", details: new Set(), inCount: 0, outCount: 0, inGw: 0, outGw: 0, inNet: 0, outNet: 0, difference: 0, fineGold: 0 });
+  }
+  return map.get(key);
+}
+
+function departmentTransferEvents() {
+  const events = [];
+  let sortIndex = 0;
+  state.lots.forEach((lot) => {
+    const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + Number(lot.waxStoneWeight || 0)));
+    if (lot.issueDate || issueGw > 0) {
+      const firstDepartment = lot.issueKarigarName || lot.karigarName || lot.issueDepartment || lot.currentDepartment || "Unassigned";
+      const firstProcess = lot.issueDepartment || lot.currentDepartment || firstDepartment;
+      const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
+      events.push({
+        id: `${lot.id}-issue-in`,
+        sortIndex: sortIndex++,
+        direction: "in",
+        type: "Gold Issue",
+        department: departmentTransferGroupName(firstDepartment, firstProcess),
+        departmentDetail: departmentTransferDetail(firstDepartment, firstProcess),
+        date: lot.issueDate || "-",
+        lotNumber: lot.number || "-",
+        counterparty: sourceName,
+        process: firstProcess,
+        issueGw,
+        receiveGw: issueGw,
+        netWeight: Number(lot.issuedWeight || 0),
+        difference: 0,
+        fineGold: 0,
+        purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
+        remarks: `Gold issued from ${sourceName}${Number(lot.waxStoneWeight || 0) ? `; Wax Stone ${gram(lot.waxStoneWeight)}` : ""}`,
+      });
+    }
+    (lot.transfers || []).forEach((transfer) => {
+      const fromDepartment = transfer.fromKarigarName || transfer.fromDepartment || "Unassigned";
+      const fromProcess = transfer.fromDepartment || fromDepartment;
+      const toDepartment = transfer.toKarigarName || transfer.toDepartment || "Unassigned";
+      const toProcess = transfer.toDepartment || toDepartment;
+      const common = {
+        id: transfer.id || `${lot.id}-${sortIndex}`,
+        sortIndex: sortIndex++,
+        type: "Transfer",
+        date: transfer.date || "-",
+        lotNumber: lot.number || "-",
+        issueGw: Number(transfer.transferWeight || 0),
+        receiveGw: Number(transfer.grossReceivedWeight || 0),
+        netWeight: Number(transfer.receivedWeight || 0),
+        difference: Number(transfer.departmentBalance || 0),
+        fineGold: transferFineGold(transfer, lot),
+        purity: transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
+        remarks: transfer.reason || "-",
+      };
+      events.push({
+        ...common,
+        direction: "out",
+        department: departmentTransferGroupName(fromDepartment, fromProcess),
+        departmentDetail: departmentTransferDetail(fromDepartment, fromProcess),
+        counterparty: departmentTransferDetail(toDepartment, toProcess),
+        process: fromProcess,
+      });
+      events.push({
+        ...common,
+        id: `${common.id}-in`,
+        direction: "in",
+        department: departmentTransferGroupName(toDepartment, toProcess),
+        departmentDetail: departmentTransferDetail(toDepartment, toProcess),
+        counterparty: departmentTransferDetail(fromDepartment, fromProcess),
+        process: toProcess,
+      });
+    });
+  });
+  return events.sort((a, b) => b.sortIndex - a.sortIndex);
+}
+
+function departmentTransferGroupName(departmentName = "", processName = "") {
+  const combined = `${processName || ""} ${departmentName || ""}`;
+  if (textMatchesAny(combined, ["filer", "filing", "fitting", "back to filer", "vinod"])) return "Filing / Fitting";
+  if (isPrePolishDepartment(combined) || isPolishDepartment(combined)) return "Pre Polish / Polish";
+  return departmentDashboardHeader(processName || departmentName || "Unassigned");
+}
+
+function departmentTransferDetail(departmentName = "", processName = "") {
+  const department = String(departmentName || "").trim();
+  const process = String(processName || "").trim();
+  if (!department) return process || "-";
+  if (!process || department.toLowerCase() === process.toLowerCase()) return department;
+  return `${department} / ${process}`;
+}
+
+function renderDepartmentTransferRow(event, direction) {
+  const gw = direction === "in" ? event.receiveGw : event.issueGw;
+  const difference = direction === "out" ? gram(event.difference) : "-";
+  const fineGold = direction === "out" ? gram(event.fineGold) : "-";
+  return `
+    <tr>
+      <td>${escapeHtml(event.date || "-")}</td>
+      <td><button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button></td>
+      <td>${escapeHtml(event.counterparty || "-")}<br><small>${escapeHtml(event.process || "")}</small></td>
+      <td>${gram(gw)}</td>
+      <td>${gram(event.netWeight)}</td>
+      <td>${difference}</td>
+      <td>${fineGold}</td>
+      <td>${escapeHtml(event.remarks || "-")}</td>
+    </tr>
+  `;
+}
+
+function openLotHistoryByNumber(lotNumber) {
+  const lot = state.lots.find((item) => item.number === lotNumber);
+  if (!lot) return;
+  const departmentDialog = document.getElementById("department-transfer-dialog");
+  if (departmentDialog?.open) departmentDialog.close();
+  openLotHistory(lot.id);
 }
 
 function transferReducedWeight(transfer) {

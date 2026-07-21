@@ -699,6 +699,19 @@ form.active-operation-page,
   display: grid;
 }
 
+.workbench .operation-page.active-operation-page {
+  display: block;
+}
+
+.workbench .table-panel.operation-page.active-operation-page {
+  grid-column: 1 / -1;
+}
+
+.workbench form.operation-page.active-operation-page,
+.workbench .form-panel.operation-page.active-operation-page {
+  display: grid;
+}
+
 .safe-locker-panel.active-operation-page,
 .metal-safe-panel.active-operation-page {
   display: flex;
@@ -796,6 +809,149 @@ form.active-operation-page,
 
 .department-card strong {
   font-size: 22px;
+}
+
+.department-transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.department-transfer-tile {
+  display: grid;
+  gap: 10px;
+  min-height: 150px;
+  padding: 16px;
+  border: 1px solid rgba(36, 87, 214, 0.16);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.15), transparent 90px),
+    #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(17, 32, 51, 0.08);
+}
+
+.department-transfer-tile:hover {
+  border-color: var(--brand);
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(17, 32, 51, 0.12);
+}
+
+.department-transfer-tile span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.department-transfer-tile strong {
+  color: var(--brand-dark);
+  font-size: 22px;
+}
+
+.department-transfer-tile div,
+.department-transfer-total-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.department-transfer-tile small {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #f7fafc;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.department-transfer-tile b {
+  color: var(--ink);
+}
+
+.department-transfer-tile em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.department-transfer-dialog-card {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.department-transfer-total-cards {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.department-transfer-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-height: 0;
+}
+
+.department-transfer-columns .table-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compact-transfer-wrap {
+  flex: 1;
+  max-height: none;
+  overflow: auto;
+}
+
+.compact-transfer-wrap table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.compact-transfer-wrap th,
+.compact-transfer-wrap td {
+  padding: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.compact-transfer-wrap th:nth-child(1),
+.compact-transfer-wrap td:nth-child(1) {
+  width: 78px;
+}
+
+.compact-transfer-wrap th:nth-child(2),
+.compact-transfer-wrap td:nth-child(2) {
+  width: 92px;
+}
+
+.compact-transfer-wrap th:nth-child(4),
+.compact-transfer-wrap td:nth-child(4),
+.compact-transfer-wrap th:nth-child(5),
+.compact-transfer-wrap td:nth-child(5),
+.compact-transfer-wrap th:nth-child(6),
+.compact-transfer-wrap td:nth-child(6),
+.compact-transfer-wrap th:nth-child(7),
+.compact-transfer-wrap td:nth-child(7) {
+  width: 82px;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .department-breakup {
@@ -3884,6 +4040,11 @@ dialog::backdrop {
   }
 
   .stone-crop-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .department-transfer-columns,
+  .department-transfer-total-cards {
     grid-template-columns: 1fr;
   }
 }
