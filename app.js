@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v237";
+const APP_VERSION = "v238";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -179,7 +179,7 @@ const pageInfo = {
   billing: ["Bill", "Create bills for completed job cards."],
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
-  factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and final fine stock."],
+  factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and total factory fine stock."],
   stock: ["Raw Gold Stock", "Maintain only raw gold movement ledger. Production stock and office stock are separate."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
@@ -198,7 +198,7 @@ const operationTileConfigs = {
     { id: "metal", title: "Metal Safe / Office In", description: "Receive raw metal and view metal safe ledger", selector: ".metal-safe-panel" },
   ],
   factory: [
-    { id: "summary", title: "Factory Summary", description: "Final fine stock, factory in/out, and vendor balance", selector: "#factory-summary-grid" },
+    { id: "summary", title: "Factory Summary", description: "Total factory fine stock, factory in/out, and vendor balance", selector: "#factory-summary-grid" },
     { id: "vendor", title: "Vendor Master", description: "Add or edit vendor and party details", selector: "#vendor-form" },
     { id: "in", title: "Factory In", description: "Add vendor metal or other stock into factory", selector: "#factory-in-form" },
     { id: "out", title: "Factory Out", description: "Send bill, metal, rod, wastage, or stock out of factory", selector: "#factory-out-form" },
@@ -4224,6 +4224,17 @@ function vendorBalanceRows() {
   return [...rows.values()].sort((a, b) => String(a.vendor.name || "").localeCompare(String(b.vendor.name || ""), undefined, { sensitivity: "base" }));
 }
 
+function factoryVendorFineTotals(rows = vendorBalanceRows()) {
+  const payable = rows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
+  const receivable = rows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
+  const netBalance = rows.reduce((total, row) => Number(weight3(total + Number(row.balanceFine || 0))), 0);
+  return { payable, receivable, netBalance };
+}
+
+function totalFactoryFineStock(physical = factoryPhysicalFineStock(), vendorTotals = factoryVendorFineTotals()) {
+  return Number(weight3(Number(physical.totalFine || 0) - Number(vendorTotals.netBalance || 0)));
+}
+
 function factoryBalanceStatus(balanceFine) {
   if (balanceFine > 0.0005) return "Payable To Vendor";
   if (balanceFine < -0.0005) return "Receivable From Vendor";
@@ -5607,8 +5618,8 @@ function factorySummaryPrintHtml() {
   const ledger = factoryLedgerTotals();
   const physical = factoryPhysicalFineStock();
   const vendorRows = vendorBalanceRows();
-  const payable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
-  const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
+  const vendorTotals = factoryVendorFineTotals(vendorRows);
+  const totalFineStock = totalFactoryFineStock(physical, vendorTotals);
   const entries = [...(state.factoryLedger || [])].slice(0, 10);
   return `
     <section class="bill-print-document small-bill-document factory-summary-print-document">
@@ -5631,16 +5642,16 @@ function factorySummaryPrintHtml() {
         <span><b>Factory In Fine</b>${gram(ledger.inFine)}</span>
         <span><b>Factory Out Fine</b>${gram(ledger.outFine)}</span>
         <span><b>Balance Fine</b>${gram(ledger.balanceFine)}</span>
-        <span><b>Physical Fine</b>${gram(physical.totalFine)}</span>
-        <span><b>Payable</b>${gram(payable)}</span>
-        <span><b>Receivable</b>${gram(receivable)}</span>
+        <span><b>Factory Item Fine</b>${gram(physical.totalFine)}</span>
+        <span><b>Vendor Fine Balance</b>${gram(vendorTotals.netBalance)}</span>
+        <span><b>Total Factory Fine</b>${gram(totalFineStock)}</span>
       </section>
       <table class="bill-print-table bill-sample-table bill-weight-category-table">
         <thead>
           <tr><th>Sr.</th><th>Weight Category</th><th>Weight (g)</th><th>Remarks</th></tr>
         </thead>
         <tbody>
-          ${factorySummaryCategoryRows(ledger, physical, payable, receivable).map((row, index) => `
+          ${factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineStock).map((row, index) => `
             <tr class="${row.highlight ? "bill-sample-total-row" : ""}">
               <td>${index + 1}</td>
               <td>${escapeHtml(row.label)}</td>
@@ -5681,7 +5692,7 @@ function factorySummaryPrintHtml() {
   `;
 }
 
-function factorySummaryCategoryRows(ledger, physical, payable, receivable) {
+function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineStock) {
   return [
     { label: "Factory In Fine", value: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
     { label: "Factory Out Fine", value: weight3(ledger.outFine), note: "Bill + metal/stock out" },
@@ -5689,9 +5700,11 @@ function factorySummaryCategoryRows(ledger, physical, payable, receivable) {
     { label: "Metal Safe Fine", value: weight3(physical.metalFine), note: "Physical raw metal fine" },
     { label: "Shelf Fine", value: weight3(physical.shelfFine), note: "Safe locker item fine" },
     { label: "Production Fine", value: weight3(physical.productionFine), note: "Lots in production" },
-    { label: "Final Physical Fine", value: weight3(physical.totalFine), note: "Metal + shelf + production", highlight: true },
-    { label: "Payable To Vendors", value: weight3(payable), note: "Metal to give to party" },
-    { label: "Receivable From Vendors", value: weight3(receivable), note: "Metal to receive from party" },
+    { label: "Factory Item Fine", value: weight3(physical.totalFine), note: "Metal + shelf + production", highlight: true },
+    { label: "Vendor Fine Balance", value: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine" },
+    { label: "Total Factory Fine Stock", value: weight3(totalFineStock), note: "Factory item fine - vendor fine balance", highlight: true },
+    { label: "Payable To Vendors", value: weight3(vendorTotals.payable), note: "Metal to give to party" },
+    { label: "Receivable From Vendors", value: weight3(vendorTotals.receivable), note: "Metal to receive from party" },
   ];
 }
 
@@ -12456,15 +12469,17 @@ function renderFactorySummary() {
   const ledger = factoryLedgerTotals();
   const physical = factoryPhysicalFineStock();
   const vendorRows = vendorBalanceRows();
-  const payable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
-  const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
+  const vendorTotals = factoryVendorFineTotals(vendorRows);
+  const totalFineStock = totalFactoryFineStock(physical, vendorTotals);
   grid.innerHTML = [
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
-    factorySummaryCard("Final Fine Stock", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
-    factorySummaryCard("Payable To Vendors", gram(payable), "Metal to give to party", payable > 0 ? "payable" : ""),
-    factorySummaryCard("Receivable From Vendors", gram(receivable), "Metal to receive from party", receivable > 0 ? "receivable" : ""),
+    factorySummaryCard("Factory Item Fine", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
+    factorySummaryCard("Vendor Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)}`),
+    factorySummaryCard("Total Factory Fine Stock", gram(totalFineStock), "Factory item fine - vendor fine balance", "owned"),
+    factorySummaryCard("Payable To Vendors", gram(vendorTotals.payable), "Metal to give to party", vendorTotals.payable > 0 ? "payable" : ""),
+    factorySummaryCard("Receivable From Vendors", gram(vendorTotals.receivable), "Metal to receive from party", vendorTotals.receivable > 0 ? "receivable" : ""),
   ].join("");
 }
 

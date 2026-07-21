@@ -566,6 +566,13 @@ button:hover {
     #f6feff;
 }
 
+.factory-summary-card.owned {
+  border-color: rgba(11, 122, 117, 0.36);
+  background:
+    radial-gradient(circle at top right, rgba(11, 122, 117, 0.15), transparent 86px),
+    #f6fffc;
+}
+
 .safe-casting-shelf-card div {
   display: flex;
   flex-wrap: wrap;
