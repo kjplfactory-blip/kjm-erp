@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v235</small>
+            <small class="app-version-badge">App v236</small>
           </div>
         </div>
         <label>User
@@ -90,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v235</span>
+          <span class="app-version-badge">App v236</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -505,6 +505,7 @@
               </select>
             </label>
             <label>Purity <input name="purity" list="metal-purity-options" value="99.5%" placeholder="99.5%, 18K, 14K" required></label>
+            <label>WSTG (%) <input name="wstgPercent" type="number" min="0" step="0.01" value="0" placeholder="e.g. 2"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label>Reference / Item <input name="reference" placeholder="Memo no, old gold, rod, casting item" required></label>
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
@@ -523,6 +524,7 @@
               </select>
             </label>
             <label>Purity <input name="purity" list="metal-purity-options" value="99.5%" placeholder="99.5%, 18K, 14K" required></label>
+            <label>WSTG (%) <input name="wstgPercent" type="number" min="0" step="0.01" value="0" placeholder="e.g. 2"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label>Reference / Bill / Memo <input name="reference" placeholder="Bill no, return memo, metal out" required></label>
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
@@ -550,7 +552,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>WSTG</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th></tr></thead>
               <tbody id="factory-ledger-table"></tbody>
             </table>
           </div>
@@ -1201,6 +1203,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=235"></script>
+  <script src="app.js?v=236"></script>
 </body>
 </html>

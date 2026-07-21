@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v235";
+const APP_VERSION = "v236";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -110,6 +110,10 @@ const demoState = {
     materialType: "raw-metal",
     purity: FACTORY_RESET_STOCK_PURITY,
     weight: FACTORY_RESET_STOCK_WEIGHT,
+    wstgPercent: 0,
+    wastagePercent: 0,
+    baseFineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
+    wstgFineGold: 0,
     fineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
     stockPosting: "Metal Safe",
     reference: "Factory opening stock",
@@ -1097,11 +1101,13 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
     materialType: data.materialType,
     purity: data.purity,
     weight,
+    wstgPercent: data.wstgPercent,
     reference: data.reference,
     remarks: data.remarks,
   });
   event.target.reset();
   event.target.purity.value = "99.5%";
+  event.target.wstgPercent.value = "0";
   saveState();
   render();
 });
@@ -1124,12 +1130,14 @@ document.getElementById("factory-out-form").addEventListener("submit", (event) =
     materialType: data.materialType,
     purity: data.purity,
     weight,
+    wstgPercent: data.wstgPercent,
     reference: data.reference,
     remarks: data.remarks,
   });
   if (!result) return;
   event.target.reset();
   event.target.purity.value = "99.5%";
+  event.target.wstgPercent.value = "0";
   saveState();
   render();
 });
@@ -3801,6 +3809,9 @@ function addFactoryLedgerEntry(entry = {}) {
   const weight = Number(weight3(entry.weight || 0));
   if (weight <= 0) return null;
   const purity = entry.purity || "";
+  const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
+  const baseFineGold = fineGoldWeight(weight, purity);
+  const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (weight * (wstgPercent / 100))));
   const ledgerEntry = {
     id: entry.id || crypto.randomUUID(),
     date: entry.date || today(),
@@ -3811,7 +3822,11 @@ function addFactoryLedgerEntry(entry = {}) {
     materialType: entry.materialType || "other",
     purity,
     weight,
-    fineGold: Number(weight3(entry.fineGold ?? fineGoldWeight(weight, purity))),
+    wstgPercent,
+    wastagePercent: wstgPercent,
+    baseFineGold,
+    wstgFineGold,
+    fineGold: Number(weight3(baseFineGold + wstgFineGold)),
     stockPosting: factoryStockPosting(entry),
     reference: entry.reference || "",
     remarks: entry.remarks || "",
@@ -3823,7 +3838,21 @@ function addFactoryLedgerEntry(entry = {}) {
   return ledgerEntry;
 }
 
-function addFactoryInEntry({ vendor, materialType, purity, weight, reference, remarks }) {
+function factoryWstgPercent(value = 0) {
+  const percent = Number(value || 0);
+  return Number.isFinite(percent) && percent > 0 ? Number(percent.toFixed(2)) : 0;
+}
+
+function factoryFineGoldBreakup(entry = {}) {
+  const baseFineGold = Number(entry.baseFineGold ?? fineGoldWeight(entry.weight, entry.purity));
+  const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
+  const weight = Number(entry.weight || 0);
+  const wstgFineGold = Number(entry.wstgFineGold ?? Number(weight3(weight * (wstgPercent / 100))));
+  const fineGold = Number(weight3(baseFineGold + wstgFineGold));
+  return { baseFineGold, wstgPercent, wstgFineGold, fineGold };
+}
+
+function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, reference, remarks }) {
   const material = materialType || "raw-metal";
   const ledgerEntry = addFactoryLedgerEntry({
     direction: "in",
@@ -3833,6 +3862,7 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, reference, re
     materialType: material,
     purity,
     weight,
+    wstgPercent,
     reference,
     remarks,
     stockPosting: material === "raw-metal" ? "Metal Safe" : `${safeLockerForPurity(purity)} Shelf`,
@@ -3894,7 +3924,7 @@ function factoryOutStockPosting(materialType = "", purity = "") {
   return `${safeLockerForPurity(purity)} Shelf ${kindText}`;
 }
 
-function addFactoryOutEntry({ vendor, materialType, purity, weight, reference, remarks }) {
+function addFactoryOutEntry({ vendor, materialType, purity, weight, wstgPercent, reference, remarks }) {
   const material = materialType || "raw-metal";
   const cleanPurity = purity || "";
   const outWeight = Number(weight3(weight || 0));
@@ -3939,6 +3969,7 @@ function addFactoryOutEntry({ vendor, materialType, purity, weight, reference, r
     materialType: material,
     purity: cleanPurity,
     weight: outWeight,
+    wstgPercent,
     reference,
     remarks,
     stockPosting: factoryOutStockPosting(material, cleanPurity),
@@ -3996,6 +4027,10 @@ function syncFactoryOutLedgerForState(source) {
         materialType: "bill",
         purity,
         weight: Number(weight3(netWeight)),
+        wstgPercent: 0,
+        wastagePercent: 0,
+        baseFineGold: fineGoldWeight(netWeight, purity),
+        wstgFineGold: 0,
         fineGold: fineGoldWeight(netWeight, purity),
         stockPosting: "Factory Out By Bill",
         reference: [bill.billNo || "Bill", lot.orderNumber || bill.jobNumber || "", productionNo].filter(Boolean).join(" / "),
@@ -4014,7 +4049,7 @@ function syncFactoryOutForBill() {
 
 function factoryLedgerTotals() {
   return (state.factoryLedger || []).reduce((totals, entry) => {
-    const fine = Number(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity));
+    const fine = factoryFineGoldBreakup(entry).fineGold;
     if (entry.direction === "out") totals.outFine = Number(weight3(totals.outFine + fine));
     else totals.inFine = Number(weight3(totals.inFine + fine));
     totals.balanceFine = Number(weight3(totals.inFine - totals.outFine));
@@ -4064,7 +4099,7 @@ function vendorBalanceRows() {
       });
     }
     const row = rows.get(key);
-    const fine = Number(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity));
+    const fine = factoryFineGoldBreakup(entry).fineGold;
     if (entry.direction === "out") row.outFine = Number(weight3(row.outFine + fine));
     else row.inFine = Number(weight3(row.inFine + fine));
     row.balanceFine = Number(weight3(row.inFine - row.outFine));
@@ -4458,6 +4493,10 @@ function clearJobCards(resetAt = new Date().toISOString()) {
     materialType: "raw-metal",
     purity: FACTORY_RESET_STOCK_PURITY,
     weight: FACTORY_RESET_STOCK_WEIGHT,
+    wstgPercent: 0,
+    wastagePercent: 0,
+    baseFineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
+    wstgFineGold: 0,
     fineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
     stockPosting: "Metal Safe",
     reference: "Factory reset opening stock",
@@ -12207,9 +12246,9 @@ function renderFactorySummary() {
   const payable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
   const receivable = vendorRows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
   grid.innerHTML = [
-    factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + opening stock"),
+    factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills + metal/stock out"),
-    factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus bill out"),
+    factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
     factorySummaryCard("Final Fine Stock", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
     factorySummaryCard("Payable To Vendors", gram(payable), "Metal to give to party", payable > 0 ? "payable" : ""),
     factorySummaryCard("Receivable From Vendors", gram(receivable), "Metal to receive from party", receivable > 0 ? "receivable" : ""),
@@ -12253,26 +12292,32 @@ function renderFactoryLedger() {
   const rows = [...(state.factoryLedger || [])]
     .filter((entry) => {
       if (!query) return true;
-      return [entry.date, entry.type, entry.vendorName, factoryMaterialLabel(entry.materialType), entry.purity, entry.reference, entry.stockPosting]
+      return [entry.date, entry.type, entry.vendorName, factoryMaterialLabel(entry.materialType), entry.purity, entry.wstgPercent, entry.reference, entry.stockPosting]
         .join(" ")
         .toLowerCase()
         .includes(query);
     })
     .map((entry) => `
+      ${(() => {
+        const fine = factoryFineGoldBreakup(entry);
+        return `
       <tr>
         <td>${escapeHtml(entry.date || "-")}</td>
         <td><span class="status ${statusClass(entry.type || entry.direction)}">${escapeHtml(entry.type || "-")}</span></td>
         <td>${escapeHtml(entry.vendorName || "-")}</td>
         <td>${escapeHtml(factoryMaterialLabel(entry.materialType))}</td>
         <td>${escapeHtml(entry.purity || "-")}</td>
+        <td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}%<br><small>${gram(fine.wstgFineGold)}</small>` : "-"}</td>
         <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
-        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.fineGold ?? fineGoldWeight(entry.weight, entry.purity))}</td>
+        <td>${entry.direction === "out" ? "-" : "+"}${gram(fine.fineGold)}<br><small>Base ${gram(fine.baseFineGold)}</small></td>
         <td>${escapeHtml(factoryStockPosting(entry))}</td>
         <td>${escapeHtml(entry.reference || "-")}${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
       </tr>
+        `;
+      })()}
     `).join("");
   const table = document.getElementById("factory-ledger-table");
-  if (table) table.innerHTML = rows || tableEmpty(9, "No factory in/out ledger entries yet.");
+  if (table) table.innerHTML = rows || tableEmpty(10, "No factory in/out ledger entries yet.");
 }
 
 function editVendor(id) {
@@ -13229,6 +13274,9 @@ function normalizeState(currentState) {
   currentState.factoryLedger = (currentState.factoryLedger || []).map((entry) => {
     const weight = Number(weight3(entry.weight || 0));
     const purity = entry.purity || "";
+    const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
+    const baseFineGold = Number(weight3(entry.baseFineGold ?? fineGoldWeight(weight, purity)));
+    const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (weight * (wstgPercent / 100))));
     return {
       id: entry.id || crypto.randomUUID(),
       date: entry.date || today(),
@@ -13239,7 +13287,11 @@ function normalizeState(currentState) {
       materialType: entry.materialType || (String(entry.type || "").toLowerCase().includes("bill") ? "bill" : "raw-metal"),
       purity,
       weight,
-      fineGold: Number(weight3(entry.fineGold ?? fineGoldWeight(weight, purity))),
+      wstgPercent,
+      wastagePercent: wstgPercent,
+      baseFineGold,
+      wstgFineGold,
+      fineGold: Number(weight3(baseFineGold + wstgFineGold)),
       stockPosting: entry.stockPosting || "",
       reference: entry.reference || "",
       remarks: entry.remarks || "",
@@ -13308,6 +13360,10 @@ function normalizeState(currentState) {
         materialType: "raw-metal",
         purity: openingMovement.purity || FACTORY_RESET_STOCK_PURITY,
         weight: Number(openingMovement.weight || 0),
+        wstgPercent: 0,
+        wastagePercent: 0,
+        baseFineGold: fineGoldWeight(openingMovement.weight || 0, openingMovement.purity || FACTORY_RESET_STOCK_PURITY),
+        wstgFineGold: 0,
         fineGold: fineGoldWeight(openingMovement.weight || 0, openingMovement.purity || FACTORY_RESET_STOCK_PURITY),
         stockPosting: "Metal Safe",
         reference: openingMovement.reference || "Factory opening stock",
