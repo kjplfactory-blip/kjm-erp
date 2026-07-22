@@ -834,6 +834,19 @@ form.active-operation-page,
   font-size: 22px;
 }
 
+.department-card.empty-department-card {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+.department-holding-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .department-transfer-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));

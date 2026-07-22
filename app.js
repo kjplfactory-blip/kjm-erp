@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v256";
+const APP_VERSION = "v260";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
@@ -659,9 +659,9 @@ document.getElementById("stone-form").addEventListener("submit", (event) => {
   const stone = {
     id: existing?.id || crypto.randomUUID(),
     stoneType: data.stoneType,
-    shape: data.shape,
+    shape: normalizeOcrShape(data.shape),
     size: data.size,
-    code: stoneLookupCode(data),
+    code: stoneLookupCode({ ...data, shape: normalizeOcrShape(data.shape) }),
     weightPerPc: formatStoneWeight(data.weightPerPc),
     pricePerPc: data.pricePerPc,
     remarks: data.remarks,
@@ -7219,6 +7219,8 @@ function mergedProductionDepartmentName(value = "") {
 }
 
 function departmentDashboardHeader(value = "") {
+  const masterName = dashboardMasterDepartmentName(value);
+  if (masterName) return masterName;
   const mergedName = mergedProductionDepartmentName(value || "Unassigned");
   if (isPrePolishDepartment(mergedName) || isPolishDepartment(mergedName)) return "Pre Polish / Polish";
   return mergedName;
@@ -7229,6 +7231,26 @@ function departmentDashboardSplitLabel(value = "") {
   if (isPrePolishDepartment(mergedName)) return "Pre Polish";
   if (isPolishDepartment(mergedName)) return "Polish";
   return mergedName;
+}
+
+function dashboardMasterDepartmentName(value = "") {
+  const key = departmentTextKey(value);
+  if (!key) return "";
+  const departments = state?.karigars || [];
+  const exact = departments.find((department) => departmentTextKey(department.name) === key);
+  if (exact) return exact.name;
+  const processMatches = departments.filter((department) =>
+    [department.speciality, ...departmentProcesses(department)].some((process) => departmentTextKey(process) === key)
+  );
+  return processMatches[0]?.name || "";
+}
+
+function departmentTextKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/accsories|accesories|accessory/g, "accessories")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function isPrePolishDepartment(value = "") {
@@ -7575,13 +7597,18 @@ function setSelectOptions(select, values, label, selected) {
 }
 
 function uniqueStoneValues(field, stones) {
-  return [...new Set(stones.map((stone) => String(stone[field] || "").trim()).filter(Boolean))]
+  return [...new Set(stones.map((stone) => stoneOptionValue(field, stone[field])).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
 }
 
 function stoneOptionValues(field, stones) {
-  return [...new Set([...uniqueStoneValues(field, stones), ...(state.stoneOptions[field] || [])].map((item) => String(item || "").trim()).filter(Boolean))]
+  return [...new Set([...uniqueStoneValues(field, stones), ...(state.stoneOptions[field] || [])].map((item) => stoneOptionValue(field, item)).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function stoneOptionValue(field, value) {
+  const text = String(value || "").trim();
+  return field === "shape" ? normalizeOcrShape(text) : text;
 }
 
 function renderStoneLookup() {
@@ -7661,7 +7688,7 @@ function resetStoneForm() {
 }
 
 function stoneLookupCode(stone) {
-  return `${stone.stoneType || ""}${stone.shape || ""}${stone.size || ""}`.replace(/\s+/g, "").toUpperCase();
+  return `${stone.stoneType || ""}${normalizeOcrShape(stone.shape || "")}${stone.size || ""}`.replace(/\s+/g, "").toUpperCase();
 }
 
 function departmentProcessesFromText(value = "") {
@@ -9425,7 +9452,13 @@ function resetDesignStoneEntryFields() {
 }
 
 function findStoneByLibraryFields(type, shape, size) {
-  return state.stones.find((stone) => stone.stoneType === type && stone.shape === shape && stone.size === size);
+  const shapeValue = normalizeOcrShape(shape);
+  const sizeValue = normalizeSizeText(size);
+  return state.stones.find((stone) =>
+    stone.stoneType === type &&
+    normalizeOcrShape(stone.shape) === shapeValue &&
+    normalizeSizeText(stone.size) === sizeValue
+  );
 }
 
 function findStoneByOcrFields(type, shape, size) {
@@ -9475,11 +9508,11 @@ function parseStoneChartText(text) {
 function detectOcrShape(line) {
   const upper = line.toUpperCase();
   if (upper.includes("ROUND")) return "ROUND";
-  if (upper.includes("PEAR")) return "PEAR";
+  if (upper.includes("PEAR") || upper.includes("PAN")) return "PAN";
   if (upper.includes("OCTO")) return "OCTO";
   if (upper.includes("EMERALD") || upper.includes("EMER")) return "OCTO";
   if (upper.includes("BAGUETTE") || upper.includes("BUGGET")) return "BUGGET";
-  if (upper.includes("MARQUISE")) return "MARQUISE";
+  if (upper.includes("MARQUISE") || upper.includes("MAQ")) return "MAQ";
   if (upper.includes("OVAL")) return "OVAL";
   if (upper.includes("PRINCESS")) return "PRINCESS";
   return "";
@@ -9487,6 +9520,8 @@ function detectOcrShape(line) {
 
 function normalizeOcrShape(value = "") {
   const shape = detectOcrShape(value) || String(value || "").trim().toUpperCase();
+  if (shape === "PEAR") return "PAN";
+  if (shape === "MARQUISE") return "MAQ";
   if (shape === "BAGUETTE") return "BUGGET";
   if (shape === "EMERALD") return "OCTO";
   return shape;
@@ -9621,11 +9656,15 @@ function dashboardTransferItem({ lot, transfer }) {
 function renderDepartmentMetal() {
   const departments = departmentMetalInHand();
   const rows = Object.entries(departments)
-    .sort((a, b) => (b[1].gross + b[1].loss) - (a[1].gross + a[1].loss))
+    .sort((a, b) => {
+      const scoreDiff = departmentHoldingScore(b[1]) - departmentHoldingScore(a[1]);
+      return scoreDiff || a[0].localeCompare(b[0]);
+    })
     .map(([department, totals]) => `
-      <article class="department-card">
+      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}">
         <span>${escapeHtml(department)}</span>
         <strong>${gram(totals.gold)}</strong>
+        <small class="department-holding-label">Current Gold Holding</small>
         <div class="department-breakup">
           <small><b>GW</b>${gram(totals.gross)}</small>
           <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
@@ -9642,6 +9681,19 @@ function renderDepartmentMetal() {
     `)
     .join("");
   document.getElementById("department-metal-list").innerHTML = rows || '<div class="empty">No department gold or stone in hand yet.</div>';
+}
+
+function departmentHoldingScore(totals = {}) {
+  return Math.abs(Number(totals.gross || 0))
+    + Math.abs(Number(totals.gold || 0))
+    + Math.abs(Number(totals.waxStone || 0))
+    + Math.abs(Number(totals.handStone || 0))
+    + Math.abs(Number(totals.nonGold || 0))
+    + Math.abs(Number(totals.loss || 0));
+}
+
+function departmentHasHolding(totals = {}) {
+  return departmentHoldingScore(totals) !== 0;
 }
 
 function renderDepartmentPuritySplit(totals) {
@@ -9682,9 +9734,10 @@ function renderDepartmentSplit(totals) {
 
 function departmentMetalInHand() {
   const departments = {};
+  seedDashboardDepartments(departments);
   state.lots.forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
-      addDepartmentWeight(departments, transfer.balanceDepartment || transfer.fromDepartment || "Unassigned", {
+      addDepartmentWeight(departments, transfer.fromKarigarName || transfer.balanceDepartment || transfer.fromDepartment || "Unassigned", {
         gold: Number(transfer.departmentBalance || 0),
         gross: Number(transfer.departmentBalance || 0),
         purity: transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
@@ -9692,18 +9745,18 @@ function departmentMetalInHand() {
     });
 
     if (lot.status !== "Completed") {
-      addDepartmentWeight(departments, lot.currentDepartment || lot.karigarName || "Unassigned", departmentCurrentLotTotals(lot));
+      addDepartmentWeight(departments, lot.karigarName || lot.currentDepartment || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
   productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
-    addDepartmentWeight(departments, issue.department || "Unassigned", {
+    addDepartmentWeight(departments, dashboardDepartmentNameFromId(issue.departmentId) || issue.department || "Unassigned", {
       gross: Number(issue.weight || 0),
       nonGold: Number(issue.weight || 0),
       purity: issue.purity || issue.karat || "",
     });
   });
   safeDepartmentIssuesInHand().forEach((issue) => {
-    addDepartmentWeight(departments, issue.process || issue.departmentName || "Unassigned", {
+    addDepartmentWeight(departments, issue.departmentName || issue.process || "Unassigned", {
       gross: Number(issue.grossWeight || 0),
       gold: Number(issue.netWeight || 0),
       waxStone: Number(issue.waxStoneWeight || 0),
@@ -9712,8 +9765,21 @@ function departmentMetalInHand() {
   });
   addMeltingCastingDashboardWeights(departments);
   return Object.fromEntries(Object.entries(departments).filter(([, totals]) =>
-    totals.gross !== 0 || totals.gold !== 0 || totals.waxStone !== 0 || totals.handStone !== 0 || totals.nonGold !== 0 || totals.loss !== 0
+    totals.alwaysShow || departmentHasHolding(totals)
   ));
+}
+
+function seedDashboardDepartments(departments) {
+  (state.karigars || []).forEach((department) => {
+    addDepartmentWeight(departments, department.name || primaryDepartmentProcess(department) || "Unassigned", { alwaysShow: true });
+  });
+  ["Casting Department", "Melting Department"].forEach((department) => {
+    addDepartmentWeight(departments, department, { alwaysShow: true });
+  });
+}
+
+function dashboardDepartmentNameFromId(departmentId = "") {
+  return (state.karigars || []).find((department) => department.id === departmentId)?.name || "";
 }
 
 function addMeltingCastingDashboardWeights(departments) {
@@ -9762,7 +9828,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
   const rawDepartment = department || "Unassigned";
   const key = departmentDashboardHeader(rawDepartment);
   const splitKey = departmentDashboardSplitLabel(rawDepartment);
-  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0, sections: {}, purities: {} };
+  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0, alwaysShow: false, sections: {}, purities: {} };
   const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, loss: 0, lossFineGold: 0 };
   const purityKey = displayPurity(totals.purity);
   const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0 };
@@ -9785,6 +9851,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
     fineGold: Number(weight3(current.fineGold + added.fineGold)),
     loss: Number(weight3(current.loss + added.loss)),
     lossFineGold: Number(weight3(current.lossFineGold + added.lossFineGold)),
+    alwaysShow: Boolean(current.alwaysShow || totals.alwaysShow),
     sections: {
       ...current.sections,
       [splitKey]: {
@@ -14737,17 +14804,23 @@ function normalizeState(currentState) {
     remarks: bill.remarks || "",
   }));
   currentState.designs = (currentState.designs || []).map((design) => {
-    const stoneItems = (design.stoneItems || []).map((item) => ({
-      id: item.id || crypto.randomUUID(),
-      itemKey: normalizeStoneItemKey(item.itemKey),
-      stoneType: item.stoneType || "",
-      shape: item.shape || "",
-      size: item.size || "",
-      code: item.code || stoneLookupCode(item),
-      pcs: Number(item.pcs || 0),
-      weightPerPc: formatStoneWeight(item.weightPerPc),
-      totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
-    }));
+    const stoneItems = (design.stoneItems || []).map((item) => {
+      const shape = normalizeOcrShape(item.shape || "");
+      const code = shape !== String(item.shape || "").trim().toUpperCase() || /PEAR|MARQUISE/i.test(item.code || "")
+        ? stoneLookupCode({ ...item, shape })
+        : item.code || stoneLookupCode({ ...item, shape });
+      return {
+        id: item.id || crypto.randomUUID(),
+        itemKey: normalizeStoneItemKey(item.itemKey),
+        stoneType: item.stoneType || "",
+        shape,
+        size: item.size || "",
+        code,
+        pcs: Number(item.pcs || 0),
+        weightPerPc: formatStoneWeight(item.weightPerPc),
+        totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
+      };
+    });
     return {
       id: design.id || crypto.randomUUID(),
       number: design.number || "",
@@ -14842,9 +14915,13 @@ function normalizeState(currentState) {
       const matchedDesignStone = designStoneCandidates.find((stoneItem) =>
         item.sourceDesignStoneId === stoneItem.id ||
         (item.code && item.code === stoneItem.code) ||
-        (item.stoneType === stoneItem.stoneType && item.shape === stoneItem.shape && item.size === stoneItem.size)
+        (item.stoneType === stoneItem.stoneType && normalizeOcrShape(item.shape) === normalizeOcrShape(stoneItem.shape) && normalizeSizeText(item.size) === normalizeSizeText(stoneItem.size))
       );
       const automaticSetting = automaticProductionStoneSetting(matchedDesignStone || item);
+      const shape = normalizeOcrShape(item.shape || matchedDesignStone?.shape || "");
+      const code = item.code && !/PEAR|MARQUISE/i.test(item.code || "") && shape === normalizeOcrShape(item.shape || "")
+        ? item.code
+        : matchedDesignStone?.code || stoneLookupCode({ ...item, shape });
       return {
         id: item.id || crypto.randomUUID(),
         sourceDesignStoneId: item.sourceDesignStoneId || matchedDesignStone?.id || "",
@@ -14853,9 +14930,9 @@ function normalizeState(currentState) {
         manufacturingStage: item.manufacturingStage || automaticSetting.manufacturingStage,
         itemKey: normalizeStoneItemKey(item.itemKey || matchedDesignStone?.itemKey),
         stoneType: item.stoneType || matchedDesignStone?.stoneType || "",
-        shape: item.shape || matchedDesignStone?.shape || "",
+        shape,
         size: item.size || matchedDesignStone?.size || "",
-        code: item.code || matchedDesignStone?.code || stoneLookupCode(item),
+        code,
         pcs: Number(item.pcs || matchedDesignStone?.pcs || 0),
         weightPerPc: formatStoneWeight(item.weightPerPc || matchedDesignStone?.weightPerPc),
         totalWeight: item.totalWeight || matchedDesignStone?.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
@@ -15053,12 +15130,17 @@ function defaultStoneLibrary() {
 }
 
 function normalizeStone(stone) {
+  const shape = normalizeOcrShape(stone.shape || "");
+  const originalShape = String(stone.shape || "").trim().toUpperCase();
+  const code = stone.code && !/PEAR|MARQUISE/i.test(stone.code || "") && shape === originalShape
+    ? stone.code
+    : stoneLookupCode({ ...stone, shape });
   return {
     id: stone.id || crypto.randomUUID(),
     stoneType: String(stone.stoneType || "").trim(),
-    shape: String(stone.shape || "").trim(),
+    shape,
     size: normalizeSizeText(stone.size || ""),
-    code: stone.code || stoneLookupCode(stone),
+    code,
     weightPerPc: formatStoneWeight(stone.weightPerPc),
     pricePerPc: stone.pricePerPc || "",
     remarks: stone.remarks || "",
