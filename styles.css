@@ -1004,7 +1004,7 @@ form.active-operation-page,
 .department-purity-head,
 .department-purity-row {
   display: grid;
-  grid-template-columns: 0.9fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 0.8fr repeat(5, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
   font-size: 11px;
@@ -1147,6 +1147,10 @@ form.active-operation-page,
   gap: 12px;
 }
 
+.form-panel .full-row {
+  grid-column: 1 / -1;
+}
+
 .check-list {
   display: grid;
   gap: 8px;
@@ -1194,6 +1198,20 @@ form.active-operation-page,
 
 .order-item-row.entry {
   grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(170px, 1.1fr) 115px 78px 78px 90px 80px minmax(140px, 1fr) minmax(190px, auto);
+}
+
+.order-item-row .multi-design-field {
+  grid-column: 1 / -1;
+}
+
+.order-item-row .multi-design-field select {
+  min-height: 118px;
+}
+
+.order-item-row .multi-design-field small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .order-item-row.saved {
@@ -1427,6 +1445,23 @@ select {
 input[readonly] {
   background: #eef2f8;
   color: var(--muted);
+}
+
+label.field-invalid {
+  color: var(--danger);
+}
+
+label.field-invalid input {
+  border-color: var(--danger);
+  background: #fff5f5;
+}
+
+.field-error {
+  display: block;
+  margin-top: -4px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 input[type="hidden"] {
@@ -4007,8 +4042,24 @@ dialog::backdrop {
 
 .order-lot-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
+}
+
+.non-gold-lot-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.non-gold-lot-summary strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.non-gold-lot-summary small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .history-dialog {

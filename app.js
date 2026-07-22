@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v249";
+const APP_VERSION = "v256";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
@@ -27,7 +27,8 @@ const AUTO_SYNC_INTERVAL_MS = 3000;
 const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const SUPABASE_SAVE_DELAY_MS = 300;
 const SUPABASE_REQUEST_TIMEOUT_MS = 12000;
-const MAX_PRODUCTION_DAYS = 10;
+const MIN_PRODUCTION_DAYS = 10;
+const PRODUCTION_DAYS_MIN_ERROR = "Production days must be 10 days or more.";
 const SAFE_LOCKERS = ["9K", "14K", "18K", "22K"];
 const DEFAULT_STONE_ITEM_KEY = "GENERAL";
 const STONE_ITEM_PRESETS = [
@@ -43,6 +44,12 @@ const STONE_ITEM_PRESETS = [
   ["CME", "CME - Chams Ear Rings"],
 ];
 const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
+const PRODUCTION_NON_GOLD_TYPES = [
+  { value: "moti", label: "Moti" },
+  { value: "black-beads", label: "Black Beads" },
+  { value: "spring", label: "Spring" },
+  { value: "other", label: "Other" },
+];
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
@@ -124,6 +131,7 @@ const demoState = {
   stones: [],
   bills: [],
   safeItems: [],
+  safeDepartmentIssues: [],
   metalSafeMovements: [{
     id: "factory-default-metal-safe",
     date: today(),
@@ -140,6 +148,7 @@ const demoState = {
   stoneLibrarySeeded: false,
   orders: [],
   lots: [],
+  productionNonGoldIssues: [],
   melting: [],
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
@@ -469,7 +478,7 @@ document.getElementById("reset-demo").addEventListener("click", async (event) =>
 
 document.getElementById("order-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  updateOrderDueDate(event.target);
+  if (!validateOrderDueDate(event.target)) return;
   const data = getFormData(event.target);
   const customer = findById("customers", data.customerId);
   if (!customer) {
@@ -797,6 +806,11 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
   if (event.target.name === "designId") {
     syncOrderDesignSearch(row, event.target.value);
     applyDesignToOrderItem(row, event.target.value);
+    clearOrderMultiDesignSelection(row);
+  }
+  if (event.target.name === "designIds") {
+    if (selectedOrderDesignIds(row).length) row.querySelector('[name="designId"]').value = "";
+    renderOrderEntrySummary();
   }
   renderOrderEntrySummary();
 });
@@ -964,6 +978,57 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   render();
 });
 
+document.getElementById("production-non-gold-form").addEventListener("input", updateProductionNonGoldSummary);
+document.getElementById("production-non-gold-form").addEventListener("change", (event) => {
+  if (event.target.name === "lotId") applyProductionNonGoldLotDefaults();
+  updateProductionNonGoldSummary();
+});
+
+document.getElementById("production-non-gold-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = getFormData(event.target);
+  const lot = data.lotId ? findById("lots", data.lotId) : null;
+  const department = findById("karigars", data.departmentId);
+  if (!department) {
+    alert("Select department to issue non-gold material.");
+    return;
+  }
+  if (data.lotId && (!lot || lot.status === "Completed")) {
+    alert("Select one active production lot, or leave lot blank for direct department issue.");
+    return;
+  }
+  const weight = Number(data.weight || 0);
+  if (weight <= 0) {
+    alert("Enter non-gold material weight.");
+    return;
+  }
+  const pcs = Number(data.pcs || 0);
+  if (pcs < 0) {
+    alert("No of pcs cannot be negative.");
+    return;
+  }
+  const issue = normalizeProductionNonGoldIssue({
+    id: crypto.randomUUID(),
+    date: today(),
+    materialType: data.materialType || "other",
+    pcs,
+    weight,
+    purity: data.purity || lot?.metalPurity || getLotOrders(lot || {})[0]?.purity || "18K",
+    lotId: lot?.id || "",
+    lotNumber: lot?.number || "",
+    jobNumber: lot?.orderNumber || "",
+    departmentId: department.id,
+    department: primaryDepartmentProcess(department) || department.name,
+    remarks: data.remarks || "",
+  }, lot || {});
+  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+  state.productionNonGoldIssues.unshift(issue);
+  event.target.reset();
+  saveState();
+  render();
+  switchProductionPage("non-gold");
+});
+
 document.getElementById("stock-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
@@ -1046,6 +1111,48 @@ document.getElementById("metal-safe-form").addEventListener("submit", (event) =>
 
 document.getElementById("safe-locker-filter").addEventListener("change", renderSafe);
 document.getElementById("metal-safe-search").addEventListener("input", renderSafe);
+
+document.getElementById("safe-issue-form").addEventListener("change", (event) => {
+  if (event.target.name === "departmentId") renderSafeIssueProcessOptions(event.target.value);
+});
+
+document.getElementById("safe-issue-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const item = findById("safeItems", form.itemId.value);
+  const department = findById("karigars", form.departmentId.value);
+  if (!item || item.status === "Out") {
+    alert("This shelf item is no longer available.");
+    document.getElementById("safe-issue-dialog").close();
+    return;
+  }
+  if (!department) {
+    alert("Select department.");
+    return;
+  }
+  const issue = createSafeDepartmentIssue(item, department, form.process.value, form.remarks.value);
+  state.safeDepartmentIssues = state.safeDepartmentIssues || [];
+  state.safeDepartmentIssues.unshift(issue);
+  item.status = "Out";
+  item.outDate = today();
+  item.issueDepartmentId = department.id;
+  item.issueDepartmentName = department.name;
+  item.issueProcess = issue.process;
+  item.safeDepartmentIssueId = issue.id;
+  item.remarks = `Issued to ${department.name} / ${issue.process}${issue.remarks ? ` / ${issue.remarks}` : ""}`;
+  document.getElementById("safe-issue-dialog").close();
+  form.reset();
+  saveState();
+  render();
+});
+
+document.getElementById("cancel-safe-issue").addEventListener("click", () => {
+  document.getElementById("safe-issue-dialog").close();
+});
+
+document.getElementById("cancel-safe-issue-bottom").addEventListener("click", () => {
+  document.getElementById("safe-issue-dialog").close();
+});
 
 document.getElementById("vendor-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1203,7 +1310,12 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
   const targetPurity = Number(data.targetPurity);
   const finalWeight = Number(data.finalWeight);
   const department = meltingDepartment(data.meltingDepartmentId);
-  if (!sourceMetals.length || !sourceWeight || !finalWeight || !targetPurity) {
+  if (!targetPurity) {
+    alert("Enter desired purity manually.");
+    event.target.targetPurity.focus();
+    return;
+  }
+  if (!sourceMetals.length || !sourceWeight || !finalWeight) {
     alert("Add at least one source metal with weight and purity.");
     return;
   }
@@ -1588,7 +1700,7 @@ document.getElementById("edit-order-details").addEventListener("click", () => {
 
 document.getElementById("update-order-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  updateOrderDueDate(event.target);
+  if (!validateOrderDueDate(event.target)) return;
   const data = getFormData(event.target);
   const order = findById("orders", data.orderId);
   const customer = findById("customers", data.customerId);
@@ -2834,9 +2946,30 @@ function calculateDueDate(orderDate, productionDays) {
 }
 
 function normalizeProductionDays(value) {
-  const days = Math.floor(Number(value || 0));
-  if (!Number.isFinite(days)) return 0;
-  return Math.max(0, Math.min(MAX_PRODUCTION_DAYS, days));
+  const days = Math.floor(Number(value));
+  if (!Number.isFinite(days)) return MIN_PRODUCTION_DAYS;
+  return Math.max(MIN_PRODUCTION_DAYS, days);
+}
+
+function productionDaysValidationMessage(value, required = false) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return required ? "Enter production days." : "";
+  const days = Number(rawValue);
+  if (!Number.isFinite(days)) return "Enter valid production days.";
+  if (!Number.isInteger(days)) return "Production days must be a whole number.";
+  if (days < MIN_PRODUCTION_DAYS) return PRODUCTION_DAYS_MIN_ERROR;
+  return "";
+}
+
+function setProductionDaysError(form, message = "") {
+  if (!form?.productionDays) return;
+  form.productionDays.setCustomValidity(message);
+  form.productionDays.closest("label")?.classList.toggle("field-invalid", Boolean(message));
+  const errorNode = form.querySelector("[data-production-days-error]");
+  if (errorNode) {
+    errorNode.textContent = message;
+    errorNode.classList.toggle("hidden", !message);
+  }
 }
 
 function daysBetween(startDate, endDate) {
@@ -2846,15 +2979,30 @@ function daysBetween(startDate, endDate) {
   return Math.max(Math.round((end - start) / 86400000), 0);
 }
 
-function updateOrderDueDate(form) {
-  const productionDays = normalizeProductionDays(form.productionDays.value);
-  form.productionDays.value = productionDays;
+function updateOrderDueDate(form, required = false) {
+  const message = productionDaysValidationMessage(form.productionDays.value, required);
+  setProductionDaysError(form, message);
+  if (message || !form.productionDays.value) {
+    form.dueDate.value = "";
+    return false;
+  }
+  const productionDays = Number(form.productionDays.value);
   form.dueDate.value = calculateDueDate(form.orderDate.value, productionDays);
+  return true;
+}
+
+function validateOrderDueDate(form) {
+  const isValid = updateOrderDueDate(form, true);
+  if (!isValid) {
+    form.productionDays.reportValidity?.();
+    form.productionDays.focus();
+  }
+  return isValid;
 }
 
 function setDefaultOrderDates(form) {
   if (!form.orderDate.value) form.orderDate.value = isoToday();
-  if (!form.productionDays.value) form.productionDays.value = MAX_PRODUCTION_DAYS;
+  if (!form.productionDays.value) form.productionDays.value = MIN_PRODUCTION_DAYS;
   updateOrderDueDate(form);
 }
 
@@ -2892,7 +3040,11 @@ function entryOrderItemRowHtml(item = {}) {
   return `
     <label>Category <select name="category">${renderCategoryOptions(item.category)}</select></label>
     <label>Search Design <input name="designSearch" value="${escapeHtml(item.designSearch || "")}" placeholder="Type design no/name"></label>
-    <label>Design <select name="designId"></select></label>
+    <label>Design (Single) <select name="designId"></select></label>
+    <label class="multi-design-field">Multiple Designs In Same Category
+      <select name="designIds" multiple size="6"></select>
+      <small>For same category: hold Ctrl and click multiple designs, then press Add Item.</small>
+    </label>
     <label class="cb-field">CB Ring
       <select name="ringType">
         ${renderRingTypeOptions(item.ringType)}
@@ -3078,7 +3230,9 @@ function commitCurrentOrderItem() {
     alert("Enter item details first.");
     return;
   }
-  expandOrderItemCombinations(item).forEach((orderItem) => addOrderItemRow(orderItem, "saved"));
+  orderItemsFromEntryRow(entryRow).forEach((entryItem) => {
+    expandOrderItemCombinations(entryItem).forEach((orderItem) => addOrderItemRow(orderItem, "saved"));
+  });
   clearOrderEntryRow(entryRow);
   renderOrderEntrySummary();
 }
@@ -3087,6 +3241,7 @@ function clearOrderEntryRow(row) {
   if (!row) return;
   row.querySelector('[name="designId"]').value = "";
   row.querySelector('[name="designSearch"]').value = "";
+  clearOrderMultiDesignSelection(row);
   row.querySelector('[name="category"]').value = "";
   row.querySelector('[name="ringType"]').value = "";
   row.querySelector('[name="cmItemType"]').value = "";
@@ -3097,6 +3252,21 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="remarks"]').value = "";
   updateOrderItemDesignOptions(row);
   updateOrderItemCategoryFields(row);
+}
+
+function orderItemsFromEntryRow(row) {
+  const baseItem = getOrderItemFromRow(row);
+  const designIds = selectedOrderDesignIds(row);
+  if (!designIds.length) return [baseItem].filter(hasOrderItemDetails);
+  return designIds.map((designId) => {
+    const design = findById("designs", designId);
+    return {
+      ...baseItem,
+      designId,
+      category: design?.category || baseItem.category,
+      item: "",
+    };
+  }).filter(hasOrderItemDetails);
 }
 
 function getOrderFormItems(form) {
@@ -3144,6 +3314,7 @@ function getOrderItemFromRow(row) {
   if (!row) return null;
   return {
     designId: row.querySelector('[name="designId"]').value,
+    designIds: selectedOrderDesignIds(row),
     category: row.querySelector('[name="category"]').value,
     item: row.querySelector('[name="item"]')?.value || "",
     ringType: row.querySelector('[name="ringType"]')?.value || "",
@@ -3159,7 +3330,7 @@ function getOrderItemFromRow(row) {
 }
 
 function hasOrderItemDetails(item) {
-  return Boolean(item?.designId || item?.category || item?.ringType || item?.cmItemType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
+  return Boolean(item?.designId || item?.designIds?.length || item?.category || item?.ringType || item?.cmItemType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
 }
 
 function renderOrderEntrySummary() {
@@ -3191,22 +3362,45 @@ function updateOrderItemDesignOptions(row, selectedDesignId = "") {
   const category = row.querySelector('[name="category"]').value;
   const query = String(row.querySelector('[name="designSearch"]')?.value || "").trim();
   const select = row.querySelector('[name="designId"]');
-  const categoryDesigns = category
+  const multiSelect = row.querySelector('[name="designIds"]');
+  const previousMultiValues = selectedOrderDesignIds(row);
+  const singleDesignSource = category
     ? sortedDesigns().filter((design) => (design.category || "Uncategorised") === category)
     : sortedDesigns();
-  const designs = query ? categoryDesigns.filter((design) => designMatchesOrderSearch(design, query)) : categoryDesigns;
+  const multiDesignSource = category
+    ? sortedDesigns().filter((design) => (design.category || "Uncategorised") === category)
+    : [];
+  const designs = query ? singleDesignSource.filter((design) => designMatchesOrderSearch(design, query)) : singleDesignSource;
+  const multiDesigns = query ? multiDesignSource.filter((design) => designMatchesOrderSearch(design, query)) : multiDesignSource;
   const placeholder = query && !designs.length ? "No matching design" : category ? "Select design" : "Type design or select category";
   const previousValue = selectedDesignId || select.value;
-  const exactMatch = query ? exactOrderDesignMatch(categoryDesigns, query) : null;
+  const exactMatch = query ? exactOrderDesignMatch(singleDesignSource, query) : null;
   select.innerHTML = `<option value="">${placeholder}</option>` + designs.map((design) =>
     `<option value="${design.id}">${escapeHtml(designText(design))}</option>`
   ).join("");
+  if (multiSelect) {
+    multiSelect.innerHTML = multiDesigns.length
+      ? multiDesigns.map((design) => `<option value="${design.id}" ${previousMultiValues.includes(design.id) ? "selected" : ""}>${escapeHtml(designText(design))}</option>`).join("")
+      : `<option value="">${category ? "No designs in this category" : "Select category first"}</option>`;
+  }
   if (exactMatch) {
     select.value = exactMatch.id;
     applyDesignToOrderItem(row, exactMatch.id);
     return;
   }
   select.value = designs.some((design) => design.id === previousValue) ? previousValue : "";
+}
+
+function selectedOrderDesignIds(row) {
+  const select = row?.querySelector('[name="designIds"]');
+  if (!select) return [];
+  return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
+}
+
+function clearOrderMultiDesignSelection(row) {
+  row?.querySelectorAll('[name="designIds"] option').forEach((option) => {
+    option.selected = false;
+  });
 }
 
 function designMatchesOrderSearch(design, query = "") {
@@ -3676,6 +3870,8 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
 
 function factoryInWeight() {
   const safeStock = safeItemStockWeight();
+  const safeDepartmentStock = safeDepartmentIssuesInHand()
+    .reduce((total, issue) => Number(weight3(total + Number(issue.grossWeight || 0))), 0);
   const activeProduction = state.lots
     .filter((lot) => lot.status !== "Completed")
     .reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || lot.issuedWeight || 0), 0);
@@ -3685,7 +3881,7 @@ function factoryInWeight() {
     if (bill?.items?.length) return total + billProductionStockWeight(bill);
     return total + Number(lot.finishedWeight || 0);
   }, 0);
-  return Number(weight3(safeStock + activeProduction + billPending));
+  return Number(weight3(safeStock + safeDepartmentStock + activeProduction + billPending));
 }
 
 function addSafeItem(item) {
@@ -3725,6 +3921,92 @@ function moveSafeItemOut(itemId) {
   item.remarks = reason || "Issued from safe";
   saveState();
   render();
+}
+
+function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = state) {
+  const grossWeight = Number(weight3(issue.grossWeight ?? item.grossWeight ?? 0));
+  const waxStoneWeight = Number(weight3(issue.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
+  const netWeight = Number(weight3(issue.netWeight ?? item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight)));
+  const department = issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null;
+  const purity = issue.purity || item.purity || item.locker || "";
+  return {
+    id: issue.id || crypto.randomUUID(),
+    date: issue.date || today(),
+    safeItemId: issue.safeItemId || item.id || "",
+    itemDescription: issue.itemDescription || item.description || "",
+    itemKind: issue.itemKind || safeKindLabel(item),
+    source: issue.source || item.source || "",
+    sourceLine: issue.sourceLine || item.sourceLine || "",
+    locker: safeLockerForPurity(issue.locker || item.locker || item.purity || purity),
+    purity,
+    departmentId: issue.departmentId || "",
+    departmentName: issue.departmentName || department?.name || "",
+    process: mergedProductionDepartmentName(issue.process || primaryDepartmentProcess(department || {})),
+    grossWeight,
+    waxStoneWeight,
+    netWeight,
+    status: issue.status || "In Department",
+    remarks: issue.remarks || "",
+  };
+}
+
+function createSafeDepartmentIssue(item, department, process = "", remarks = "") {
+  return normalizeSafeDepartmentIssue({
+    id: crypto.randomUUID(),
+    date: today(),
+    safeItemId: item.id,
+    itemDescription: item.description || "",
+    itemKind: safeKindLabel(item),
+    source: item.source || "",
+    sourceLine: item.sourceLine || "",
+    locker: item.locker || item.purity,
+    purity: item.purity || item.locker || "",
+    departmentId: department.id,
+    departmentName: department.name,
+    process: process || primaryDepartmentProcess(department),
+    grossWeight: item.grossWeight || 0,
+    waxStoneWeight: safeItemWaxStoneWeight(item),
+    netWeight: item.netWeight ?? safeItemNetFromGross(item.grossWeight, safeItemWaxStoneWeight(item)),
+    remarks,
+  }, item);
+}
+
+function openSafeIssueToDepartment(itemId) {
+  const item = findById("safeItems", itemId);
+  if (!item || item.status === "Out") return;
+  const form = document.getElementById("safe-issue-form");
+  form.itemId.value = item.id;
+  form.grossWeight.value = weight3(item.grossWeight || 0);
+  form.waxStoneWeight.value = weight3(safeItemWaxStoneWeight(item));
+  form.netWeight.value = weight3(item.netWeight ?? item.grossWeight ?? 0);
+  form.purity.value = item.purity || item.locker || safeLockerForPurity(item.locker || item.purity);
+  form.remarks.value = "";
+  if (state.karigars[0]) form.departmentId.value = state.karigars[0].id;
+  renderSafeIssueProcessOptions(form.departmentId.value);
+  document.getElementById("safe-issue-summary").textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)} / GW ${gram(item.grossWeight)} / NT ${gram(item.netWeight ?? item.grossWeight)}`;
+  document.getElementById("safe-issue-dialog").showModal();
+}
+
+function renderSafeIssueProcessOptions(departmentId = "", selectedProcess = "") {
+  const form = document.getElementById("safe-issue-form");
+  const select = form?.process;
+  if (!select) return;
+  const department = findById("karigars", departmentId);
+  const processes = department ? departmentProcesses(department) : [];
+  const selected = String(selectedProcess || "").trim();
+  const optionValues = selected && !processes.includes(selected) ? [...processes, selected] : processes;
+  select.innerHTML = optionValues.length
+    ? optionValues.map((process) => `<option value="${escapeHtml(process)}">${escapeHtml(process)}</option>`).join("")
+    : '<option value="">Select department first</option>';
+  select.value = selected && optionValues.includes(selected)
+    ? selected
+    : (optionValues[0] || "");
+}
+
+function safeDepartmentIssuesInHand() {
+  return (state.safeDepartmentIssues || [])
+    .map((issue) => normalizeSafeDepartmentIssue(issue, findById("safeItems", issue.safeItemId) || {}))
+    .filter((issue) => issue.status !== "Returned" && issue.status !== "Closed");
 }
 
 function safeLockerForPurity(value) {
@@ -4187,13 +4469,17 @@ function syncFactoryOutLedgerForState(source) {
     const vendor = findOrCreateVendorByNameInState(source, billFactoryVendorName(source, lot, bill));
     const billItems = (bill.items || []).map((item, index) => {
       const netWeight = Number(item.netWeight || 0);
+      const finalGw = Number(item.finalGw || 0);
+      const reducedWeight = Number(item.reducedWeight || 0);
       const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
       const purity = item.purity || order.purity || lot.metalPurity || "18K";
       const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
-      return { item, order, netWeight, purity, productionNo };
+      return { item, order, netWeight, finalGw, reducedWeight, purity, productionNo };
     }).filter(({ item, netWeight }) => !item.discardStatus && netWeight > 0);
     if (!billItems.length) return;
     const totalNetWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.netWeight)), 0);
+    const totalGrossWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.finalGw)), 0);
+    const totalNonGoldWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.reducedWeight)), 0);
     const totalFineGold = billItems.reduce((total, entry) => Number(weight3(total + fineGoldWeight(entry.netWeight, entry.purity))), 0);
     const purities = [...new Set(billItems.map((entry) => entry.purity).filter(Boolean))];
     const productionNos = billItems.map((entry) => entry.productionNo).filter(Boolean);
@@ -4228,7 +4514,7 @@ function syncFactoryOutLedgerForState(source) {
       fineGold: totalFineGold,
       stockPosting: "Factory Out By Bill - Whole Job Order",
       reference,
-      remarks: [bill.remarks || "", prText, isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : ""].filter(Boolean).join(" | "),
+      remarks: [bill.remarks || "", `Bill GW ${gram(totalGrossWeight)} - Non-Gold ${gram(totalNonGoldWeight)} = Factory Out Net ${gram(totalNetWeight)}`, prText, isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : ""].filter(Boolean).join(" | "),
       sourceType: "bill",
       sourceId: bill.id,
       sourceLine: "job-order",
@@ -4271,11 +4557,13 @@ function factoryPhysicalFineStock() {
       const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
       return Number(weight3(total + fineGoldWeight(currentTransferIssueWeight(lot) || lot.issuedWeight || 0, purity)));
     }, 0);
+  const departmentIssueFine = safeDepartmentIssuesInHand()
+    .reduce((total, issue) => Number(weight3(total + fineGoldWeight(issue.netWeight || 0, issue.purity || issue.locker || 0))), 0);
   return {
     metalFine,
     shelfFine,
-    productionFine,
-    totalFine: Number(weight3(metalFine + shelfFine + productionFine)),
+    productionFine: Number(weight3(productionFine + departmentIssueFine)),
+    totalFine: Number(weight3(metalFine + shelfFine + productionFine + departmentIssueFine)),
   };
 }
 
@@ -6365,9 +6653,10 @@ function renderOrderLotCard(lot) {
   const stoneTotals = productionStoneTotalsForOrders(getLotOrders(lot));
   const waxStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "wax");
   const handStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "hand");
+  const nonGoldTotals = productionNonGoldTotalsForLot(lot);
   const actions = lot.status === "Completed"
     ? `<button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
-    : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
+    : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
   return `
     <article class="order-lot-card">
       <div>
@@ -6380,6 +6669,7 @@ function renderOrderLotCard(lot) {
         <span><b>Prod. Stone</b>${stoneTotals.pcs} pcs / ${weight3(stoneTotals.weight)}g</span>
         <span><b>Wax Stone</b>${waxStoneTotals.pcs} pcs / ${weight3(waxStoneTotals.weight)}g</span>
         <span><b>Hand Stone</b>${handStoneTotals.pcs} pcs / ${weight3(handStoneTotals.weight)}g</span>
+        <span><b>Non-Gold</b>${nonGoldTotals.pcs ? `${nonGoldTotals.pcs} pcs / ` : ""}${weight3(nonGoldTotals.weight)}g</span>
         <span><b>Transfers</b>${(lot.transfers || []).length}</span>
       </div>
       <div class="row-actions">${actions}</div>
@@ -6504,6 +6794,168 @@ function applyCastingSafeItemToIssueForm() {
   form.rodDesiredPurity.value = item ? displayPurity(safeItemDesiredPurity(item)) : "";
 }
 
+function normalizeProductionNonGoldMaterial(value = "") {
+  const text = String(value || "").trim().toLowerCase();
+  if (["black-beads", "black beads", "blackbeads", "bb"].includes(text)) return "black-beads";
+  if (["moti", "mm"].includes(text)) return "moti";
+  if (["spring", "springs"].includes(text)) return "spring";
+  return "other";
+}
+
+function productionNonGoldMaterialLabel(value = "") {
+  const type = normalizeProductionNonGoldMaterial(value);
+  return PRODUCTION_NON_GOLD_TYPES.find((item) => item.value === type)?.label || "Other";
+}
+
+function lotPurityForStateLot(currentState, lot = {}) {
+  const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  const orderPurity = (currentState.orders || []).find((order) => orderIds.includes(order.id))?.purity;
+  return lot.metalPurity || orderPurity || "18K";
+}
+
+function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = state) {
+  const materialType = normalizeProductionNonGoldMaterial(issue.materialType || issue.type || issue.materialLabel);
+  const purity = issue.purity || lotPurityForStateLot(currentState, lot);
+  const departmentId = issue.departmentId || lot.karigarId || "";
+  const department = (currentState.karigars || []).find((item) => item.id === departmentId);
+  return {
+    id: issue.id || crypto.randomUUID(),
+    date: issue.date || today(),
+    lotId: issue.lotId || lot.id || "",
+    lotNumber: issue.lotNumber || lot.number || "",
+    jobNumber: issue.jobNumber || lot.orderNumber || "",
+    departmentId,
+    department: mergedProductionDepartmentName(issue.department || lot.currentDepartment || lot.karigarName || primaryDepartmentProcess(department) || department?.name || ""),
+    materialType,
+    materialLabel: productionNonGoldMaterialLabel(materialType),
+    pcs: Number(issue.pcs || 0),
+    weight: Number(weight3(issue.weight || 0)),
+    purity,
+    karat: issue.karat || safeLockerForPurity(purity),
+    sourceType: issue.sourceType || "production-non-gold",
+    remarks: issue.remarks || "",
+  };
+}
+
+function lotNonGoldIssues(lot = {}) {
+  const linkedLedgerIssues = (state.productionNonGoldIssues || [])
+    .filter((issue) => issue.lotId && issue.lotId === lot.id)
+    .map((issue) => normalizeProductionNonGoldIssue(issue, lot));
+  const legacyLotIssues = (lot.nonGoldIssues || []).map((issue) => normalizeProductionNonGoldIssue(issue, lot));
+  return [...linkedLedgerIssues, ...legacyLotIssues];
+}
+
+function productionNonGoldTotalsForLot(lot = {}) {
+  return lotNonGoldIssues(lot).reduce((totals, issue) => {
+    const key = issue.materialType || "other";
+    const current = totals.byMaterial[key] || { label: productionNonGoldMaterialLabel(key), pcs: 0, weight: 0 };
+    current.pcs += Number(issue.pcs || 0);
+    current.weight = Number(weight3(current.weight + Number(issue.weight || 0)));
+    totals.byMaterial[key] = current;
+    totals.pcs += Number(issue.pcs || 0);
+    totals.weight = Number(weight3(totals.weight + Number(issue.weight || 0)));
+    return totals;
+  }, { pcs: 0, weight: 0, byMaterial: {} });
+}
+
+function productionNonGoldSummaryText(lot = {}) {
+  const totals = productionNonGoldTotalsForLot(lot);
+  if (!totals.weight) return "-";
+  const materials = Object.values(totals.byMaterial)
+    .filter((item) => item.weight > 0)
+    .map((item) => `${item.label} ${gram(item.weight)}`)
+    .join(" / ");
+  return `${gram(totals.weight)}${materials ? ` (${materials})` : ""}`;
+}
+
+function productionNonGoldSummaryHtml(lot = {}) {
+  const totals = productionNonGoldTotalsForLot(lot);
+  if (!totals.weight) return "-";
+  const materialLines = Object.values(totals.byMaterial)
+    .filter((item) => item.weight > 0)
+    .map((item) => `<small>${escapeHtml(item.label)}: ${item.pcs ? `${item.pcs} pcs / ` : ""}${gram(item.weight)}</small>`)
+    .join("");
+  return `<div class="non-gold-lot-summary"><strong>${gram(totals.weight)}</strong>${materialLines}</div>`;
+}
+
+function productionNonGoldLedgerIssues() {
+  return (state.productionNonGoldIssues || []).map((issue) => {
+    const lot = issue.lotId ? findById("lots", issue.lotId) : null;
+    return { lot, issue: normalizeProductionNonGoldIssue(issue, lot || {}) };
+  });
+}
+
+function legacyLotNonGoldEntries() {
+  return (state.lots || []).flatMap((lot) =>
+    (lot.nonGoldIssues || []).map((issue) => ({ lot, issue: normalizeProductionNonGoldIssue(issue, lot) }))
+  );
+}
+
+function productionNonGoldIssueInDepartment(issue = {}) {
+  if (issue.lotId) {
+    const lot = findById("lots", issue.lotId);
+    const bill = lot?.bill || (state.bills || []).find((item) => item.lotId === issue.lotId);
+    return Boolean(lot && lot.status !== "Completed" && !bill);
+  }
+  return true;
+}
+
+function productionNonGoldIssueStatus(issue = {}) {
+  if (!issue.lotId) return "In Department";
+  const lot = findById("lots", issue.lotId);
+  const bill = lot?.bill || (state.bills || []).find((item) => item.lotId === issue.lotId);
+  if (bill) return "Adjusted By Bill / Factory Out";
+  if (lot?.status === "Completed") return "Completed Lot";
+  return "In Department";
+}
+
+function productionNonGoldDirectDepartmentEntries() {
+  return productionNonGoldLedgerIssues()
+    .filter(({ issue }) => !issue.lotId && productionNonGoldIssueInDepartment(issue));
+}
+
+function productionNonGoldDepartmentInHandWeight(departmentName = "") {
+  const target = departmentDashboardHeader(departmentName);
+  const totals = departmentMetalInHand()[target];
+  return Number(totals?.nonGold || 0);
+}
+
+function productionNonGoldInDepartmentsWeight() {
+  return Object.values(departmentMetalInHand()).reduce((total, item) => Number(weight3(total + Number(item.nonGold || 0))), 0);
+}
+
+function applyProductionNonGoldLotDefaults() {
+  const form = document.getElementById("production-non-gold-form");
+  if (!form?.lotId?.value) return;
+  const lot = findById("lots", form.lotId.value);
+  if (!lot) return;
+  form.purity.value = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+  if (form.departmentId && state.karigars.some((karigar) => karigar.id === lot.karigarId)) {
+    form.departmentId.value = lot.karigarId;
+  }
+}
+
+function updateProductionNonGoldSummary() {
+  const form = document.getElementById("production-non-gold-form");
+  const summary = document.getElementById("non-gold-issue-summary");
+  if (!form || !summary) return;
+  const lot = form.lotId.value ? findById("lots", form.lotId.value) : null;
+  const department = form.departmentId?.value ? findById("karigars", form.departmentId.value) : null;
+  if (!department) {
+    summary.textContent = "Select a department, then optionally link the non-gold issue to a production lot.";
+    return;
+  }
+  const material = productionNonGoldMaterialLabel(form.materialType.value);
+  const weight = Number(form.weight.value || 0);
+  const pcs = Number(form.pcs.value || 0);
+  const departmentName = primaryDepartmentProcess(department) || department.name;
+  const existingTotal = productionNonGoldDepartmentInHandWeight(departmentName);
+  const afterIssue = Number(weight3(existingTotal + Math.max(weight, 0)));
+  const karat = safeLockerForPurity(form.purity.value || lot?.metalPurity || "18K");
+  const linkText = lot ? ` and linked with ${lot.number} / ${lot.orderNumber || "-"}` : "";
+  summary.textContent = `${material} ${pcs ? `${pcs} pcs / ` : ""}${gram(weight)} will be issued to ${departmentName}${linkText} in ${karat}. Department non-gold ${gram(existingTotal)}, after save ${gram(afterIssue)}.`;
+}
+
 function openTransferFromOrder(lotId) {
   document.getElementById("order-dialog").close();
   openTransferLot(lotId);
@@ -6517,6 +6969,19 @@ function openCompleteFromOrder(lotId) {
 function openHistoryFromOrder(lotId) {
   document.getElementById("order-dialog").close();
   openLotHistory(lotId);
+}
+
+function openNonGoldIssueForLot(lotId) {
+  const orderDialog = document.getElementById("order-dialog");
+  if (orderDialog?.open) orderDialog.close();
+  switchView("production");
+  switchProductionPage("non-gold");
+  const form = document.getElementById("production-non-gold-form");
+  if (!form) return;
+  form.lotId.value = lotId;
+  applyProductionNonGoldLotDefaults();
+  updateProductionNonGoldSummary();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function openCompleteLot(lotId) {
@@ -7244,6 +7709,14 @@ function renderSelects() {
       return `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(details)}</option>`;
     })
     .join("");
+  const activeLotOptions = (state.lots || [])
+    .filter((lot) => lot.status !== "Completed")
+    .map((lot) => {
+      const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+      const details = `${lot.number} - ${lot.orderNumber || "-"} - ${lot.currentDepartment || lot.karigarName || "-"} - ${purity}`;
+      return `<option value="${escapeHtml(lot.id)}">${escapeHtml(details)}</option>`;
+    })
+    .join("");
   const karigarOptions = state.karigars
     .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
     .join("");
@@ -7255,8 +7728,26 @@ function renderSelects() {
   applyIssuePurityFromJob();
   updateProductionCastingItemOptions();
   updateIssueMetalSummary();
+  document.querySelectorAll('#production-non-gold-form select[name="lotId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = activeLotOptions ? `<option value="">Direct department issue</option>${activeLotOptions}` : '<option value="">Direct department issue</option>';
+    select.value = (state.lots || []).some((lot) => lot.id === selected && lot.status !== "Completed") ? selected : "";
+  });
+  document.querySelectorAll('#production-non-gold-form select[name="departmentId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
+    select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
+  });
+  applyProductionNonGoldLotDefaults();
+  updateProductionNonGoldSummary();
   document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
     select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
+  });
+  document.querySelectorAll('#safe-issue-form select[name="departmentId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
+    select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
+    renderSafeIssueProcessOptions(select.value);
   });
   document.querySelectorAll('select[name="meltingDepartmentId"]').forEach((select) => {
     select.innerHTML = `
@@ -9069,6 +9560,7 @@ function renderDashboard() {
   document.getElementById("metric-raw").textContent = gram(rawGoldStock());
   document.getElementById("metric-factory-in").textContent = gram(factoryInWeight());
   document.getElementById("metric-wip").textContent = gram(workInProgress());
+  document.getElementById("metric-production-non-gold").textContent = gram(productionNonGoldInDepartmentsWeight());
   document.getElementById("metric-safe-items").textContent = gram(safeItemStockWeight());
   document.getElementById("metric-production-stock").textContent = gram(finishedStock());
   document.getElementById("metric-office-stock").textContent = gram(officeStockWeight());
@@ -9139,6 +9631,7 @@ function renderDepartmentMetal() {
           <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
           <small><b>Hand Stone</b>${gram(totals.handStone)}</small>
           <small><b>Total Stone</b>${gram(totals.waxStone + totals.handStone)}</small>
+          <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
           ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
           ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
         </div>
@@ -9153,17 +9646,18 @@ function renderDepartmentMetal() {
 
 function renderDepartmentPuritySplit(totals) {
   const purities = Object.entries(totals.purities || {}).filter(([, purity]) =>
-    purity.gross !== 0 || purity.gold !== 0 || purity.waxStone !== 0 || purity.handStone !== 0 || purity.loss !== 0
+    purity.gross !== 0 || purity.gold !== 0 || purity.waxStone !== 0 || purity.handStone !== 0 || purity.nonGold !== 0 || purity.loss !== 0
   );
   if (!purities.length) return "";
   return `
     <div class="department-purity-split">
-      <div class="department-purity-head"><span>Purity</span><span>Gold</span><span>Stone</span><span>Loss</span><span>Fine</span></div>
+      <div class="department-purity-head"><span>Purity</span><span>Gold</span><span>Stone</span><span>Non-Gold</span><span>Loss</span><span>Fine</span></div>
       ${purities.map(([purity, item]) => `
         <div class="department-purity-row">
           <span>${escapeHtml(purity)}</span>
           <span>${gram(item.gold)}</span>
           <span>${gram(item.waxStone + item.handStone)}</span>
+          <span>${gram(item.nonGold)}</span>
           <span>${gram(item.loss)}</span>
           <span>${gram(item.fineGold + item.lossFineGold)}</span>
         </div>
@@ -9174,13 +9668,13 @@ function renderDepartmentPuritySplit(totals) {
 
 function renderDepartmentSplit(totals) {
   const sections = Object.entries(totals.sections || {}).filter(([, section]) =>
-    section.gross !== 0 || section.gold !== 0 || section.waxStone !== 0 || section.handStone !== 0 || section.loss !== 0
+    section.gross !== 0 || section.gold !== 0 || section.waxStone !== 0 || section.handStone !== 0 || section.nonGold !== 0 || section.loss !== 0
   );
   if (sections.length <= 1) return "";
   return `
     <div class="department-split">
       ${sections.map(([label, section]) => `
-        <small><b>${escapeHtml(label)}</b><span>Gold ${gram(section.gold)} / GW ${gram(section.gross)}${Number(section.loss || 0) ? ` / Loss ${gram(section.loss)}` : ""}</span></small>
+        <small><b>${escapeHtml(label)}</b><span>Gold ${gram(section.gold)} / GW ${gram(section.gross)}${Number(section.nonGold || 0) ? ` / Non-Gold ${gram(section.nonGold)}` : ""}${Number(section.loss || 0) ? ` / Loss ${gram(section.loss)}` : ""}</span></small>
       `).join("")}
     </div>
   `;
@@ -9201,9 +9695,24 @@ function departmentMetalInHand() {
       addDepartmentWeight(departments, lot.currentDepartment || lot.karigarName || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
+  productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
+    addDepartmentWeight(departments, issue.department || "Unassigned", {
+      gross: Number(issue.weight || 0),
+      nonGold: Number(issue.weight || 0),
+      purity: issue.purity || issue.karat || "",
+    });
+  });
+  safeDepartmentIssuesInHand().forEach((issue) => {
+    addDepartmentWeight(departments, issue.process || issue.departmentName || "Unassigned", {
+      gross: Number(issue.grossWeight || 0),
+      gold: Number(issue.netWeight || 0),
+      waxStone: Number(issue.waxStoneWeight || 0),
+      purity: issue.purity || issue.locker || "",
+    });
+  });
   addMeltingCastingDashboardWeights(departments);
   return Object.fromEntries(Object.entries(departments).filter(([, totals]) =>
-    totals.gross !== 0 || totals.gold !== 0 || totals.waxStone !== 0 || totals.handStone !== 0 || totals.loss !== 0
+    totals.gross !== 0 || totals.gold !== 0 || totals.waxStone !== 0 || totals.handStone !== 0 || totals.nonGold !== 0 || totals.loss !== 0
   ));
 }
 
@@ -9242,24 +9751,27 @@ function departmentCurrentLotTotals(lot) {
     ? productionStoneTotalsForOrders(getLotOrders(lot), "hand").weight
     : 0;
   const handStone = Math.max(existingHandStone, Number(plannedHandStone || 0));
-  const gross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
-  const gold = Number(weight3(Math.max(gross - waxStone - handStone, 0)));
-  return { gross, gold, waxStone, handStone, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
+  const nonGold = productionNonGoldTotalsForLot(lot).weight;
+  const metalGross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
+  const gross = Number(weight3(metalGross + nonGold));
+  const gold = Number(weight3(Math.max(metalGross - waxStone - handStone, 0)));
+  return { gross, gold, waxStone, handStone, nonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
 function addDepartmentWeight(departments, department, totals = {}) {
   const rawDepartment = department || "Unassigned";
   const key = departmentDashboardHeader(rawDepartment);
   const splitKey = departmentDashboardSplitLabel(rawDepartment);
-  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0, loss: 0, lossFineGold: 0, sections: {}, purities: {} };
-  const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, loss: 0, lossFineGold: 0 };
+  const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0, sections: {}, purities: {} };
+  const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, loss: 0, lossFineGold: 0 };
   const purityKey = displayPurity(totals.purity);
-  const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, fineGold: 0, loss: 0, lossFineGold: 0 };
+  const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0 };
   const added = {
     gross: Number(totals.gross || 0),
     gold: Number(totals.gold || 0),
     waxStone: Number(totals.waxStone || 0),
     handStone: Number(totals.handStone || 0),
+    nonGold: Number(totals.nonGold || 0),
     fineGold: Number(totals.fineGold ?? fineGoldWeight(totals.gold || 0, totals.purity || 0)),
     loss: Number(totals.loss || 0),
     lossFineGold: Number(totals.lossFineGold ?? fineGoldWeight(totals.loss || 0, totals.purity || 0)),
@@ -9269,6 +9781,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
     gold: Number(weight3(current.gold + added.gold)),
     waxStone: Number(weight3(current.waxStone + added.waxStone)),
     handStone: Number(weight3(current.handStone + added.handStone)),
+    nonGold: Number(weight3(current.nonGold + added.nonGold)),
     fineGold: Number(weight3(current.fineGold + added.fineGold)),
     loss: Number(weight3(current.loss + added.loss)),
     lossFineGold: Number(weight3(current.lossFineGold + added.lossFineGold)),
@@ -9279,6 +9792,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
         gold: Number(weight3(currentSection.gold + added.gold)),
         waxStone: Number(weight3(currentSection.waxStone + added.waxStone)),
         handStone: Number(weight3(currentSection.handStone + added.handStone)),
+        nonGold: Number(weight3(currentSection.nonGold + added.nonGold)),
         loss: Number(weight3(currentSection.loss + added.loss)),
         lossFineGold: Number(weight3(currentSection.lossFineGold + added.lossFineGold)),
       },
@@ -9290,6 +9804,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
         gold: Number(weight3(currentPurity.gold + added.gold)),
         waxStone: Number(weight3(currentPurity.waxStone + added.waxStone)),
         handStone: Number(weight3(currentPurity.handStone + added.handStone)),
+        nonGold: Number(weight3(currentPurity.nonGold + added.nonGold)),
         fineGold: Number(weight3(currentPurity.fineGold + added.fineGold)),
         loss: Number(weight3(currentPurity.loss + added.loss)),
         lossFineGold: Number(weight3(currentPurity.lossFineGold + added.lossFineGold)),
@@ -10435,6 +10950,7 @@ function renderProduction() {
       <td class="current-dept-cell">${currentDepartmentBadgeHtml(lot)}</td>
       <td>${escapeHtml(lot.metalPurity || getLotOrders(lot)[0]?.purity || "-")}</td>
       <td>${issueWeightDetailHtml(lot)}</td>
+      <td>${productionNonGoldSummaryHtml(lot)}</td>
       <td>${lot.finishedWeight ? gram(lot.finishedWeight) : "-"}</td>
       <td>${wastageDetailHtml(lot)}</td>
       <td><span class="status ${statusClass(lot.status)}">${lot.status}</span></td>
@@ -10442,13 +10958,38 @@ function renderProduction() {
       <td><div class="row-actions">${lot.status === "Completed" ? "" : `<button onclick="openTransferLot('${lot.id}')">Transfer</button><button onclick="openCompleteLot('${lot.id}')">Complete</button>`}<button class="ghost-button" onclick="openLotHistory('${lot.id}')">History</button></div></td>
     </tr>
   `).join("");
-  document.getElementById("production-table").innerHTML = rows || tableEmpty(10, "No production lots recorded.");
+  document.getElementById("production-table").innerHTML = rows || tableEmpty(11, "No production lots recorded.");
+  renderProductionNonGoldTable();
 }
 
 function issueWeightDetailHtml(lot) {
   const waxStoneWeight = Number(lot.waxStoneWeight || 0);
   if (!waxStoneWeight) return gram(lot.issuedWeight);
   return `${gram(lot.issuedWeight)}<br><small>Gold Issue ${gram(lot.grossIssuedWeight || lot.issuedWeight + waxStoneWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(lot.issuedWeight)}</small>`;
+}
+
+function productionNonGoldEntries() {
+  return [...productionNonGoldLedgerIssues(), ...legacyLotNonGoldEntries()];
+}
+
+function renderProductionNonGoldTable() {
+  const table = document.getElementById("production-non-gold-table");
+  if (!table) return;
+  const rows = productionNonGoldEntries().map(({ lot, issue }) => `
+    <tr>
+      <td>${escapeHtml(issue.date || "-")}</td>
+      <td>${escapeHtml(issue.department || lot?.currentDepartment || lot?.karigarName || "-")}</td>
+      <td>${escapeHtml(issue.lotNumber || lot?.number || "-")}</td>
+      <td>${escapeHtml(issue.jobNumber || lot?.orderNumber || "-")}</td>
+      <td>${escapeHtml(issue.materialLabel || productionNonGoldMaterialLabel(issue.materialType))}</td>
+      <td>${issue.pcs || "-"}</td>
+      <td>${gram(issue.weight)}</td>
+      <td>${escapeHtml(issue.karat || safeLockerForPurity(issue.purity))}</td>
+      <td><span class="status ${productionNonGoldIssueInDepartment(issue) ? "pending" : "completed"}">${escapeHtml(productionNonGoldIssueStatus(issue))}</span></td>
+      <td>${escapeHtml(issue.remarks || "-")}</td>
+    </tr>
+  `).join("");
+  table.innerHTML = rows || tableEmpty(10, "No non-gold material issued yet.");
 }
 
 function renderBills() {
@@ -12476,20 +13017,28 @@ function renderSafeLockers() {
   }
   const rows = (state.safeItems || [])
     .filter((item) => !filter || safeLockerForPurity(item.locker || item.purity) === filter)
-    .map((item) => `
-      <tr>
-        <td>${escapeHtml(item.date || "-")}</td>
-        <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
-        <td>${escapeHtml(safeKindLabel(item))}</td>
-        <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
-        <td>${escapeHtml(item.source || "-")}</td>
-        <td>${gram(item.grossWeight)}</td>
-        <td>${gram(safeItemWaxStoneWeight(item))}</td>
-        <td>${gram(item.netWeight ?? item.grossWeight)}</td>
-        <td><span class="status ${statusClass(item.status || "In Safe")}">${escapeHtml(item.status || "In Safe")}</span>${item.remarks ? `<br><small>${escapeHtml(item.remarks)}</small>` : ""}</td>
-        <td>${item.status === "Out" ? escapeHtml(item.outDate || "-") : `<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button>`}</td>
-      </tr>
-    `).join("");
+    .map((item) => {
+      const outDetail = item.issueDepartmentName
+        ? `${item.outDate || "-"}<br><small>${escapeHtml(item.issueDepartmentName)} / ${escapeHtml(item.issueProcess || "-")}</small>`
+        : escapeHtml(item.outDate || "-");
+      const actions = item.status === "Out"
+        ? outDetail
+        : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue To Dept</button><button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button></div>`;
+      return `
+        <tr>
+          <td>${escapeHtml(item.date || "-")}</td>
+          <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
+          <td>${escapeHtml(safeKindLabel(item))}</td>
+          <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
+          <td>${escapeHtml(item.source || "-")}</td>
+          <td>${gram(item.grossWeight)}</td>
+          <td>${gram(safeItemWaxStoneWeight(item))}</td>
+          <td>${gram(item.netWeight ?? item.grossWeight)}</td>
+          <td><span class="status ${statusClass(item.status || "In Safe")}">${escapeHtml(item.status || "In Safe")}</span>${item.remarks ? `<br><small>${escapeHtml(item.remarks)}</small>` : ""}</td>
+          <td>${actions}</td>
+        </tr>
+      `;
+    }).join("");
   const table = document.getElementById("safe-item-table");
   if (table) table.innerHTML = rows || tableEmpty(10, "No item in this safe locker yet.");
 }
@@ -12879,6 +13428,7 @@ function resetMeltingIssueForm() {
   const form = document.getElementById("melting-form");
   form.reset();
   form.meltingId.value = "";
+  form.targetPurity.value = "";
   resetMeltingSources();
   document.getElementById("melting-form-title").textContent = "Melting Conversion";
   document.getElementById("melting-submit").textContent = "Save & Issue Melting";
@@ -14034,8 +14584,16 @@ function normalizeState(currentState) {
       netWeight,
       status: item.status || "In Safe",
       outDate: item.outDate || "",
+      issueDepartmentId: item.issueDepartmentId || "",
+      issueDepartmentName: item.issueDepartmentName || "",
+      issueProcess: item.issueProcess || "",
+      safeDepartmentIssueId: item.safeDepartmentIssueId || "",
       remarks: item.remarks || "",
     };
+  });
+  currentState.safeDepartmentIssues = (currentState.safeDepartmentIssues || []).map((issue) => {
+    const item = issue.safeItemId ? currentState.safeItems.find((entry) => entry.id === issue.safeItemId) || {} : {};
+    return normalizeSafeDepartmentIssue(issue, item, currentState);
   });
   currentState.metalSafeMovements = (currentState.metalSafeMovements || []).map((movement) => ({
     id: movement.id || crypto.randomUUID(),
@@ -14313,6 +14871,10 @@ function normalizeState(currentState) {
     }
   });
   migrateCbBothRingOrders(currentState);
+  currentState.productionNonGoldIssues = (currentState.productionNonGoldIssues || []).map((issue) => {
+    const lot = issue.lotId ? (currentState.lots || []).find((item) => item.id === issue.lotId) || {} : {};
+    return normalizeProductionNonGoldIssue(issue, lot, currentState);
+  });
   currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
   currentState.lots.forEach((lot) => {
     const bill = currentState.bills.find((item) => item.lotId === lot.id);
@@ -14381,6 +14943,7 @@ function normalizeLotIssueWeights(currentState, lot) {
     grossIssuedWeight,
     waxStoneWeight,
     issuedWeight,
+    nonGoldIssues: (lot.nonGoldIssues || []).map((issue) => normalizeProductionNonGoldIssue(issue, lot, currentState)),
     issueSourceName: lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K")}`,
     issueSourceDetail: lot.issueSourceDetail || lot.castingSafeItemDescription || "",
     issueSourceLocker: lot.issueSourceLocker || safeLockerForPurity(lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K"),
