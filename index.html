@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=159">
+    <link rel="stylesheet" href="styles.css?v=160">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v281</small>
+            <small class="app-version-badge">App v283</small>
           </div>
         </div>
         <label>User
@@ -100,7 +100,7 @@
         </div>
         <div class="top-actions">
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v281</span>
+            <span class="app-version-badge">App v283</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -363,24 +363,43 @@
           </button>
         </div>
         <div class="workbench order-entry-workbench order-page" id="order-page-create">
-          <form id="order-form" class="form-panel">
-            <h2>Create Job Order</h2>
-            <label>Customer / Retailer <select name="customerId" required></select></label>
-            <div class="panel-heading">
-              <h2>Order Items</h2>
-              <button id="add-order-item" class="ghost-button" type="button">Add Item</button>
+          <form id="order-form" class="form-panel job-card-form">
+            <div class="job-card-form-title">
+              <div>
+                <h2>Create Job Order</h2>
+                <p class="dialog-note">Add each item first, then save the job card. Stone weight is captured from the selected design and item type.</p>
+              </div>
             </div>
-            <div id="order-item-list" class="order-item-list"></div>
+            <section class="job-card-form-section">
+              <div class="section-title-row">
+                <h3>Job Card Details</h3>
+                <label class="check-item urgent-order-field"><input name="urgent" type="checkbox"> Mark as Urgent</label>
+              </div>
+              <div class="job-card-header-grid">
+                <label class="customer-field">Customer / Retailer <select name="customerId" required></select></label>
+                <label>Order Date <input name="orderDate" type="date" required></label>
+                <label>Production Days <input name="productionDays" type="number" min="10" step="1" required></label>
+                <small class="field-error hidden" data-production-days-error></small>
+                <label>Due Date <input name="dueDate" type="date" readonly required></label>
+              </div>
+            </section>
+            <section class="job-card-form-section order-item-composer">
+              <div class="panel-heading">
+                <div>
+                  <h2>New Item Entry</h2>
+                  <p class="dialog-note">Use search or category-wise design selection. Multiple designs can be added in one action.</p>
+                </div>
+                <button id="add-order-item" class="ghost-button" type="button">Add Item</button>
+              </div>
+              <div id="order-item-list" class="order-item-list"></div>
+            </section>
             <section class="order-entry-summary">
               <h3>Items Added In This Job Card</h3>
               <div id="order-entry-summary" class="summary-list"></div>
             </section>
-            <label>Order Date <input name="orderDate" type="date" required></label>
-            <label>Production Days <input name="productionDays" type="number" min="10" step="1" required></label>
-            <small class="field-error hidden" data-production-days-error></small>
-            <label>Due Date <input name="dueDate" type="date" readonly required></label>
-            <label class="check-item urgent-order-field"><input name="urgent" type="checkbox"> Mark as Urgent</label>
-            <button type="submit">Save Order</button>
+            <div class="job-card-submit-row">
+              <button type="submit">Save Job Order</button>
+            </div>
           </form>
         </div>
         <div class="order-page" id="order-page-active">
@@ -543,6 +562,8 @@
               <label>Pending Setter Lot <select name="entryId" required></select></label>
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
               <label>Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
+              <label>Hand Stone (g) <input name="handStoneWeight" type="number" step="0.001" readonly></label>
+              <label>Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
               <label>Difference (g) <input name="difference" type="number" step="0.001" readonly></label>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
               <p id="setting-receive-summary" class="dialog-note">Select pending setter issue and enter received gross weight.</p>
@@ -574,7 +595,7 @@
             <div class="panel-heading"><h2>Setter Issue / Receive History</h2></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Issue Date</th><th>Receive Date</th><th>Lot</th><th>Job Card</th><th>Setter</th><th>Issue GW</th><th>Receive GW</th><th>Difference</th><th>Status</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Issue Date</th><th>Receive Date</th><th>Lot</th><th>Job Card</th><th>Setter</th><th>Issue GW</th><th>Receive GW</th><th>Hand Stone</th><th>Receive Net</th><th>Difference</th><th>Status</th><th>Remarks</th></tr></thead>
                 <tbody id="setting-manager-history-table"></tbody>
               </table>
             </div>
@@ -1261,7 +1282,7 @@
                 <th>Issue GW</th>
                 <th>Receive GW</th>
                 <th>Wax Stone</th>
-                <th>Hand Stone</th>
+                <th>Hand Stone From Job Card</th>
                 <th>Reduced</th>
                 <th>Net Wt</th>
                 <th>Difference</th>
@@ -1561,6 +1582,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=281"></script>
+    <script src="app.js?v=283"></script>
 </body>
 </html>

@@ -897,7 +897,7 @@ form.active-operation-page,
 }
 
 .order-entry-workbench {
-  grid-template-columns: minmax(760px, 1.15fr) minmax(0, 0.85fr);
+  grid-template-columns: 1fr;
 }
 
 .department-panel {
@@ -1351,22 +1351,136 @@ form.active-operation-page,
 
 .order-item-list {
   display: grid;
-  gap: 6px;
+  gap: 12px;
   counter-reset: order-item;
 }
 
 .order-item-row {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   align-items: end;
-  padding: 8px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcff;
 }
 
 .order-item-row.entry {
-  grid-template-columns: minmax(110px, 0.8fr) minmax(150px, 1fr) minmax(170px, 1.1fr) 115px 78px 78px 90px 80px minmax(140px, 1fr) minmax(190px, auto);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: start;
+}
+
+.job-card-form {
+  grid-template-columns: 1fr;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+
+.job-card-form-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.job-card-form-title h2,
+.job-card-form-title p,
+.job-card-form-section h3,
+.section-title-row h3 {
+  margin: 0;
+}
+
+.job-card-form-section {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.job-card-header-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.job-card-header-grid .field-error {
+  grid-column: 3 / 4;
+}
+
+.order-item-entry-head {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(240px, auto);
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(15, 118, 110, 0.12);
+}
+
+.order-item-entry-head strong {
+  display: block;
+  color: var(--brand-dark);
+  font-size: 17px;
+}
+
+.order-item-entry-head small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.order-item-row.entry > label {
+  grid-column: span 2;
+}
+
+.order-item-row.entry .order-field-search,
+.order-item-row.entry .order-field-design,
+.order-item-row.entry .order-field-remark {
+  grid-column: span 3;
+}
+
+.order-item-row.entry .multi-design-field {
+  grid-column: 1 / -1;
+}
+
+.order-item-stone-preview {
+  display: grid;
+  gap: 3px;
+  min-width: 240px;
+  padding: 10px 12px;
+  border: 1px solid #c6e2dc;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f2fbf8 0%, #ffffff 100%);
+}
+
+.order-item-stone-preview span,
+.order-summary-stats span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.order-item-stone-preview strong {
+  color: var(--brand-dark);
+  font-size: 18px;
+}
+
+.order-item-stone-preview small {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .order-item-row .multi-design-field {
@@ -1384,7 +1498,7 @@ form.active-operation-page,
 }
 
 .order-item-row.saved {
-  grid-template-columns: 22px minmax(90px, 0.8fr) minmax(130px, 1fr) 105px 60px 60px 70px 70px minmax(130px, 1fr) auto;
+  grid-template-columns: 22px repeat(auto-fit, minmax(105px, 1fr));
 }
 
 .order-item-row.saved {
@@ -1398,8 +1512,8 @@ form.active-operation-page,
 }
 
 .order-item-row.entry::before {
-  content: "New Item Entry";
-  grid-column: 1 / -1;
+  content: "";
+  display: none;
 }
 
 .order-item-row.saved::before {
@@ -1456,8 +1570,8 @@ form.active-operation-page,
 
 .order-entry-summary {
   display: grid;
-  gap: 6px;
-  padding: 8px;
+  gap: 10px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fffdf7;
@@ -1466,6 +1580,50 @@ form.active-operation-page,
 .order-entry-summary h3 {
   margin-bottom: 0;
   font-size: 13px;
+}
+
+.order-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.order-summary-stats span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid #f0dfb4;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.order-summary-stats b {
+  color: var(--brand-dark);
+  font-size: 18px;
+}
+
+.order-summary-designs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.order-summary-designs small {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef8f5;
+  color: var(--brand-dark);
+  font-weight: 850;
+}
+
+.job-card-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.job-card-submit-row button {
+  min-width: 180px;
 }
 
 .urgent-order-field {
@@ -4495,6 +4653,8 @@ dialog::backdrop {
 
   .inline-form,
   .order-item-row,
+  .job-card-header-grid,
+  .order-item-entry-head,
   .summary-item,
   .job-item-row,
   .order-lot-card,
@@ -4502,6 +4662,14 @@ dialog::backdrop {
   .stone-entry-fullscreen-form,
   .source-row {
     grid-template-columns: 1fr;
+  }
+
+  .order-item-row.entry > label,
+  .order-item-row.entry .order-field-search,
+  .order-item-row.entry .order-field-design,
+  .order-item-row.entry .order-field-remark,
+  .job-card-header-grid .field-error {
+    grid-column: 1 / -1;
   }
 
   .stone-entry-side {
@@ -6100,6 +6268,37 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .top-action-group {
     width: 100%;
+  }
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-card-form {
+  grid-template-columns: 1fr;
+  max-width: 1240px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-card-form-section,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-entry-summary,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-card-submit-row {
+  grid-column: 1 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+@media (max-width: 960px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-card-header-grid,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-entry-head {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry > label,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry .order-field-search,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry .order-field-design,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-item-row.entry .order-field-remark,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-card-header-grid .field-error {
+    grid-column: 1 / -1;
   }
 }
 

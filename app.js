@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v281";
+const APP_VERSION = "v283";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -528,7 +528,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
   const jobNumber = `JOB-${state.nextOrder}`;
   items.forEach((item) => {
     const productionNo = `PR-${state.nextOrder++}`;
-    state.orders.push({
+    const orderRecord = {
       id: crypto.randomUUID(),
       number: productionNo,
       jobNumber,
@@ -554,7 +554,9 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
       dueDate: data.dueDate,
       urgent: data.urgent === "on",
       status: "Pending",
-    });
+    };
+    orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
+    state.orders.push(orderRecord);
   });
   event.target.reset();
   setDefaultOrderDates(event.target);
@@ -847,6 +849,7 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
     if (selectedOrderDesignIds(row).length) row.querySelector('[name="designId"]').value = "";
     renderOrderEntrySummary();
   }
+  updateOrderItemStonePreview(row);
   renderOrderEntrySummary();
 });
 
@@ -854,6 +857,7 @@ document.getElementById("order-item-list").addEventListener("input", (event) => 
   if (event.target.name === "designSearch") {
     const row = event.target.closest(".order-item-row");
     updateOrderItemDesignOptions(row, row.querySelector('[name="designId"]').value, true);
+    updateOrderItemStonePreview(row);
   }
   renderOrderEntrySummary();
 });
@@ -1040,7 +1044,10 @@ document.getElementById("cancel-setting-setter-edit")?.addEventListener("click",
 document.getElementById("setting-issue-form")?.addEventListener("change", updateSettingIssueSummary);
 document.getElementById("setting-issue-form")?.addEventListener("submit", issueSettingLotToSetter);
 document.getElementById("setting-receive-form")?.addEventListener("input", updateSettingReceiveSummary);
-document.getElementById("setting-receive-form")?.addEventListener("change", updateSettingReceiveSummary);
+document.getElementById("setting-receive-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "entryId") event.currentTarget.receiveGw.value = "";
+  updateSettingReceiveSummary();
+});
 document.getElementById("setting-receive-form")?.addEventListener("submit", receiveSettingLotFromSetter);
 
 document.getElementById("stock-form")?.addEventListener("submit", (event) => {
@@ -3241,6 +3248,7 @@ function addOrderItemRow(item = {}, mode = "entry") {
   if (!isSaved) {
     updateOrderItemDesignOptions(row, item.designId || "");
     updateOrderItemCategoryFields(row);
+    updateOrderItemStonePreview(row);
   }
   row.addEventListener("click", (event) => {
     const button = event.target.closest("button");
@@ -3264,9 +3272,19 @@ function addOrderItemRow(item = {}, mode = "entry") {
 
 function entryOrderItemRowHtml(item = {}) {
   return `
-    <label>Category <select name="category">${renderCategoryOptions(item.category)}</select></label>
-    <label>Search Design <input name="designSearch" value="${escapeHtml(item.designSearch || "")}" placeholder="Type design no/name"></label>
-    <label>Design (Single) <select name="designId"></select></label>
+    <div class="order-item-entry-head">
+      <div>
+        <strong>New Item Entry</strong>
+        <small>Select category, design, item details, then press Add Item. Only added items are saved.</small>
+      </div>
+      <div class="order-item-stone-preview" data-order-stone-preview>
+        <span>Stone Plan</span>
+        <strong>No design selected</strong>
+      </div>
+    </div>
+    <label class="order-field-category">Category <select name="category">${renderCategoryOptions(item.category)}</select></label>
+    <label class="order-field-search">Search Design <input name="designSearch" value="${escapeHtml(item.designSearch || "")}" placeholder="Type design no/name"></label>
+    <label class="order-field-design">Design <select name="designId"></select></label>
     <label class="multi-design-field">Multiple Designs In Same Category
       <select name="designIds" multiple size="6"></select>
       <small>For same category: hold Ctrl and click multiple designs, then press Add Item.</small>
@@ -3297,7 +3315,7 @@ function entryOrderItemRowHtml(item = {}) {
         <option ${item.purity === "14K" ? "selected" : ""}>14K</option>
       </select>
     </label>
-    <label>Remark <input name="remarks" value="${escapeHtml(item.remarks || "")}" placeholder="Remark"></label>
+    <label class="order-field-remark">Remark <input name="remarks" value="${escapeHtml(item.remarks || "")}" placeholder="Remark"></label>
     <div class="order-item-action-buttons">
       <button class="order-add-item-button" type="button" data-order-item-action="add">Add Item</button>
       <button class="delete-btn" type="button" data-order-item-action="clear">Clear Item</button>
@@ -3307,6 +3325,9 @@ function entryOrderItemRowHtml(item = {}) {
 
 function savedOrderItemRowHtml(item = {}) {
   const design = designLabel(item.designId) || "-";
+  const stoneItems = buildProductionStoneItemsForOrder(item);
+  const waxStone = productionStoneTotals(stoneItems, "wax");
+  const handStone = productionStoneTotals(stoneItems, "hand");
   const cbDetails = isCbCategory(item.category)
     ? `
     <span class="saved-item-cell"><b>Ring</b>${escapeHtml(ringTypeLabel(item.ringType))}</span>
@@ -3340,6 +3361,8 @@ function savedOrderItemRowHtml(item = {}) {
     ${normalSize}
     <span class="saved-item-cell"><b>Color</b>${escapeHtml(item.color || "-")}</span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
+    <span class="saved-item-cell stone-cell"><b>Wax Stone</b>${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g</span>
+    <span class="saved-item-cell stone-cell"><b>Hand Stone</b>${handStone.pcs} pcs / ${weight3(handStone.weight)}g</span>
     <span class="saved-item-cell"><b>Remark</b>${escapeHtml(item.remarks || "-")}</span>
     <button class="delete-btn" type="button" data-order-item-action="remove">Remove</button>
   `;
@@ -3441,6 +3464,34 @@ function updateOrderItemCategoryFields(row) {
     row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForCategory(category);
   }
   if (!showNormalSize) row.querySelector('[name="size"]').value = "";
+  updateOrderItemStonePreview(row);
+}
+
+function updateOrderItemStonePreview(row) {
+  if (!row || row.dataset.mode === "saved") return;
+  const preview = row.querySelector("[data-order-stone-preview]");
+  if (!preview) return;
+  const plannedItems = orderItemsFromEntryRow(row)
+    .flatMap(expandOrderItemCombinations)
+    .filter((item) => item.designId);
+  if (!plannedItems.length) {
+    preview.innerHTML = "<span>Stone Plan</span><strong>No design selected</strong><small>Select design to see wax / hand stone.</small>";
+    return;
+  }
+  const stoneItems = plannedItems.flatMap((item) => buildProductionStoneItemsForOrder(item));
+  const waxStone = productionStoneTotals(stoneItems, "wax");
+  const handStone = productionStoneTotals(stoneItems, "hand");
+  const totalPcs = waxStone.pcs + handStone.pcs;
+  const totalWeight = Number(weight3(waxStone.weight + handStone.weight));
+  if (!stoneItems.length) {
+    preview.innerHTML = `<span>Stone Plan</span><strong>${plannedItems.length} design${plannedItems.length === 1 ? "" : "s"}</strong><small>No stone rows found in Design Master.</small>`;
+    return;
+  }
+  preview.innerHTML = `
+    <span>Stone Plan From Job Card</span>
+    <strong>Hand ${weight3(handStone.weight)}g</strong>
+    <small>Wax ${weight3(waxStone.weight)}g / Total ${totalPcs} pcs / ${weight3(totalWeight)}g</small>
+  `;
 }
 
 function resetOrderItemRows() {
@@ -3478,6 +3529,7 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="remarks"]').value = "";
   updateOrderItemDesignOptions(row);
   updateOrderItemCategoryFields(row);
+  updateOrderItemStonePreview(row);
 }
 
 function orderItemsFromEntryRow(row) {
@@ -3566,10 +3618,26 @@ function renderOrderEntrySummary() {
   const itemRows = [...form.querySelectorAll(".order-item-row")]
     .filter((row) => row.dataset.mode === "saved" && hasOrderItemDetails(getOrderItemFromRow(row)));
   if (!itemRows.length) {
-    summary.innerHTML = '<div class="empty">No saved item yet. Fill New Item Entry and press Add Item.</div>';
+    summary.innerHTML = '<div class="empty">No item added yet. Fill New Item Entry and press Add Item.</div>';
     return;
   }
-  summary.innerHTML = `<strong>${itemRows.length} item${itemRows.length > 1 ? "s" : ""} added. Review above before Save Order.</strong>`;
+  const items = itemRows.map(getOrderItemFromRow).flatMap(expandOrderItemCombinations);
+  const stoneItems = items.flatMap((item) => buildProductionStoneItemsForOrder(item));
+  const waxStone = productionStoneTotals(stoneItems, "wax");
+  const handStone = productionStoneTotals(stoneItems, "hand");
+  const totalStoneWeight = Number(weight3(waxStone.weight + handStone.weight));
+  const designTextList = items
+    .map((item) => designLabel(item.designId) || item.category || item.item || "Item")
+    .slice(0, 10);
+  summary.innerHTML = `
+    <div class="order-summary-stats">
+      <span><b>${items.length}</b> Item${items.length === 1 ? "" : "s"}</span>
+      <span><b>${weight3(waxStone.weight)}g</b> Wax Stone</span>
+      <span><b>${weight3(handStone.weight)}g</b> Hand Stone</span>
+      <span><b>${weight3(totalStoneWeight)}g</b> Total Stone</span>
+    </div>
+    <div class="order-summary-designs">${designTextList.map((text) => `<small>${escapeHtml(text)}</small>`).join("")}${items.length > designTextList.length ? `<small>+${items.length - designTextList.length} more</small>` : ""}</div>
+  `;
 }
 
 function applyDesignToOrderItem(row, designId) {
@@ -7371,25 +7439,32 @@ function productionStoneTotalsForOrders(orders = [], settingType = "") {
 
 function productionStoneItemsForOrder(order) {
   if (order.productionStoneItems?.length) return order.productionStoneItems;
-  const design = findById("designs", order.designId);
-  return designStoneItemsForOrder(design, order).map((item) => {
-    const automaticSetting = automaticProductionStoneSetting(item);
-    return {
-      id: crypto.randomUUID(),
-      sourceDesignStoneId: item.id || "",
-      date: today(),
-      settingType: automaticSetting.settingType,
-      manufacturingStage: automaticSetting.manufacturingStage,
-      itemKey: normalizeStoneItemKey(item.itemKey),
-      stoneType: item.stoneType || "",
-      shape: item.shape || "",
-      size: item.size || "",
-      code: item.code || stoneLookupCode(item),
-      pcs: Number(item.pcs || 0),
-      weightPerPc: formatStoneWeight(item.weightPerPc),
-      totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
-    };
-  });
+  return buildProductionStoneItemsForOrder(order);
+}
+
+function buildProductionStoneItemsForOrder(order = {}, design = null) {
+  const sourceDesign = design || findById("designs", order.designId);
+  return designStoneItemsForOrder(sourceDesign, order).map(productionStoneItemFromDesignStone);
+}
+
+function productionStoneItemFromDesignStone(item = {}) {
+  const automaticSetting = automaticProductionStoneSetting(item);
+  const shape = normalizeOcrShape(item.shape || "");
+  return {
+    id: crypto.randomUUID(),
+    sourceDesignStoneId: item.id || "",
+    date: today(),
+    settingType: automaticSetting.settingType,
+    manufacturingStage: automaticSetting.manufacturingStage,
+    itemKey: normalizeStoneItemKey(item.itemKey),
+    stoneType: item.stoneType || "",
+    shape,
+    size: item.size || "",
+    code: item.code || stoneLookupCode({ ...item, shape }),
+    pcs: Number(item.pcs || 0),
+    weightPerPc: formatStoneWeight(item.weightPerPc),
+    totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
+  };
 }
 
 function updateIssueMetalSummary() {
@@ -7875,7 +7950,7 @@ function openTransferLot(lotId) {
   form.toDepartment.value = "";
   form.reason.value = "";
   const settingStoneNote = handStoneWeight > 0
-    ? ` Hand-setting stone caught from job card: ${gram(handStoneWeight)}.`
+    ? ` Hand-setting stone from job card: ${gram(handStoneWeight)}.`
     : "";
   setTransferCurrentNote(transferCurrentLocationHtml(lot, waxStoneWeight, settingStoneNote));
   renderTransferOptions(lot);
@@ -12217,7 +12292,9 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const receiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
   const hasReceive = receiveGwValue !== undefined && receiveGwValue !== null && String(receiveGwValue) !== "";
   const receiveGw = hasReceive ? Number(weight3(receiveGwValue)) : "";
-  const difference = hasReceive ? Number(weight3(issueGw - Number(receiveGw || 0))) : Number(entry.difference || 0);
+  const handStoneWeight = Number(weight3(entry.handStoneWeight ?? productionStoneWeightForTransfer(lot)));
+  const receiveNetWeight = hasReceive ? Number(weight3(Number(receiveGw || 0) - handStoneWeight)) : "";
+  const difference = hasReceive ? Number(weight3(Number(receiveNetWeight || 0) - issueGw)) : Number(entry.difference || 0);
   return {
     id: entry.id || crypto.randomUUID(),
     issueDate: entry.issueDate || entry.date || today(),
@@ -12228,8 +12305,9 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     setterId: entry.setterId || setter.id || "",
     setterName: entry.setterName || setter.name || "",
     issueGw,
-    handStoneWeight: Number(weight3(entry.handStoneWeight ?? productionStoneWeightForTransfer(lot))),
+    handStoneWeight,
     receiveGw,
+    receiveNetWeight,
     difference,
     status: hasReceive || entry.status === "Received" ? "Received" : "Issued",
     remarks: entry.remarks || "",
@@ -12407,19 +12485,27 @@ function updateSettingReceiveSummary() {
   const form = document.getElementById("setting-receive-form");
   if (!form) return;
   const entry = (state.settingManagerEntries || []).find((item) => item.id === form.entryId.value);
-  const receiveGw = Number(form.receiveGw.value || entry?.issueGw || 0);
   if (entry) {
+    const handStoneWeight = Number(weight3(entry.handStoneWeight || 0));
+    const defaultReceiveGw = Number(weight3(Number(entry.issueGw || 0) + handStoneWeight));
+    const receiveGw = Number(form.receiveGw.value || defaultReceiveGw || 0);
+    const receiveNetWeight = Number(weight3(receiveGw - handStoneWeight));
+    const difference = Number(weight3(receiveNetWeight - Number(entry.issueGw || 0)));
     form.issueGw.value = weight3(entry.issueGw);
-    if (!form.receiveGw.value) form.receiveGw.value = weight3(entry.issueGw);
-    form.difference.value = weight3(entry.issueGw - receiveGw);
+    if (form.handStoneWeight) form.handStoneWeight.value = weight3(handStoneWeight);
+    if (!form.receiveGw.value) form.receiveGw.value = weight3(defaultReceiveGw);
+    if (form.receiveNetWeight) form.receiveNetWeight.value = weight3(receiveNetWeight);
+    form.difference.value = weight3(difference);
   } else {
     form.issueGw.value = "";
+    if (form.handStoneWeight) form.handStoneWeight.value = "";
+    if (form.receiveNetWeight) form.receiveNetWeight.value = "";
     form.difference.value = "";
   }
   const summary = document.getElementById("setting-receive-summary");
   if (!summary) return;
   summary.textContent = entry
-    ? `${entry.lotNumber} was issued to ${entry.setterName}. Difference = Issue GW - Receive GW. Minus means weight increased.`
+    ? `${entry.lotNumber} was issued to ${entry.setterName}. Receive Net Wt = Receive GW - Hand Stone. Difference = Receive Net Wt - Issue GW.`
     : "Select pending setter issue and enter received gross weight.";
 }
 
@@ -12479,9 +12565,13 @@ function receiveSettingLotFromSetter(event) {
     alert("Enter valid receive GW.");
     return;
   }
+  const handStoneWeight = Number(weight3(entry.handStoneWeight || 0));
+  const receiveNetWeight = Number(weight3(receiveGw - handStoneWeight));
   entry.receiveDate = today();
   entry.receiveGw = Number(weight3(receiveGw));
-  entry.difference = Number(weight3(Number(entry.issueGw || 0) - receiveGw));
+  entry.handStoneWeight = handStoneWeight;
+  entry.receiveNetWeight = receiveNetWeight;
+  entry.difference = Number(weight3(receiveNetWeight - Number(entry.issueGw || 0)));
   entry.status = "Received";
   entry.receiveRemarks = data.remarks || "";
   form.reset();
@@ -12515,7 +12605,8 @@ function openSettingReceive(entryId) {
   const form = document.getElementById("setting-receive-form");
   if (!form) return;
   form.entryId.value = entryId;
-  form.receiveGw.value = weight3((state.settingManagerEntries || []).find((entry) => entry.id === entryId)?.issueGw || 0);
+  const entry = (state.settingManagerEntries || []).find((item) => item.id === entryId);
+  form.receiveGw.value = entry ? weight3(Number(entry.issueGw || 0) + Number(entry.handStoneWeight || 0)) : "";
   updateSettingReceiveSummary();
   form.receiveGw.focus();
 }
@@ -12524,7 +12615,7 @@ function settingStatusHtml(lot) {
   const pending = settingPendingEntryForLot(lot.id);
   if (pending) return `<span class="status pending">With ${escapeHtml(pending.setterName || "Setter")}</span><br><small>Issued ${escapeHtml(pending.issueDate || "-")}</small>`;
   const latest = latestSettingEntryForLot(lot.id);
-  if (latest?.status === "Received") return `<span class="status completed">Received From ${escapeHtml(latest.setterName || "Setter")}</span><br><small>Receive GW ${gram(latest.receiveGw)}</small>`;
+  if (latest?.status === "Received") return `<span class="status completed">Received From ${escapeHtml(latest.setterName || "Setter")}</span><br><small>Receive Net ${gram(latest.receiveNetWeight ?? latest.receiveGw)}</small>`;
   return '<span class="status transfer">In Setting</span>';
 }
 
@@ -12593,12 +12684,14 @@ function renderSettingManager() {
       <td>${escapeHtml(entry.setterName || "-")}</td>
       <td>${gram(entry.issueGw)}</td>
       <td>${entry.receiveGw === "" ? "-" : gram(entry.receiveGw)}</td>
+      <td>${gram(entry.handStoneWeight)}</td>
+      <td>${entry.receiveNetWeight === "" ? "-" : gram(entry.receiveNetWeight)}</td>
       <td>${entry.status === "Received" ? gram(entry.difference) : "-"}</td>
       <td><span class="status ${entry.status === "Received" ? "completed" : "pending"}">${escapeHtml(entry.status)}</span></td>
       <td>${escapeHtml([entry.remarks, entry.receiveRemarks].filter(Boolean).join(" / ") || "-")}</td>
     </tr>
   `).join("");
-  document.getElementById("setting-manager-history-table").innerHTML = historyRows || tableEmpty(10, "No setter issue / receive history recorded.");
+  document.getElementById("setting-manager-history-table").innerHTML = historyRows || tableEmpty(12, "No setter issue / receive history recorded.");
 }
 
 function renderBills() {
@@ -16256,13 +16349,18 @@ function applyProductionStoneWeightToTransfer() {
   const issueWeight = Number(form.transferWeight.value || currentTransferIssueWeight(lot));
   const waxStoneWeight = transferWaxStoneWeight(lot);
   const existingHandStoneWeight = currentHandStoneWeight(lot, form.transferId.value);
-  const handStoneWeight = isSettingDepartment(form.fromDepartment.value)
+  const isSettingFromDepartment = isSettingDepartment(form.fromDepartment.value);
+  const handStoneWeight = isSettingFromDepartment
     ? productionStoneTotalsForOrders(getLotOrders(lot), "hand").weight
     : existingHandStoneWeight;
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
+  const settingStoneNote = isSettingFromDepartment
+    ? ` Hand-setting stone from job card: ${gram(handStoneWeight)}.`
+    : "";
+  setTransferCurrentNote(transferCurrentLocationHtml(lot, waxStoneWeight, settingStoneNote));
   updateTransferBalance();
 }
 
@@ -17065,7 +17163,7 @@ function normalizeState(currentState) {
       ? calculateDueDate(order.orderDate, order.productionDays)
       : order.dueDate;
     order.urgent = Boolean(order.urgent);
-    order.productionStoneItems = (order.productionStoneItems || []).map((item) => {
+    const normalizedProductionStoneItems = (order.productionStoneItems || []).map((item) => {
       const designStoneCandidates = designStoneItemsForOrder(design, order);
       const matchedDesignStone = designStoneCandidates.find((stoneItem) =>
         item.sourceDesignStoneId === stoneItem.id ||
@@ -17093,6 +17191,9 @@ function normalizeState(currentState) {
         totalWeight: item.totalWeight || matchedDesignStone?.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
       };
     });
+    order.productionStoneItems = normalizedProductionStoneItems.length
+      ? normalizedProductionStoneItems
+      : buildProductionStoneItemsForOrder(order, design);
     if (!order.customerId && order.customer) {
       let customer = currentState.customers.find((item) => item.name.toLowerCase() === order.customer.toLowerCase());
       if (!customer) {
@@ -17253,6 +17354,9 @@ function migrateCbBothRingOrders(currentState) {
     order.clSize = order.clSize || order.size || "";
     order.cgSize = "";
     order.cbSplitFrom = order.cbSplitFrom || "";
+    const design = currentState.designs.find((item) => item.id === order.designId);
+    order.productionStoneItems = buildProductionStoneItemsForOrder(order, design);
+    cgOrder.productionStoneItems = buildProductionStoneItemsForOrder(cgOrder, design);
     splitOrders.push(cgOrder);
     splitPairs.push({ fromId: order.id, toId: cgOrder.id });
   });
