@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=148">
+    <link rel="stylesheet" href="styles.css?v=152">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v269</small>
+            <small class="app-version-badge">App v273</small>
           </div>
         </div>
         <label>User
@@ -66,6 +66,7 @@
         <button class="nav-item active" data-view="dashboard">Dashboard</button>
         <button class="nav-item" data-view="customers">Customers</button>
         <button class="nav-item" data-view="designs">Designs</button>
+        <button class="nav-item" data-view="catalogue">Catalogue</button>
         <button class="nav-item" data-view="stone-library">Stone Library</button>
         <button class="nav-item" data-view="orders">Job Orders</button>
         <button class="nav-item" data-view="melting">Melting</button>
@@ -89,7 +90,7 @@
         </div>
         <div class="top-actions">
           <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v269</span>
+          <span class="app-version-badge">App v273</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -216,6 +217,56 @@
                 <tbody id="designs-table"></tbody>
               </table>
             </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="catalogue" class="view">
+        <div class="catalogue-layout">
+          <section class="panel catalogue-control-panel">
+            <div class="panel-heading">
+              <h2>Catalogue Order Selection</h2>
+            </div>
+            <form id="catalogue-order-form" class="catalogue-order-form">
+              <label>Customer Name <input name="customerName" placeholder="Customer name"></label>
+              <label>Mobile / Contact <input name="customerPhone" placeholder="Phone number"></label>
+              <label class="full-row">Remarks <input name="remarks" placeholder="Any order note"></label>
+            </form>
+            <label>Upload Category
+              <input id="catalogue-category-input" list="catalogue-category-list" placeholder="CB, CM, BR, LR, Chain">
+            </label>
+            <datalist id="catalogue-category-list"></datalist>
+            <label class="catalogue-upload-box">
+              Upload Edited Design Images
+              <input id="catalogue-upload" type="file" accept="image/*" multiple>
+            </label>
+            <p id="catalogue-status" class="dialog-note">Upload category wise. File name becomes design number. Selected designs can be printed or saved as PDF for customer order.</p>
+            <div class="catalogue-actions">
+              <button id="catalogue-select-all" type="button" class="ghost-button">Select Visible</button>
+              <button id="catalogue-clear-selection" type="button" class="ghost-button">Clear Selection</button>
+              <button id="catalogue-clear-all" type="button" class="danger-button">Delete Saved Images</button>
+            </div>
+          </section>
+          <section class="panel table-panel catalogue-main-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Catalogue Designs</h2>
+                <p id="catalogue-count" class="dialog-note">No catalogue image uploaded.</p>
+              </div>
+              <button id="catalogue-back-categories" type="button" class="ghost-button hidden">Back To Categories</button>
+              <input id="catalogue-search" class="search" placeholder="Search design no">
+            </div>
+            <div id="catalogue-board" class="catalogue-board"></div>
+          </section>
+          <section class="panel catalogue-selected-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Selected Order</h2>
+                <p id="catalogue-selected-summary" class="dialog-note">No design selected.</p>
+              </div>
+              <button id="catalogue-print" type="button" disabled>Print / Save PDF</button>
+            </div>
+            <div id="catalogue-selected-list" class="catalogue-selected-list"></div>
           </section>
         </div>
       </section>
@@ -789,6 +840,21 @@
               <tbody id="login-users-table"></tbody>
             </table>
           </div>
+          <section class="login-history-section">
+            <div class="panel-heading">
+              <div>
+                <h2>Login History</h2>
+                <span class="dialog-note">Tracks each successful login with IP, approximate location, device, and app version.</span>
+              </div>
+              <input id="login-history-search" class="search" placeholder="Search user, IP, city, device">
+            </div>
+            <div class="table-wrap login-history-wrap">
+              <table>
+                <thead><tr><th>Date / Time</th><th>User</th><th>Role</th><th>IP</th><th>Location</th><th>GPS</th><th>Device</th><th>App</th></tr></thead>
+                <tbody id="login-history-table"></tbody>
+              </table>
+            </div>
+          </section>
         </section>
       </section>
 
@@ -1392,6 +1458,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=269"></script>
+    <script src="app.js?v=273"></script>
 </body>
 </html>

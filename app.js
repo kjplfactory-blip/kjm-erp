@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v269";
+const APP_VERSION = "v273";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
@@ -27,6 +27,8 @@ const AUTO_SYNC_INTERVAL_MS = 3000;
 const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const SUPABASE_SAVE_DELAY_MS = 300;
 const SUPABASE_REQUEST_TIMEOUT_MS = 12000;
+const LOGIN_LOCATION_TIMEOUT_MS = 6000;
+const LOGIN_HISTORY_LIMIT = 500;
 const MIN_PRODUCTION_DAYS = 10;
 const PRODUCTION_DAYS_MIN_ERROR = "Production days must be 10 days or more.";
 const SAFE_LOCKERS = ["9K", "14K", "18K", "22K"];
@@ -64,11 +66,15 @@ let supabaseLastLocalChangeAt = 0;
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
+let catalogueItems = [];
+let catalogueSelection = new Set();
+let catalogueActiveCategory = "";
+let catalogueImageCache = new Map();
 
 const users = {
   owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
-  order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
+  order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "orders"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
@@ -85,6 +91,7 @@ const loginAccessPages = [
   "dashboard",
   "customers",
   "designs",
+  "catalogue",
   "stone-library",
   "orders",
   "melting",
@@ -104,6 +111,7 @@ const demoState = {
   userPasswords: defaultUserPasswords,
   customUsers: [],
   userAccessOverrides: {},
+  loginHistory: [],
   customers: [],
   officeCustomers: [],
   vendors: [],
@@ -128,6 +136,7 @@ const demoState = {
     sourceId: "factory-default-ledger",
   }],
   designs: [],
+  catalogueItems: [],
   stones: [],
   bills: [],
   safeItems: [],
@@ -183,6 +192,7 @@ const pageInfo = {
   dashboard: ["Dashboard", "Track metal safe, factory stock, production stock, office stock, orders, wastage, and finished jewellery separately."],
   customers: ["Customers", "Add, edit, and manage customer details."],
   designs: ["Designs", "Upload and manage jewellery designs for stock and customer orders."],
+  catalogue: ["Catalogue", "Save edited design photos category wise, let customer select designs, then print or save the selected order as PDF."],
   "stone-library": ["Stone Library", "Master list of stone type, size, weight per pc, and price per pc."],
   orders: ["Job Orders", "Create and monitor customer jewellery manufacturing orders."],
   production: ["Production", "Issue gold to departments and complete finished lots."],
@@ -346,6 +356,42 @@ document.querySelectorAll("[data-production-page]").forEach((button) => {
   button.addEventListener("click", () => switchProductionPage(button.dataset.productionPage));
 });
 
+document.getElementById("catalogue-upload")?.addEventListener("change", handleCatalogueUpload);
+document.getElementById("catalogue-search")?.addEventListener("input", renderCatalogue);
+document.getElementById("catalogue-category-input")?.addEventListener("input", renderCatalogueCategoryOptions);
+document.getElementById("catalogue-select-all")?.addEventListener("click", selectVisibleCatalogueItems);
+document.getElementById("catalogue-clear-selection")?.addEventListener("click", clearCatalogueSelection);
+document.getElementById("catalogue-clear-all")?.addEventListener("click", clearCatalogueImages);
+document.getElementById("catalogue-print")?.addEventListener("click", printCatalogueSelection);
+document.getElementById("catalogue-back-categories")?.addEventListener("click", () => {
+  catalogueActiveCategory = "";
+  renderCatalogue();
+});
+document.getElementById("catalogue-board")?.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-catalogue-select]")) return;
+  toggleCatalogueSelection(event.target.dataset.catalogueSelect, event.target.checked);
+});
+document.getElementById("catalogue-board")?.addEventListener("click", (event) => {
+  const categoryTile = event.target.closest("[data-catalogue-category]");
+  if (categoryTile) {
+    openCatalogueCategory(categoryTile.dataset.catalogueCategory);
+    return;
+  }
+  const removeButton = event.target.closest("[data-catalogue-remove]");
+  if (removeButton) {
+    removeCatalogueItem(removeButton.dataset.catalogueRemove);
+    return;
+  }
+  const card = event.target.closest("[data-catalogue-card]");
+  if (!card || event.target.closest("input, button")) return;
+  toggleCatalogueSelection(card.dataset.catalogueCard);
+});
+document.getElementById("catalogue-selected-list")?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest("[data-catalogue-remove]");
+  if (!removeButton) return;
+  toggleCatalogueSelection(removeButton.dataset.catalogueRemove, false);
+});
+
 document.querySelectorAll("[data-dashboard-view]").forEach((button) => {
   button.addEventListener("click", () => openDashboardShortcut(button));
 });
@@ -443,6 +489,7 @@ document.getElementById("login-form").addEventListener("submit", (event) => {
   document.getElementById("login-error").textContent = "";
   event.target.reset();
   applyLoginState();
+  recordLoginAudit(data.user, user);
 });
 
 document.getElementById("logout").addEventListener("click", () => {
@@ -2032,6 +2079,8 @@ document.getElementById("login-users-table")?.addEventListener("click", (event) 
   if (saveButton) saveLoginUser(saveButton.dataset.saveUser, saveButton.closest("tr"));
   if (deleteButton) deleteLoginUser(deleteButton.dataset.deleteUser);
 });
+
+document.getElementById("login-history-search")?.addEventListener("input", renderLoginHistory);
 
 function loadState() {
   try {
@@ -5585,6 +5634,369 @@ function printGeneratedBarcode() {
   setTimeout(() => window.print(), 100);
 }
 
+async function handleCatalogueUpload(event) {
+  const files = [...event.target.files].filter((file) => file.type.startsWith("image/"));
+  const status = document.getElementById("catalogue-status");
+  if (!files.length) {
+    if (status) status.textContent = "Select image files to save in the catalogue.";
+    return;
+  }
+  if (status) status.textContent = `Saving ${files.length} catalogue image(s)...`;
+  const selectedCategory = cleanCatalogueCategory(document.getElementById("catalogue-category-input")?.value || "");
+  const uploaded = [];
+  for (const file of files) {
+    const id = crypto.randomUUID();
+    const imageData = await compressImageFile(file).catch(() => readFileAsDataUrl(file));
+    await saveCatalogueImage(id, imageData);
+    uploaded.push({
+      id,
+      designNo: designNameFromFile(file.name) || file.name,
+      fileName: file.name,
+      category: selectedCategory || inferCatalogueCategory(file.name),
+      uploadedAt: today(),
+    });
+  }
+  state.catalogueItems = [...uploaded, ...catalogueItemsList()];
+  catalogueItems = state.catalogueItems;
+  saveState();
+  event.target.value = "";
+  if (status) status.textContent = `${uploaded.length} image(s) saved. Select customer choices and use Print / Save PDF.`;
+  renderCatalogue();
+}
+
+function normalizeCatalogueItem(item = {}) {
+  const fileName = item.fileName || item.name || "";
+  const designNo = String(item.designNo || item.designNumber || designNameFromFile(fileName) || fileName || "Design").trim();
+  return {
+    id: item.id || crypto.randomUUID(),
+    designNo,
+    fileName,
+    category: catalogueCategoryLabel(item.category || inferCatalogueCategory(fileName || designNo)),
+    uploadedAt: item.uploadedAt || today(),
+  };
+}
+
+function catalogueItemsList() {
+  if (!state || !Array.isArray(state.catalogueItems)) state.catalogueItems = [];
+  catalogueItems = state.catalogueItems;
+  return catalogueItems;
+}
+
+function catalogueImageStorageId(id) {
+  return `catalogue/${id}`;
+}
+
+async function saveCatalogueImage(id, imageData) {
+  catalogueImageCache.set(id, imageData);
+  await saveDesignImage(catalogueImageStorageId(id), imageData);
+}
+
+async function getCatalogueImage(id) {
+  const cached = catalogueImageCache.get(id);
+  if (cached) return cached;
+  const imageData = await getDesignImage(catalogueImageStorageId(id));
+  catalogueImageCache.set(id, imageData || "");
+  return imageData || "";
+}
+
+async function deleteCatalogueImage(id) {
+  catalogueImageCache.delete(id);
+  await deleteDesignImage(catalogueImageStorageId(id));
+}
+
+function catalogueItemImage(item = {}) {
+  return catalogueImageCache.get(item.id) || item.imageData || "";
+}
+
+async function hydrateCatalogueImages(items = [], options = {}) {
+  const seen = new Set();
+  const targets = (items || []).filter((item) => {
+    if (!item?.id || catalogueImageCache.has(item.id) || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+  if (!targets.length) return;
+  let loaded = false;
+  for (const item of targets) {
+    const imageData = await getCatalogueImage(item.id).catch(() => "");
+    catalogueImageCache.set(item.id, imageData || "");
+    if (imageData) loaded = true;
+  }
+  if (loaded && options.render !== false) renderCatalogue();
+}
+
+function cleanCatalogueCategory(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ") || "";
+}
+
+function inferCatalogueCategory(fileName = "") {
+  const name = designNameFromFile(fileName).toUpperCase();
+  const parts = name.split(/[^A-Z0-9]+/).filter(Boolean);
+  const known = ["CBR", "CME", "CMB", "CM", "CB", "BR", "LR", "GR", "RING", "BANGLE", "CHAIN", "PENDANT", "EARRING", "NECKLACE", "SET"];
+  return known.find((item) => parts.includes(item)) || "Uncategorised";
+}
+
+function catalogueCategoryLabel(value = "") {
+  return cleanCatalogueCategory(value) || "Uncategorised";
+}
+
+function catalogueCategoryGroups() {
+  const items = catalogueItemsList();
+  const groups = new Map();
+  items.forEach((item) => {
+    const category = catalogueCategoryLabel(item.category);
+    if (!groups.has(category)) {
+      groups.set(category, { category, items: [], selected: 0, cover: "" });
+    }
+    const group = groups.get(category);
+    group.items.push(item);
+    if (catalogueSelection.has(item.id)) group.selected += 1;
+    if (!group.cover) group.cover = catalogueItemImage(item);
+  });
+  return [...groups.values()].sort((a, b) => a.category.localeCompare(b.category, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function renderCatalogueCategoryOptions() {
+  const list = document.getElementById("catalogue-category-list");
+  if (!list) return;
+  const values = [...new Set(catalogueItemsList().map((item) => catalogueCategoryLabel(item.category)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  list.innerHTML = values.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+}
+
+function catalogueVisibleCategoryGroups() {
+  const query = String(document.getElementById("catalogue-search")?.value || "").trim().toLowerCase();
+  const groups = catalogueCategoryGroups();
+  if (!query) return groups;
+  return groups.filter((group) =>
+    group.category.toLowerCase().includes(query) ||
+    group.items.some((item) => [item.designNo, item.fileName].join(" ").toLowerCase().includes(query))
+  );
+}
+
+function catalogueVisibleItems() {
+  const query = String(document.getElementById("catalogue-search")?.value || "").trim().toLowerCase();
+  const items = catalogueItemsList();
+  const source = catalogueActiveCategory
+    ? items.filter((item) => catalogueCategoryLabel(item.category) === catalogueActiveCategory)
+    : catalogueVisibleCategoryGroups().flatMap((group) => group.items);
+  if (!query || !catalogueActiveCategory) return source;
+  return source.filter((item) => [item.designNo, item.fileName].join(" ").toLowerCase().includes(query));
+}
+
+function catalogueSelectedItems() {
+  return catalogueItemsList().filter((item) => catalogueSelection.has(item.id));
+}
+
+function renderCatalogue() {
+  const board = document.getElementById("catalogue-board");
+  if (!board) return;
+  renderCatalogueCategoryOptions();
+  const items = catalogueItemsList();
+  const categoryGroups = catalogueVisibleCategoryGroups();
+  const visible = catalogueVisibleItems();
+  const selected = catalogueSelectedItems();
+  const count = document.getElementById("catalogue-count");
+  const selectedSummary = document.getElementById("catalogue-selected-summary");
+  const selectedList = document.getElementById("catalogue-selected-list");
+  const printButton = document.getElementById("catalogue-print");
+  const backButton = document.getElementById("catalogue-back-categories");
+  const isCategoryView = !catalogueActiveCategory;
+  if (count) {
+    if (!items.length) {
+      count.textContent = "No catalogue image uploaded.";
+    } else if (isCategoryView) {
+      count.textContent = `${categoryGroups.length} categor${categoryGroups.length === 1 ? "y" : "ies"} shown. ${items.length} saved image(s), ${selected.length} selected.`;
+    } else {
+      count.textContent = `${catalogueActiveCategory}: ${visible.length} image(s) shown. ${selected.length} selected.`;
+    }
+  }
+  if (backButton) backButton.classList.toggle("hidden", isCategoryView);
+  board.classList.toggle("catalogue-category-board", isCategoryView);
+  board.innerHTML = isCategoryView
+    ? (categoryGroups.length ? categoryGroups.map(catalogueCategoryCardHtml).join("") : `
+      <div class="empty catalogue-empty">
+        Upload edited design photos to make a saved category-wise catalogue.
+      </div>
+    `)
+    : (visible.length ? visible.map(catalogueCardHtml).join("") : `
+    <div class="empty catalogue-empty">
+      No design found in this category.
+    </div>
+  `);
+  if (selectedSummary) {
+    selectedSummary.textContent = selected.length
+      ? `${selected.length} design${selected.length === 1 ? "" : "s"} selected for customer order.`
+      : "No design selected.";
+  }
+  if (selectedList) {
+    selectedList.innerHTML = selected.length
+      ? selected.map((item, index) => `
+        <article class="catalogue-selected-row">
+          <span>${index + 1}</span>
+          ${catalogueSelectedImageHtml(item)}
+          <strong>${escapeHtml(item.designNo)}</strong>
+          <button class="ghost-button" type="button" data-catalogue-remove="${escapeHtml(item.id)}">Remove</button>
+        </article>
+      `).join("")
+      : '<div class="empty">Selected designs will appear here.</div>';
+  }
+  if (printButton) printButton.disabled = selected.length === 0;
+  hydrateCatalogueImages(isCategoryView ? categoryGroups.map((group) => group.items[0]).filter(Boolean) : [...visible, ...selected]).catch(() => {});
+}
+
+function catalogueCategoryCardHtml(group) {
+  const cover = group.cover;
+  return `
+    <button class="action-tile catalogue-category-card" type="button" data-catalogue-category="${escapeHtml(group.category)}">
+      ${cover ? `<img src="${cover}" alt="${escapeHtml(group.category)} category">` : `<div class="catalogue-category-placeholder">IMAGE</div>`}
+      <strong>${escapeHtml(group.category)}</strong>
+      <span>${group.items.length} design${group.items.length === 1 ? "" : "s"}${group.selected ? ` / ${group.selected} selected` : ""}</span>
+    </button>
+  `;
+}
+
+function catalogueCardHtml(item) {
+  const selected = catalogueSelection.has(item.id);
+  const imageData = catalogueItemImage(item);
+  return `
+    <article class="catalogue-card ${selected ? "selected" : ""}" data-catalogue-card="${escapeHtml(item.id)}">
+      <label class="catalogue-check">
+        <input type="checkbox" data-catalogue-select="${escapeHtml(item.id)}" ${selected ? "checked" : ""}>
+        Select
+      </label>
+      <div class="catalogue-image-wrap">
+        ${imageData ? `<img src="${imageData}" alt="${escapeHtml(item.designNo)}">` : `<div class="catalogue-image-placeholder">IMAGE LOADING</div>`}
+      </div>
+      <strong>${escapeHtml(item.designNo)}</strong>
+      <span class="catalogue-category-pill">${escapeHtml(catalogueCategoryLabel(item.category))}</span>
+      <small>${escapeHtml(item.fileName)}</small>
+      <button class="ghost-button" type="button" data-catalogue-remove="${escapeHtml(item.id)}">Remove</button>
+    </article>
+  `;
+}
+
+function catalogueSelectedImageHtml(item) {
+  const imageData = catalogueItemImage(item);
+  return imageData
+    ? `<img src="${imageData}" alt="${escapeHtml(item.designNo)}">`
+    : `<div class="catalogue-selected-placeholder">IMAGE</div>`;
+}
+
+function openCatalogueCategory(category) {
+  catalogueActiveCategory = catalogueCategoryLabel(category);
+  renderCatalogue();
+}
+
+function toggleCatalogueSelection(id, checked = null) {
+  if (!catalogueItemsList().some((item) => item.id === id)) return;
+  const shouldSelect = checked === null ? !catalogueSelection.has(id) : Boolean(checked);
+  if (shouldSelect) catalogueSelection.add(id);
+  else catalogueSelection.delete(id);
+  renderCatalogue();
+}
+
+function selectVisibleCatalogueItems() {
+  catalogueVisibleItems().forEach((item) => catalogueSelection.add(item.id));
+  renderCatalogue();
+}
+
+function clearCatalogueSelection() {
+  catalogueSelection.clear();
+  renderCatalogue();
+}
+
+async function removeCatalogueItem(id) {
+  const item = catalogueItemsList().find((entry) => entry.id === id);
+  if (!item) return;
+  if (!confirm(`Delete ${item.designNo || "this design"} from saved catalogue?`)) return;
+  state.catalogueItems = catalogueItemsList().filter((entry) => entry.id !== id);
+  catalogueItems = state.catalogueItems;
+  catalogueSelection.delete(id);
+  await deleteCatalogueImage(id).catch(() => {});
+  saveState();
+  renderCatalogue();
+}
+
+async function clearCatalogueImages() {
+  const items = catalogueItemsList();
+  if (!items.length) return;
+  if (!confirm("Delete all saved catalogue images? This will not affect production Design Master.")) return;
+  state.catalogueItems = [];
+  catalogueItems = state.catalogueItems;
+  catalogueSelection.clear();
+  catalogueActiveCategory = "";
+  const upload = document.getElementById("catalogue-upload");
+  if (upload) upload.value = "";
+  const status = document.getElementById("catalogue-status");
+  if (status) status.textContent = "Deleting saved catalogue images...";
+  await Promise.all(items.map((item) => deleteCatalogueImage(item.id).catch(() => {})));
+  saveState();
+  if (status) status.textContent = "Saved catalogue cleared.";
+  renderCatalogue();
+}
+
+function catalogueOrderData() {
+  const form = document.getElementById("catalogue-order-form");
+  return form ? getFormData(form) : {};
+}
+
+async function printCatalogueSelection() {
+  const selected = catalogueSelectedItems();
+  if (!selected.length) {
+    alert("Select at least one catalogue image to print.");
+    return;
+  }
+  await hydrateCatalogueImages(selected, { render: false });
+  const printArea = getGlobalPrintArea();
+  printArea.innerHTML = cataloguePrintHtml(catalogueOrderData(), selected);
+  setPrintPageSize("catalogue");
+  document.body.classList.add("printing-catalogue");
+  const cleanup = () => {
+    document.body.classList.remove("printing-catalogue");
+    printArea.innerHTML = "";
+    setPrintPageSize("job");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(() => window.print(), 100);
+}
+
+function cataloguePrintHtml(orderData = {}, items = []) {
+  const printedAt = new Date().toLocaleString("en-IN");
+  return `
+    <section class="catalogue-print-document">
+      <header class="catalogue-print-header">
+        <div>
+          <h1>KHUSHALI JEWELLS MANUFACTURING</h1>
+          <p>CATALOGUE CUSTOMER SELECTION</p>
+        </div>
+        <div class="catalogue-print-meta">
+          <span><b>Date</b>${escapeHtml(printedAt)}</span>
+          <span><b>Total Selected</b>${items.length}</span>
+        </div>
+      </header>
+      <section class="catalogue-print-customer">
+        <span><b>Customer</b>${escapeHtml(orderData.customerName || "-")}</span>
+        <span><b>Mobile</b>${escapeHtml(orderData.customerPhone || "-")}</span>
+        <span><b>Remarks</b>${escapeHtml(orderData.remarks || "-")}</span>
+      </section>
+      <section class="catalogue-print-grid">
+        ${items.map((item, index) => `
+          <article class="catalogue-print-card">
+            <div class="catalogue-print-image">${catalogueItemImage(item) ? `<img src="${catalogueItemImage(item)}" alt="${escapeHtml(item.designNo)}">` : `<span class="catalogue-print-missing">Image not loaded</span>`}</div>
+            <div class="catalogue-print-detail">
+              <span><b>No</b>${index + 1}</span>
+              <span><b>Design No</b>${escapeHtml(item.designNo)}</span>
+              <span><b>Category</b>${escapeHtml(catalogueCategoryLabel(item.category))}</span>
+            </div>
+          </article>
+        `).join("")}
+      </section>
+    </section>
+  `;
+}
+
 function lotsForOrder(order) {
   return state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
 }
@@ -5936,6 +6348,8 @@ function setPrintPageSize(mode = "job") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
   } else if (mode === "barcode") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 10mm; } }";
+  } else if (mode === "catalogue") {
+    style.textContent = "@media print { @page { size: A4 portrait; margin: 8mm; } }";
   } else if (mode === "single") {
     style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } }";
   } else {
@@ -7515,6 +7929,7 @@ function render() {
   renderDashboard();
   renderCustomers();
   renderDesigns();
+  renderCatalogue();
   renderStoneLibrary();
   renderOrders();
   renderProduction();
@@ -7555,6 +7970,289 @@ function renderLoginUsers() {
   `;
   }).join("");
   table.innerHTML = isOwner() ? rows : tableEmpty(6, "Only Owner can view login details.");
+  renderLoginHistory();
+}
+
+function normalizeLoginAuditEntry(entry = {}) {
+  return {
+    id: entry.id || crypto.randomUUID(),
+    loginAt: entry.loginAt || new Date().toISOString(),
+    localTime: entry.localTime || "",
+    userId: entry.userId || "",
+    userName: entry.userName || entry.name || entry.userId || "User",
+    role: entry.role || "",
+    salesTeam: entry.salesTeam || "",
+    accessText: entry.accessText || "",
+    ip: entry.ip || "",
+    city: entry.city || "",
+    region: entry.region || "",
+    country: entry.country || "",
+    postal: entry.postal || "",
+    latitude: entry.latitude || "",
+    longitude: entry.longitude || "",
+    isp: entry.isp || entry.org || "",
+    networkSource: entry.networkSource || "",
+    locationStatus: entry.locationStatus || "Checking",
+    gpsLatitude: entry.gpsLatitude || "",
+    gpsLongitude: entry.gpsLongitude || "",
+    gpsAccuracy: entry.gpsAccuracy || "",
+    gpsStatus: entry.gpsStatus || "Checking",
+    browser: entry.browser || "",
+    platform: entry.platform || "",
+    screenSize: entry.screenSize || "",
+    timezone: entry.timezone || "",
+    language: entry.language || "",
+    userAgent: entry.userAgent || "",
+    online: entry.online ?? "",
+    appVersion: entry.appVersion || APP_VERSION,
+    trackingStatus: entry.trackingStatus || "Checking",
+    updatedAt: entry.updatedAt || "",
+  };
+}
+
+function recordLoginAudit(userId, user = {}) {
+  const entry = normalizeLoginAuditEntry({
+    ...loginDeviceInfo(),
+    id: crypto.randomUUID(),
+    loginAt: new Date().toISOString(),
+    localTime: new Date().toLocaleString("en-IN"),
+    userId,
+    userName: user.name || userId,
+    role: user.role || "",
+    salesTeam: user.salesTeam || "",
+    accessText: userAccessText(user),
+    locationStatus: "Checking IP location",
+    gpsStatus: "Checking browser location",
+    trackingStatus: "Checking",
+    appVersion: APP_VERSION,
+  });
+  state.loginHistory = [entry, ...(state.loginHistory || [])].slice(0, LOGIN_HISTORY_LIMIT);
+  saveState();
+  renderLoginHistory();
+  enrichLoginAudit(entry.id);
+}
+
+async function enrichLoginAudit(loginId) {
+  const [networkDetails, gpsDetails] = await Promise.all([
+    lookupLoginIpLocation(),
+    lookupBrowserGpsLocation(),
+  ]);
+  const entry = (state.loginHistory || []).find((item) => item.id === loginId);
+  if (!entry) return;
+  Object.assign(entry, networkDetails, gpsDetails, {
+    trackingStatus: loginTrackingStatus(networkDetails, gpsDetails),
+    updatedAt: new Date().toISOString(),
+  });
+  saveState();
+  renderLoginHistory();
+}
+
+function loginDeviceInfo() {
+  const userAgent = navigator.userAgent || "";
+  const platform = navigator.userAgentData?.platform || navigator.platform || "";
+  const screenSize = window.screen ? `${window.screen.width}x${window.screen.height}` : "";
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  return {
+    browser: loginBrowserName(userAgent),
+    platform,
+    screenSize,
+    timezone,
+    language: navigator.language || "",
+    userAgent,
+    online: navigator.onLine,
+  };
+}
+
+function loginBrowserName(userAgent = "") {
+  const text = String(userAgent);
+  if (/Edg\//.test(text)) return "Microsoft Edge";
+  if (/Chrome\//.test(text) && !/Edg\//.test(text)) return "Chrome";
+  if (/Firefox\//.test(text)) return "Firefox";
+  if (/Safari\//.test(text) && !/Chrome\//.test(text)) return "Safari";
+  return "Browser";
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = LOGIN_LOCATION_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal, cache: "no-store", credentials: "omit" });
+    if (!response.ok) throw new Error(`Request failed ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function lookupLoginIpLocation() {
+  try {
+    const data = await fetchJsonWithTimeout("https://ipapi.co/json/");
+    if (data?.ip && !data.error) {
+      return {
+        ip: data.ip || "",
+        city: data.city || "",
+        region: data.region || "",
+        country: data.country_name || data.country || "",
+        postal: data.postal || "",
+        latitude: data.latitude || "",
+        longitude: data.longitude || "",
+        isp: data.org || data.asn || "",
+        networkSource: "ipapi.co",
+        locationStatus: "IP location captured",
+      };
+    }
+  } catch (error) {
+    // Try a second public lookup below.
+  }
+  try {
+    const data = await fetchJsonWithTimeout("https://ipwho.is/");
+    if (data?.ip && data.success !== false) {
+      return {
+        ip: data.ip || "",
+        city: data.city || "",
+        region: data.region || "",
+        country: data.country || "",
+        postal: data.postal || "",
+        latitude: data.latitude || "",
+        longitude: data.longitude || "",
+        isp: data.connection?.isp || data.connection?.org || "",
+        networkSource: "ipwho.is",
+        locationStatus: "IP location captured",
+      };
+    }
+  } catch (error) {
+    // Fall back to IP-only lookup below.
+  }
+  try {
+    const data = await fetchJsonWithTimeout("https://api.ipify.org?format=json");
+    return {
+      ip: data?.ip || "",
+      networkSource: "ipify",
+      locationStatus: data?.ip ? "IP captured, location unavailable" : "IP/location unavailable",
+    };
+  } catch (error) {
+    return {
+      locationStatus: "IP/location unavailable",
+      networkSource: "",
+    };
+  }
+}
+
+function lookupBrowserGpsLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve({ gpsStatus: "GPS not supported" });
+      return;
+    }
+    if (!window.isSecureContext) {
+      resolve({ gpsStatus: "GPS needs HTTPS/live site" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          gpsLatitude: position.coords.latitude,
+          gpsLongitude: position.coords.longitude,
+          gpsAccuracy: Math.round(position.coords.accuracy || 0),
+          gpsStatus: "Browser GPS captured",
+        });
+      },
+      (error) => {
+        resolve({ gpsStatus: loginGpsErrorText(error) });
+      },
+      { enableHighAccuracy: false, timeout: LOGIN_LOCATION_TIMEOUT_MS, maximumAge: 10 * 60 * 1000 }
+    );
+  });
+}
+
+function loginGpsErrorText(error = {}) {
+  if (error.code === 1) return "GPS permission denied";
+  if (error.code === 2) return "GPS unavailable";
+  if (error.code === 3) return "GPS timeout";
+  return "GPS unavailable";
+}
+
+function loginTrackingStatus(networkDetails = {}, gpsDetails = {}) {
+  if (networkDetails.ip && gpsDetails.gpsLatitude && gpsDetails.gpsLongitude) return "IP + GPS captured";
+  if (networkDetails.ip) return "IP captured";
+  if (gpsDetails.gpsLatitude && gpsDetails.gpsLongitude) return "GPS captured";
+  return "Limited";
+}
+
+function renderLoginHistory() {
+  const table = document.getElementById("login-history-table");
+  if (!table) return;
+  if (!isOwner()) {
+    table.innerHTML = tableEmpty(8, "Only Owner can view login history.");
+    return;
+  }
+  const query = String(document.getElementById("login-history-search")?.value || "").trim().toLowerCase();
+  const history = (state.loginHistory || [])
+    .map(normalizeLoginAuditEntry)
+    .filter((entry) => !query || loginAuditSearchText(entry).includes(query))
+    .sort((a, b) => new Date(b.loginAt) - new Date(a.loginAt));
+  table.innerHTML = history.length
+    ? history.map(renderLoginHistoryRow).join("")
+    : tableEmpty(8, "No login history recorded yet. New logins will appear here.");
+}
+
+function loginAuditSearchText(entry = {}) {
+  return [
+    entry.userId,
+    entry.userName,
+    entry.role,
+    entry.salesTeam,
+    entry.ip,
+    entry.city,
+    entry.region,
+    entry.country,
+    entry.isp,
+    entry.browser,
+    entry.platform,
+    entry.timezone,
+    entry.appVersion,
+    entry.trackingStatus,
+  ].join(" ").toLowerCase();
+}
+
+function renderLoginHistoryRow(entry) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(loginDateTimeText(entry.loginAt))}</strong><br><small>${escapeHtml(entry.timezone || "-")}</small></td>
+      <td><strong>${escapeHtml(entry.userName || "-")}</strong><br><small>${escapeHtml(entry.userId || "-")}</small></td>
+      <td>${escapeHtml(loginRoleText(entry))}</td>
+      <td><strong>${escapeHtml(entry.ip || "Checking")}</strong><br><small>${escapeHtml(entry.isp || entry.networkSource || "-")}</small></td>
+      <td>${loginIpLocationHtml(entry)}</td>
+      <td>${loginGpsLocationHtml(entry)}</td>
+      <td><strong>${escapeHtml(entry.browser || "-")}</strong><br><small>${escapeHtml([entry.platform, entry.screenSize, entry.language].filter(Boolean).join(" / ") || "-")}</small></td>
+      <td><strong>${escapeHtml(entry.appVersion || "-")}</strong><br><small>${escapeHtml(entry.trackingStatus || "-")}</small></td>
+    </tr>
+  `;
+}
+
+function loginDateTimeText(value = "") {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "-";
+  return date.toLocaleString("en-IN", { dateStyle: "short", timeStyle: "medium" });
+}
+
+function loginRoleText(entry = {}) {
+  return [entry.role || "-", entry.salesTeam].filter(Boolean).join(" / ");
+}
+
+function loginIpLocationHtml(entry = {}) {
+  const place = [entry.city, entry.region, entry.country].filter(Boolean).join(", ");
+  const coords = entry.latitude && entry.longitude ? `${Number(entry.latitude).toFixed(4)}, ${Number(entry.longitude).toFixed(4)}` : "";
+  return `<strong>${escapeHtml(place || entry.locationStatus || "-")}</strong><br><small>${escapeHtml(coords || entry.postal || entry.locationStatus || "-")}</small>`;
+}
+
+function loginGpsLocationHtml(entry = {}) {
+  if (entry.gpsLatitude && entry.gpsLongitude) {
+    const coords = `${Number(entry.gpsLatitude).toFixed(5)}, ${Number(entry.gpsLongitude).toFixed(5)}`;
+    const accuracy = entry.gpsAccuracy ? `Accuracy ${entry.gpsAccuracy} m` : "Browser GPS";
+    return `<strong>${escapeHtml(coords)}</strong><br><small>${escapeHtml(accuracy)}</small>`;
+  }
+  return `<span>${escapeHtml(entry.gpsStatus || "-")}</span>`;
 }
 
 function renderNewUserAccessPicker() {
@@ -15397,6 +16095,10 @@ function normalizeState(currentState) {
       canEditOfficeWeights: override.canEditOfficeWeights ?? users[id]?.canEditOfficeWeights ?? false,
     },
   ]).filter(([id]) => users[id] && id !== "owner"));
+  currentState.loginHistory = (currentState.loginHistory || [])
+    .map(normalizeLoginAuditEntry)
+    .sort((a, b) => new Date(b.loginAt) - new Date(a.loginAt))
+    .slice(0, LOGIN_HISTORY_LIMIT);
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
   currentState.vendors = (currentState.vendors || []).map((vendor) => ({
@@ -15622,6 +16324,7 @@ function normalizeState(currentState) {
     })),
     remarks: bill.remarks || "",
   }));
+  currentState.catalogueItems = (currentState.catalogueItems || []).map(normalizeCatalogueItem);
   currentState.designs = (currentState.designs || []).map((design) => {
     const stoneItems = (design.stoneItems || []).map((item) => {
       const shape = normalizeOcrShape(item.shape || "");
