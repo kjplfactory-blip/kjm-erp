@@ -6521,6 +6521,554 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 }
 
+/* V285 aesthetic polish: unified full-screen workspace, cleaner tiles, forms, dialogs, and melting conversion. */
+:root {
+  --v285-bg-top: #fbfdfb;
+  --v285-bg-bottom: #eef7f2;
+  --v285-panel: rgba(255, 255, 255, 0.96);
+  --v285-panel-soft: #f7fcfa;
+  --v285-line: #d7e8e1;
+  --v285-line-strong: #aed8c9;
+  --v285-green: #08776c;
+  --v285-green-dark: #064f48;
+  --v285-green-soft: #e7faf1;
+  --v285-gold: #c89b2c;
+  --v285-gold-soft: #fff7df;
+  --v285-ink: #13241f;
+  --v285-muted: #65756f;
+  --v285-shadow: 0 18px 48px rgba(12, 56, 50, 0.10);
+  --v285-soft-shadow: 0 8px 22px rgba(12, 56, 50, 0.07);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) {
+  background:
+    radial-gradient(circle at 10% -8%, rgba(8, 119, 108, 0.12), transparent 360px),
+    radial-gradient(circle at 88% 4%, rgba(200, 155, 44, 0.14), transparent 330px),
+    linear-gradient(180deg, var(--v285-bg-top) 0%, var(--v285-bg-bottom) 100%);
+  color: var(--v285-ink);
+}
+
+body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand {
+  top: 10px;
+  left: 36px;
+  width: 220px;
+  min-height: 48px;
+  padding: 6px 10px 6px 7px;
+  border-color: rgba(8, 119, 108, 0.22);
+  background: rgba(255, 255, 255, 0.90);
+  box-shadow: 0 14px 34px rgba(7, 46, 40, 0.12);
+}
+
+body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand-logo {
+  width: 36px;
+  height: 36px;
+}
+
+body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand strong {
+  font-size: 9px;
+}
+
+body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand small {
+  font-size: 7px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .app {
+  scrollbar-gutter: stable;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar {
+  min-height: 72px;
+  gap: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 252, 250, 0.90));
+  border-bottom-color: rgba(174, 216, 201, 0.76);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-actions {
+  align-items: center;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-action-group {
+  border-color: rgba(174, 216, 201, 0.72);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .view.active-view {
+  min-height: calc(100vh - 120px);
+  padding-bottom: 26px;
+  animation: v285-view-in 140ms ease;
+}
+
+@keyframes v285-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .metric-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .content-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .workbench,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-grid {
+  gap: 14px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .tile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr));
+  max-height: min(64vh, 620px);
+  padding: 4px 10px 12px 4px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .operation-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .stone-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .order-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .production-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-tile-grid {
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile {
+  min-height: 132px;
+  padding: 18px 18px 46px 19px;
+  border-color: rgba(174, 216, 201, 0.80);
+  background:
+    radial-gradient(circle at 95% 0%, rgba(200, 155, 44, 0.18), transparent 110px),
+    linear-gradient(180deg, #ffffff 0%, #f8fcfa 100%);
+  box-shadow: var(--v285-soft-shadow);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:focus-visible {
+  border-color: #8edfbf;
+  background:
+    radial-gradient(circle at 95% 0%, rgba(200, 155, 44, 0.20), transparent 115px),
+    linear-gradient(180deg, #f4fff8 0%, #ddf8ec 100%);
+  box-shadow: 0 18px 42px rgba(8, 119, 108, 0.14);
+  outline: 0;
+  transform: translateY(-2px);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile strong {
+  color: #10352e;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile span {
+  max-width: 34ch;
+  color: #667972;
+  line-height: 1.35;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .metric,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .form-panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .table-panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-card,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-item-tile,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-card,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-summary-card,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-history-card {
+  border-color: rgba(215, 232, 225, 0.94);
+  background: linear-gradient(180deg, var(--v285-panel) 0%, var(--v285-panel-soft) 100%);
+  box-shadow: var(--v285-soft-shadow);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .form-panel {
+  padding: 18px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .panel-heading,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .section-title-row,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-card-form-title {
+  min-width: 0;
+  gap: 10px;
+  padding-bottom: 11px;
+  border-bottom-color: rgba(174, 216, 201, 0.76);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .panel-heading h2,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .section-title-row h3,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .form-panel > h2 {
+  color: #10352e;
+  font-size: 16px;
+  letter-spacing: 0.025em;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .form-panel > label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .inline-form > label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .bill-fields label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .bill-non-gold-grid label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .order-item-row.entry > label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .source-row > label {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(215, 232, 225, 0.86);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) input,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) select,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) textarea {
+  min-width: 0;
+  border-color: #cfe2da;
+  background: #ffffff;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) input[readonly],
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) select[disabled] {
+  border-color: #d6e2de;
+  background: #eef6f2;
+  color: #50635d;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) input:focus,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) select:focus,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) textarea:focus {
+  border-color: var(--v285-green);
+  box-shadow: 0 0 0 3px rgba(8, 119, 108, 0.13);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) button {
+  box-shadow: 0 8px 18px rgba(8, 119, 108, 0.10);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .ghost-button,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .link-button {
+  background: #ffffff;
+  box-shadow: 0 5px 14px rgba(12, 56, 50, 0.05);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .danger-button,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .delete-btn {
+  box-shadow: 0 7px 16px rgba(180, 35, 24, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .table-wrap,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .transfer-entry-table,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .bill-item-table,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-stone-details,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-transfer-table {
+  border-color: rgba(174, 216, 201, 0.78);
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.80), var(--v285-soft-shadow);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .table-panel .table-wrap {
+  max-height: min(61vh, 660px);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, #edf8f3 0%, #e2f2eb 100%);
+  color: #31574d;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) td {
+  background-clip: padding-box;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .row-actions {
+  gap: 7px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) dialog {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-card {
+  border: 1px solid rgba(174, 216, 201, 0.82);
+  background:
+    radial-gradient(circle at top right, rgba(200, 155, 44, 0.12), transparent 320px),
+    linear-gradient(180deg, #ffffff 0%, #f5fbf8 100%);
+  box-shadow: 0 30px 90px rgba(4, 37, 32, 0.24);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-card > .dialog-header,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-actions {
+  background: rgba(255, 255, 255, 0.90);
+  border-color: rgba(174, 216, 201, 0.76);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-screen {
+  background:
+    radial-gradient(circle at 14% 16%, rgba(200, 155, 44, 0.24), transparent 310px),
+    radial-gradient(circle at 82% 12%, rgba(8, 119, 108, 0.28), transparent 360px),
+    linear-gradient(135deg, #0c3630 0%, #0f4a42 44%, #f3faf6 44%, #f3faf6 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-card {
+  border-color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 36px 90px rgba(8, 41, 36, 0.26);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-layout,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .factory-workbench,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-layout {
+  align-items: stretch;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-layout {
+  min-height: calc(100vh - 145px);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-main-panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .metal-safe-panel {
+  min-height: min(70vh, 760px);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-summary-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-history-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(min(245px, 100%), 1fr));
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-summary-card {
+  min-height: 118px;
+  padding: 16px;
+  border-left: 5px solid var(--v285-green);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-summary-card.loss {
+  border-color: #f0b4ad;
+  border-left-color: #b42318;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-history-card {
+  min-height: 150px;
+  padding: 16px;
+  align-content: start;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-conversion-page.active-operation-page {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: none;
+  width: 100%;
+  align-items: end;
+  border-color: rgba(174, 216, 201, 0.88);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(200, 155, 44, 0.14), transparent 260px),
+    linear-gradient(180deg, #ffffff 0%, #f4fbf8 100%);
+  box-shadow: var(--v285-shadow);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > #melting-form-title {
+  grid-column: 1 / 4;
+  margin: 0;
+  font-size: 20px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > button[onclick*="resetOperationPage"] {
+  grid-column: 4 / 5;
+  justify-self: end;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > .panel-heading,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > .source-list {
+  grid-column: 1 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > .panel-heading {
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid rgba(174, 216, 201, 0.74);
+  border-radius: 8px;
+  background: rgba(244, 255, 248, 0.78);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources {
+  counter-reset: melting-source;
+  gap: 12px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row {
+  position: relative;
+  grid-template-columns: minmax(150px, 1fr) minmax(190px, 1.25fr) minmax(130px, 0.85fr) minmax(130px, 0.85fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  padding: 14px 14px 14px 46px;
+  border-color: rgba(174, 216, 201, 0.86);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fffb 100%);
+  box-shadow: 0 8px 22px rgba(12, 56, 50, 0.06);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row::before {
+  counter-increment: melting-source;
+  content: counter(melting-source);
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--v285-green-soft);
+  color: var(--v285-green-dark);
+  font-size: 11px;
+  font-weight: 1000;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row > .delete-btn {
+  align-self: end;
+  min-width: 92px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > label:has(input[readonly]) {
+  border-color: rgba(8, 119, 108, 0.20);
+  background: linear-gradient(180deg, #f3fff8 0%, #ffffff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-submit {
+  grid-column: 1 / 3;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #cancel-melting-issue-edit {
+  grid-column: 3 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form > h2,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .xrf-summary-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form button,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .dialog-note {
+  grid-column: 1 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form > h2,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form > .dialog-note,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form > .dialog-actions {
+  grid-column: 1 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form > label {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(215, 232, 225, 0.86);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-layout {
+  grid-template-columns: minmax(245px, 300px) minmax(0, 1fr);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-board {
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-image-wrap,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-card-image,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-image-wrap {
+  background: #ffffff;
+  border-color: rgba(174, 216, 201, 0.74);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #bill-dialog .bill-dialog-card,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-details-card,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .history-dialog {
+  border-color: rgba(174, 216, 201, 0.86);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #bill-dialog .bill-totals,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-tile-board,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-metal-summary,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .factory-summary-grid {
+  gap: 10px;
+}
+
+@media (min-width: 961px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .app {
+    padding-left: 48px;
+    padding-right: 28px;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar {
+    margin-left: -48px;
+    padding-left: 268px;
+    padding-right: 28px;
+  }
+}
+
+@media (max-width: 1180px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > #melting-form-title,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > button[onclick*="resetOperationPage"],
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-submit,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #cancel-melting-issue-edit {
+    grid-column: 1 / -1;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > button[onclick*="resetOperationPage"] {
+    justify-self: start;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row > .delete-btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 980px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .tile-grid {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media print {
   body.printing-catalogue {
     display: block;

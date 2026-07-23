@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v283";
+const APP_VERSION = "v285";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -18,6 +18,7 @@ const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
+const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
 const DESIGN_IMAGE_WIDTH = 1200;
@@ -559,6 +560,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
     state.orders.push(orderRecord);
   });
   event.target.reset();
+  clearOrderDraft();
   setDefaultOrderDates(event.target);
   resetOrderItemRows();
   saveState();
@@ -851,6 +853,7 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
   }
   updateOrderItemStonePreview(row);
   renderOrderEntrySummary();
+  saveOrderDraft();
 });
 
 document.getElementById("order-item-list").addEventListener("input", (event) => {
@@ -860,6 +863,7 @@ document.getElementById("order-item-list").addEventListener("input", (event) => 
     updateOrderItemStonePreview(row);
   }
   renderOrderEntrySummary();
+  saveOrderDraft();
 });
 
 document.getElementById("barcode-scan").addEventListener("change", (event) => {
@@ -886,6 +890,15 @@ document.getElementById("order-form").addEventListener("input", (event) => {
     updateOrderDueDate(event.currentTarget);
   }
   renderOrderEntrySummary();
+  saveOrderDraft();
+});
+
+document.getElementById("order-form").addEventListener("change", (event) => {
+  if (["orderDate", "productionDays"].includes(event.target.name)) {
+    updateOrderDueDate(event.currentTarget);
+  }
+  renderOrderEntrySummary();
+  saveOrderDraft();
 });
 
 document.getElementById("customer-form").addEventListener("submit", (event) => {
@@ -2267,6 +2280,7 @@ async function resetFactoryData() {
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   clearJobCards(resetAt);
+  clearOrderDraft();
   saveStateLocalOnly();
   render();
   setDefaultOrderDates(document.getElementById("order-form"));
@@ -2329,6 +2343,7 @@ async function resetFactoryInventoryToZero() {
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   clearFactoryInventoryToZero(resetAt);
+  clearOrderDraft();
   saveStateLocalOnly();
   render();
   setDefaultOrderDates(document.getElementById("order-form"));
@@ -2950,6 +2965,7 @@ function applyPendingCloudState(source = "auto") {
 }
 
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
+  const orderDraft = captureOrderDraft();
   state = normalizeState(cloudState);
   const appliedResetAt = stateFactoryResetAt(state);
   if (appliedResetAt) {
@@ -2959,8 +2975,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   render();
-  setDefaultOrderDates(document.getElementById("order-form"));
-  resetOrderItemRows();
+  restoreOrderDraftOrReset(orderDraft);
   resetMeltingSources();
   updateMeltingCalculation();
   const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
@@ -2985,7 +3000,8 @@ function isUserActivelyEditing() {
   const active = document.activeElement;
   const editingElement = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
   const openDialog = document.querySelector("dialog[open]");
-  return Boolean(editingElement || openDialog);
+  const activeOrderDraft = orderFormActive() && orderDraftHasWork(captureOrderDraft());
+  return Boolean(editingElement || openDialog || activeOrderDraft);
 }
 
 function switchView(view) {
@@ -3265,9 +3281,11 @@ function addOrderItemRow(item = {}, mode = "entry") {
     }
     if (!document.querySelector('#order-item-list .order-item-row[data-mode="entry"]')) addOrderItemRow();
     renderOrderEntrySummary();
+    saveOrderDraft();
   });
   document.getElementById("order-item-list").appendChild(row);
   renderOrderEntrySummary();
+  return row;
 }
 
 function entryOrderItemRowHtml(item = {}) {
@@ -3500,6 +3518,131 @@ function resetOrderItemRows() {
   renderOrderEntrySummary();
 }
 
+function orderFormActive() {
+  return Boolean(
+    document.getElementById("orders")?.classList.contains("active-view")
+    && document.getElementById("order-page-create")?.classList.contains("active-order-page")
+  );
+}
+
+function orderRowDraft(row) {
+  const item = getOrderItemFromRow(row) || {};
+  item.designSearch = row?.querySelector('[name="designSearch"]')?.value || "";
+  item.designIds = selectedOrderDesignIds(row);
+  return {
+    mode: row?.dataset.mode || "entry",
+    item,
+  };
+}
+
+function captureOrderDraft() {
+  const form = document.getElementById("order-form");
+  if (!form) return null;
+  return {
+    customerId: form.customerId?.value || "",
+    orderDate: form.orderDate?.value || "",
+    productionDays: form.productionDays?.value || "",
+    dueDate: form.dueDate?.value || "",
+    urgent: Boolean(form.urgent?.checked),
+    active: orderFormActive(),
+    rows: [...document.querySelectorAll("#order-item-list .order-item-row")].map(orderRowDraft),
+  };
+}
+
+function orderDraftItemHasWork(item = {}) {
+  return Boolean(
+    item.designId
+    || item.designSearch
+    || item.designIds?.length
+    || item.category
+    || item.ringType
+    || item.cmItemType
+    || item.clSize
+    || item.cgSize
+    || item.size
+    || item.color
+    || item.remarks
+  );
+}
+
+function orderDraftHasWork(draft = null) {
+  if (!draft) return false;
+  const changedDate = draft.orderDate && draft.orderDate !== isoToday();
+  const changedDays = draft.productionDays && Number(draft.productionDays) !== MIN_PRODUCTION_DAYS;
+  return Boolean(
+    draft.customerId
+    || draft.urgent
+    || changedDate
+    || changedDays
+    || (draft.rows || []).some((row) => row.mode === "saved" || orderDraftItemHasWork(row.item))
+  );
+}
+
+function saveOrderDraft() {
+  const draft = captureOrderDraft();
+  if (!orderDraftHasWork(draft)) {
+    localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+    return;
+  }
+  localStorage.setItem(ORDER_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+}
+
+function loadOrderDraft() {
+  try {
+    return JSON.parse(localStorage.getItem(ORDER_DRAFT_STORAGE_KEY) || "null");
+  } catch {
+    localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+    return null;
+  }
+}
+
+function clearOrderDraft() {
+  localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+}
+
+function restoreOrderDraftOrReset(draft = loadOrderDraft()) {
+  setDefaultOrderDates(document.getElementById("order-form"));
+  if (orderDraftHasWork(draft)) {
+    restoreOrderDraft(draft);
+  } else {
+    resetOrderItemRows();
+  }
+}
+
+function restoreOrderDraft(draft = null) {
+  const form = document.getElementById("order-form");
+  const list = document.getElementById("order-item-list");
+  if (!form || !list || !orderDraftHasWork(draft)) return false;
+  form.customerId.value = [...form.customerId.options].some((option) => option.value === draft.customerId) ? draft.customerId : "";
+  form.orderDate.value = draft.orderDate || isoToday();
+  form.productionDays.value = draft.productionDays || MIN_PRODUCTION_DAYS;
+  form.urgent.checked = Boolean(draft.urgent);
+  updateOrderDueDate(form);
+  list.innerHTML = "";
+  const rows = draft.rows || [];
+  rows.filter((row) => row.mode === "saved" && orderDraftItemHasWork(row.item)).forEach((row) => {
+    addOrderItemRow(row.item, "saved");
+  });
+  const entryDraft = rows.find((row) => row.mode !== "saved" && orderDraftItemHasWork(row.item));
+  const entryRow = addOrderItemRow(entryDraft?.item || {}, "entry");
+  if (entryDraft?.item) {
+    restoreOrderEntryRow(entryRow, entryDraft.item);
+  }
+  renderOrderEntrySummary();
+  return true;
+}
+
+function restoreOrderEntryRow(row, item = {}) {
+  if (!row) return;
+  row.querySelector('[name="designSearch"]').value = item.designSearch || "";
+  updateOrderItemDesignOptions(row, item.designId || "");
+  row.querySelectorAll('[name="designIds"] option').forEach((option) => {
+    option.selected = (item.designIds || []).includes(option.value);
+  });
+  updateOrderItemCategoryFields(row);
+  updateOrderItemStonePreview(row);
+}
+
 function commitCurrentOrderItem() {
   const entryRow = document.querySelector('#order-item-list .order-item-row[data-mode="entry"]');
   const item = getOrderItemFromRow(entryRow);
@@ -3512,6 +3655,7 @@ function commitCurrentOrderItem() {
   });
   clearOrderEntryRow(entryRow);
   renderOrderEntrySummary();
+  saveOrderDraft();
 }
 
 function clearOrderEntryRow(row) {
@@ -3530,6 +3674,7 @@ function clearOrderEntryRow(row) {
   updateOrderItemDesignOptions(row);
   updateOrderItemCategoryFields(row);
   updateOrderItemStonePreview(row);
+  saveOrderDraft();
 }
 
 function orderItemsFromEntryRow(row) {
@@ -17469,8 +17614,7 @@ render();
 migrateLegacyDesignImages().catch(() => {
   document.getElementById("design-upload-status").textContent = "Design image storage is using browser local storage fallback.";
 });
-setDefaultOrderDates(document.getElementById("order-form"));
-resetOrderItemRows();
+restoreOrderDraftOrReset();
 resetMeltingSources();
 updateMeltingCalculation();
 resetXrfForm();
