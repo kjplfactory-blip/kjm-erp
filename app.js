@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v275";
+const APP_VERSION = "v276";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -19,6 +19,7 @@ const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
+const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
@@ -225,6 +226,7 @@ const operationTileConfigs = {
     { id: "out", title: "Factory Out", description: "Send bill, metal, rod, wastage, or stock out of factory", selector: "#factory-out-form" },
     { id: "vendors", title: "Vendor Balance", description: "Check current payable or receivable metal by party", selector: ".vendor-balance-panel" },
     { id: "ledger", title: "Factory Ledger", description: "View every factory in and bill factory out entry", selector: ".factory-ledger-panel" },
+    { id: "reset", title: "Reset Inventory", description: "Owner reset gold and non-gold stock to zero before real stock entry", selector: ".factory-reset-panel", ownerOnly: true },
   ],
   melting: [
     { id: "dashboard", title: "Melting Dashboard", description: "Metal with melting/casting and loss summary", selector: ".melting-dashboard-panel" },
@@ -272,7 +274,7 @@ function initializeOperationTiles() {
     const tileGrid = document.createElement("div");
     tileGrid.className = `tile-grid operation-tile-grid ${viewId}-operation-tiles`;
     tileGrid.innerHTML = operations.map((operation) => `
-      <button class="action-tile" type="button" data-operation-view="${escapeHtml(viewId)}" data-operation-page="${escapeHtml(operation.id)}">
+      <button class="action-tile${operation.ownerOnly ? " owner-only" : ""}" type="button" data-operation-view="${escapeHtml(viewId)}" data-operation-page="${escapeHtml(operation.id)}">
         <strong>${escapeHtml(operation.title)}</strong>
         <span>${escapeHtml(operation.description)}</span>
       </button>
@@ -503,29 +505,8 @@ document.getElementById("logout").addEventListener("click", () => {
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
 document.getElementById("push-live-data")?.addEventListener("click", pushLocalDataToCloud);
 
-document.getElementById("reset-demo").addEventListener("click", async (event) => {
-  if (!isOwner()) {
-    alert("Only Owner can reset data.");
-    return;
-  }
-  const masterPassword = prompt("Enter master password to clear job cards:");
-  if (masterPassword !== "Khushali@9294") {
-    alert("Wrong master password. Job cards were not cleared.");
-    return;
-  }
-  if (!confirm("This will clear all job cards, production, bills, melting/casting history, safe locker stock, and old factory stock.\n\nIt will then create fresh factory stock: 4000.000 g of 99.5% gold.\n\nCustomer, design, stone, department, and user masters will remain.")) return;
-  event.currentTarget.disabled = true;
-  try {
-    const cloudSaved = await resetFactoryData();
-    if (cloudSaved) {
-      alert("Reset done. Job cards and melting/casting are cleared. Factory gold stock is now 4000.000 g of 99.5% gold, and live sync is updated.");
-    } else {
-      alert("Reset done on this laptop. Live sync could not be updated, so other laptops may still show old data.\n\nRun RESET-JOB-CARDS-AND-FACTORY-STOCK.sql in Supabase, or fix sync and click Upload This Laptop Data.");
-    }
-  } finally {
-    event.currentTarget.disabled = false;
-  }
-});
+document.getElementById("reset-demo").addEventListener("click", resetFactoryInventoryToZeroFromUi);
+document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", resetFactoryInventoryToZeroFromUi);
 
 document.getElementById("order-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2258,6 +2239,80 @@ async function resetFactoryData() {
     setSyncStatus("offline", "Reset: Local Only", "Live sync was not updated. Run reset SQL or upload this laptop data after sync connects.");
   }
   return cloudSaved;
+}
+
+async function resetFactoryInventoryToZeroFromUi(event) {
+  if (!isOwner()) {
+    alert("Only Owner can reset factory inventory.");
+    return;
+  }
+  const masterPassword = prompt("Enter master password to reset all gold and non-gold inventory:");
+  if (masterPassword !== "Khushali@9294") {
+    alert("Wrong master password. Inventory was not reset.");
+    return;
+  }
+  if (!confirm("This will clear all job cards, production lots, bills, melting/casting/XRF, safe lockers, metal safe, factory ledger, and non-gold movements.\n\nIt will NOT create 4kg opening stock. Factory stock will become 0.000 g.\n\nCustomer, vendor, design, stone, department, catalogue, and user masters will remain.\n\nAfter reset, use Factory In to add your actual inventory.")) return;
+  const button = event?.currentTarget;
+  if (button) button.disabled = true;
+  try {
+    const cloudSaved = await resetFactoryInventoryToZero();
+    switchView("factory");
+    openOperationPage("factory", "in");
+    if (cloudSaved) {
+      alert("Reset done. All gold and non-gold stock entries are zero, and live sync is updated. Now add your actual inventory from Factory In.");
+    } else {
+      alert("Reset done on this laptop. Live sync could not be updated, so other laptops may still show old data.\n\nRun RESET-INVENTORY-TO-ZERO.sql in Supabase, or fix sync and click Upload This Laptop Data.");
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function resetFactoryInventoryToZero() {
+  const resetAt = new Date().toISOString();
+  setFactoryResetProtection(true, resetAt);
+  supabasePendingCloudState = null;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  clearFactoryInventoryToZero(resetAt);
+  saveStateLocalOnly();
+  render();
+  setDefaultOrderDates(document.getElementById("order-form"));
+  resetOrderItemRows();
+  resetMeltingSources();
+  updateMeltingCalculation();
+  resetFactoryEntryForms();
+  setSyncStatus("saving", "Reset Saved Locally", "Trying to update live sync now.");
+
+  if (!supabaseClient && supabaseSettings.url && supabaseSettings.anonKey) {
+    try {
+      supabaseClient = await createSupabaseClient();
+    } catch (error) {
+      console.warn("Supabase inventory reset save could not connect.", error);
+      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), error.message || String(error));
+    }
+  }
+
+  const cloudSaved = supabaseClient ? await syncStateToSupabase({ force: true }) : false;
+  if (cloudSaved) {
+    setFactoryResetProtection(false);
+    startSupabaseAutoRefresh();
+  } else {
+    setFactoryResetProtection(true, resetAt);
+    setSyncStatus("offline", "Reset: Local Only", "Live sync was not updated. Run reset SQL or upload this laptop data after sync connects.");
+  }
+  return cloudSaved;
+}
+
+function resetFactoryEntryForms() {
+  ["factory-in-form", "factory-out-form"].forEach((formId) => {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.reset();
+    if (form.purity) form.purity.value = "99.5%";
+    if (form.wstgPercent) form.wstgPercent.value = "0";
+  });
+  resetVendorForm();
 }
 
 function setFactoryResetProtection(active, resetAt = "") {
@@ -5185,6 +5240,26 @@ function clearJobCards(resetAt = new Date().toISOString()) {
     sourceLine: "",
   }];
   state.metalSafeSeededFromLedger = true;
+  closeOpenDialogs();
+}
+
+function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
+  state.factoryResetAt = resetAt;
+  state.factoryResetReason = FACTORY_INVENTORY_ZERO_RESET_REASON;
+  state.orders = [];
+  state.lots = [];
+  state.bills = [];
+  state.melting = [];
+  state.xrfTests = [];
+  state.safeItems = [];
+  state.safeDepartmentIssues = [];
+  state.productionNonGoldIssues = [];
+  state.ledger = [];
+  state.metalSafeMovements = [];
+  state.factoryLedger = [];
+  state.metalSafeSeededFromLedger = true;
+  state.nextOrder = 1001;
+  state.nextLot = 201;
   closeOpenDialogs();
 }
 

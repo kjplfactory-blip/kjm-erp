@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=153">
+    <link rel="stylesheet" href="styles.css?v=154">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v275</small>
+            <small class="app-version-badge">App v276</small>
           </div>
         </div>
         <label>User
@@ -89,8 +89,8 @@
           <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
         </div>
         <div class="top-actions">
-          <button id="reset-demo" class="ghost-button owner-only">Clear Job Cards + Reset Stock</button>
-          <span class="app-version-badge">App v275</span>
+          <button id="reset-demo" class="ghost-button owner-only">Reset Inventory To Zero</button>
+          <span class="app-version-badge">App v276</span>
           <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
           <small id="sync-detail" class="sync-detail">App loading</small>
           <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
@@ -660,6 +660,22 @@
               <tbody id="factory-ledger-table"></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="panel factory-reset-panel owner-only">
+          <div class="panel-heading">
+            <div>
+              <h2>Reset Gold / Non-Gold Inventory</h2>
+              <p class="dialog-note">Use this before starting live stock entry. Masters will stay, but all stock and production entries will become zero.</p>
+            </div>
+          </div>
+          <div class="factory-reset-warning">
+            <strong>Factory stock will become 0.000 g</strong>
+            <span>Clears job cards, production lots, bills, melting, casting, XRF, safe lockers, metal safe, factory ledger, and non-gold movements.</span>
+            <span>Customer, vendor, design, stone, department, catalogue, and login details remain available.</span>
+            <span>After reset, open Factory In and add your actual inventory.</span>
+          </div>
+          <button id="reset-factory-inventory-zero" class="danger-button" type="button">Reset Inventory To Zero</button>
         </section>
       </section>
 
@@ -1458,6 +1474,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=275"></script>
+    <script src="app.js?v=276"></script>
 </body>
 </html>

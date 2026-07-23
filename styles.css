@@ -63,6 +63,10 @@ button.owner-only {
   display: inline-flex;
 }
 
+.is-owner button.owner-only.action-tile {
+  display: grid;
+}
+
 .login-card {
   width: min(420px, 100%);
   display: grid;
@@ -620,6 +624,31 @@ button:hover {
 .safe-casting-shelf-card small,
 .factory-summary-card small {
   color: var(--muted);
+  line-height: 1.35;
+}
+
+.factory-reset-panel {
+  grid-column: 1 / -1;
+  gap: 16px;
+}
+
+.factory-reset-warning {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(185, 28, 28, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fff7f7 0%, #fff 100%);
+  color: #7f1d1d;
+}
+
+.factory-reset-warning strong {
+  color: #991b1b;
+  font-size: 18px;
+}
+
+.factory-reset-warning span {
+  color: #7f1d1d;
   line-height: 1.35;
 }
 
