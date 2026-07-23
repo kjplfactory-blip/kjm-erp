@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v285";
+const APP_VERSION = "v286";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -4155,6 +4155,87 @@ function castingShelfGroups(purity = "") {
   );
 }
 
+function rodSourceGroupId(parts = []) {
+  return `rod-source:${safeShelfKey(parts)}`;
+}
+
+function isRodSourceGroupId(value = "") {
+  return String(value || "").startsWith("rod-source:");
+}
+
+function rodSourceGroups() {
+  const groups = new Map();
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemKind(item) === "rod")
+    .forEach((item) => {
+      const locker = safeLockerForPurity(item.locker || item.purity);
+      const colour = safeTextKey(safeItemColour(item) || "Mixed");
+      const desiredPurity = displayPurity(safeItemDesiredPurity(item) || locker);
+      const key = safeShelfKey([locker, colour, desiredPurity]);
+      const existing = groups.get(key) || {
+        id: rodSourceGroupId([locker, colour, desiredPurity]),
+        virtualSafeGroup: true,
+        locker,
+        purity: desiredPurity,
+        description: `${locker} Safe Rod`,
+        source: "Combined Rod Shelf",
+        sourceLine: "rodSource",
+        colour,
+        desiredPurity,
+        safeKind: "rod",
+        status: "In Safe",
+        grossWeight: 0,
+        waxStoneWeight: 0,
+        netWeight: 0,
+        items: [],
+      };
+      existing.grossWeight = Number(weight3(existing.grossWeight + Number(item.grossWeight || 0)));
+      existing.waxStoneWeight = Number(weight3(existing.waxStoneWeight + safeItemWaxStoneWeight(item)));
+      existing.netWeight = Number(weight3(existing.netWeight + safeItemAvailableWeight(item)));
+      existing.items.push(item);
+      groups.set(key, existing);
+    });
+  return [...groups.values()].sort((a, b) =>
+    `${a.locker} ${a.colour} ${a.desiredPurity}`.localeCompare(`${b.locker} ${b.colour} ${b.desiredPurity}`, undefined, { sensitivity: "base" })
+  );
+}
+
+function findRodSourceGroup(groupId = "") {
+  return rodSourceGroups().find((group) => group.id === groupId) || null;
+}
+
+function safeSourceSelectionGroup(value = "", sourceKind = "rod") {
+  return sourceKind === "rod" && isRodSourceGroupId(value) ? findRodSourceGroup(value) : null;
+}
+
+function safeSourceSelectionLocker(value = "", sourceKind = "rod") {
+  const group = safeSourceSelectionGroup(value, sourceKind);
+  return group ? group.locker : safeLockerForPurity(value);
+}
+
+function safeSourceSelectionPurity(value = "", sourceKind = "rod", fallback = "") {
+  const group = safeSourceSelectionGroup(value, sourceKind);
+  return group ? group.desiredPurity : (fallback || value);
+}
+
+function safeSourceSelectionColour(value = "", sourceKind = "rod", fallback = "") {
+  const group = safeSourceSelectionGroup(value, sourceKind);
+  return group ? group.colour : fallback;
+}
+
+function safeSourceSelectionAvailableWeight(value = "", sourceKind = "rod") {
+  const group = safeSourceSelectionGroup(value, sourceKind);
+  if (group) return safeItemAvailableWeight(group);
+  return safeLockerBalance(safeLockerForPurity(value), sourceKind);
+}
+
+function safeSourceSelectionLabel(value = "", sourceKind = "rod", fallback = "") {
+  const group = safeSourceSelectionGroup(value, sourceKind);
+  if (group) return `${group.locker} Safe / ${group.colour} / ${group.desiredPurity}`;
+  if (fallback) return fallback;
+  return `${safeLockerForPurity(value)} Safe`;
+}
+
 function safeItemColour(item = {}) {
   if (item.colour) return item.colour;
   const description = String(item.description || "");
@@ -4302,7 +4383,7 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
     const proportionalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * Number(issueDetails.waxStoneWeight || 0))) : 0;
     const targetWax = remainingNet - takeNet <= 0.0005 ? remainingWax : proportionalWax;
     const takeWax = Number(weight3(Math.min(safeItemWaxStoneWeight(item), remainingWax, targetWax)));
-    issueFromSafeItem(item.id, takeNet, reference, sourceId, { waxStoneWeight: takeWax });
+    issueFromSafeItem(item.id, takeNet, reference, sourceId, { ...issueDetails, waxStoneWeight: takeWax });
     remainingNet = Number(weight3(remainingNet - takeNet));
     remainingWax = Number(weight3(Math.max(remainingWax - takeWax, 0)));
   }
@@ -5150,14 +5231,17 @@ function renderMetalSafeSourceOptions(selected = "") {
 }
 
 function renderSafeLockerRodOptions(selected = "") {
-  const options = SAFE_LOCKERS
-    .map((locker) => ({ locker, weight: safeLockerBalance(locker, "rod") }))
-    .filter((item) => item.weight > 0 || item.locker === selected)
-    .map((item) =>
-      `<option value="${escapeHtml(item.locker)}" ${item.locker === selected ? "selected" : ""}>${escapeHtml(item.locker)} Safe / Rod ${gram(item.weight)}</option>`
-    )
-    .join("");
-  return options || '<option value="">No rod in safe</option>';
+  const groups = rodSourceGroups();
+  const selectedFound = groups.some((group) => group.id === selected);
+  const legacySelected = selected && !selectedFound
+    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(isRodSourceGroupId(selected) ? "Previous rod selection" : `${safeLockerForPurity(selected)} Safe / Previous rod selection`)}</option>`
+    : "";
+  const options = groups.map((group) =>
+    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(`${group.locker} Safe / ${group.colour} / ${group.desiredPurity} / Rod ${gram(group.netWeight)}`)}</option>`
+  ).join("");
+  return legacySelected || options
+    ? `${legacySelected}${options}`
+    : '<option value="">No rod in safe</option>';
 }
 
 function renderSafeLockerWastageOptions(selected = "") {
@@ -5205,8 +5289,40 @@ function applySafeLockerSelectionToMeltingRow(select) {
   if (!row) return;
   const locker = select.value;
   if (!locker) return;
+  const sourceKind = row.querySelector('[name="sourceKind"]')?.value || "rod";
+  const desiredPurity = safeSourceSelectionPurity(locker, sourceKind, row.dataset.sourceDesiredPurity || "");
+  const sourceColour = safeSourceSelectionColour(locker, sourceKind, row.dataset.sourceColour || "");
   const purityInput = row.querySelector('[name="sourcePurity"]');
-  if (purityInput) purityInput.value = weight3(purityPercent(locker)).replace(/\.000$/, "");
+  if (purityInput) purityInput.value = weight3(purityPercent(desiredPurity || locker)).replace(/\.000$/, "");
+  if (sourceKind === "rod") {
+    if (sourceColour) row.dataset.sourceColour = sourceColour;
+    if (desiredPurity) row.dataset.sourceDesiredPurity = desiredPurity;
+    applyRodSourceToMeltingForm(row);
+  }
+}
+
+function ensureSelectOption(select, value = "") {
+  if (!select || !value) return;
+  if (![...select.options].some((option) => option.value === value)) {
+    select.add(new Option(value, value));
+  }
+}
+
+function applyRodSourceToMeltingForm(row) {
+  const form = document.getElementById("melting-form");
+  if (!form || !row) return;
+  const sourceSelect = row.querySelector('[name="sourceSafeLocker"]');
+  const selected = sourceSelect?.value || "";
+  const desiredPurity = safeSourceSelectionPurity(selected, "rod", row.dataset.sourceDesiredPurity || row.querySelector('[name="sourcePurity"]')?.value || "");
+  const sourceColour = safeSourceSelectionColour(selected, "rod", row.dataset.sourceColour || "");
+  const purity = purityPercent(desiredPurity);
+  if (Number.isFinite(purity) && purity > 0) {
+    form.targetPurity.value = weight3(purity).replace(/\.000$/, "");
+  }
+  if (sourceColour && sourceColour !== "Mixed" && form.colour) {
+    ensureSelectOption(form.colour, sourceColour);
+    form.colour.value = sourceColour;
+  }
 }
 
 function updateMeltingSourceRowMode(row) {
@@ -5254,23 +5370,24 @@ function validateMetalSafeIssue(sourceMetals = [], creditMetals = []) {
 function validateSafeLockerSourceIssue(sourceMetals = [], creditMetals = []) {
   const requiredByLocker = sourceMetals.reduce((acc, metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return acc;
-    const locker = safeLockerForPurity(metal.safeLocker);
-    const key = `${metal.sourceKind}:${locker}`;
+    const key = `${metal.sourceKind}:${metal.safeLocker}`;
     acc[key] = Number(weight3((acc[key] || 0) + Number(metal.weight || 0)));
     return acc;
   }, {});
   const creditByLocker = creditMetals.reduce((acc, metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return acc;
-    const locker = safeLockerForPurity(metal.safeLocker);
-    const key = `${metal.sourceKind}:${locker}`;
+    const key = `${metal.sourceKind}:${metal.safeLocker}`;
     acc[key] = Number(weight3((acc[key] || 0) + Number(metal.weight || 0)));
     return acc;
   }, {});
   for (const [key, required] of Object.entries(requiredByLocker)) {
-    const [kind, locker] = key.split(":");
-    const available = Number(weight3(safeLockerBalance(locker, kind) + Number(creditByLocker[key] || 0)));
+    const separatorIndex = key.indexOf(":");
+    const kind = separatorIndex >= 0 ? key.slice(0, separatorIndex) : "rod";
+    const selection = separatorIndex >= 0 ? key.slice(separatorIndex + 1) : key;
+    const locker = safeSourceSelectionLocker(selection, kind);
+    const available = Number(weight3(safeSourceSelectionAvailableWeight(selection, kind) + Number(creditByLocker[key] || 0)));
     if (required > available) {
-      return `${locker} Safe has only ${gram(available)} ${kind} available. Required for this melting is ${gram(required)}.`;
+      return `${safeSourceSelectionLabel(selection, kind, `${locker} Safe`)} has only ${gram(available)} ${kind} available. Required for this melting is ${gram(required)}.`;
     }
   }
   return "";
@@ -5294,15 +5411,15 @@ function recordMeltingMetalSafeIssues(sourceMetals = [], meltingId, departmentNa
 function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departmentName = "", batchName = "") {
   sourceMetals.forEach((metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker) return;
-    const locker = safeLockerForPurity(metal.safeLocker);
+    const group = safeSourceSelectionGroup(metal.safeLocker, metal.sourceKind);
+    const locker = safeSourceSelectionLocker(metal.safeLocker, metal.sourceKind);
     const label = metal.sourceKind === "wastage" ? "Wastage" : "Rod";
-    issueFromSafeLocker(
-      locker,
-      metal.weight,
-      `${label} from ${locker} Safe used in ${batchName || `melting ${meltingId}`}, issued to ${departmentName || "department"}`,
-      meltingId,
-      metal.sourceKind
-    );
+    const reference = `${label} from ${safeSourceSelectionLabel(metal.safeLocker, metal.sourceKind, `${locker} Safe`)} used in ${batchName || `melting ${meltingId}`}, issued to ${departmentName || "department"}`;
+    if (group) {
+      issueFromSafeSelection(group, metal.weight, reference, meltingId, { sourceType: "melting", issueLabel: "Melt Issue" });
+    } else {
+      issueFromSafeLocker(locker, metal.weight, reference, meltingId, metal.sourceKind);
+    }
   });
 }
 
@@ -5313,6 +5430,9 @@ function cloneMeltingSourceMetals(sourceMetals = []) {
     sourceKind: metal.sourceKind || (metal.safeLocker ? "rod" : "metal"),
     safeLocker: metal.safeLocker || "",
     safePurity: metal.safePurity || "",
+    sourceColour: metal.sourceColour || "",
+    sourceDesiredPurity: metal.sourceDesiredPurity || "",
+    safeLockerLabel: metal.safeLockerLabel || "",
   }));
 }
 
@@ -5324,17 +5444,19 @@ function removeMeltingIssueRecords(meltingId) {
 function restoreMeltingRodIssues(sourceMetals = [], meltingId, reason = "Melting issue corrected") {
   sourceMetals.forEach((metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker || Number(metal.weight || 0) <= 0) return;
-    const locker = safeLockerForPurity(metal.safeLocker);
+    const locker = safeSourceSelectionLocker(metal.safeLocker, metal.sourceKind);
     const safeKind = metal.sourceKind === "wastage" ? "wastage" : "rod";
     addSafeItem({
       date: today(),
       locker,
-      purity: locker,
+      purity: metal.sourceDesiredPurity || locker,
       description: `${safeKind === "wastage" ? "Wastage" : "Rod"} returned - melting correction`,
       source: reason,
       sourceType: "melting-rod-return",
       sourceId: meltingId,
       safeKind,
+      colour: metal.sourceColour || "",
+      desiredPurity: metal.sourceDesiredPurity || formatPurity(metal.purity || locker),
       grossWeight: metal.weight,
       netWeight: metal.weight,
       status: "In Safe",
@@ -15240,9 +15362,11 @@ function updateMeltingCalculation() {
   form.alloyWeight.value = weight3(Math.max(finalWeight - sourceWeight, 0));
 }
 
-function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shouldFocus = false, sourceKind = "metal", safePurity = "", safeLocker = "") {
+function addMeltingSourceRow(weight = "", purity = "", position = "bottom", shouldFocus = false, sourceKind = "metal", safePurity = "", safeLocker = "", sourceColour = "", sourceDesiredPurity = "") {
   const row = document.createElement("div");
   row.className = "source-row";
+  row.dataset.sourceColour = sourceColour || "";
+  row.dataset.sourceDesiredPurity = sourceDesiredPurity || "";
   row.innerHTML = `
     <label>Source Type
       <select name="sourceKind">
@@ -15302,7 +15426,9 @@ function getMeltingSourceMetals() {
           ? row.querySelector('[name="sourceWastageLocker"]')?.value || ""
           : "";
       const safePurity = sourceKind === "metal" ? row.querySelector('[name="sourceMetalSafePurity"]')?.value || "" : "";
-      const puritySource = safeLocker || safePurity;
+      const sourceColour = sourceKind === "rod" ? safeSourceSelectionColour(safeLocker, sourceKind, row.dataset.sourceColour || "") : "";
+      const sourceDesiredPurity = sourceKind === "rod" ? safeSourceSelectionPurity(safeLocker, sourceKind, row.dataset.sourceDesiredPurity || "") : "";
+      const puritySource = sourceDesiredPurity || safeLocker || safePurity;
       const purity = puritySource ? purityPercent(puritySource) : Number(row.querySelector('[name="sourcePurity"]').value || 0);
       return {
         weight: Number(row.querySelector('[name="sourceWeightLine"]').value || 0),
@@ -15310,6 +15436,9 @@ function getMeltingSourceMetals() {
         safePurity,
         sourceKind,
         safeLocker,
+        sourceColour,
+        sourceDesiredPurity,
+        safeLockerLabel: safeLocker ? safeSourceSelectionLabel(safeLocker, sourceKind) : "",
       };
     })
     .filter((metal) => metal.weight > 0 && metal.purity > 0);
@@ -15921,7 +16050,7 @@ function renderMeltingSources(item) {
     : [{ weight: item.sourceWeight, purity: item.sourcePurity }];
   return metals.map((metal) => {
     const sourceText = metal.sourceKind === "rod" && metal.safeLocker
-      ? `Rod ${safeLockerForPurity(metal.safeLocker)} Safe`
+      ? `Rod ${safeSourceSelectionLabel(metal.safeLocker, "rod", metal.safeLockerLabel || "")}`
       : metal.sourceKind === "wastage" && metal.safeLocker
         ? `Wastage ${safeLockerForPurity(metal.safeLocker)} Safe`
       : metal.safePurity
@@ -16556,7 +16685,9 @@ function openMeltingIssueEdit(meltingId) {
       false,
       metal.sourceKind,
       metal.safePurity,
-      metal.safeLocker
+      metal.safeLocker,
+      metal.sourceColour,
+      metal.sourceDesiredPurity
     );
   });
   if (!document.querySelectorAll("#melting-sources .source-row").length) addMeltingSourceRow();
