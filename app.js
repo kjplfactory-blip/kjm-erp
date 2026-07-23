@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v260";
+const APP_VERSION = "v269";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
@@ -150,6 +150,7 @@ const demoState = {
   lots: [],
   productionNonGoldIssues: [],
   melting: [],
+  xrfTests: [],
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
     { id: crypto.randomUUID(), name: "Setting Department", speciality: "Stone setting", processes: ["Stone setting"], rate: 650 },
@@ -217,6 +218,7 @@ const operationTileConfigs = {
     { id: "dashboard", title: "Melting Dashboard", description: "Metal with melting/casting and loss summary", selector: ".melting-dashboard-panel" },
     { id: "conversion", title: "Melting Conversion", description: "Issue metal, rod, or wastage for melting/casting", selector: "#melting-conversion-page" },
     { id: "history", title: "Melting / Casting History", description: "Open history tiles for view, edit, receive, or delete", selector: ".melting-history-panel" },
+    { id: "xrf", title: "XRF Issue / Return", description: "Issue casting sample, then return 99.9 metal and WSTG", selector: ".xrf-panel" },
   ],
   karigars: [
     { id: "add", title: "Add Department", description: "Owner can add or edit department master", selector: "#karigar-form" },
@@ -980,53 +982,24 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
 
 document.getElementById("production-non-gold-form").addEventListener("input", updateProductionNonGoldSummary);
 document.getElementById("production-non-gold-form").addEventListener("change", (event) => {
-  if (event.target.name === "lotId") applyProductionNonGoldLotDefaults();
+  if (event.target.name === "lotId") applyProductionNonGoldLotDefaults(event.currentTarget);
   updateProductionNonGoldSummary();
 });
 
 document.getElementById("production-non-gold-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  const data = getFormData(event.target);
-  const lot = data.lotId ? findById("lots", data.lotId) : null;
-  const department = findById("karigars", data.departmentId);
-  if (!department) {
-    alert("Select department to issue non-gold material.");
-    return;
-  }
-  if (data.lotId && (!lot || lot.status === "Completed")) {
-    alert("Select one active production lot, or leave lot blank for direct department issue.");
-    return;
-  }
-  const weight = Number(data.weight || 0);
-  if (weight <= 0) {
-    alert("Enter non-gold material weight.");
-    return;
-  }
-  const pcs = Number(data.pcs || 0);
-  if (pcs < 0) {
-    alert("No of pcs cannot be negative.");
-    return;
-  }
-  const issue = normalizeProductionNonGoldIssue({
-    id: crypto.randomUUID(),
-    date: today(),
-    materialType: data.materialType || "other",
-    pcs,
-    weight,
-    purity: data.purity || lot?.metalPurity || getLotOrders(lot || {})[0]?.purity || "18K",
-    lotId: lot?.id || "",
-    lotNumber: lot?.number || "",
-    jobNumber: lot?.orderNumber || "",
-    departmentId: department.id,
-    department: primaryDepartmentProcess(department) || department.name,
-    remarks: data.remarks || "",
-  }, lot || {});
-  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
-  state.productionNonGoldIssues.unshift(issue);
-  event.target.reset();
-  saveState();
-  render();
-  switchProductionPage("non-gold");
+  saveProductionNonGoldMovement(event, "issue");
+});
+
+document.getElementById("production-non-gold-remove-form").addEventListener("input", updateProductionNonGoldRemoveSummary);
+document.getElementById("production-non-gold-remove-form").addEventListener("change", (event) => {
+  if (event.target.name === "lotId") applyProductionNonGoldLotDefaults(event.currentTarget);
+  updateProductionNonGoldRemoveSummary();
+});
+
+document.getElementById("production-non-gold-remove-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveProductionNonGoldMovement(event, "remove");
 });
 
 document.getElementById("stock-form")?.addEventListener("submit", (event) => {
@@ -1369,6 +1342,11 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
 
 document.getElementById("melting-receive-form").addEventListener("input", (event) => {
   if (allMeltingReceiveWeightFields().includes(event.target.name)) updateMeltingReceiveLoss();
+  if (["issueXrfSample", "xrfIssueWeight"].includes(event.target.name)) updateMeltingReceiveXrfNote();
+});
+
+document.getElementById("melting-receive-form").addEventListener("change", (event) => {
+  if (event.target.name === "issueXrfSample") updateMeltingReceiveXrfNote();
 });
 
 document.getElementById("melting-receive-form").addEventListener("submit", (event) => {
@@ -1384,6 +1362,7 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
     alert("Wax set stone weight cannot be more than Casting Item Weight.");
     return;
   }
+  if (!validateCastingReceiveXrfIssue(data, receiveBreakup, melting)) return;
   melting.receivedDate = melting.receivedDate || today();
   melting.grossReceivedWeight = meltingReceiveGrossWeight(receiveBreakup, melting);
   melting.receivedWeight = receivedWeight;
@@ -1392,7 +1371,88 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
   melting.status = "Received";
   assignMeltingBatchName(melting, state.melting, meltingBatchType(melting) === "CASTING");
   syncMeltingReceiveRecords(melting);
+  syncCastingReceiveXrfIssue(melting, data);
   document.getElementById("melting-receive-dialog").close();
+  saveState();
+  render();
+});
+
+document.getElementById("xrf-form").addEventListener("input", (event) => {
+  if (["weightIssue", "fireReport", "touchPuliya", "wstgWeight"].includes(event.target.name)) updateXrfLoss();
+});
+
+document.getElementById("xrf-form").addEventListener("change", (event) => {
+  if (event.target.name === "sourceGroupId") applyXrfSourceDefaults();
+});
+
+document.getElementById("xrf-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  updateXrfLoss();
+  const data = getFormData(event.target);
+  const existingEntry = data.xrfId ? findById("xrfTests", data.xrfId) : null;
+  const previousEntry = existingEntry ? normalizeXrfEntry(existingEntry) : null;
+  const sourceGroup = findXrfSourceGroup(data.sourceGroupId);
+  const sourceFallback = previousEntry?.sourceGroupId === data.sourceGroupId ? previousEntry : null;
+  const sourceLocker = sourceGroup?.locker || sourceFallback?.sourceLocker || data.karat;
+  const sourceColour = sourceGroup?.colour || sourceFallback?.sourceColour || data.colour;
+  const sourcePurity = sourceGroup?.purity || sourceFallback?.sourcePurity || data.karat;
+  const sourceDescription = sourceGroup?.description || sourceFallback?.sourceDescription || "Casting Tree WSTG";
+  const castingBatchId = sourceGroup?.castingBatchId || sourceFallback?.castingBatchId || "";
+  const castingBatchName = sourceGroup?.castingBatchName || sourceFallback?.castingBatchName || sourceDescription;
+  const available = xrfSourceGroupAvailable(data.sourceGroupId, previousEntry);
+  const issueWeight = Number(data.weightIssue || 0);
+  if (!data.sourceGroupId) {
+    alert("Select Casting Tree WSTG source for XRF sample.");
+    return;
+  }
+  if (issueWeight <= 0) {
+    alert("Enter XRF weight issue.");
+    event.target.weightIssue.focus();
+    return;
+  }
+  if (issueWeight > available + 0.0005) {
+    alert(`Selected Casting Tree WSTG has only ${gram(available)} available. XRF issue is ${gram(issueWeight)}.`);
+    return;
+  }
+  const entry = existingEntry || {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  if (previousEntry) {
+    removeXrfWastageReturn(previousEntry.id);
+    restoreXrfWastageIssue(previousEntry);
+  }
+  const candidateEntry = normalizeXrfEntry({
+    ...entry,
+    date: data.date,
+    sourceGroupId: data.sourceGroupId,
+    sourceLocker,
+    sourcePurity,
+    sourceColour,
+    sourceDescription,
+    castingBatchId,
+    castingBatchName,
+    karat: data.karat,
+    colour: data.colour,
+    weightIssue: data.weightIssue,
+    xrfReport: data.xrfReport,
+    fireReport: data.fireReport,
+    touchPuliya: data.touchPuliya,
+    wstgWeight: data.wstgWeight,
+    remarks: data.remarks,
+  });
+  if (!issueXrfWastageSample(candidateEntry)) {
+    if (previousEntry) {
+      issueXrfWastageSample(previousEntry);
+      syncXrfReturnRecords(previousEntry);
+    }
+    alert("Could not issue XRF sample from Casting Tree WSTG. Please check safe stock.");
+    return;
+  }
+  Object.assign(entry, candidateEntry);
+  if (!data.xrfId) state.xrfTests.unshift(entry);
+  syncXrfReturnRecords(entry);
+  resetXrfForm();
   saveState();
   render();
 });
@@ -1660,6 +1720,10 @@ document.getElementById("cancel-melting-receive").addEventListener("click", () =
 
 document.getElementById("cancel-melting-issue-edit").addEventListener("click", () => {
   resetMeltingIssueForm();
+});
+
+document.getElementById("cancel-xrf-edit").addEventListener("click", () => {
+  resetXrfForm();
 });
 
 document.getElementById("close-melting-view").addEventListener("click", () => {
@@ -3799,6 +3863,8 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
 function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetails = {}) {
   const item = findById("safeItems", itemId);
   if (!item || item.status === "Out") return false;
+  const issueLabel = issueDetails.issueLabel || "Factory Issue";
+  const issueSourceType = issueDetails.sourceType || "factory-issue";
   const take = Number(weight3(weight));
   const itemNet = safeItemAvailableWeight(item);
   if (take <= 0 || take > itemNet + 0.0005) return false;
@@ -3823,9 +3889,9 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
       date: today(),
       locker: item.locker || item.purity,
       purity: item.purity || item.locker,
-      description: `${item.description || "Casting item"} - Factory Issue`,
+      description: `${item.description || "Casting item"} - ${issueLabel}`,
       source: reference,
-      sourceType: "factory-issue",
+      sourceType: issueSourceType,
       sourceId,
       sourceLine: item.sourceLine || "",
       colour: safeItemColour(item),
@@ -3899,6 +3965,8 @@ function addSafeItem(item) {
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceLine: item.sourceLine || "",
+    castingBatchId: item.castingBatchId || "",
+    castingBatchName: item.castingBatchName || "",
     colour: item.colour || safeItemColour(item),
     desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
     safeKind: safeItemKind(item),
@@ -6656,7 +6724,7 @@ function renderOrderLotCard(lot) {
   const nonGoldTotals = productionNonGoldTotalsForLot(lot);
   const actions = lot.status === "Completed"
     ? `<button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
-    : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
+    : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" type="button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
   return `
     <article class="order-lot-card">
       <div>
@@ -6807,6 +6875,37 @@ function productionNonGoldMaterialLabel(value = "") {
   return PRODUCTION_NON_GOLD_TYPES.find((item) => item.value === type)?.label || "Other";
 }
 
+function normalizeProductionNonGoldMovementType(value = "", weight = 0, pcs = 0) {
+  const text = String(value || "").trim().toLowerCase();
+  if (["remove", "removed", "deduct", "deducted", "damage", "damaged", "out"].includes(text)) return "remove";
+  if (Number(weight || 0) < 0 || Number(pcs || 0) < 0) return "remove";
+  return "issue";
+}
+
+function productionNonGoldMovementLabel(issue = {}) {
+  return normalizeProductionNonGoldMovementType(issue.movementType || issue.actionType, issue.weight, issue.pcs) === "remove"
+    ? "Remove"
+    : "Issue";
+}
+
+function productionNonGoldMovementStatusClass(issue = {}) {
+  return productionNonGoldMovementLabel(issue) === "Remove"
+    ? "cancelled"
+    : productionNonGoldIssueInDepartment(issue) ? "pending" : "completed";
+}
+
+function productionNonGoldDisplayWeight(issue = {}) {
+  const movement = productionNonGoldMovementLabel(issue);
+  const weight = Math.abs(Number(issue.weight || 0));
+  return movement === "Remove" ? `-${gram(weight)}` : gram(weight);
+}
+
+function productionNonGoldDisplayPcs(issue = {}) {
+  const pcs = Math.abs(Number(issue.pcs || 0));
+  if (!pcs) return "-";
+  return productionNonGoldMovementLabel(issue) === "Remove" ? `-${pcs}` : pcs;
+}
+
 function lotPurityForStateLot(currentState, lot = {}) {
   const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
   const orderPurity = (currentState.orders || []).find((order) => orderIds.includes(order.id))?.purity;
@@ -6818,9 +6917,17 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
   const purity = issue.purity || lotPurityForStateLot(currentState, lot);
   const departmentId = issue.departmentId || lot.karigarId || "";
   const department = (currentState.karigars || []).find((item) => item.id === departmentId);
+  const movementType = normalizeProductionNonGoldMovementType(issue.movementType || issue.actionType, issue.weight, issue.pcs);
+  let pcs = Number(issue.pcs || 0);
+  let weight = Number(issue.weight || 0);
+  if (movementType === "remove") {
+    pcs = pcs > 0 ? -pcs : pcs;
+    weight = weight > 0 ? -weight : weight;
+  }
   return {
     id: issue.id || crypto.randomUUID(),
     date: issue.date || today(),
+    movementType,
     lotId: issue.lotId || lot.id || "",
     lotNumber: issue.lotNumber || lot.number || "",
     jobNumber: issue.jobNumber || lot.orderNumber || "",
@@ -6828,13 +6935,98 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     department: mergedProductionDepartmentName(issue.department || lot.currentDepartment || lot.karigarName || primaryDepartmentProcess(department) || department?.name || ""),
     materialType,
     materialLabel: productionNonGoldMaterialLabel(materialType),
-    pcs: Number(issue.pcs || 0),
-    weight: Number(weight3(issue.weight || 0)),
+    pcs,
+    weight: Number(weight3(weight)),
     purity,
     karat: issue.karat || safeLockerForPurity(purity),
-    sourceType: issue.sourceType || "production-non-gold",
+    sourceType: issue.sourceType || (movementType === "remove" ? "production-non-gold-remove" : "production-non-gold"),
+    reason: issue.reason || "",
     remarks: issue.remarks || "",
   };
+}
+
+function productionNonGoldAvailableForSelection({ lotId = "", departmentId = "", materialType = "" } = {}) {
+  const material = normalizeProductionNonGoldMaterial(materialType);
+  const lot = lotId ? findById("lots", lotId) : null;
+  const entries = lot
+    ? lotNonGoldIssues(lot)
+    : productionNonGoldDirectDepartmentEntries().map(({ issue }) => issue);
+  const totals = entries
+    .filter((issue) => !material || issue.materialType === material)
+    .filter((issue) => lot || !departmentId || issue.departmentId === departmentId)
+    .reduce((summary, issue) => {
+      summary.pcs = Number(weight3(summary.pcs + Number(issue.pcs || 0)));
+      summary.weight = Number(weight3(summary.weight + Number(issue.weight || 0)));
+      return summary;
+    }, { pcs: 0, weight: 0 });
+  return {
+    pcs: Math.max(Number(totals.pcs || 0), 0),
+    weight: Math.max(Number(totals.weight || 0), 0),
+  };
+}
+
+function saveProductionNonGoldMovement(event, movementType = "issue") {
+  const form = event.target;
+  const data = getFormData(form);
+  const isRemove = movementType === "remove";
+  const lot = data.lotId ? findById("lots", data.lotId) : null;
+  const department = findById("karigars", data.departmentId);
+  if (!department) {
+    alert(`Select department to ${isRemove ? "remove" : "issue"} non-gold material.`);
+    return;
+  }
+  if (data.lotId && (!lot || lot.status === "Completed")) {
+    alert("Select one active production lot, or leave lot blank for direct department entry.");
+    return;
+  }
+  const weight = Number(data.weight || 0);
+  if (weight <= 0) {
+    alert(`Enter non-gold material weight to ${isRemove ? "remove" : "issue"}.`);
+    return;
+  }
+  const pcs = Number(data.pcs || 0);
+  if (pcs < 0) {
+    alert("No of pcs cannot be negative.");
+    return;
+  }
+  if (isRemove) {
+    const available = productionNonGoldAvailableForSelection({
+      lotId: lot?.id || "",
+      departmentId: department.id,
+      materialType: data.materialType || "other",
+    });
+    if (weight > available.weight + 0.0005) {
+      alert(`Cannot remove ${gram(weight)}. Available ${productionNonGoldMaterialLabel(data.materialType)} is only ${gram(available.weight)}.`);
+      return;
+    }
+    if (pcs && available.pcs && pcs > available.pcs) {
+      alert(`Cannot remove ${pcs} pcs. Available pcs is only ${available.pcs}.`);
+      return;
+    }
+  }
+  const reason = String(data.remarks || "").trim();
+  const issue = normalizeProductionNonGoldIssue({
+    id: crypto.randomUUID(),
+    date: today(),
+    movementType,
+    materialType: data.materialType || "other",
+    pcs: isRemove ? -Math.abs(pcs) : pcs,
+    weight: isRemove ? -Math.abs(weight) : weight,
+    purity: data.purity || lot?.metalPurity || getLotOrders(lot || {})[0]?.purity || "18K",
+    lotId: lot?.id || "",
+    lotNumber: lot?.number || "",
+    jobNumber: lot?.orderNumber || "",
+    departmentId: department.id,
+    department: primaryDepartmentProcess(department) || department.name,
+    reason: isRemove ? reason : "",
+    remarks: isRemove ? `Removed - ${reason || "Reason not mentioned"}` : reason,
+  }, lot || {});
+  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+  state.productionNonGoldIssues.unshift(issue);
+  form.reset();
+  saveState();
+  render();
+  switchProductionPage("non-gold");
 }
 
 function lotNonGoldIssues(lot = {}) {
@@ -6901,6 +7093,7 @@ function productionNonGoldIssueInDepartment(issue = {}) {
 }
 
 function productionNonGoldIssueStatus(issue = {}) {
+  if (productionNonGoldMovementLabel(issue) === "Remove") return "Removed / Damaged";
   if (!issue.lotId) return "In Department";
   const lot = findById("lots", issue.lotId);
   const bill = lot?.bill || (state.bills || []).find((item) => item.lotId === issue.lotId);
@@ -6924,8 +7117,7 @@ function productionNonGoldInDepartmentsWeight() {
   return Object.values(departmentMetalInHand()).reduce((total, item) => Number(weight3(total + Number(item.nonGold || 0))), 0);
 }
 
-function applyProductionNonGoldLotDefaults() {
-  const form = document.getElementById("production-non-gold-form");
+function applyProductionNonGoldLotDefaults(form = document.getElementById("production-non-gold-form")) {
   if (!form?.lotId?.value) return;
   const lot = findById("lots", form.lotId.value);
   if (!lot) return;
@@ -6956,6 +7148,31 @@ function updateProductionNonGoldSummary() {
   summary.textContent = `${material} ${pcs ? `${pcs} pcs / ` : ""}${gram(weight)} will be issued to ${departmentName}${linkText} in ${karat}. Department non-gold ${gram(existingTotal)}, after save ${gram(afterIssue)}.`;
 }
 
+function updateProductionNonGoldRemoveSummary() {
+  const form = document.getElementById("production-non-gold-remove-form");
+  const summary = document.getElementById("non-gold-remove-summary");
+  if (!form || !summary) return;
+  const lot = form.lotId.value ? findById("lots", form.lotId.value) : null;
+  const department = form.departmentId?.value ? findById("karigars", form.departmentId.value) : null;
+  if (!department) {
+    summary.textContent = "Select a department or lot to see available non-gold material before removing.";
+    return;
+  }
+  const material = productionNonGoldMaterialLabel(form.materialType.value);
+  const weight = Number(form.weight.value || 0);
+  const pcs = Number(form.pcs.value || 0);
+  const departmentName = primaryDepartmentProcess(department) || department.name;
+  const available = productionNonGoldAvailableForSelection({
+    lotId: lot?.id || "",
+    departmentId: department.id,
+    materialType: form.materialType.value || "other",
+  });
+  const afterRemove = Number(weight3(Math.max(available.weight - Math.max(weight, 0), 0)));
+  const karat = safeLockerForPurity(form.purity.value || lot?.metalPurity || "18K");
+  const linkText = lot ? ` from ${lot.number} / ${lot.orderNumber || "-"}` : ` from ${departmentName}`;
+  summary.textContent = `${material} available ${available.pcs ? `${available.pcs} pcs / ` : ""}${gram(available.weight)} in ${karat}. Removing ${pcs ? `${pcs} pcs / ` : ""}${gram(weight)}${linkText}. Balance after save ${gram(afterRemove)}.`;
+}
+
 function openTransferFromOrder(lotId) {
   document.getElementById("order-dialog").close();
   openTransferLot(lotId);
@@ -6981,6 +7198,19 @@ function openNonGoldIssueForLot(lotId) {
   form.lotId.value = lotId;
   applyProductionNonGoldLotDefaults();
   updateProductionNonGoldSummary();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function openNonGoldRemoveForLot(lotId) {
+  const orderDialog = document.getElementById("order-dialog");
+  if (orderDialog?.open) orderDialog.close();
+  switchView("production");
+  switchProductionPage("non-gold");
+  const form = document.getElementById("production-non-gold-remove-form");
+  if (!form) return;
+  form.lotId.value = lotId;
+  applyProductionNonGoldLotDefaults(form);
+  updateProductionNonGoldRemoveSummary();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -7755,18 +7985,20 @@ function renderSelects() {
   applyIssuePurityFromJob();
   updateProductionCastingItemOptions();
   updateIssueMetalSummary();
-  document.querySelectorAll('#production-non-gold-form select[name="lotId"]').forEach((select) => {
+  document.querySelectorAll('#production-non-gold-form select[name="lotId"], #production-non-gold-remove-form select[name="lotId"]').forEach((select) => {
     const selected = select.value;
     select.innerHTML = activeLotOptions ? `<option value="">Direct department issue</option>${activeLotOptions}` : '<option value="">Direct department issue</option>';
     select.value = (state.lots || []).some((lot) => lot.id === selected && lot.status !== "Completed") ? selected : "";
   });
-  document.querySelectorAll('#production-non-gold-form select[name="departmentId"]').forEach((select) => {
+  document.querySelectorAll('#production-non-gold-form select[name="departmentId"], #production-non-gold-remove-form select[name="departmentId"]').forEach((select) => {
     const selected = select.value;
     select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
     select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
   });
-  applyProductionNonGoldLotDefaults();
+  applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-form"));
+  applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-remove-form"));
   updateProductionNonGoldSummary();
+  updateProductionNonGoldRemoveSummary();
   document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
     select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
   });
@@ -7782,6 +8014,7 @@ function renderSelects() {
       <option value="Melting Department">Melting Department</option>
     `;
   });
+  refreshXrfSourceOptions();
   document.querySelectorAll('select[name="customerId"]').forEach((select) => {
     select.innerHTML = customerOptions || '<option value="">Add a customer first</option>';
   });
@@ -11022,7 +11255,7 @@ function renderProduction() {
       <td>${wastageDetailHtml(lot)}</td>
       <td><span class="status ${statusClass(lot.status)}">${lot.status}</span></td>
       <td>${renderTransferHistory(lot)}</td>
-      <td><div class="row-actions">${lot.status === "Completed" ? "" : `<button onclick="openTransferLot('${lot.id}')">Transfer</button><button onclick="openCompleteLot('${lot.id}')">Complete</button>`}<button class="ghost-button" onclick="openLotHistory('${lot.id}')">History</button></div></td>
+      <td><div class="row-actions">${lot.status === "Completed" ? "" : `<button onclick="openTransferLot('${lot.id}')">Transfer</button><button onclick="openCompleteLot('${lot.id}')">Complete</button><button class="ghost-button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button>`}<button class="ghost-button" onclick="openLotHistory('${lot.id}')">History</button></div></td>
     </tr>
   `).join("");
   document.getElementById("production-table").innerHTML = rows || tableEmpty(11, "No production lots recorded.");
@@ -11045,18 +11278,19 @@ function renderProductionNonGoldTable() {
   const rows = productionNonGoldEntries().map(({ lot, issue }) => `
     <tr>
       <td>${escapeHtml(issue.date || "-")}</td>
+      <td><span class="status ${productionNonGoldMovementLabel(issue) === "Remove" ? "cancelled" : "transfer"}">${productionNonGoldMovementLabel(issue)}</span></td>
       <td>${escapeHtml(issue.department || lot?.currentDepartment || lot?.karigarName || "-")}</td>
       <td>${escapeHtml(issue.lotNumber || lot?.number || "-")}</td>
       <td>${escapeHtml(issue.jobNumber || lot?.orderNumber || "-")}</td>
       <td>${escapeHtml(issue.materialLabel || productionNonGoldMaterialLabel(issue.materialType))}</td>
-      <td>${issue.pcs || "-"}</td>
-      <td>${gram(issue.weight)}</td>
+      <td>${productionNonGoldDisplayPcs(issue)}</td>
+      <td>${productionNonGoldDisplayWeight(issue)}</td>
       <td>${escapeHtml(issue.karat || safeLockerForPurity(issue.purity))}</td>
-      <td><span class="status ${productionNonGoldIssueInDepartment(issue) ? "pending" : "completed"}">${escapeHtml(productionNonGoldIssueStatus(issue))}</span></td>
+      <td><span class="status ${productionNonGoldMovementStatusClass(issue)}">${escapeHtml(productionNonGoldIssueStatus(issue))}</span></td>
       <td>${escapeHtml(issue.remarks || "-")}</td>
     </tr>
   `).join("");
-  table.innerHTML = rows || tableEmpty(10, "No non-gold material issued yet.");
+  table.innerHTML = rows || tableEmpty(11, "No non-gold material movement recorded yet.");
 }
 
 function renderBills() {
@@ -13573,11 +13807,13 @@ function renderMeltingDashboard() {
 
   const summary = document.getElementById("melting-summary-grid");
   if (summary) {
+    const xrfTotals = xrfSummaryTotals();
     summary.innerHTML = `
       ${meltingSummaryCard("Metal With Melting", gram(totals.meltingInHand), [`Pending melting ${totals.meltingPending}`, `Loss booked ${gram(totals.meltingLoss)}`])}
       ${meltingSummaryCard("Metal With Casting", gram(totals.castingInHand), [`Pending casting ${totals.castingPending}`, `Loss booked ${gram(totals.castingLoss)}`])}
       ${meltingSummaryCard("Total Loss", gram(totals.loss), [`Fine gold loss ${gram(totals.lossFineGold)}`, `Received batches ${totals.received}`], "loss")}
       ${meltingSummaryCard("History", `${totals.total}`, [`Pending ${totals.pending}`, `Received NT ${gram(totals.receivedWeight)}`])}
+      ${meltingSummaryCard("XRF Samples", `${xrfTotals.pending} pending`, [`Touch Puliya 99.9 ${gram(xrfTotals.touchPuliyaWeight)}`, `Untreated WSTG ${gram(xrfTotals.wstgWeight)}`])}
     `;
   }
 
@@ -13597,6 +13833,479 @@ function meltingSummaryCard(title, value, lines = [], variant = "") {
       ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
     </article>
   `;
+}
+
+function isXrfWastageSource(item = {}) {
+  if (!item || item.status === "Out" || safeItemKind(item) !== "wastage") return false;
+  const sourceLine = String(item.sourceLine || "").toLowerCase();
+  return sourceLine === "treecutweight"
+    || sourceLine === "wastageweight"
+    || (item.sourceType === "xrf-issue-return" && sourceLine === "treecutweight");
+}
+
+function xrfSourceGroupId(parts = []) {
+  return `xrf-wstg:${safeShelfKey(parts)}`;
+}
+
+function xrfBatchNameFromSource(item = {}) {
+  if (item.castingBatchName) return item.castingBatchName;
+  const melting = (state.melting || []).find((entry) => entry.id === item.sourceId);
+  if (melting) return melting.batchName || assignMeltingBatchName(melting);
+  const sourceText = String(item.source || "").split("/").map((part) => part.trim()).filter(Boolean);
+  return sourceText[0] || item.sourceId || "Casting Batch";
+}
+
+function xrfSourceGroups() {
+  const groups = new Map();
+  (state.safeItems || [])
+    .filter(isXrfWastageSource)
+    .forEach((item) => {
+      const locker = safeLockerForPurity(item.locker || item.purity);
+      const colour = safeTextKey(safeItemColour(item) || "Mixed");
+      const desiredPurity = displayPurity(safeItemDesiredPurity(item) || locker);
+      const castingBatchId = item.castingBatchId || (item.sourceType === "xrf-issue-return" ? item.sourceId || "" : item.sourceId || "");
+      const castingBatchName = xrfBatchNameFromSource(item);
+      const key = safeShelfKey([castingBatchId || castingBatchName, locker, colour, desiredPurity]);
+      const existing = groups.get(key) || {
+        id: xrfSourceGroupId([castingBatchId || castingBatchName, locker, colour, desiredPurity]),
+        castingBatchId,
+        castingBatchName,
+        locker,
+        purity: desiredPurity,
+        colour,
+        description: `${castingBatchName} / ${locker} / ${colour} / Casting Tree WSTG`,
+        weight: 0,
+        items: [],
+      };
+      existing.weight = Number(weight3(existing.weight + safeItemAvailableWeight(item)));
+      existing.items.push(item);
+      groups.set(key, existing);
+  });
+  return [...groups.values()].sort((a, b) =>
+    `${a.castingBatchName} ${a.locker} ${a.colour} ${a.purity}`.localeCompare(`${b.castingBatchName} ${b.locker} ${b.colour} ${b.purity}`, undefined, { sensitivity: "base" })
+  );
+}
+
+function findXrfSourceGroup(groupId = "") {
+  return xrfSourceGroups().find((group) => group.id === groupId) || null;
+}
+
+function findXrfSourceGroupByCastingId(castingBatchId = "") {
+  return xrfSourceGroups().find((group) => group.castingBatchId === castingBatchId) || null;
+}
+
+function renderXrfSourceOptions(selected = "", creditEntry = null) {
+  const groups = xrfSourceGroups();
+  const byId = new Map(groups.map((group) => [group.id, { ...group }]));
+  if (creditEntry?.sourceGroupId) {
+    const existing = byId.get(creditEntry.sourceGroupId);
+    if (existing) {
+      existing.weight = Number(weight3(existing.weight + Number(creditEntry.weightIssue || 0)));
+      byId.set(existing.id, existing);
+    } else {
+      byId.set(creditEntry.sourceGroupId, {
+        id: creditEntry.sourceGroupId,
+        castingBatchId: creditEntry.castingBatchId || "",
+        castingBatchName: creditEntry.castingBatchName || creditEntry.sourceDescription || "Casting Batch",
+        locker: safeLockerForPurity(creditEntry.sourceLocker || creditEntry.karat),
+        purity: creditEntry.sourcePurity || creditEntry.karat || "",
+        colour: creditEntry.sourceColour || creditEntry.colour || "",
+        description: creditEntry.sourceDescription || "Previous XRF Casting Tree WSTG source",
+        weight: Number(creditEntry.weightIssue || 0),
+        items: [],
+      });
+    }
+  }
+  const optionGroups = [...byId.values()].sort((a, b) =>
+    `${a.castingBatchName} ${a.locker} ${a.colour} ${a.purity}`.localeCompare(`${b.castingBatchName} ${b.locker} ${b.colour} ${b.purity}`, undefined, { sensitivity: "base" })
+  );
+  const options = optionGroups.map((group) =>
+    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(group.description)} / Available ${gram(group.weight)}</option>`
+  ).join("");
+  return options || '<option value="">No Casting Tree WSTG in safe</option>';
+}
+
+function refreshXrfSourceOptions(selected = "", creditEntry = null) {
+  const form = document.getElementById("xrf-form");
+  if (!form?.sourceGroupId) return;
+  const current = selected || form.sourceGroupId.value;
+  form.sourceGroupId.innerHTML = renderXrfSourceOptions(current, creditEntry);
+  form.sourceGroupId.value = [...form.sourceGroupId.options].some((option) => option.value === current) ? current : (form.sourceGroupId.options[0]?.value || "");
+  applyXrfSourceDefaults();
+}
+
+function applyXrfSourceDefaults() {
+  const form = document.getElementById("xrf-form");
+  if (!form?.sourceGroupId?.value) return;
+  const group = findXrfSourceGroup(form.sourceGroupId.value);
+  const entry = form.xrfId.value ? findById("xrfTests", form.xrfId.value) : null;
+  const fallback = entry?.sourceGroupId === form.sourceGroupId.value ? normalizeXrfEntry(entry) : null;
+  const locker = group?.locker || fallback?.sourceLocker || fallback?.karat || "";
+  const colour = group?.colour || fallback?.sourceColour || fallback?.colour || "";
+  if (locker) form.karat.value = safeLockerForPurity(locker);
+  if (colour && [...form.colour.options].some((option) => option.value === colour)) form.colour.value = colour;
+}
+
+function xrfSourceGroupAvailable(groupId = "", creditEntry = null) {
+  const group = findXrfSourceGroup(groupId);
+  const current = Number(group?.weight || 0);
+  const credit = creditEntry?.sourceGroupId === groupId ? Number(creditEntry.weightIssue || 0) : 0;
+  return Number(weight3(current + credit));
+}
+
+function restoreXrfWastageIssue(entry = {}) {
+  const normalized = normalizeXrfEntry(entry);
+  if (!normalized.weightIssue) return;
+  addSafeItem({
+    date: today(),
+    locker: safeLockerForPurity(normalized.sourceLocker || normalized.karat),
+    purity: normalized.sourcePurity || normalized.karat,
+    description: "Casting Tree WSTG returned - XRF correction",
+    source: `${normalized.castingBatchName || normalized.sourceDescription || "Casting Batch"} / XRF issue restored`,
+    sourceType: "xrf-issue-return",
+    sourceId: normalized.castingBatchId || normalized.id,
+    sourceLine: "treeCutWeight",
+    castingBatchId: normalized.castingBatchId,
+    castingBatchName: normalized.castingBatchName,
+    colour: normalized.sourceColour || normalized.colour,
+    desiredPurity: normalized.sourcePurity || normalized.karat,
+    safeKind: "wastage",
+    grossWeight: normalized.weightIssue,
+    netWeight: normalized.weightIssue,
+    status: "In Safe",
+    remarks: "Restored because XRF entry was edited or deleted",
+  });
+}
+
+function removeXrfWastageReturn(entryId) {
+  state.safeItems = (state.safeItems || []).filter((item) =>
+    !(item.sourceType === "xrf-return-wstg" && item.sourceId === entryId)
+  );
+}
+
+function syncXrfWastageReturn(entry = {}) {
+  const normalized = normalizeXrfEntry(entry);
+  removeXrfWastageReturn(normalized.id);
+  const safeItem = xrfWastageReturnSafeItem(normalized);
+  if (safeItem) addSafeItem(safeItem);
+}
+
+function xrfWastageReturnSafeItem(entry = {}) {
+  const normalized = normalizeXrfEntry(entry);
+  if (Number(normalized.wstgWeight || 0) <= 0) return;
+  return {
+    id: `xrf-return-wstg-${normalized.id}`,
+    date: normalized.date || today(),
+    locker: safeLockerForPurity(normalized.sourceLocker || normalized.karat),
+    purity: normalized.sourcePurity || normalized.karat,
+    description: `XRF WSTG Untreated Return - ${normalized.colour || "Casting"}`,
+    source: `${normalized.castingBatchName || "Casting Batch"} / XRF Return`,
+    sourceType: "xrf-return-wstg",
+    sourceId: normalized.id,
+    sourceLine: "wastageWeight",
+    castingBatchId: normalized.castingBatchId,
+    castingBatchName: normalized.castingBatchName,
+    colour: normalized.sourceColour || normalized.colour,
+    desiredPurity: normalized.sourcePurity || normalized.karat,
+    safeKind: "wastage",
+    grossWeight: normalized.wstgWeight,
+    netWeight: normalized.wstgWeight,
+    status: "In Safe",
+    remarks: "Untreated WSTG returned from XRF to respective shelf",
+  };
+}
+
+function syncXrfWastageReturnsForState(currentState = state) {
+  const xrfIds = new Set((currentState.xrfTests || []).map((entry) => entry.id).filter(Boolean));
+  currentState.safeItems = (currentState.safeItems || []).filter((item) =>
+    !(item.sourceType === "xrf-return-wstg" && (!item.sourceId || xrfIds.has(item.sourceId)))
+  );
+  (currentState.xrfTests || []).map(normalizeXrfEntry).forEach((entry) => {
+    const safeItem = xrfWastageReturnSafeItem(entry);
+    if (safeItem) currentState.safeItems.unshift(safeItem);
+  });
+}
+
+function syncXrfReturnRecords(entry = {}) {
+  syncXrfMetalSafeReturn(entry);
+  syncXrfWastageReturn(entry);
+}
+
+function issueXrfWastageSample(entry = {}) {
+  const group = findXrfSourceGroup(entry.sourceGroupId) || findXrfSourceGroupByCastingId(entry.castingBatchId);
+  if (!group || Number(entry.weightIssue || 0) <= 0) return false;
+  let remaining = Number(weight3(entry.weightIssue));
+  const priority = { treecutweight: 0, wastageweight: 1 };
+  const items = [...group.items].sort((a, b) => {
+    const aLine = String(a.sourceLine || "").toLowerCase();
+    const bLine = String(b.sourceLine || "").toLowerCase();
+    return (priority[aLine] ?? 2) - (priority[bLine] ?? 2)
+      || String(a.date || "").localeCompare(String(b.date || ""));
+  });
+  for (const item of items) {
+    if (remaining <= 0.0005) break;
+    const take = Number(weight3(Math.min(safeItemAvailableWeight(item), remaining)));
+    if (take <= 0) continue;
+    issueFromSafeItem(
+      item.id,
+      take,
+      `XRF sample issued from Casting Tree WSTG / ${entry.sourceDescription || ""}`,
+      entry.id,
+      { sourceType: "xrf-issue", issueLabel: "XRF Sample Issue" }
+    );
+    remaining = Number(weight3(remaining - take));
+  }
+  return remaining <= 0.0005;
+}
+
+function xrfNumericValue(value) {
+  const number = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function xrfFirePercent(value) {
+  return xrfNumericValue(value);
+}
+
+function xrfFireFraction(value) {
+  const percent = xrfFirePercent(value);
+  return percent > 1 ? percent / 100 : percent;
+}
+
+function normalizeXrfEntry(entry = {}) {
+  const weightIssue = Number(weight3(entry.weightIssue ?? 0.5));
+  const wstgWeight = Number(weight3(entry.wstgWeight ?? entry.wstg ?? 0));
+  const treatedMetal = Number(weight3(Math.max(weightIssue - wstgWeight, 0)));
+  const firePercent = xrfFirePercent(entry.fireReport);
+  const calculatedPureMetal = Number(weight3(firePercent ? treatedMetal * xrfFireFraction(firePercent) : Number(entry.pureReturnWeight || 0)));
+  let touchPuliyaWeight = Number(weight3(xrfNumericValue(entry.touchPuliyaWeight ?? entry.touchPuliya)));
+  if (!touchPuliyaWeight && !firePercent && Number(entry.pureReturnWeight || 0) > 0) {
+    touchPuliyaWeight = Number(weight3(entry.pureReturnWeight));
+  }
+  const hasTreatment = firePercent > 0 || touchPuliyaWeight > 0 || wstgWeight > 0;
+  const loss = hasTreatment ? Number(weight3(calculatedPureMetal - touchPuliyaWeight)) : 0;
+  const alloyLoss = hasTreatment ? Number(weight3(treatedMetal - touchPuliyaWeight)) : 0;
+  const sourceDescription = entry.sourceDescription || "Casting Tree WSTG";
+  const castingBatchName = entry.castingBatchName || entry.batchName || String(sourceDescription).split("/")[0].trim() || "Casting Batch";
+  return {
+    id: entry.id || crypto.randomUUID(),
+    createdAt: entry.createdAt || new Date().toISOString(),
+    date: entry.date || isoToday(),
+    karat: entry.karat || entry.purity || "18K",
+    colour: entry.colour || "Yellow",
+    sourceGroupId: entry.sourceGroupId || "",
+    sourceLocker: entry.sourceLocker || entry.karat || entry.purity || "",
+    sourcePurity: entry.sourcePurity || entry.karat || entry.purity || "",
+    sourceColour: entry.sourceColour || entry.colour || "",
+    sourceDescription,
+    castingBatchId: entry.castingBatchId || entry.sourceMeltingId || "",
+    castingBatchName,
+    createdFrom: entry.createdFrom || "",
+    weightIssue,
+    xrfReport: entry.xrfReport || "",
+    fireReport: entry.fireReport || "",
+    touchPuliya: weight3(touchPuliyaWeight),
+    touchPuliyaWeight,
+    treatedMetal,
+    pureReturnWeight: calculatedPureMetal,
+    wstgWeight,
+    loss,
+    alloyLoss,
+    remarks: entry.remarks || "",
+    metalSafeMovementId: entry.metalSafeMovementId || "",
+    updatedAt: entry.updatedAt || "",
+  };
+}
+
+function xrfEntryStatus(entry = {}) {
+  const normalized = normalizeXrfEntry(entry);
+  const hasReturn = Number(normalized.touchPuliyaWeight || 0) > 0
+    || Number(normalized.wstgWeight || 0) > 0
+    || xrfFirePercent(normalized.fireReport) > 0
+    || Number(normalized.alloyLoss || 0) !== 0
+    || Number(normalized.loss || 0) !== 0;
+  return hasReturn ? "XRF Return" : "XRF Issue";
+}
+
+function xrfSummaryTotals() {
+  return (state.xrfTests || []).reduce((totals, entry) => {
+    const normalized = normalizeXrfEntry(entry);
+    totals.total += 1;
+    totals.issuedWeight = Number(weight3(totals.issuedWeight + normalized.weightIssue));
+    totals.treatedMetal = Number(weight3(totals.treatedMetal + normalized.treatedMetal));
+    totals.pureReturnWeight = Number(weight3(totals.pureReturnWeight + normalized.pureReturnWeight));
+    totals.touchPuliyaWeight = Number(weight3(totals.touchPuliyaWeight + normalized.touchPuliyaWeight));
+    totals.wstgWeight = Number(weight3(totals.wstgWeight + normalized.wstgWeight));
+    totals.loss = Number(weight3(totals.loss + normalized.loss));
+    totals.alloyLoss = Number(weight3(totals.alloyLoss + normalized.alloyLoss));
+    if (xrfEntryStatus(normalized) === "XRF Return") totals.returned += 1;
+    else totals.pending += 1;
+    return totals;
+  }, {
+    total: 0,
+    pending: 0,
+    returned: 0,
+    issuedWeight: 0,
+    treatedMetal: 0,
+    pureReturnWeight: 0,
+    touchPuliyaWeight: 0,
+    wstgWeight: 0,
+    loss: 0,
+    alloyLoss: 0,
+  });
+}
+
+function renderXrfTests() {
+  const summary = document.getElementById("xrf-summary-grid");
+  const totals = xrfSummaryTotals();
+  if (summary) {
+    summary.innerHTML = `
+      ${meltingSummaryCard("XRF Pending", `${totals.pending}`, [`Issued ${gram(totals.issuedWeight)}`])}
+      ${meltingSummaryCard("Treated Metal", gram(totals.treatedMetal), [`Pure by fire ${gram(totals.pureReturnWeight)}`])}
+      ${meltingSummaryCard("Touch Puliya 99.9", gram(totals.touchPuliyaWeight), [`Returned entries ${totals.returned}`])}
+      ${meltingSummaryCard("Untreated WSTG", gram(totals.wstgWeight), [`Returned to respective shelf`])}
+      ${meltingSummaryCard("XRF Loss", gram(totals.loss), [`Alloy loss ${gram(totals.alloyLoss)}`], totals.loss ? "loss" : "")}
+    `;
+  }
+  const table = document.getElementById("xrf-table");
+  if (!table) return;
+  const rows = [...(state.xrfTests || [])]
+    .map(normalizeXrfEntry)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .map(renderXrfRow)
+    .join("");
+  table.innerHTML = rows || tableEmpty(15, "No XRF entries yet.");
+}
+
+function renderXrfRow(entry) {
+  const status = xrfEntryStatus(entry);
+  return `
+    <tr>
+      <td>${escapeHtml(entry.date || "-")}</td>
+      <td>${escapeHtml(entry.castingBatchName || entry.sourceDescription || "Casting Batch")}</td>
+      <td>${escapeHtml(entry.karat || "-")}</td>
+      <td>${escapeHtml(entry.colour || "-")}</td>
+      <td>${gram(entry.weightIssue)}</td>
+      <td>${gram(entry.wstgWeight)}</td>
+      <td>${gram(entry.treatedMetal)}</td>
+      <td>${escapeHtml(entry.xrfReport || "-")}</td>
+      <td>${entry.fireReport ? `${escapeHtml(entry.fireReport)}%` : "-"}</td>
+      <td>${gram(entry.pureReturnWeight)}</td>
+      <td>${gram(entry.touchPuliyaWeight)}</td>
+      <td>${gram(entry.loss)}</td>
+      <td>${gram(entry.alloyLoss)}</td>
+      <td><span class="status ${statusClass(status)}">${escapeHtml(status)}</span>${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
+      <td><div class="row-actions"><button class="ghost-button" type="button" onclick="editXrfEntry('${entry.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteXrfEntry('${entry.id}')">Delete</button></div></td>
+    </tr>
+  `;
+}
+
+function updateXrfLoss() {
+  const form = document.getElementById("xrf-form");
+  if (!form) return;
+  const weightIssue = Number(form.weightIssue.value || 0);
+  const wstgWeight = Number(form.wstgWeight.value || 0);
+  const firePercent = xrfFirePercent(form.fireReport.value);
+  const touchPuliyaWeight = Number(form.touchPuliya.value || 0);
+  const treatedMetal = Number(weight3(Math.max(weightIssue - wstgWeight, 0)));
+  const pureMetal = Number(weight3(firePercent ? treatedMetal * xrfFireFraction(firePercent) : 0));
+  const hasTreatment = firePercent > 0 || touchPuliyaWeight > 0 || wstgWeight > 0;
+  if (form.treatedMetal) form.treatedMetal.value = weight3(treatedMetal);
+  form.pureReturnWeight.value = weight3(pureMetal);
+  form.loss.value = weight3(hasTreatment ? pureMetal - touchPuliyaWeight : 0);
+  form.alloyLoss.value = weight3(hasTreatment ? treatedMetal - touchPuliyaWeight : 0);
+}
+
+function resetXrfForm() {
+  const form = document.getElementById("xrf-form");
+  if (!form) return;
+  form.reset();
+  form.xrfId.value = "";
+  form.date.value = isoToday();
+  form.weightIssue.value = "0.500";
+  form.fireReport.value = "";
+  form.touchPuliya.value = "0";
+  form.pureReturnWeight.value = "0";
+  form.wstgWeight.value = "0";
+  form.alloyLoss.value = "0";
+  if (form.treatedMetal) form.treatedMetal.value = "0.500";
+  refreshXrfSourceOptions();
+  if (!form.sourceGroupId.value) {
+    form.karat.value = "18K";
+    form.colour.value = "Yellow";
+  }
+  updateXrfLoss();
+  document.getElementById("xrf-form-title").textContent = "XRF Issue / Return Entry";
+  document.getElementById("xrf-submit").textContent = "Save XRF Entry";
+  document.getElementById("cancel-xrf-edit").classList.add("hidden");
+}
+
+function editXrfEntry(entryId) {
+  const entry = findById("xrfTests", entryId);
+  if (!entry) return;
+  const normalized = normalizeXrfEntry(entry);
+  openOperationPage("melting", "xrf");
+  const form = document.getElementById("xrf-form");
+  refreshXrfSourceOptions(normalized.sourceGroupId, normalized);
+  form.xrfId.value = normalized.id;
+  form.sourceGroupId.value = normalized.sourceGroupId;
+  form.date.value = normalized.date;
+  form.karat.value = normalized.karat;
+  form.colour.value = normalized.colour;
+  form.weightIssue.value = weight3(normalized.weightIssue);
+  form.xrfReport.value = normalized.xrfReport;
+  form.fireReport.value = normalized.fireReport;
+  form.touchPuliya.value = weight3(normalized.touchPuliyaWeight);
+  if (form.treatedMetal) form.treatedMetal.value = weight3(normalized.treatedMetal);
+  form.pureReturnWeight.value = weight3(normalized.pureReturnWeight);
+  form.wstgWeight.value = weight3(normalized.wstgWeight);
+  form.alloyLoss.value = weight3(normalized.alloyLoss);
+  form.remarks.value = normalized.remarks;
+  updateXrfLoss();
+  document.getElementById("xrf-form-title").textContent = "Edit XRF Issue / Return";
+  document.getElementById("xrf-submit").textContent = "Update XRF Entry";
+  document.getElementById("cancel-xrf-edit").classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function deleteXrfEntry(entryId) {
+  const entry = findById("xrfTests", entryId);
+  if (!entry) return;
+  if (!confirm("Delete this XRF entry?")) return;
+  restoreXrfWastageIssue(entry);
+  state.xrfTests = (state.xrfTests || []).filter((item) => item.id !== entryId);
+  removeXrfMetalSafeReturn(entryId);
+  removeXrfWastageReturn(entryId);
+  saveState();
+  render();
+}
+
+function removeXrfMetalSafeReturn(entryId) {
+  state.metalSafeMovements = (state.metalSafeMovements || []).filter((movement) =>
+    !(movement.sourceType === "xrf-return" && movement.sourceId === entryId)
+  );
+}
+
+function syncXrfMetalSafeReturn(entry) {
+  removeXrfMetalSafeReturn(entry.id);
+  const touchPuliyaWeight = Number(entry.touchPuliyaWeight || xrfNumericValue(entry.touchPuliya) || 0);
+  if (touchPuliyaWeight <= 0) {
+    entry.metalSafeMovementId = "";
+    return;
+  }
+  const movementId = entry.metalSafeMovementId || crypto.randomUUID();
+  entry.metalSafeMovementId = movementId;
+  addMetalSafeMovement({
+    id: movementId,
+    date: entry.date || today(),
+    type: "XRF Return",
+    direction: "in",
+    purity: "99.9%",
+    weight: touchPuliyaWeight,
+    reference: `${entry.castingBatchName || "Casting Batch"}: XRF Touch Puliya 99.9 return ${entry.karat || ""} ${entry.colour || ""}; Treated ${gram(entry.treatedMetal || 0)}; Pure by fire ${gram(entry.pureReturnWeight || 0)}; WSTG not treated ${gram(entry.wstgWeight || 0)}`,
+    sourceType: "xrf-return",
+    sourceId: entry.id,
+  });
 }
 
 function renderMeltingHistoryTile(item) {
@@ -13625,6 +14334,7 @@ function renderMeltingHistoryTile(item) {
 
 function renderMelting() {
   renderMeltingDashboard();
+  renderXrfTests();
 }
 
 function renderMeltingActionButtons(item) {
@@ -14256,10 +14966,14 @@ function openMeltingReceive(meltingId) {
   form.rod2Weight.value = weight3(breakup.rod2Weight);
   form.wastage1Weight.value = weight3(breakup.wastage1Weight ?? (isRodReceive ? breakup.wastageWeight : 0));
   form.wastage2Weight.value = weight3(breakup.wastage2Weight);
+  const xrfEntry = findCastingReceiveXrfEntry(melting.id);
+  if (form.issueXrfSample) form.issueXrfSample.checked = !isRodReceive && xrfEntry && xrfEntryStatus(xrfEntry) === "Issued";
+  if (form.xrfIssueWeight) form.xrfIssueWeight.value = weight3(xrfEntry?.weightIssue || 0.5);
   toggleMeltingReceiveMode(isRodReceive);
   document.getElementById("melting-receive-summary").textContent =
-    `${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
+    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
   updateMeltingReceiveLoss();
+  updateMeltingReceiveXrfNote();
   document.getElementById("melting-receive-dialog").showModal();
 }
 
@@ -14406,6 +15120,109 @@ function updateMeltingReceiveLoss() {
   const receivedWeight = isRodReceive ? grossReceivedWeight : Number(weight3(grossReceivedWeight - Math.min(waxStoneWeight, castingItemWeight)));
   form.receivedWeight.value = weight3(receivedWeight);
   form.meltingLoss.value = weight3(Math.max(finalWeight - receivedWeight, 0));
+  updateMeltingReceiveXrfNote();
+}
+
+function castingReceiveXrfAvailableFromBreakup(breakup = {}) {
+  return Number(weight3(Number(breakup.treeCutWeight || 0) + Number(breakup.wastageWeight || 0)));
+}
+
+function isCastingReceiveXrfChecked(data = {}) {
+  return data.issueXrfSample === "on" || data.issueXrfSample === true;
+}
+
+function validateCastingReceiveXrfIssue(data = {}, receiveBreakup = {}, melting = {}) {
+  if (isMeltingDepartmentReceive(melting) || !isCastingReceiveXrfChecked(data)) return true;
+  const issueWeight = Number(data.xrfIssueWeight || 0);
+  const available = castingReceiveXrfAvailableFromBreakup(receiveBreakup);
+  if (issueWeight <= 0) {
+    alert("Enter XRF issue weight.");
+    document.getElementById("melting-receive-form")?.xrfIssueWeight?.focus();
+    return false;
+  }
+  if (issueWeight > available + 0.0005) {
+    alert(`XRF sample can be issued only from Casting Tree WSTG. Available Tree + Wastage is ${gram(available)}, but XRF issue is ${gram(issueWeight)}.`);
+    return false;
+  }
+  const existing = findCastingReceiveXrfEntry(melting.id);
+  if (existing && xrfEntryStatus(existing) !== "XRF Issue") {
+    alert("This casting batch already has an XRF report/return entry. Edit it from XRF Testing instead of issuing again from Casting Receive.");
+    return false;
+  }
+  return true;
+}
+
+function updateMeltingReceiveXrfNote() {
+  const form = document.getElementById("melting-receive-form");
+  const note = document.getElementById("melting-xrf-issue-note");
+  if (!form || !note) return;
+  const melting = findById("melting", form.meltingId?.value);
+  if (isMeltingDepartmentReceive(melting)) {
+    note.textContent = "";
+    return;
+  }
+  const breakup = getMeltingReceiveBreakup(getFormData(form), melting);
+  const available = castingReceiveXrfAvailableFromBreakup(breakup);
+  const issueWeight = Number(form.xrfIssueWeight?.value || 0);
+  const batchName = melting?.batchName || (melting ? assignMeltingBatchName(melting) : "Casting Batch");
+  const checked = form.issueXrfSample?.checked;
+  note.textContent = checked
+    ? `${batchName}: XRF issue ${gram(issueWeight)} from Tree + Wastage available ${gram(available)}.`
+    : `${batchName}: tick XRF issue if sample is sent for purity testing. Available Tree + Wastage ${gram(available)}.`;
+}
+
+function findCastingReceiveXrfEntry(castingBatchId = "") {
+  if (!castingBatchId) return null;
+  return (state.xrfTests || []).find((entry) => {
+    const normalized = normalizeXrfEntry(entry);
+    return normalized.castingBatchId === castingBatchId && normalized.createdFrom === "casting-receive";
+  }) || null;
+}
+
+function syncCastingReceiveXrfIssue(melting = {}, data = {}) {
+  if (!melting?.id || isMeltingDepartmentReceive(melting)) return;
+  const existing = findCastingReceiveXrfEntry(melting.id);
+  if (existing && xrfEntryStatus(existing) === "XRF Issue") {
+    state.xrfTests = (state.xrfTests || []).filter((entry) => entry.id !== existing.id);
+    removeXrfMetalSafeReturn(existing.id);
+  }
+  if (!isCastingReceiveXrfChecked(data)) {
+    melting.xrfEntryId = "";
+    return;
+  }
+  const sourceGroup = findXrfSourceGroupByCastingId(melting.id);
+  if (!sourceGroup) {
+    alert("Casting receive saved, but no Tree/Wastage source was found for XRF. Enter Tree Cut or Wastage weight, then issue XRF.");
+    return;
+  }
+  const batchName = melting.batchName || assignMeltingBatchName(melting);
+  const entry = normalizeXrfEntry({
+    id: existing?.id || crypto.randomUUID(),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    createdFrom: "casting-receive",
+    date: isoToday(),
+    sourceGroupId: sourceGroup.id,
+    sourceLocker: sourceGroup.locker,
+    sourcePurity: sourceGroup.purity,
+    sourceColour: sourceGroup.colour,
+    sourceDescription: sourceGroup.description,
+    castingBatchId: melting.id,
+    castingBatchName: batchName,
+    karat: safeLockerForPurity(melting.targetPurity),
+    colour: melting.colour || sourceGroup.colour,
+    weightIssue: data.xrfIssueWeight || 0,
+    xrfReport: "",
+    fireReport: "",
+    touchPuliya: 0,
+    wstgWeight: 0,
+    remarks: `XRF sample issued from ${batchName} during casting receive`,
+  });
+  if (!issueXrfWastageSample(entry)) {
+    alert("Casting receive saved, but XRF sample could not be issued from Tree/Wastage stock. Please check XRF Testing.");
+    return;
+  }
+  state.xrfTests.unshift(entry);
+  melting.xrfEntryId = entry.id;
 }
 
 function allMeltingReceiveWeightFields() {
@@ -14643,6 +15460,8 @@ function normalizeState(currentState) {
       sourceType: item.sourceType || "",
       sourceId: item.sourceId || "",
       sourceLine: item.sourceLine || "",
+      castingBatchId: item.castingBatchId || "",
+      castingBatchName: item.castingBatchName || "",
       colour: item.colour || safeItemColour(item),
       desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
       safeKind: safeItemKind(item),
@@ -14887,6 +15706,8 @@ function normalizeState(currentState) {
         }],
   }));
   currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
+  currentState.xrfTests = (currentState.xrfTests || []).map(normalizeXrfEntry);
+  syncXrfWastageReturnsForState(currentState);
   currentState.orders = currentState.orders || [];
   currentState.orders.forEach((order) => {
     order.designId = order.designId || "";
@@ -15213,4 +16034,5 @@ setDefaultOrderDates(document.getElementById("order-form"));
 resetOrderItemRows();
 resetMeltingSources();
 updateMeltingCalculation();
+resetXrfForm();
 initializeSupabase();
