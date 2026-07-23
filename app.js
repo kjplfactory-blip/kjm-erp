@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v276";
+const APP_VERSION = "v278";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
