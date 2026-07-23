@@ -10,7 +10,8 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v273";
+const APP_VERSION = "v275";
+const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
@@ -72,7 +73,7 @@ let catalogueActiveCategory = "";
 let catalogueImageCache = new Map();
 
 const users = {
-  owner: { name: "Owner", password: "owner123", role: "owner", pages: "all" },
+  owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
   order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "orders"] },
   manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
@@ -109,6 +110,7 @@ const demoState = {
   nextOrder: 1001,
   nextLot: 201,
   userPasswords: defaultUserPasswords,
+  ownerPasswordUpdatedToN170726: true,
   customUsers: [],
   userAccessOverrides: {},
   loginHistory: [],
@@ -4507,13 +4509,59 @@ function billCustomerNameForState(source, lot = {}, bill = {}) {
   return firstOrder?.customer || customer?.name || lot.customer || bill.customer || lot.customerName || "Unknown Party";
 }
 
+function normalizePartyName(name = "") {
+  return String(name || "").trim().replace(/\s+/g, " ");
+}
+
+function partySearchKey(name = "") {
+  return normalizePartyName(name).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 function isKjplOfficePartyName(name = "") {
-  return /^kjpl(\b|\s*[-/])/.test(String(name || "").trim().toLowerCase());
+  return /^KJPL(?:$|[-\s/])/.test(partySearchKey(name));
+}
+
+function isKjplStockPartyName(name = "") {
+  return /^KJPL-STOCK(?:$|[-\s/])/.test(partySearchKey(name));
+}
+
+function manufacturingOrderTypeLabel(name = "") {
+  if (isKjplStockPartyName(name)) return "KJPL Stock Order";
+  if (isKjplOfficePartyName(name)) return "KJPL Customer Order";
+  return "Customer Order";
+}
+
+function manufacturingOfficeDestinationLabel(name = "") {
+  return isKjplOfficePartyName(name) ? KJPL_OFFICE_VENDOR_NAME : normalizePartyName(name) || "Customer";
+}
+
+function isManufacturingCustomerOrder(name = "") {
+  return !isKjplStockPartyName(name);
+}
+
+function orderTypeBadgeHtml(name = "") {
+  const type = manufacturingOrderTypeLabel(name);
+  const badgeClass = isKjplStockPartyName(name) ? "stock" : "customer";
+  return `<span class="job-badge order-type ${badgeClass}">${escapeHtml(type)}</span>`;
+}
+
+function customerOrderDisplayHtml(name = "") {
+  const cleanName = normalizePartyName(name) || "-";
+  const officeDestination = manufacturingOfficeDestinationLabel(cleanName);
+  return `
+    <div class="customer-order-display">
+      <strong>${escapeHtml(cleanName)}</strong>
+      <div class="job-badge-row">
+        ${orderTypeBadgeHtml(cleanName)}
+        ${isKjplOfficePartyName(cleanName) ? `<span class="job-badge office-route">To ${escapeHtml(officeDestination)}</span>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 function billFactoryVendorName(source, lot = {}, bill = {}) {
   const customerName = billCustomerNameForState(source, lot, bill);
-  return isKjplOfficePartyName(customerName) ? KJPL_OFFICE_VENDOR_NAME : customerName;
+  return manufacturingOfficeDestinationLabel(customerName);
 }
 
 function findOrCreateVendorByNameInState(source, name = "") {
@@ -4583,7 +4631,9 @@ function syncFactoryOutLedgerForState(source) {
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!lot) return;
     const customerName = billCustomerNameForState(source, lot, bill);
-    const vendor = findOrCreateVendorByNameInState(source, billFactoryVendorName(source, lot, bill));
+    const orderType = manufacturingOrderTypeLabel(customerName);
+    const officeDestination = billFactoryVendorName(source, lot, bill);
+    const vendor = findOrCreateVendorByNameInState(source, officeDestination);
     const billItems = (bill.items || []).map((item, index) => {
       const netWeight = Number(item.netWeight || 0);
       const finalGw = Number(item.finalGw || 0);
@@ -4631,7 +4681,14 @@ function syncFactoryOutLedgerForState(source) {
       fineGold: totalFineGold,
       stockPosting: "Factory Out By Bill - Whole Job Order",
       reference,
-      remarks: [bill.remarks || "", `Bill GW ${gram(totalGrossWeight)} - Non-Gold ${gram(totalNonGoldWeight)} = Factory Out Net ${gram(totalNetWeight)}`, prText, isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : ""].filter(Boolean).join(" | "),
+      remarks: [
+        bill.remarks || "",
+        orderType,
+        `Destination ${officeDestination}`,
+        `Bill GW ${gram(totalGrossWeight)} - Non-Gold ${gram(totalNonGoldWeight)} = Factory Out Net ${gram(totalNetWeight)}`,
+        prText,
+        isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : "",
+      ].filter(Boolean).join(" | "),
       sourceType: "bill",
       sourceId: bill.id,
       sourceLine: "job-order",
@@ -4643,6 +4700,9 @@ function syncFactoryOutLedgerForState(source) {
       pcs,
       productionNos,
       customerName,
+      originalPartyName: customerName,
+      officePartyName: officeDestination,
+      orderType,
     };
     const manualEdit = manualBillEdits.get(factoryBillLedgerKey(baseEntry.sourceId, baseEntry.sourceLine));
     source.factoryLedger.unshift(manualEdit ? mergeFactoryBillLedgerEdit(baseEntry, manualEdit) : baseEntry);
@@ -5474,6 +5534,8 @@ function jobItemDetailHtml(order) {
         ${order.splitDate ? jobItemDetailCell("Split Date", order.splitDate) : ""}
         ${jobItemDetailCell("Urgent", order.urgent ? "Yes" : "No")}
         ${jobItemDetailCell("Customer", order.customer || "-")}
+        ${jobItemDetailCell("Order Type", manufacturingOrderTypeLabel(order.customer || "-"))}
+        ${jobItemDetailCell("Office Destination", manufacturingOfficeDestinationLabel(order.customer || "-"))}
         ${jobItemDetailCell("Order Date", order.orderDate || "-")}
         ${jobItemDetailCell("Production Days", order.productionDays || "-")}
         ${jobItemDetailCell("Due Date", order.dueDate || "-")}
@@ -6656,7 +6718,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
         <div class="hallmark-tag-line"><b>HUID</b> ${escapeHtml(huid)} <b>HM</b> ${escapeHtml(hmLot)} <b>Bill</b> ${escapeHtml(bill.billNo || "-")}</div>
         <div class="hallmark-tag-line">${escapeHtml(designName)} / ${escapeHtml(order.category || design.category || "-")} / ${escapeHtml(order.color || "-")} / Sz ${escapeHtml(sizeText)}</div>
         <div class="hallmark-tag-line"><b>GW</b> ${weight3(item.finalGw)} <b>ST</b> ${weight3(nonGold.stoneWeight)} <b>NET</b> ${weight3(item.netWeight)} <b>Job</b> ${escapeHtml(lot.orderNumber || lot.number || "-")}</div>
-        <div class="hallmark-tag-line">${escapeHtml(order.customer || "-")} / ${escapeHtml(nonGoldText)}</div>
+        <div class="hallmark-tag-line">${escapeHtml(order.customer || "-")} / ${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / ${escapeHtml(nonGoldText)}</div>
       </div>
       <div class="hallmark-tag-barcode">
         ${productionNo ? barcodeSvg(productionNo) : ""}
@@ -6694,6 +6756,8 @@ function billPrintHtml(lot, bill) {
         <span><b>Lot</b>${escapeHtml(lot.number || "-")}</span>
         <span><b>Phone</b>${escapeHtml(customer.phone || "-")}</span>
         <span><b>City</b>${escapeHtml(customer.city || "-")}</span>
+        <span><b>Order Type</b>${escapeHtml(manufacturingOrderTypeLabel(customer.name || "-"))}</span>
+        <span><b>Office</b>${escapeHtml(manufacturingOfficeDestinationLabel(customer.name || "-"))}</span>
         <span><b>Items</b>${totals.pieces}</span>
         <span><b>Purity</b>${escapeHtml(purityText)}</span>
       </section>
@@ -6822,6 +6886,8 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     index,
     productionNo: item.productionNo || order.productionNo || order.number || "",
     customer: order.customer || "",
+    orderType: manufacturingOrderTypeLabel(order.customer || ""),
+    officeDestination: manufacturingOfficeDestinationLabel(order.customer || ""),
     design: order.designNo || designLabel(order.designId) || "",
     category: order.category || "Uncategorised",
     purity: item.purity || order.purity || "",
@@ -6841,10 +6907,13 @@ function billPrintCustomerHtml(orders = [], compact = false) {
   const customers = customerIds.map((id) => findById("customers", id)).filter(Boolean);
   const names = [...new Set(orders.map((order) => order.customer).filter(Boolean))];
   const primary = customers[0] || { name: names.join(", ") || "-" };
+  const primaryName = primary.name || names.join(", ") || "-";
   return `
     <div class="bill-print-customer-grid ${compact ? "compact" : ""}">
-      <span><b>Name</b>${escapeHtml(primary.name || names.join(", ") || "-")}</span>
+      <span><b>Name</b>${escapeHtml(primaryName)}</span>
       <span><b>Phone</b>${escapeHtml(primary.phone || "-")}</span>
+      <span><b>Order Type</b>${escapeHtml(manufacturingOrderTypeLabel(primaryName))}</span>
+      <span><b>Office</b>${escapeHtml(manufacturingOfficeDestinationLabel(primaryName))}</span>
       ${compact ? "" : `
         <span><b>City</b>${escapeHtml(primary.city || "-")}</span>
         <span><b>GST</b>${escapeHtml(primary.gst || "-")}</span>
@@ -6864,7 +6933,7 @@ function billPrintItemTableHtml(items = []) {
     <tr>
       <td>${item.index + 1}</td>
       <td>${escapeHtml(item.productionNo || "-")}</td>
-      <td>${escapeHtml(item.customer || "-")}</td>
+      <td>${escapeHtml(item.customer || "-")}<br><small>${escapeHtml(item.orderType || "")}</small></td>
       <td>${escapeHtml(item.category || "-")}</td>
       <td>${escapeHtml(item.design || "-")}</td>
       <td>${escapeHtml(item.purity || "-")}</td>
@@ -6975,7 +7044,8 @@ function printJobItemHtml(job, entry) {
   const { design, imageData } = entry;
   const designName = order.designNumber || (design ? designText(design) : "") || "-";
   const jobNumber = job.jobNumber || job.productionNo || job.number;
-  const isCustomerOrder = (order.customer || job.customer || "").trim().toUpperCase() !== "KJPL-STOCK";
+  const customerName = order.customer || job.customer || "";
+  const isCustomerOrder = isManufacturingCustomerOrder(customerName);
   const productionLabel = order.productionNo || order.number;
   const barcodeValues = order.barcodeValues?.length
     ? order.barcodeValues
@@ -6998,7 +7068,7 @@ function printJobItemHtml(job, entry) {
         </div>
         <div class="print-job-details">
           <div class="print-detail-grid">
-            <span class="print-wide print-customer-box"><b>Customer</b>${escapeHtml(order.customer || job.customer || "-")}</span>
+            <span class="print-wide print-customer-box"><b>Customer</b>${escapeHtml(customerName || "-")}<small>${escapeHtml(manufacturingOrderTypeLabel(customerName))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(customerName))}</small></span>
             <span class="print-wide"><b>Design</b>${escapeHtml(designName)}</span>
             <span><b>Category</b>${escapeHtml(order.category || "-")}</span>
             ${printSizeDetailHtml(order)}
@@ -10858,6 +10928,7 @@ function renderRepairJobOrderCard({ lot, bill, item, order }) {
         <span class="status ${officeItemStatusClass(item)}">${escapeHtml(repairDayText(item))}</span>
       </div>
       <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
+      <div class="job-badge-row">${orderTypeBadgeHtml(order.customer || "-")}</div>
       <div class="sales-detail-grid repair-detail-grid">
         <span><b>Job Card</b>${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
         <span><b>Bill No</b>${escapeHtml(bill.billNo || "-")}</span>
@@ -10885,7 +10956,7 @@ function orderTableRow(job) {
   const delivery = isCompletedJob(job) ? "" : deliveryBadgeHtml(job.dueDate);
   return `
     <tr>
-      <td>${escapeHtml(job.customer)}</td>
+      <td>${customerOrderDisplayHtml(job.customer)}</td>
       <td>
         <div class="job-order-summary-line">
           <strong>${escapeHtml(jobDetailsText(job))}</strong>
@@ -12019,7 +12090,7 @@ function renderBills() {
         <tr>
           <td>${escapeHtml(lot.number)}</td>
           <td>${escapeHtml(lot.orderNumber || "-")}${lot.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
-          <td>${escapeHtml(customer)}</td>
+          <td>${customerOrderDisplayHtml(customer)}</td>
           <td>${gram(lot.finishedWeight)}</td>
           <td>${wastageDetailHtml(lot)}</td>
           <td>${escapeHtml(bill?.billNo || "-")}</td>
@@ -12076,7 +12147,7 @@ function renderOffice() {
         <td><input class="office-item-check" type="checkbox" value="${escapeHtml(key)}" aria-label="Select ${escapeHtml(item.productionNo || order.productionNo || "item")}"></td>
         <td>${escapeHtml(lot.orderNumber || lot.number || "-")}<br><small>${escapeHtml(lot.number || "-")}</small></td>
         <td>${escapeHtml(item.productionNo || order.productionNo || "-")}</td>
-        <td>${escapeHtml(order.customer || "-")}</td>
+        <td>${customerOrderDisplayHtml(order.customer || "-")}</td>
         <td>${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</td>
         <td>${gram(item.finalGw)}</td>
         <td>${gram(item.netWeight)}</td>
@@ -12217,6 +12288,7 @@ function renderOfficeItemTile({ lot, bill, item, order }) {
       </label>
       <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
       <span>${escapeHtml(order.customer || "-")}</span>
+      <div class="job-badge-row">${orderTypeBadgeHtml(order.customer || "-")}</div>
       <span>${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
       <div class="office-tile-metrics">
         <b>Net ${gram(item.netWeight)}</b>
@@ -12336,6 +12408,8 @@ function renderSalesTeamItemDetails(entries, emptyText) {
         </label>
         <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
         <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
+        <div class="job-badge-row">${orderTypeBadgeHtml(order.customer || "-")}</div>
+        <div class="job-badge-row">${orderTypeBadgeHtml(order.customer || "-")}</div>
         <div class="sales-detail-grid">
           <span><b>GW</b>${gram(item.finalGw)}</span>
           <span><b>Net Wt</b>${gram(item.netWeight)}</span>
@@ -12375,6 +12449,7 @@ function renderRepairItems(entries, emptyText) {
               <span class="status ${officeItemStatusClass(item)}">${escapeHtml(repairDayText(item))}</span>
             </div>
             <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
+            <div class="job-badge-row">${orderTypeBadgeHtml(order.customer || "-")}</div>
             <div class="sales-detail-grid repair-detail-grid">
               <span><b>Job Card</b>${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
               <span><b>Repair Start</b>${escapeHtml(item.repairStartDate || item.qcDate || "-")}</span>
@@ -13445,6 +13520,7 @@ function renderBillItems(lot, bill = {}) {
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}${order.size ? ` / Size ${escapeHtml(order.size)}` : ""}</small>
+          <small>${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}</small>
         </td>
         <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
         <td>
@@ -14170,6 +14246,7 @@ function factoryLedgerReferenceHtml(entry = {}) {
   return `
     ${escapeHtml(entry.reference || "-")}
     ${details ? `<br><small>${escapeHtml(details)}</small>` : ""}
+    ${entry.orderType ? `<br><small>${escapeHtml(entry.orderType)}${entry.officePartyName ? ` / To ${escapeHtml(entry.officePartyName)}` : ""}</small>` : ""}
     ${prText ? `<br><small>${escapeHtml(prText)}</small>` : ""}
     ${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}
   `;
@@ -14200,9 +14277,12 @@ function renderFactoryLedger() {
         entry.stockPosting,
         entry.billNo,
         entry.jobNumber,
-        entry.lotNumber,
-        entry.customerName,
-        Array.isArray(entry.productionNos) ? entry.productionNos.join(" ") : "",
+      entry.lotNumber,
+      entry.customerName,
+      entry.originalPartyName,
+      entry.officePartyName,
+      entry.orderType,
+      Array.isArray(entry.productionNos) ? entry.productionNos.join(" ") : "",
       ]
         .join(" ")
         .toLowerCase()
@@ -16080,6 +16160,10 @@ function normalizeState(currentState) {
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
   currentState.userPasswords = { ...defaultUserPasswords, ...(currentState.userPasswords || {}) };
+  if (!currentState.ownerPasswordUpdatedToN170726) {
+    currentState.userPasswords.owner = OWNER_CURRENT_PASSWORD;
+    currentState.ownerPasswordUpdatedToN170726 = true;
+  }
   currentState.customUsers = (currentState.customUsers || []).map((user) => ({
     id: normalizeLoginUserId(user.id),
     name: user.name || user.id || "User",
@@ -16145,6 +16229,9 @@ function normalizeState(currentState) {
       pcs: Number(entry.pcs || 0),
       productionNos: Array.isArray(entry.productionNos) ? entry.productionNos : [],
       customerName: entry.customerName || "",
+      originalPartyName: entry.originalPartyName || entry.customerName || "",
+      officePartyName: entry.officePartyName || (entry.customerName ? manufacturingOfficeDestinationLabel(entry.customerName) : entry.vendorName || ""),
+      orderType: entry.orderType || (entry.customerName ? manufacturingOrderTypeLabel(entry.customerName) : ""),
     };
   });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {

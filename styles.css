@@ -1361,6 +1361,35 @@ form.active-operation-page,
   border: 1px solid #b7dfd8;
 }
 
+.job-badge.order-type.customer {
+  background: #ffe4ef;
+  color: #9f1239;
+  border: 1px solid #f9a8c7;
+}
+
+.job-badge.order-type.stock {
+  background: #e8f7ee;
+  color: #126c42;
+  border: 1px solid #b9e6c9;
+}
+
+.job-badge.office-route {
+  background: #eef2ff;
+  color: #243c8f;
+  border: 1px solid #c7d2fe;
+}
+
+.customer-order-display {
+  display: grid;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.customer-order-display strong {
+  color: #0b514c;
+  overflow-wrap: anywhere;
+}
+
 .job-badge.days {
   background: #e7f7ee;
   color: #0f6b42;
@@ -3452,6 +3481,14 @@ dialog::backdrop {
   color: #111827;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
+}
+
+.print-customer-box small {
+  display: block;
+  margin-top: 1.5mm;
+  color: #5f1330;
+  font-size: 8px;
+  font-weight: 800;
 }
 
 .print-barcode .barcode-wrap {
