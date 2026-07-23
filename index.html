@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=156">
+    <link rel="stylesheet" href="styles.css?v=159">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v278</small>
+            <small class="app-version-badge">App v281</small>
           </div>
         </div>
         <label>User
@@ -24,6 +24,7 @@
             <option value="manager">Manager Dept</option>
             <option value="bill">Bill Dept</option>
             <option value="qc">QC Dept</option>
+            <option value="settingManager">Setting Manager</option>
             <option value="officeMain">Office Main Dept</option>
             <option value="officeOps">Office Operations</option>
             <option value="sales1">Sales Team 1</option>
@@ -43,6 +44,7 @@
             <span>Manager Dept / manager123</span>
             <span>Bill Dept / bill123</span>
             <span>QC Dept / qc123</span>
+            <span>Setting Manager / setting123</span>
             <span>Office Main / office123</span>
             <span>Office Ops / ops123</span>
             <span>Sales Team 1 / sales1123</span>
@@ -92,19 +94,25 @@
 
     <main class="app">
       <header class="topbar">
-        <div>
+        <div class="topbar-title">
           <h1 id="page-title">Dashboard</h1>
           <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
         </div>
         <div class="top-actions">
-          <button id="reset-demo" class="ghost-button owner-only">Reset Inventory To Zero</button>
-          <span class="app-version-badge">App v278</span>
-          <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
-          <small id="sync-detail" class="sync-detail">App loading</small>
-          <button id="refresh-live-data" class="ghost-button" type="button">Refresh Live Data</button>
-          <button id="push-live-data" class="ghost-button owner-only" type="button">Upload This Laptop Data</button>
-          <span id="active-user" class="user-pill">Not logged in</span>
-          <button id="logout" class="ghost-button">Logout</button>
+          <div class="top-action-group sync-group" aria-label="Live sync status">
+            <span class="app-version-badge">App v281</span>
+            <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
+            <small id="sync-detail" class="sync-detail">App loading</small>
+          </div>
+          <div class="top-action-group command-group" aria-label="Quick commands">
+            <button id="refresh-live-data" class="ghost-button" type="button">Refresh</button>
+            <button id="push-live-data" class="ghost-button owner-only" type="button">Upload Data</button>
+            <button id="reset-demo" class="danger-button owner-only">Reset Inventory</button>
+          </div>
+          <div class="top-action-group user-group" aria-label="Current user">
+            <span id="active-user" class="user-pill">Not logged in</span>
+            <button id="logout" class="ghost-button">Logout</button>
+          </div>
         </div>
       </header>
 
@@ -423,6 +431,10 @@
             <strong>Issue Non-Gold</strong>
             <span>Moti, black beads, spring, and other material</span>
           </button>
+          <button class="action-tile" type="button" data-production-page="setting">
+            <strong>Setting Manager</strong>
+            <span>Issue setting lots to setters and receive them back</span>
+          </button>
           <button class="action-tile" type="button" data-production-page="lots">
             <strong>Production Lots</strong>
             <span>Transfer, complete, and view history</span>
@@ -497,6 +509,73 @@
               <table>
                 <thead><tr><th>Date</th><th>Action</th><th>Department</th><th>Lot</th><th>Job Card</th><th>Material</th><th>Pcs</th><th>Weight</th><th>Karat</th><th>Status</th><th>Remarks</th></tr></thead>
                 <tbody id="production-non-gold-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <div class="production-page" id="production-page-setting">
+          <div id="setting-manager-summary" class="setting-manager-summary"></div>
+          <div class="workbench setting-manager-workbench">
+            <form id="setting-setter-form" class="form-panel setting-setter-master-only">
+              <h2 id="setting-setter-title">Setter Master</h2>
+              <input type="hidden" name="setterId">
+              <label>Setter Name <input name="name" required></label>
+              <label>Phone <input name="phone"></label>
+              <label>Rate / Note <input name="rate" placeholder="Optional"></label>
+              <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
+              <button id="setting-setter-submit" type="submit">Save Setter</button>
+              <button id="cancel-setting-setter-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+            </form>
+
+            <form id="setting-issue-form" class="form-panel">
+              <h2>Issue Lot To Setter</h2>
+              <label>Setting Lot <select name="lotId" required></select></label>
+              <label>Setter <select name="setterId" required></select></label>
+              <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
+              <label>Hand Stone In Job Card (g) <input name="handStoneWeight" type="number" step="0.001" readonly></label>
+              <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
+              <p id="setting-issue-summary" class="dialog-note">Select a lot currently in Setting Department, then select setter.</p>
+              <button type="submit">Issue To Setter</button>
+            </form>
+
+            <form id="setting-receive-form" class="form-panel">
+              <h2>Receive From Setter</h2>
+              <label>Pending Setter Lot <select name="entryId" required></select></label>
+              <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
+              <label>Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
+              <label>Difference (g) <input name="difference" type="number" step="0.001" readonly></label>
+              <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
+              <p id="setting-receive-summary" class="dialog-note">Select pending setter issue and enter received gross weight.</p>
+              <button type="submit">Receive From Setter</button>
+            </form>
+          </div>
+
+          <section class="panel table-panel setting-manager-panel">
+            <div class="panel-heading"><h2>Lots Currently In Setting</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Lot</th><th>Job Card</th><th>Customer / Items</th><th>GW</th><th>Hand Stone</th><th>Setter Status</th><th></th></tr></thead>
+                <tbody id="setting-manager-lot-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel table-panel setting-manager-panel">
+            <div class="panel-heading"><h2>Pending With Setters</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>Setter</th><th>Issue GW</th><th>Hand Stone</th><th>Age</th><th>Remarks</th><th></th></tr></thead>
+                <tbody id="setting-manager-pending-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel table-panel setting-manager-panel">
+            <div class="panel-heading"><h2>Setter Issue / Receive History</h2></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Issue Date</th><th>Receive Date</th><th>Lot</th><th>Job Card</th><th>Setter</th><th>Issue GW</th><th>Receive GW</th><th>Difference</th><th>Status</th><th>Remarks</th></tr></thead>
+                <tbody id="setting-manager-history-table"></tbody>
               </table>
             </div>
           </section>
@@ -1482,6 +1561,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=278"></script>
+    <script src="app.js?v=281"></script>
 </body>
 </html>

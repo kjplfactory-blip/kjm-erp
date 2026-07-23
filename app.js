@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v278";
+const APP_VERSION = "v281";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -79,6 +79,7 @@ const users = {
   manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
+  settingManager: { name: "Setting Manager", password: "setting123", role: "setting-manager", pages: ["production"], productionPages: ["setting"] },
   officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
   officeOps: { name: "Office Operations", password: "ops123", role: "office-ops", pages: ["orders", "office"], canEditOfficeWeights: false },
   sales1: { name: "Sales Team 1", password: "sales1123", role: "sales", pages: ["office"], salesTeam: "Sales Team 1" },
@@ -161,6 +162,8 @@ const demoState = {
   orders: [],
   lots: [],
   productionNonGoldIssues: [],
+  settingSetters: [],
+  settingManagerEntries: [],
   melting: [],
   xrfTests: [],
   karigars: [
@@ -1031,6 +1034,14 @@ document.getElementById("production-non-gold-remove-form").addEventListener("sub
   event.preventDefault();
   saveProductionNonGoldMovement(event, "remove");
 });
+
+document.getElementById("setting-setter-form")?.addEventListener("submit", saveSettingSetter);
+document.getElementById("cancel-setting-setter-edit")?.addEventListener("click", resetSettingSetterForm);
+document.getElementById("setting-issue-form")?.addEventListener("change", updateSettingIssueSummary);
+document.getElementById("setting-issue-form")?.addEventListener("submit", issueSettingLotToSetter);
+document.getElementById("setting-receive-form")?.addEventListener("input", updateSettingReceiveSummary);
+document.getElementById("setting-receive-form")?.addEventListener("change", updateSettingReceiveSummary);
+document.getElementById("setting-receive-form")?.addEventListener("submit", receiveSettingLotFromSetter);
 
 document.getElementById("stock-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2127,6 +2138,29 @@ function defaultAllowedPage() {
   return allowedPages()[0] || "dashboard";
 }
 
+function isSettingManagerUser() {
+  return currentUserConfig()?.role === "setting-manager";
+}
+
+function allowedProductionPages() {
+  const config = currentUserConfig();
+  if (!config) return [];
+  if (config.productionPages === "all") return ["issue", "non-gold", "setting", "lots", "history"];
+  return config.productionPages || ["issue", "non-gold", "setting", "lots", "history"];
+}
+
+function canAccessProductionPage(page) {
+  return !page || allowedProductionPages().includes(page);
+}
+
+function defaultProductionPage() {
+  return allowedProductionPages()[0] || "";
+}
+
+function canManageSettingSetters() {
+  return isOwner() || isManagerUser();
+}
+
 function canEditOfficeWeights() {
   return Boolean(currentUserConfig()?.canEditOfficeWeights || isOwner());
 }
@@ -2181,13 +2215,26 @@ function applyAccessControl() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.toggle("hidden", !pages.includes(button.dataset.view));
   });
+  document.querySelectorAll("[data-production-page]").forEach((button) => {
+    button.classList.toggle("hidden", currentUser && !canAccessProductionPage(button.dataset.productionPage));
+  });
   document.querySelectorAll("[data-office-page]").forEach((button) => {
     button.classList.toggle("hidden", isSalesUser() && button.dataset.officePage !== "sales");
   });
+  document.querySelectorAll(".setting-setter-master-only").forEach((element) => {
+    element.classList.toggle("hidden", currentUser && !canManageSettingSetters());
+  });
   document.body.classList.toggle("office-readonly", currentUserConfig()?.role === "office-ops" || isSalesUser());
   document.body.classList.toggle("qc-only-user", isBillQcOnlyMode());
+  document.body.classList.toggle("setting-manager-user", isSettingManagerUser());
   if (currentUser && !canAccessPage(document.querySelector(".view.active-view")?.id || "dashboard")) {
     switchView(defaultAllowedPage());
+  }
+  if (currentUser && document.getElementById("production")?.classList.contains("active-view")) {
+    const activeProductionPage = document.querySelector("[data-production-page].active")?.dataset.productionPage || "";
+    if ((isSettingManagerUser() && !activeProductionPage) || (activeProductionPage && !canAccessProductionPage(activeProductionPage))) {
+      switchProductionPage(defaultProductionPage());
+    }
   }
 }
 
@@ -2962,6 +3009,10 @@ function openDashboardShortcut(button) {
   } else if (view === "orders" && builtInPage) {
     switchOrderPage(builtInPage);
   } else if (view === "production" && builtInPage) {
+    if (currentUser && !canAccessProductionPage(builtInPage)) {
+      alert("This login does not have access to this production page.");
+      return;
+    }
     switchProductionPage(builtInPage);
   } else if (view === "office" && builtInPage) {
     switchOfficePage(builtInPage);
@@ -3022,6 +3073,11 @@ function switchStonePage(page) {
 }
 
 function switchProductionPage(page) {
+  if (currentUser && !page && isSettingManagerUser()) page = defaultProductionPage();
+  if (currentUser && page && !canAccessProductionPage(page)) {
+    alert("This login does not have access to this production page.");
+    page = defaultProductionPage();
+  }
   document.querySelectorAll("[data-production-page]").forEach((button) => {
     button.classList.toggle("active", button.dataset.productionPage === page);
   });
@@ -5195,7 +5251,11 @@ function clearJobCards(resetAt = new Date().toISOString()) {
   state.lots = [];
   state.bills = [];
   state.melting = [];
+  state.xrfTests = [];
   state.safeItems = [];
+  state.safeDepartmentIssues = [];
+  state.productionNonGoldIssues = [];
+  state.settingManagerEntries = [];
   state.nextOrder = 1001;
   state.nextLot = 201;
   state.ledger = [{
@@ -5254,6 +5314,7 @@ function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
   state.safeItems = [];
   state.safeDepartmentIssues = [];
   state.productionNonGoldIssues = [];
+  state.settingManagerEntries = [];
   state.ledger = [];
   state.metalSafeMovements = [];
   state.factoryLedger = [];
@@ -8842,6 +8903,7 @@ function renderSelects() {
   applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-remove-form"));
   updateProductionNonGoldSummary();
   updateProductionNonGoldRemoveSummary();
+  renderSettingManagerSelects();
   document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
     select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
   });
@@ -12104,6 +12166,7 @@ function renderProduction() {
   `).join("");
   document.getElementById("production-table").innerHTML = rows || tableEmpty(11, "No production lots recorded.");
   renderProductionNonGoldTable();
+  renderSettingManager();
 }
 
 function issueWeightDetailHtml(lot) {
@@ -12135,6 +12198,407 @@ function renderProductionNonGoldTable() {
     </tr>
   `).join("");
   table.innerHTML = rows || tableEmpty(11, "No non-gold material movement recorded yet.");
+}
+
+function normalizeSettingSetter(setter = {}) {
+  return {
+    id: setter.id || crypto.randomUUID(),
+    name: setter.name || "Setter",
+    phone: setter.phone || "",
+    rate: setter.rate || "",
+    remarks: setter.remarks || "",
+  };
+}
+
+function normalizeSettingManagerEntry(entry = {}, currentState = state) {
+  const lot = (currentState.lots || []).find((item) => item.id === entry.lotId) || {};
+  const setter = (currentState.settingSetters || []).find((item) => item.id === entry.setterId) || {};
+  const issueGw = Number(weight3(entry.issueGw ?? entry.transferWeight ?? entry.weight ?? currentTransferIssueWeight(lot)));
+  const receiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
+  const hasReceive = receiveGwValue !== undefined && receiveGwValue !== null && String(receiveGwValue) !== "";
+  const receiveGw = hasReceive ? Number(weight3(receiveGwValue)) : "";
+  const difference = hasReceive ? Number(weight3(issueGw - Number(receiveGw || 0))) : Number(entry.difference || 0);
+  return {
+    id: entry.id || crypto.randomUUID(),
+    issueDate: entry.issueDate || entry.date || today(),
+    receiveDate: entry.receiveDate || "",
+    lotId: entry.lotId || lot.id || "",
+    lotNumber: entry.lotNumber || lot.number || "",
+    jobNumber: entry.jobNumber || lot.orderNumber || "",
+    setterId: entry.setterId || setter.id || "",
+    setterName: entry.setterName || setter.name || "",
+    issueGw,
+    handStoneWeight: Number(weight3(entry.handStoneWeight ?? productionStoneWeightForTransfer(lot))),
+    receiveGw,
+    difference,
+    status: hasReceive || entry.status === "Received" ? "Received" : "Issued",
+    remarks: entry.remarks || "",
+    receiveRemarks: entry.receiveRemarks || "",
+    currentDepartment: entry.currentDepartment || lot.currentDepartment || lot.karigarName || "Setting",
+  };
+}
+
+function settingManagerLots() {
+  return (state.lots || []).filter((lot) =>
+    lot.status !== "Completed"
+    && isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)
+  );
+}
+
+function settingPendingEntries() {
+  return (state.settingManagerEntries || []).filter((entry) => entry.status !== "Received");
+}
+
+function settingPendingEntryForLot(lotId) {
+  return settingPendingEntries().find((entry) => entry.lotId === lotId) || null;
+}
+
+function latestSettingEntryForLot(lotId) {
+  return (state.settingManagerEntries || []).find((entry) => entry.lotId === lotId) || null;
+}
+
+function settingLotsAvailableForIssue() {
+  return settingManagerLots().filter((lot) => !settingPendingEntryForLot(lot.id));
+}
+
+function settingLotLabel(lot = {}) {
+  const orders = getLotOrders(lot);
+  const customers = [...new Set(orders.map((order) => order.customer).filter(Boolean))].join(", ") || "-";
+  return `${lot.number || "-"} / ${lot.orderNumber || "-"} / ${customers} / GW ${gram(currentTransferIssueWeight(lot))}`;
+}
+
+function settingLotCustomerItemsHtml(lot = {}) {
+  const orders = getLotOrders(lot);
+  const customers = [...new Set(orders.map((order) => order.customer).filter(Boolean))].join(", ") || "-";
+  const items = orders.map((order) => order.productionNo || order.number || order.designNo || designLabel(order.designId)).filter(Boolean);
+  return `${escapeHtml(customers)}<br><small>${escapeHtml(items.slice(0, 5).join(", ") || "-")}${items.length > 5 ? ` +${items.length - 5}` : ""}</small>`;
+}
+
+function settingEntryAgeText(issueDate = "") {
+  const parts = String(issueDate || "").split(/[/-]/).map(Number);
+  if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) return "-";
+  const date = parts[0] > 31 ? new Date(parts[0], parts[1] - 1, parts[2]) : new Date(parts[2], parts[1] - 1, parts[0]);
+  const diff = Math.max(0, Math.floor((new Date() - date) / 86400000));
+  return `${diff} day${diff === 1 ? "" : "s"}`;
+}
+
+function renderSettingManagerSelects() {
+  const setterOptions = (state.settingSetters || [])
+    .map((setter) => `<option value="${escapeHtml(setter.id)}">${escapeHtml(setter.name)}${setter.phone ? ` - ${escapeHtml(setter.phone)}` : ""}</option>`)
+    .join("");
+  document.querySelectorAll('#setting-issue-form select[name="setterId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = setterOptions ? `<option value="">Select setter</option>${setterOptions}` : '<option value="">Add setter first</option>';
+    select.value = (state.settingSetters || []).some((setter) => setter.id === selected) ? selected : "";
+  });
+
+  const lotOptions = settingLotsAvailableForIssue()
+    .map((lot) => `<option value="${escapeHtml(lot.id)}">${escapeHtml(settingLotLabel(lot))}</option>`)
+    .join("");
+  document.querySelectorAll('#setting-issue-form select[name="lotId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = lotOptions ? `<option value="">Select lot in setting</option>${lotOptions}` : '<option value="">No free setting lot</option>';
+    select.value = settingLotsAvailableForIssue().some((lot) => lot.id === selected) ? selected : "";
+  });
+
+  const pendingOptions = settingPendingEntries()
+    .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.lotNumber || "-")} / ${escapeHtml(entry.jobNumber || "-")} / ${escapeHtml(entry.setterName || "-")} / ${gram(entry.issueGw)}</option>`)
+    .join("");
+  document.querySelectorAll('#setting-receive-form select[name="entryId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = pendingOptions ? `<option value="">Select pending setter lot</option>${pendingOptions}` : '<option value="">No pending setter lot</option>';
+    select.value = settingPendingEntries().some((entry) => entry.id === selected) ? selected : "";
+  });
+  updateSettingIssueSummary();
+  updateSettingReceiveSummary();
+}
+
+function saveSettingSetter(event) {
+  event.preventDefault();
+  if (!canManageSettingSetters()) {
+    alert("Only Owner or Manager can add or edit setter master.");
+    return;
+  }
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const name = String(data.name || "").trim();
+  if (!name) {
+    alert("Enter setter name.");
+    return;
+  }
+  state.settingSetters = state.settingSetters || [];
+  const existing = data.setterId ? state.settingSetters.find((setter) => setter.id === data.setterId) : null;
+  if (existing) {
+    Object.assign(existing, normalizeSettingSetter({ ...existing, ...data, name }));
+    (state.settingManagerEntries || []).forEach((entry) => {
+      if (entry.setterId === existing.id) entry.setterName = existing.name;
+    });
+  } else {
+    state.settingSetters.unshift(normalizeSettingSetter({ ...data, name }));
+  }
+  resetSettingSetterForm();
+  saveState();
+  render();
+}
+
+function resetSettingSetterForm() {
+  const form = document.getElementById("setting-setter-form");
+  if (!form) return;
+  form.reset();
+  form.setterId.value = "";
+  document.getElementById("setting-setter-title").textContent = "Setter Master";
+  document.getElementById("setting-setter-submit").textContent = "Save Setter";
+  document.getElementById("cancel-setting-setter-edit").classList.add("hidden");
+}
+
+function editSettingSetter(setterId) {
+  if (!canManageSettingSetters()) {
+    alert("Only Owner or Manager can edit setter master.");
+    return;
+  }
+  const setter = (state.settingSetters || []).find((item) => item.id === setterId);
+  if (!setter) return;
+  switchProductionPage("setting");
+  const form = document.getElementById("setting-setter-form");
+  form.setterId.value = setter.id;
+  form.name.value = setter.name || "";
+  form.phone.value = setter.phone || "";
+  form.rate.value = setter.rate || "";
+  form.remarks.value = setter.remarks || "";
+  document.getElementById("setting-setter-title").textContent = "Edit Setter";
+  document.getElementById("setting-setter-submit").textContent = "Update Setter";
+  document.getElementById("cancel-setting-setter-edit").classList.remove("hidden");
+  form.name.focus();
+}
+
+function deleteSettingSetter(setterId) {
+  if (!canManageSettingSetters()) {
+    alert("Only Owner or Manager can delete setter master.");
+    return;
+  }
+  const setter = (state.settingSetters || []).find((item) => item.id === setterId);
+  if (!setter) return;
+  if ((state.settingManagerEntries || []).some((entry) => entry.setterId === setterId)) {
+    alert("This setter has issue / receive history. Edit the setter name instead of deleting.");
+    return;
+  }
+  if (!confirm(`Delete setter ${setter.name}?`)) return;
+  state.settingSetters = (state.settingSetters || []).filter((item) => item.id !== setterId);
+  saveState();
+  render();
+}
+
+function updateSettingIssueSummary() {
+  const form = document.getElementById("setting-issue-form");
+  if (!form) return;
+  const lot = findById("lots", form.lotId.value);
+  const issueGw = lot ? currentTransferIssueWeight(lot) : 0;
+  const handStoneWeight = lot ? productionStoneWeightForTransfer(lot) : 0;
+  form.issueGw.value = lot ? weight3(issueGw) : "";
+  form.handStoneWeight.value = lot ? weight3(handStoneWeight) : "";
+  const summary = document.getElementById("setting-issue-summary");
+  if (!summary) return;
+  summary.textContent = lot
+    ? `${lot.number} is currently in ${lot.currentDepartment || lot.karigarName || "Setting"} with GW ${gram(issueGw)}. Hand-set stone expected in job card: ${gram(handStoneWeight)}.`
+    : "Select a lot currently in Setting Department, then select setter.";
+}
+
+function updateSettingReceiveSummary() {
+  const form = document.getElementById("setting-receive-form");
+  if (!form) return;
+  const entry = (state.settingManagerEntries || []).find((item) => item.id === form.entryId.value);
+  const receiveGw = Number(form.receiveGw.value || entry?.issueGw || 0);
+  if (entry) {
+    form.issueGw.value = weight3(entry.issueGw);
+    if (!form.receiveGw.value) form.receiveGw.value = weight3(entry.issueGw);
+    form.difference.value = weight3(entry.issueGw - receiveGw);
+  } else {
+    form.issueGw.value = "";
+    form.difference.value = "";
+  }
+  const summary = document.getElementById("setting-receive-summary");
+  if (!summary) return;
+  summary.textContent = entry
+    ? `${entry.lotNumber} was issued to ${entry.setterName}. Difference = Issue GW - Receive GW. Minus means weight increased.`
+    : "Select pending setter issue and enter received gross weight.";
+}
+
+function issueSettingLotToSetter(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const lot = findById("lots", data.lotId);
+  const setter = (state.settingSetters || []).find((item) => item.id === data.setterId);
+  if (!lot || !setter) {
+    alert("Select setting lot and setter.");
+    return;
+  }
+  if (!isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)) {
+    alert("This lot is not currently in Setting Department.");
+    return;
+  }
+  if (settingPendingEntryForLot(lot.id)) {
+    alert("This lot is already pending with a setter. Receive it first.");
+    return;
+  }
+  const issueGw = Number(weight3(currentTransferIssueWeight(lot)));
+  if (issueGw <= 0) {
+    alert("Lot GW is not available for setter issue.");
+    return;
+  }
+  state.settingManagerEntries = state.settingManagerEntries || [];
+  state.settingManagerEntries.unshift(normalizeSettingManagerEntry({
+    issueDate: today(),
+    lotId: lot.id,
+    lotNumber: lot.number,
+    jobNumber: lot.orderNumber,
+    setterId: setter.id,
+    setterName: setter.name,
+    issueGw,
+    handStoneWeight: productionStoneWeightForTransfer(lot),
+    status: "Issued",
+    remarks: data.remarks || "",
+    currentDepartment: lot.currentDepartment || lot.karigarName || "Setting",
+  }));
+  form.reset();
+  saveState();
+  render();
+}
+
+function receiveSettingLotFromSetter(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const entry = (state.settingManagerEntries || []).find((item) => item.id === data.entryId);
+  if (!entry) {
+    alert("Select pending setter lot.");
+    return;
+  }
+  const receiveGw = Number(data.receiveGw || 0);
+  if (receiveGw <= 0) {
+    alert("Enter valid receive GW.");
+    return;
+  }
+  entry.receiveDate = today();
+  entry.receiveGw = Number(weight3(receiveGw));
+  entry.difference = Number(weight3(Number(entry.issueGw || 0) - receiveGw));
+  entry.status = "Received";
+  entry.receiveRemarks = data.remarks || "";
+  form.reset();
+  saveState();
+  render();
+}
+
+function openSettingIssueForLot(lotId) {
+  if (currentUser && !canAccessProductionPage("setting")) {
+    alert("This login can access only its allowed production work.");
+    return;
+  }
+  switchView("production");
+  switchProductionPage("setting");
+  renderSettingManagerSelects();
+  const form = document.getElementById("setting-issue-form");
+  if (!form) return;
+  form.lotId.value = lotId;
+  updateSettingIssueSummary();
+  form.setterId.focus();
+}
+
+function openSettingReceive(entryId) {
+  if (currentUser && !canAccessProductionPage("setting")) {
+    alert("This login can access only its allowed production work.");
+    return;
+  }
+  switchView("production");
+  switchProductionPage("setting");
+  renderSettingManagerSelects();
+  const form = document.getElementById("setting-receive-form");
+  if (!form) return;
+  form.entryId.value = entryId;
+  form.receiveGw.value = weight3((state.settingManagerEntries || []).find((entry) => entry.id === entryId)?.issueGw || 0);
+  updateSettingReceiveSummary();
+  form.receiveGw.focus();
+}
+
+function settingStatusHtml(lot) {
+  const pending = settingPendingEntryForLot(lot.id);
+  if (pending) return `<span class="status pending">With ${escapeHtml(pending.setterName || "Setter")}</span><br><small>Issued ${escapeHtml(pending.issueDate || "-")}</small>`;
+  const latest = latestSettingEntryForLot(lot.id);
+  if (latest?.status === "Received") return `<span class="status completed">Received From ${escapeHtml(latest.setterName || "Setter")}</span><br><small>Receive GW ${gram(latest.receiveGw)}</small>`;
+  return '<span class="status transfer">In Setting</span>';
+}
+
+function renderSettingManager() {
+  const summary = document.getElementById("setting-manager-summary");
+  if (!summary) return;
+  const settingLots = settingManagerLots();
+  const pending = settingPendingEntries();
+  const receivedToday = (state.settingManagerEntries || []).filter((entry) => entry.receiveDate === today()).length;
+  const pendingGw = pending.reduce((total, entry) => Number(weight3(total + Number(entry.issueGw || 0))), 0);
+  const setterActionsAllowed = canManageSettingSetters();
+  const setterCards = (state.settingSetters || []).map((setter) => `
+    <div class="setter-chip">
+      <strong>${escapeHtml(setter.name)}</strong>
+      <span>${escapeHtml([setter.phone, setter.rate].filter(Boolean).join(" / ") || "Setter")}</span>
+      ${setterActionsAllowed ? `<div class="row-actions">
+        <button class="ghost-button" type="button" onclick="editSettingSetter('${setter.id}')">Edit</button>
+        <button class="danger-button" type="button" onclick="deleteSettingSetter('${setter.id}')">Delete</button>
+      </div>` : ""}
+    </div>
+  `).join("");
+  summary.innerHTML = `
+    <article class="setting-summary-card"><span>Lots In Setting</span><strong>${settingLots.length}</strong><small>Main ERP lots currently at Setting Department</small></article>
+    <article class="setting-summary-card"><span>Pending With Setters</span><strong>${pending.length}</strong><small>${gram(pendingGw)} issued GW</small></article>
+    <article class="setting-summary-card"><span>Received Today</span><strong>${receivedToday}</strong><small>Setter returns recorded today</small></article>
+    <section class="setting-setter-strip">${setterCards || '<div class="setter-chip empty">Add setter name in Setter Master to start.</div>'}</section>
+  `;
+
+  const lotRows = settingLots.map((lot) => {
+    const pendingEntry = settingPendingEntryForLot(lot.id);
+    const historyButton = isSettingManagerUser() ? "" : `<button class="ghost-button" type="button" onclick="openLotHistory('${lot.id}')">History</button>`;
+    return `
+      <tr>
+        <td>${escapeHtml(lot.number || "-")}</td>
+        <td>${escapeHtml(lot.orderNumber || "-")}</td>
+        <td>${settingLotCustomerItemsHtml(lot)}</td>
+        <td>${gram(currentTransferIssueWeight(lot))}</td>
+        <td>${gram(productionStoneWeightForTransfer(lot))}</td>
+        <td>${settingStatusHtml(lot)}</td>
+        <td><div class="row-actions">${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue</button>`}${historyButton}</div></td>
+      </tr>
+    `;
+  }).join("");
+  document.getElementById("setting-manager-lot-table").innerHTML = lotRows || tableEmpty(7, "No lot is currently in Setting Department.");
+
+  const pendingRows = pending.map((entry) => `
+    <tr>
+      <td>${escapeHtml(entry.issueDate || "-")}</td>
+      <td>${escapeHtml(entry.lotNumber || "-")}<br><small>${escapeHtml(entry.jobNumber || "-")}</small></td>
+      <td>${escapeHtml(entry.setterName || "-")}</td>
+      <td>${gram(entry.issueGw)}</td>
+      <td>${gram(entry.handStoneWeight)}</td>
+      <td>${settingEntryAgeText(entry.issueDate)}</td>
+      <td>${escapeHtml(entry.remarks || "-")}</td>
+      <td><button type="button" onclick="openSettingReceive('${entry.id}')">Receive</button></td>
+    </tr>
+  `).join("");
+  document.getElementById("setting-manager-pending-table").innerHTML = pendingRows || tableEmpty(8, "No lot is pending with setter.");
+
+  const historyRows = (state.settingManagerEntries || []).map((entry) => `
+    <tr>
+      <td>${escapeHtml(entry.issueDate || "-")}</td>
+      <td>${escapeHtml(entry.receiveDate || "-")}</td>
+      <td>${escapeHtml(entry.lotNumber || "-")}</td>
+      <td>${escapeHtml(entry.jobNumber || "-")}</td>
+      <td>${escapeHtml(entry.setterName || "-")}</td>
+      <td>${gram(entry.issueGw)}</td>
+      <td>${entry.receiveGw === "" ? "-" : gram(entry.receiveGw)}</td>
+      <td>${entry.status === "Received" ? gram(entry.difference) : "-"}</td>
+      <td><span class="status ${entry.status === "Received" ? "completed" : "pending"}">${escapeHtml(entry.status)}</span></td>
+      <td>${escapeHtml([entry.remarks, entry.receiveRemarks].filter(Boolean).join(" / ") || "-")}</td>
+    </tr>
+  `).join("");
+  document.getElementById("setting-manager-history-table").innerHTML = historyRows || tableEmpty(10, "No setter issue / receive history recorded.");
 }
 
 function renderBills() {
@@ -15689,6 +16153,10 @@ function renderTransferHistory(lot) {
 }
 
 function openLotHistory(lotId) {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager login can only issue and receive setting lots.");
+    return;
+  }
   const lot = findById("lots", lotId);
   if (!lot) return;
   document.getElementById("history-summary").textContent = `${lot.number} / ${lot.orderNumber} / ${lot.karigarName} / ${lot.currentDepartment || "-"}`;
@@ -16267,6 +16735,7 @@ function normalizeState(currentState) {
     city: vendor.city || "",
     remarks: vendor.remarks || "",
   }));
+  currentState.settingSetters = (currentState.settingSetters || []).map(normalizeSettingSetter);
   currentState.factoryLedger = (currentState.factoryLedger || []).map((entry) => {
     const weight = Number(weight3(entry.weight || 0));
     const purity = entry.purity || "";
@@ -16639,6 +17108,7 @@ function normalizeState(currentState) {
     return normalizeProductionNonGoldIssue(issue, lot, currentState);
   });
   currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
+  currentState.settingManagerEntries = (currentState.settingManagerEntries || []).map((entry) => normalizeSettingManagerEntry(entry, currentState));
   currentState.lots.forEach((lot) => {
     const bill = currentState.bills.find((item) => item.lotId === lot.id);
     if (bill) lot.bill = bill;
