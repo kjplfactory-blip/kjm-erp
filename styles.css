@@ -7424,3 +7424,160 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     min-height: 148.5mm;
   }
 }
+
+/* V288 catalogue order screen: two image columns with selected items pinned on the right. */
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order.catalogue-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  align-items: stretch;
+  gap: 16px;
+  height: calc(100vh - 150px);
+  min-height: 560px;
+  overflow: hidden;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-main-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-main-panel .panel-heading {
+  align-items: end;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-board {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 2px 8px 8px 2px;
+  scrollbar-gutter: stable;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-card {
+  min-width: 0;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-selected-panel {
+  grid-column: auto;
+  position: sticky;
+  top: 92px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: calc(100vh - 150px);
+  max-height: calc(100vh - 150px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-selected-list {
+  grid-template-columns: 1fr;
+  align-content: start;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 1100px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order.catalogue-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(285px, 340px);
+  }
+}
+
+@media (max-width: 860px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order.catalogue-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-board {
+    max-height: 62vh;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-selected-panel {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order .catalogue-selected-list {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+/* V289 duplicate design upload popup with dropdown choices. */
+.design-duplicate-dialog {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.design-duplicate-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgba(174, 216, 201, 0.86);
+  border-radius: 8px;
+  background: #f4fff8;
+}
+
+.design-duplicate-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.design-duplicate-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(240px, 320px);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.design-duplicate-row > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e4faed;
+  color: #0a5f48;
+  font-weight: 1000;
+}
+
+.design-duplicate-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.design-duplicate-row strong,
+.design-duplicate-row small {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 780px) {
+  .design-duplicate-controls,
+  .design-duplicate-row {
+    grid-template-columns: 1fr;
+  }
+
+  .design-duplicate-row > span {
+    justify-self: start;
+  }
+}

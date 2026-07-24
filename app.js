@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v287";
+const APP_VERSION = "v290";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -587,6 +587,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   event.preventDefault();
   const form = event.target;
   const data = getFormData(form);
+  const selectedCategory = normalizeDesignCategory(data.category);
   const existing = data.designId ? findById("designs", data.designId) : null;
   const imageFiles = [...form.image.files];
   const stoneChartFiles = [...form.stoneChart.files];
@@ -597,6 +598,12 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
     alert("Please select maximum 500 design images at one time.");
     return;
   }
+  if (!selectedCategory) {
+    alert("Please select or enter category before uploading design images.");
+    form.category?.focus();
+    return;
+  }
+  form.category.value = selectedCategory;
   submitButton.disabled = true;
   const previousDesigns = [...state.designs];
   const uploadCropPermission = createStoneCropUploadPermission();
@@ -617,7 +624,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         id: existing.id,
         number: data.number || designName,
         name: data.name || data.number || designName,
-        category: data.category,
+        category: selectedCategory,
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
         stoneChartItems: existing.stoneChartItems || [],
@@ -644,7 +651,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           duplicateGroups.push({ group, existingDesign: duplicateDesign });
           continue;
         }
-        const design = createDesignFromUploadGroup(group, data.category);
+        const design = createDesignFromUploadGroup(group, selectedCategory);
         state.designs.push(design);
         createdCount += 1;
         let chartAttachedForDesign = 0;
@@ -663,10 +670,11 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         matchedStoneCharts += chartAttachedForDesign;
       }
       if (duplicateGroups.length) {
-        const duplicateAction = chooseDuplicateDesignUploadAction(duplicateGroups);
-        status.textContent = `Applying ${duplicateAction} to ${duplicateGroups.length} duplicate design(s).`;
-        for (const { group, existingDesign } of duplicateGroups) {
-          const result = await resolveDuplicateDesignUpload(group, existingDesign, data.category, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
+        const duplicateActions = await chooseDuplicateDesignUploadAction(duplicateGroups);
+        status.textContent = `Applying duplicate action(s): ${summarizeDuplicateDesignActions(duplicateActions)}.`;
+        for (const [{ group, existingDesign }, index] of duplicateGroups.entries()) {
+          const duplicateAction = duplicateActions[index] || "SKIP";
+          const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
           updatedCount += result.updated;
           createdCount += result.created;
           matchedStoneCharts += result.chartAttached;
@@ -3900,6 +3908,36 @@ function syncOrderDesignSearch(row, designId) {
 
 function normalizeSearchText(value = "") {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function cleanDesignCategoryText(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function designCategoryNames() {
+  const categories = new Map();
+  state.designs.forEach((design) => {
+    const clean = cleanDesignCategoryText(design.category);
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (!categories.has(key)) categories.set(key, clean);
+  });
+  return [...categories.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeDesignCategory(value = "") {
+  const clean = cleanDesignCategoryText(value);
+  if (!clean) return "";
+  const existing = designCategoryNames().find((category) => category.toLowerCase() === clean.toLowerCase());
+  return existing || clean.toUpperCase();
+}
+
+function renderDesignCategoryDatalist() {
+  const list = document.getElementById("design-category-options");
+  if (!list) return;
+  list.innerHTML = designCategoryNames()
+    .map((category) => `<option value="${escapeHtml(category)}"></option>`)
+    .join("");
 }
 
 function renderCategoryOptions(selected = "") {
@@ -9246,6 +9284,7 @@ function formatStoneWeight(value) {
 }
 
 function renderSelects() {
+  renderDesignCategoryDatalist();
   const customerOptions = state.customers
     .map((customer) => `<option value="${customer.id}">${escapeHtml(customer.name)}</option>`)
     .join("");
@@ -9634,7 +9673,7 @@ function createDesignFromUploadGroup(group, category, nameOverride = "") {
     id: crypto.randomUUID(),
     number: designName,
     name: designName,
-    category,
+    category: normalizeDesignCategory(category),
     stoneDetails: "",
     stoneItems: [],
     stoneChartItems: [],
@@ -9650,7 +9689,8 @@ function findDesignByUploadKey(key) {
 
 async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFiles = [], replaceDesignImage = false, options = {}) {
   if (!group || !design) return { updated: 0, chartAttached: 0 };
-  if (category && !design.category) design.category = category;
+  const selectedCategory = normalizeDesignCategory(category);
+  if (selectedCategory) design.category = selectedCategory;
   let chartAttached = 0;
   if (group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
     const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: replaceDesignImage, cropPermission: options.cropPermission });
@@ -9666,18 +9706,113 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
   return { updated: 1, chartAttached };
 }
 
-function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
-  if (!duplicateGroups.length) return "SKIP";
-  const preview = duplicateGroups.slice(0, 20).map(({ group, existingDesign }, index) =>
-    `${index + 1}. ${group.designName || designNameFromFile(group.designFile?.name) || "Design"} -> ${designText(existingDesign)}`
-  ).join("\n");
-  const extra = duplicateGroups.length > 20 ? `\n...and ${duplicateGroups.length - 20} more duplicate(s).` : "";
-  const action = prompt(
-    `${duplicateGroups.length} duplicate design image(s) found.\n\n${preview}${extra}\n\nChoose ONE action for all duplicate images:\nMERGE = attach chart/details to existing design, design image unchanged.\nREPLACE = replace existing design image also.\nNEW = save each duplicate as a new copy with automatic COPY name.\nSKIP = ignore all duplicate images.`,
-    "MERGE"
-  );
+const DUPLICATE_DESIGN_ACTIONS = [
+  ["MERGE", "Merge chart/details only, keep old design image"],
+  ["REPLACE", "Replace old design image and merge chart/details"],
+  ["NEW", "Save duplicate as new copy"],
+  ["SKIP", "Skip duplicate images"],
+];
+
+function duplicateDesignActionOptionsHtml(selected = "MERGE") {
+  return DUPLICATE_DESIGN_ACTIONS.map(([value, label]) =>
+    `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+  ).join("");
+}
+
+function cleanDuplicateDesignAction(action) {
   const choice = String(action || "SKIP").trim().toUpperCase();
-  return ["MERGE", "REPLACE", "NEW", "SKIP"].includes(choice) ? choice : "SKIP";
+  return DUPLICATE_DESIGN_ACTIONS.some(([value]) => value === choice) ? choice : "SKIP";
+}
+
+function summarizeDuplicateDesignActions(actions = []) {
+  const counts = actions.reduce((memo, action) => {
+    const key = cleanDuplicateDesignAction(action);
+    memo[key] = (memo[key] || 0) + 1;
+    return memo;
+  }, {});
+  return DUPLICATE_DESIGN_ACTIONS
+    .map(([value]) => counts[value] ? `${value} ${counts[value]}` : "")
+    .filter(Boolean)
+    .join(", ") || "SKIP";
+}
+
+function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
+  if (!duplicateGroups.length) return Promise.resolve([]);
+  const fallbackActions = duplicateGroups.map(() => "SKIP");
+  const dialog = document.getElementById("design-duplicate-dialog");
+  const form = document.getElementById("design-duplicate-form");
+  const summary = document.getElementById("design-duplicate-summary");
+  const defaultAction = document.getElementById("design-duplicate-default-action");
+  const list = document.getElementById("design-duplicate-list");
+  const applyAll = document.getElementById("design-duplicate-apply-all");
+  const cancelButton = document.getElementById("design-duplicate-cancel");
+  const closeButton = document.getElementById("design-duplicate-close");
+  if (!dialog || !form || !defaultAction || !list) return Promise.resolve(fallbackActions);
+  if (summary) {
+    summary.textContent = `${duplicateGroups.length} duplicate design image(s) found. Choose an action from dropdown for all, or row by row.`;
+  }
+  defaultAction.value = "MERGE";
+  list.innerHTML = duplicateGroups.map(({ group, existingDesign }, index) => {
+    const uploadName = group.designName || designNameFromFile(group.designFile?.name) || "Design";
+    const fileName = group.designFile?.name || group.chartFiles?.[0]?.name || "Uploaded file";
+    return `
+      <article class="design-duplicate-row">
+        <span>${index + 1}</span>
+        <div>
+          <strong>${escapeHtml(uploadName)}</strong>
+          <small>Existing: ${escapeHtml(designText(existingDesign))}</small>
+          <small>File: ${escapeHtml(fileName)}</small>
+        </div>
+        <label>Action
+          <select class="design-duplicate-row-action" data-duplicate-index="${index}">
+            ${duplicateDesignActionOptionsHtml("MERGE")}
+          </select>
+        </label>
+      </article>
+    `;
+  }).join("");
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      form.removeEventListener("submit", handleSubmit);
+      applyAll?.removeEventListener("click", handleApplyAll);
+      cancelButton?.removeEventListener("click", handleCancel);
+      closeButton?.removeEventListener("click", handleCancel);
+      dialog.removeEventListener("cancel", handleDialogCancel);
+    };
+    const finish = (actions) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (dialog.open) dialog.close();
+      resolve(actions);
+    };
+    const handleApplyAll = () => {
+      const choice = cleanDuplicateDesignAction(defaultAction.value);
+      list.querySelectorAll(".design-duplicate-row-action").forEach((select) => {
+        select.value = choice;
+      });
+    };
+    const handleSubmit = (event) => {
+      event.preventDefault();
+      const actions = duplicateGroups.map((_, index) => {
+        const select = list.querySelector(`[data-duplicate-index="${index}"]`);
+        return cleanDuplicateDesignAction(select?.value || defaultAction.value);
+      });
+      finish(actions);
+    };
+    const handleCancel = () => finish(fallbackActions);
+    const handleDialogCancel = (event) => {
+      event.preventDefault();
+      finish(fallbackActions);
+    };
+    form.addEventListener("submit", handleSubmit);
+    applyAll?.addEventListener("click", handleApplyAll);
+    cancelButton?.addEventListener("click", handleCancel);
+    closeButton?.addEventListener("click", handleCancel);
+    dialog.addEventListener("cancel", handleDialogCancel);
+    dialog.showModal();
+  });
 }
 
 function uniqueDuplicateDesignCopyName(baseName) {
