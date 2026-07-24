@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v291";
+const APP_VERSION = "v293";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -23,6 +23,7 @@ const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
+const DESIGN_IMAGE_JPEG_QUALITY = 0.74;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
@@ -607,6 +608,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   submitButton.disabled = true;
   const previousDesigns = [...state.designs];
   const uploadCropPermission = createStoneCropUploadPermission();
+  const uploadFailures = [];
   try {
     if (existing) {
       const group = uploadGroups.find((item) => designMatchKeys(existing).includes(item.key)) || uploadGroups[0];
@@ -652,36 +654,52 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           continue;
         }
         const design = createDesignFromUploadGroup(group, selectedCategory);
-        state.designs.push(design);
-        createdCount += 1;
-        let chartAttachedForDesign = 0;
-        if (group.designFile) {
-          const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: uploadCropPermission });
-          chartAttachedForDesign = smartImageResult.chartAttached ? 1 : 0;
+        try {
+          let chartAttachedForDesign = 0;
+          if (group.designFile) {
+            const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: uploadCropPermission });
+            chartAttachedForDesign = smartImageResult.chartAttached ? 1 : 0;
+          }
+          const chartCandidates = [...group.chartFiles, ...stoneChartFiles];
+          const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design)
+            || group.chartFiles[0]
+            || (stoneChartFiles.length === 1 && uploadGroups.length === 1 ? stoneChartFiles[0] : null);
+          if (matchingStoneChartFile) {
+            const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
+            chartAttachedForDesign = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttachedForDesign;
+          }
+          state.designs.push(design);
+          createdCount += 1;
+          matchedStoneCharts += chartAttachedForDesign;
+        } catch (error) {
+          console.warn("Design upload failed", designName, error);
+          uploadFailures.push(`${designName}: ${uploadErrorText(error)}`);
+          await deleteDesignImage(design.id).catch(() => {});
+          await deleteAllStoneChartImages(design).catch(() => {});
         }
-        const chartCandidates = [...group.chartFiles, ...stoneChartFiles];
-        const matchingStoneChartFile = matchingStoneChartFileForDesign(chartCandidates, design)
-          || group.chartFiles[0]
-          || (stoneChartFiles.length === 1 && uploadGroups.length === 1 ? stoneChartFiles[0] : null);
-        if (matchingStoneChartFile) {
-          const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
-          chartAttachedForDesign = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttachedForDesign;
-        }
-        matchedStoneCharts += chartAttachedForDesign;
       }
       if (duplicateGroups.length) {
         const duplicateActions = await chooseDuplicateDesignUploadAction(duplicateGroups);
         status.textContent = `Applying duplicate action(s): ${summarizeDuplicateDesignActions(duplicateActions)}.`;
-        for (const [{ group, existingDesign }, index] of duplicateGroups.entries()) {
+        for (const [index, { group, existingDesign }] of duplicateGroups.entries()) {
           const duplicateAction = duplicateActions[index] || "SKIP";
-          const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
-          updatedCount += result.updated;
-          createdCount += result.created;
-          matchedStoneCharts += result.chartAttached;
+          try {
+            const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
+            updatedCount += result.updated;
+            createdCount += result.created;
+            matchedStoneCharts += result.chartAttached;
+          } catch (error) {
+            const designName = group?.designName || designText(existingDesign) || `Duplicate ${index + 1}`;
+            console.warn("Duplicate design upload failed", designName, error);
+            uploadFailures.push(`${designName}: ${uploadErrorText(error)}`);
+          }
         }
       }
       const mergedImageCount = imageFiles.length - uploadGroups.length;
-      status.dataset.uploadSummary = `${createdCount} design(s) created, ${updatedCount} existing/duplicate design(s) handled. ${mergedImageCount} extra image(s) merged into matching designs. ${matchedStoneCharts} stone chart(s) attached.`;
+      const failureSummary = uploadFailures.length
+        ? ` ${uploadFailures.length} failed: ${uploadFailures.slice(0, 5).join("; ")}${uploadFailures.length > 5 ? "; more failed files not shown" : ""}.`
+        : "";
+      status.dataset.uploadSummary = `${createdCount} design(s) created, ${updatedCount} existing/duplicate design(s) handled. ${mergedImageCount} extra image(s) merged into matching designs. ${matchedStoneCharts} stone chart(s) attached.${failureSummary}`;
     }
     form.reset();
     resetDesignForm();
@@ -691,11 +709,15 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
     status.textContent = existing
       ? "Design updated. Matching design/chart images were merged."
       : status.dataset.uploadSummary || `${imageFiles.length} design image(s) uploaded. Matching stone sheet names were assigned automatically.`;
+    if (uploadFailures.length) {
+      alert(`Upload finished with ${uploadFailures.length} failed image(s).\n\n${uploadFailures.slice(0, 8).join("\n")}${uploadFailures.length > 8 ? "\nMore failed files not shown." : ""}`);
+    }
     delete status.dataset.uploadSummary;
   } catch (error) {
     state.designs = previousDesigns;
-    alert("Upload could not be saved. Try fewer images or smaller image files.");
-    status.textContent = "Upload could not be saved. Please try a smaller batch.";
+    const message = uploadErrorText(error);
+    alert(`Upload could not be saved.\n\nReason: ${message}\n\nTry fewer images or smaller image files.`);
+    status.textContent = `Upload could not be saved: ${message}`;
   } finally {
     submitButton.disabled = false;
   }
@@ -3224,6 +3246,17 @@ function focusDesignCardInMaster(designId) {
 
 function getFormData(form) {
   return Object.fromEntries(new FormData(form).entries());
+}
+
+function uploadErrorText(error) {
+  const message = String(error?.message || error?.error_description || error?.details || error?.name || error || "Unknown error").trim();
+  if (/quota|storage|space|full|exceed|maximum|memory/i.test(message)) {
+    return "Browser storage is full or the selected image is too large.";
+  }
+  if (/bucket|design-images|row-level|permission|unauthor/i.test(message)) {
+    return "Supabase design image storage is not ready or permission is missing.";
+  }
+  return message;
 }
 
 function calculateDueDate(orderDate, productionDays) {
@@ -9830,6 +9863,7 @@ function uniqueDuplicateDesignCopyName(baseName) {
 }
 
 async function resolveDuplicateDesignUpload(group, existingDesign, category, stoneChartFiles = [], options = {}) {
+  if (!group || !existingDesign) return { created: 0, updated: 0, chartAttached: 0 };
   const designName = group.designName || designText(existingDesign);
   const action = options.duplicateAction || prompt(
     `Duplicate design number found: ${designName}\nExisting: ${designText(existingDesign)}\n\nType MERGE to attach stone chart/details to existing.\nType REPLACE to also replace existing design image.\nType NEW to keep as separate design.\nType SKIP to ignore this duplicate.`,
@@ -9849,7 +9883,6 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     const cleanCopyName = String(copyName || "").trim();
     if (!cleanCopyName) return { created: 0, updated: 0, chartAttached: 0 };
     const design = createDesignFromUploadGroup(group, category, cleanCopyName);
-    state.designs.push(design);
     let chartAttached = 0;
     if (group.designFile) {
       const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: options.cropPermission });
@@ -9861,6 +9894,7 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
       const matchingStoneChartResult = await saveStoneChartFileForDesign(design, matchingStoneChartFile);
       chartAttached = matchingStoneChartResult.sourceSaved || matchingStoneChartResult.itemSaved ? 1 : chartAttached;
     }
+    state.designs.push(design);
     return { created: 1, updated: 0, chartAttached };
   }
   return { created: 0, updated: 0, chartAttached: 0 };
@@ -10363,7 +10397,7 @@ function designImageToFourBySixDataUrl(image, options = {}) {
   const drawX = (canvas.width - drawWidth) / 2;
   const drawY = (canvas.height - drawHeight) / 2;
   context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
-  return canvas.toDataURL("image/jpeg", options.quality || 0.82);
+  return canvas.toDataURL("image/jpeg", options.quality || DESIGN_IMAGE_JPEG_QUALITY);
 }
 
 async function normalizeDesignImageDataUrl(imageData) {
@@ -12403,15 +12437,8 @@ function openDesignImageDb() {
   });
 }
 
-async function saveDesignImage(id, imageData) {
-  if (supabaseClient) {
-    const blob = dataUrlToBlob(imageData);
-    await supabaseClient.storage
-      .from("design-images")
-      .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
-  }
-  const db = await openDesignImageDb();
-  return new Promise((resolve, reject) => {
+function saveDesignImageLocal(id, imageData) {
+  return openDesignImageDb().then((db) => new Promise((resolve, reject) => {
     const transaction = db.transaction("images", "readwrite");
     transaction.objectStore("images").put(imageData, id);
     transaction.oncomplete = () => {
@@ -12422,7 +12449,37 @@ async function saveDesignImage(id, imageData) {
       db.close();
       reject(transaction.error);
     };
-  });
+  }));
+}
+
+async function saveDesignImage(id, imageData) {
+  let cloudSaved = false;
+  let cloudError = null;
+  if (supabaseClient) {
+    try {
+      const blob = dataUrlToBlob(imageData);
+      const { error } = await supabaseClient.storage
+        .from("design-images")
+        .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
+      if (error) cloudError = error;
+      else cloudSaved = true;
+    } catch (error) {
+      cloudError = error;
+    }
+  }
+  try {
+    await saveDesignImageLocal(id, imageData);
+    return { cloudSaved, localSaved: true };
+  } catch (localError) {
+    if (cloudSaved) {
+      console.warn("Design image saved to cloud, but local browser cache could not store it.", localError);
+      return { cloudSaved, localSaved: false };
+    }
+    if (cloudError) {
+      throw new Error(`Cloud: ${uploadErrorText(cloudError)} / Browser: ${uploadErrorText(localError)}`);
+    }
+    throw localError;
+  }
 }
 
 function stoneChartKey(id, itemKey = DEFAULT_STONE_ITEM_KEY) {
@@ -12568,13 +12625,13 @@ async function migrateLegacyDesignImages() {
   render();
 }
 
-function compressImageFile(file) {
+function compressImageFile(file, options = {}) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const image = new Image();
       image.onload = () => {
-        resolve(designImageToFourBySixDataUrl(image));
+        resolve(designImageToFourBySixDataUrl(image, options));
       };
       image.onerror = () => resolve(reader.result);
       image.src = reader.result;
