@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v293";
+const APP_VERSION = "v294";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -48,8 +48,11 @@ const STONE_ITEM_PRESETS = [
   ["CM", "CM - Chams"],
   ["CMB", "CMB - Chams Bracelet"],
   ["CME", "CME - Chams Ear Rings"],
+  ["TM", "TM - Main"],
+  ["TME", "TME - Ear Rings"],
 ];
 const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
+const TM_ITEM_KEYS = ["TM", "TME"];
 const PRODUCTION_NON_GOLD_TYPES = [
   { value: "moti", label: "Moti" },
   { value: "black-beads", label: "Black Beads" },
@@ -6367,7 +6370,7 @@ function cleanCatalogueCategory(value = "") {
 function inferCatalogueCategory(fileName = "") {
   const name = designNameFromFile(fileName).toUpperCase();
   const parts = name.split(/[^A-Z0-9]+/).filter(Boolean);
-  const known = ["CBR", "CME", "CMB", "CM", "CB", "BR", "LR", "GR", "RING", "BANGLE", "CHAIN", "PENDANT", "EARRING", "NECKLACE", "SET"];
+  const known = ["CBR", "CME", "CMB", "CM", "TME", "TM", "CB", "BR", "LR", "GR", "RING", "BANGLE", "CHAIN", "PENDANT", "EARRING", "NECKLACE", "SET"];
   return known.find((item) => parts.includes(item)) || "Uncategorised";
 }
 
@@ -9470,6 +9473,12 @@ function isCmSetStoneDesign(design = null) {
   return ["CM", "CMB", "CME"].includes(category) || /\bCM(E|B)?\b/.test(designTextValue) || /\bCHAMS?\b/.test(designTextValue);
 }
 
+function isTmSetStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return TM_ITEM_KEYS.includes(category) || /\bTME?\b/.test(designTextValue);
+}
+
 function isRegularRingStoneDesign(design = null) {
   const category = categoryCode(design?.category || "");
   const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
@@ -9482,6 +9491,7 @@ function baseStoneItemKeysForDesign(design = null) {
   if (category === "CB") return ["CL", "CG"];
   if (isRegularRingStoneDesign(design)) return ["LR", "GR"];
   if (isCmSetStoneDesign(design)) return ["CM", "CME", "CMB"];
+  if (isTmSetStoneDesign(design)) return ["TM", "TME"];
   return [DEFAULT_STONE_ITEM_KEY];
 }
 
@@ -9503,6 +9513,7 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   if (isCbr && (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name))) return "CLR";
   if (/\bCME\b/.test(name)) return "CME";
   if (/\bCMB\b/.test(name)) return "CMB";
+  if (/\bTME\b/.test(name)) return "TME";
   if (/\bCHAMS?\b/.test(name) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(name)) return "CME";
   if (/\bCHAMS?\b/.test(name) && /\b(BRACELET|BR)\b/.test(name)) return "CMB";
   if (/\bCG\b/.test(name)) return "CG";
@@ -9512,12 +9523,13 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   if (/\bGR\b/.test(name) || /\bGENTS?\b/.test(name)) return "GR";
   if (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name)) return "LR";
   if (/\bCM\b/.test(name) || /\bCHAMS?\b/.test(name)) return "CM";
+  if (/\bTM\b/.test(name)) return "TM";
   return "";
 }
 
 function stoneItemOptionKeysForDesign(design = null) {
   const baseKeys = baseStoneItemKeysForDesign(design);
-  const isSpecificMultiItemDesign = isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design);
+  const isSpecificMultiItemDesign = isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design) || isTmSetStoneDesign(design);
   const keys = new Set(baseKeys);
   const category = categoryCode(design?.category || "");
   if (!isSpecificMultiItemDesign && category) keys.add(category);
@@ -9634,13 +9646,16 @@ function orderStoneItemKeys(order = {}) {
   }
   if (/\bCME\b/.test(itemText)) return ["CME"];
   if (/\bCMB\b/.test(itemText)) return ["CMB"];
+  if (/\bTME\b/.test(itemText)) return ["TME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
   if (["CM", "CMB", "CME"].includes(category)) return [category];
+  if (TM_ITEM_KEYS.includes(category)) return [category];
   if (["LR", "GR"].includes(category)) return [category];
   if (/\bGR\b/.test(itemText) || /\bGENTS?\b/.test(itemText)) return ["GR"];
   if (/\bLR\b/.test(itemText) || /\bLADIES?\b/.test(itemText)) return ["LR"];
+  if (/\bTM\b/.test(itemText)) return ["TM"];
   return [DEFAULT_STONE_ITEM_KEY];
 }
 
