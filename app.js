@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v296";
+const APP_VERSION = "v297";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -25,6 +25,7 @@ const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_JPEG_QUALITY = 0.74;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
+const IMAGE_PREVIEW_BATCH_SIZE = 8;
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 3000;
@@ -77,6 +78,8 @@ let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueActiveCategory = "";
 let catalogueImageCache = new Map();
+const designImageCache = new Map();
+const designImagePending = new Map();
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
@@ -3280,6 +3283,19 @@ function waitForUiPaint() {
   });
 }
 
+async function runPreviewBatch(items = [], worker, batchSize = IMAGE_PREVIEW_BATCH_SIZE) {
+  const list = [...items];
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(batchSize, list.length) }, async () => {
+    while (cursor < list.length) {
+      const item = list[cursor];
+      cursor += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
+}
+
 function duplicateActionProgressText(action = "") {
   const choice = cleanDuplicateDesignAction(action);
   if (choice === "REPLACE") return "Replacing duplicate";
@@ -6367,7 +6383,8 @@ async function getCatalogueImage(id) {
   const cached = catalogueImageCache.get(id);
   if (cached) return cached;
   const imageData = await getDesignImage(catalogueImageStorageId(id));
-  catalogueImageCache.set(id, imageData || "");
+  if (imageData) catalogueImageCache.set(id, imageData);
+  else catalogueImageCache.delete(id);
   return imageData || "";
 }
 
@@ -6383,17 +6400,17 @@ function catalogueItemImage(item = {}) {
 async function hydrateCatalogueImages(items = [], options = {}) {
   const seen = new Set();
   const targets = (items || []).filter((item) => {
-    if (!item?.id || catalogueImageCache.has(item.id) || seen.has(item.id)) return false;
+    if (!item?.id || catalogueImageCache.get(item.id) || seen.has(item.id)) return false;
     seen.add(item.id);
     return true;
   });
   if (!targets.length) return;
   let loaded = false;
-  for (const item of targets) {
+  await runPreviewBatch(targets, async (item) => {
     const imageData = await getCatalogueImage(item.id).catch(() => "");
-    catalogueImageCache.set(item.id, imageData || "");
+    if (imageData) catalogueImageCache.set(item.id, imageData);
     if (imageData) loaded = true;
-  }
+  });
   if (loaded && options.render !== false) renderCatalogue();
 }
 
@@ -6521,7 +6538,7 @@ function catalogueCategoryCardHtml(group) {
   const cover = group.cover;
   return `
     <button class="action-tile catalogue-category-card" type="button" data-catalogue-category="${escapeHtml(group.category)}">
-      ${cover ? `<img src="${cover}" alt="${escapeHtml(group.category)} category">` : `<div class="catalogue-category-placeholder">IMAGE</div>`}
+      ${cover ? `<img src="${cover}" loading="lazy" decoding="async" alt="${escapeHtml(group.category)} category">` : `<div class="catalogue-category-placeholder">IMAGE</div>`}
       <strong>${escapeHtml(group.category)}</strong>
       <span>${group.items.length} design${group.items.length === 1 ? "" : "s"}${group.selected ? ` / ${group.selected} selected` : ""}</span>
     </button>
@@ -6538,7 +6555,7 @@ function catalogueCardHtml(item) {
         Select
       </label>
       <div class="catalogue-image-wrap">
-        ${imageData ? `<img src="${imageData}" alt="${escapeHtml(item.designNo)}">` : `<div class="catalogue-image-placeholder">IMAGE LOADING</div>`}
+        ${imageData ? `<img src="${imageData}" loading="lazy" decoding="async" alt="${escapeHtml(item.designNo)}">` : `<div class="catalogue-image-placeholder">IMAGE LOADING</div>`}
       </div>
       <strong>${escapeHtml(item.designNo)}</strong>
       <span class="catalogue-category-pill">${escapeHtml(catalogueCategoryLabel(item.category))}</span>
@@ -6551,7 +6568,7 @@ function catalogueCardHtml(item) {
 function catalogueSelectedImageHtml(item) {
   const imageData = catalogueItemImage(item);
   return imageData
-    ? `<img src="${imageData}" alt="${escapeHtml(item.designNo)}">`
+    ? `<img src="${imageData}" loading="lazy" decoding="async" alt="${escapeHtml(item.designNo)}">`
     : `<div class="catalogue-selected-placeholder">IMAGE</div>`;
 }
 
@@ -12107,7 +12124,7 @@ function designStoneChartPreviewHtml(design) {
   return `
     <figure>
       <span>${showItemCrop ? `Stone Chart${chartKeys.length > 1 ? "s" : ""}` : "Old Full Chart Copy"}</span>
-      <img class="design-thumb stone-chart-thumb" ${showItemCrop ? `data-stone-chart-image="${design.id}" data-stone-chart-item="${escapeHtml(previewKey)}"` : `data-stone-chart-source-image="${design.id}"`} alt="Stone chart for ${escapeHtml(design.name)}">
+          <img class="design-thumb stone-chart-thumb" loading="lazy" decoding="async" ${showItemCrop ? `data-stone-chart-image="${design.id}" data-stone-chart-item="${escapeHtml(previewKey)}"` : `data-stone-chart-source-image="${design.id}"`} alt="Stone chart for ${escapeHtml(design.name)}">
       <small class="stone-chart-chip-list">${chartKeys.map((key) => `<b>${escapeHtml(stoneItemInputValue(key))}</b>`).join("")}${!showItemCrop && hasSource ? "<b>Old Source</b>" : ""}</small>
     </figure>
   `;
@@ -12126,7 +12143,7 @@ function renderDesignCard(design) {
       <div class="design-preview-pair ${chartKeys.length || hasSource ? "has-stone-chart" : ""}">
         <figure>
           <span>Design</span>
-          <img class="design-thumb" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
+          <img class="design-thumb" loading="lazy" decoding="async" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
         </figure>
         ${designStoneChartPreviewHtml(design)}
       </div>
@@ -12505,6 +12522,8 @@ function saveDesignImageLocal(id, imageData) {
 }
 
 async function saveDesignImage(id, imageData) {
+  designImageCache.set(id, imageData || "");
+  designImagePending.delete(id);
   let cloudSaved = false;
   let cloudError = null;
   if (supabaseClient) {
@@ -12579,23 +12598,41 @@ async function deleteAllStoneChartImages(design) {
 }
 
 async function getDesignImage(id) {
+  if (designImageCache.has(id)) return designImageCache.get(id) || "";
+  if (designImagePending.has(id)) return designImagePending.get(id);
+  const loadPromise = (async () => {
+    let imageData = "";
   if (supabaseClient) {
     const { data, error } = await supabaseClient.storage
       .from("design-images")
       .download(`${id}.jpg`);
-    if (!error && data) return blobToDataUrl(data);
+      if (!error && data) imageData = await blobToDataUrl(data);
   }
+    if (!imageData) {
   const db = await openDesignImageDb();
-  return new Promise((resolve, reject) => {
+      imageData = await new Promise((resolve, reject) => {
     const transaction = db.transaction("images", "readonly");
     const request = transaction.objectStore("images").get(id);
     request.onsuccess = () => resolve(request.result || "");
     request.onerror = () => reject(request.error);
     transaction.oncomplete = () => db.close();
-  });
+      });
+    }
+    if (imageData) designImageCache.set(id, imageData);
+    else designImageCache.delete(id);
+    return imageData || "";
+  })();
+  designImagePending.set(id, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    designImagePending.delete(id);
+  }
 }
 
 async function deleteDesignImage(id) {
+  designImageCache.delete(id);
+  designImagePending.delete(id);
   if (supabaseClient) {
     await supabaseClient.storage.from("design-images").remove([`${id}.jpg`]);
   }
@@ -12636,33 +12673,39 @@ function blobToDataUrl(blob) {
 
 async function loadDesignThumbnails() {
   const images = [...document.querySelectorAll("[data-design-image]")];
-  for (const image of images) {
+  await runPreviewBatch(images, async (image) => {
+    const imageId = image.dataset.designImage;
     const design = findById("designs", image.dataset.designImage);
     try {
-      const imageData = await getDesignImage(image.dataset.designImage);
-      image.src = imageData || design?.imageData || "";
+      const imageData = await getDesignImage(imageId);
+      if (image.dataset.designImage === imageId) image.src = imageData || design?.imageData || "";
     } catch (error) {
-      image.src = design?.imageData || "";
+      if (image.dataset.designImage === imageId) image.src = design?.imageData || "";
     }
-  }
+  });
   const stoneCharts = [...document.querySelectorAll("[data-stone-chart-image]")];
-  for (const image of stoneCharts) {
+  await runPreviewBatch(stoneCharts, async (image) => {
+    const imageId = image.dataset.stoneChartImage;
+    const itemKey = image.dataset.stoneChartItem || DEFAULT_STONE_ITEM_KEY;
     try {
-      image.src = await getStoneChartImage(image.dataset.stoneChartImage, image.dataset.stoneChartItem || DEFAULT_STONE_ITEM_KEY);
+      const imageData = await getStoneChartImage(imageId, itemKey);
+      if (image.dataset.stoneChartImage === imageId && (image.dataset.stoneChartItem || DEFAULT_STONE_ITEM_KEY) === itemKey) image.src = imageData;
     } catch (error) {
       image.removeAttribute("src");
       image.alt = "Stone chart not available";
     }
-  }
+  });
   const stoneChartSources = [...document.querySelectorAll("[data-stone-chart-source-image]")];
-  for (const image of stoneChartSources) {
+  await runPreviewBatch(stoneChartSources, async (image) => {
+    const imageId = image.dataset.stoneChartSourceImage;
     try {
-      image.src = await getStoneChartSourceImage(image.dataset.stoneChartSourceImage);
+      const imageData = await getStoneChartSourceImage(imageId);
+      if (image.dataset.stoneChartSourceImage === imageId) image.src = imageData;
     } catch (error) {
       image.removeAttribute("src");
       image.alt = "Main stone chart not available";
     }
-  }
+  });
 }
 
 async function migrateLegacyDesignImages() {
