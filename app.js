@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v290";
+const APP_VERSION = "v291";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -687,6 +687,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
     resetDesignForm();
     saveState();
     render();
+    showDesignCategoryInMaster(selectedCategory);
     status.textContent = existing
       ? "Design updated. Matching design/chart images were merged."
       : status.dataset.uploadSummary || `${imageFiles.length} design image(s) uploaded. Matching stone sheet names were assigned automatically.`;
@@ -11997,6 +11998,18 @@ function renderDesigns() {
   }).join("");
   document.getElementById("designs-table").innerHTML = rows || tableEmpty(3, "No designs uploaded yet.");
   updateDesignSelectionSummary();
+}
+
+function showDesignCategoryInMaster(category = "") {
+  const cleanCategory = normalizeDesignCategory(category);
+  switchDesignPage("master");
+  const search = document.getElementById("design-search");
+  if (search) search.value = "";
+  renderDesigns();
+  const group = designCategoryGroups().find((item) => item.category.toLowerCase() === cleanCategory.toLowerCase());
+  if (group) {
+    openDesignCategory(encodeURIComponent(group.category));
+  }
 }
 
 function designStoneChartPreviewHtml(design) {
