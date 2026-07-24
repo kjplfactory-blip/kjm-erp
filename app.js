@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v294";
+const APP_VERSION = "v296";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -683,19 +683,31 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
       }
       if (duplicateGroups.length) {
         const duplicateActions = await chooseDuplicateDesignUploadAction(duplicateGroups);
-        status.textContent = `Applying duplicate action(s): ${summarizeDuplicateDesignActions(duplicateActions)}.`;
+        const totalDuplicates = duplicateGroups.length;
+        let duplicateDone = 0;
+        let duplicateFailed = 0;
+        status.textContent = `Applying duplicate action(s): ${summarizeDuplicateDesignActions(duplicateActions)}. Starting 0 of ${totalDuplicates}.`;
+        await waitForUiPaint();
         for (const [index, { group, existingDesign }] of duplicateGroups.entries()) {
           const duplicateAction = duplicateActions[index] || "SKIP";
+          const designName = group?.designName || designText(existingDesign) || `Duplicate ${index + 1}`;
+          status.textContent = `${duplicateActionProgressText(duplicateAction)} ${index + 1} of ${totalDuplicates}: ${designName}`;
+          await waitForUiPaint();
           try {
             const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
             updatedCount += result.updated;
             createdCount += result.created;
             matchedStoneCharts += result.chartAttached;
+            duplicateDone += 1;
+            status.textContent = `Duplicate progress: ${duplicateDone} of ${totalDuplicates} done, ${duplicateFailed} failed. Latest: ${duplicateActionProgressDoneText(duplicateAction)} ${designName}.`;
+            if (duplicateDone % 5 === 0 || duplicateDone === totalDuplicates) saveStateLocalOnly();
           } catch (error) {
-            const designName = group?.designName || designText(existingDesign) || `Duplicate ${index + 1}`;
+            duplicateFailed += 1;
             console.warn("Duplicate design upload failed", designName, error);
             uploadFailures.push(`${designName}: ${uploadErrorText(error)}`);
+            status.textContent = `Duplicate progress: ${duplicateDone} of ${totalDuplicates} done, ${duplicateFailed} failed. Failed: ${designName}.`;
           }
+          await waitForUiPaint();
         }
       }
       const mergedImageCount = imageFiles.length - uploadGroups.length;
@@ -3260,6 +3272,28 @@ function uploadErrorText(error) {
     return "Supabase design image storage is not ready or permission is missing.";
   }
   return message;
+}
+
+function waitForUiPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
+function duplicateActionProgressText(action = "") {
+  const choice = cleanDuplicateDesignAction(action);
+  if (choice === "REPLACE") return "Replacing duplicate";
+  if (choice === "MERGE") return "Merging duplicate";
+  if (choice === "NEW") return "Creating copy";
+  return "Skipping duplicate";
+}
+
+function duplicateActionProgressDoneText(action = "") {
+  const choice = cleanDuplicateDesignAction(action);
+  if (choice === "REPLACE") return "replaced";
+  if (choice === "MERGE") return "merged";
+  if (choice === "NEW") return "created copy for";
+  return "skipped";
 }
 
 function calculateDueDate(orderDate, productionDays) {
@@ -9756,13 +9790,13 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
 }
 
 const DUPLICATE_DESIGN_ACTIONS = [
-  ["MERGE", "Merge chart/details only, keep old design image"],
   ["REPLACE", "Replace old design image and merge chart/details"],
+  ["MERGE", "Merge chart/details only, keep old design image"],
   ["NEW", "Save duplicate as new copy"],
   ["SKIP", "Skip duplicate images"],
 ];
 
-function duplicateDesignActionOptionsHtml(selected = "MERGE") {
+function duplicateDesignActionOptionsHtml(selected = "REPLACE") {
   return DUPLICATE_DESIGN_ACTIONS.map(([value, label]) =>
     `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
   ).join("");
@@ -9787,7 +9821,8 @@ function summarizeDuplicateDesignActions(actions = []) {
 
 function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
   if (!duplicateGroups.length) return Promise.resolve([]);
-  const fallbackActions = duplicateGroups.map(() => "SKIP");
+  const defaultActions = duplicateGroups.map(() => "REPLACE");
+  const skipActions = duplicateGroups.map(() => "SKIP");
   const dialog = document.getElementById("design-duplicate-dialog");
   const form = document.getElementById("design-duplicate-form");
   const summary = document.getElementById("design-duplicate-summary");
@@ -9796,11 +9831,11 @@ function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
   const applyAll = document.getElementById("design-duplicate-apply-all");
   const cancelButton = document.getElementById("design-duplicate-cancel");
   const closeButton = document.getElementById("design-duplicate-close");
-  if (!dialog || !form || !defaultAction || !list) return Promise.resolve(fallbackActions);
+  if (!dialog || !form || !defaultAction || !list) return Promise.resolve(defaultActions);
   if (summary) {
-    summary.textContent = `${duplicateGroups.length} duplicate design image(s) found. Choose an action from dropdown for all, or row by row.`;
+    summary.textContent = `${duplicateGroups.length} duplicate design image(s) found. Default is REPLACE so the uploaded image updates the existing design. Choose SKIP only if you do not want to upload duplicates.`;
   }
-  defaultAction.value = "MERGE";
+  defaultAction.value = "REPLACE";
   list.innerHTML = duplicateGroups.map(({ group, existingDesign }, index) => {
     const uploadName = group.designName || designNameFromFile(group.designFile?.name) || "Design";
     const fileName = group.designFile?.name || group.chartFiles?.[0]?.name || "Uploaded file";
@@ -9814,7 +9849,7 @@ function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
         </div>
         <label>Action
           <select class="design-duplicate-row-action" data-duplicate-index="${index}">
-            ${duplicateDesignActionOptionsHtml("MERGE")}
+            ${duplicateDesignActionOptionsHtml("REPLACE")}
           </select>
         </label>
       </article>
@@ -9825,6 +9860,7 @@ function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
     const cleanup = () => {
       form.removeEventListener("submit", handleSubmit);
       applyAll?.removeEventListener("click", handleApplyAll);
+      defaultAction.removeEventListener("change", handleApplyAll);
       cancelButton?.removeEventListener("click", handleCancel);
       closeButton?.removeEventListener("click", handleCancel);
       dialog.removeEventListener("cancel", handleDialogCancel);
@@ -9850,13 +9886,14 @@ function chooseDuplicateDesignUploadAction(duplicateGroups = []) {
       });
       finish(actions);
     };
-    const handleCancel = () => finish(fallbackActions);
+    const handleCancel = () => finish(skipActions);
     const handleDialogCancel = (event) => {
       event.preventDefault();
-      finish(fallbackActions);
+      finish(skipActions);
     };
     form.addEventListener("submit", handleSubmit);
     applyAll?.addEventListener("click", handleApplyAll);
+    defaultAction.addEventListener("change", handleApplyAll);
     cancelButton?.addEventListener("click", handleCancel);
     closeButton?.addEventListener("click", handleCancel);
     dialog.addEventListener("cancel", handleDialogCancel);
