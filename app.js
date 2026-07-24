@@ -10,9 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v299";
-const APP_BUILD = appVersionBuild(APP_VERSION);
-const SYNC_SCHEMA_VERSION = APP_BUILD;
+const APP_VERSION = "v298";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -62,29 +60,6 @@ const PRODUCTION_NON_GOLD_TYPES = [
   { value: "spring", label: "Spring" },
   { value: "other", label: "Other" },
 ];
-
-function appVersionBuild(version = "") {
-  const digits = String(version || "").match(/\d+/g);
-  return digits ? Number(digits.join("")) : 0;
-}
-
-function stateSyncBuild(currentState = {}) {
-  return Number(currentState.syncSchemaVersion || currentState.appBuild || appVersionBuild(currentState.appVersion));
-}
-
-function cloudStateNeedsCurrentVersionSave(cloudState = {}) {
-  return stateSyncBuild(cloudState) < SYNC_SCHEMA_VERSION;
-}
-
-function stampCurrentAppVersion(currentState = state, savedAt = "") {
-  if (!currentState || typeof currentState !== "object") return currentState;
-  currentState.appVersion = APP_VERSION;
-  currentState.appBuild = APP_BUILD;
-  currentState.syncSchemaVersion = SYNC_SCHEMA_VERSION;
-  if (savedAt) currentState.lastSavedAt = savedAt;
-  return currentState;
-}
-
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
@@ -2349,7 +2324,6 @@ function applyAccessControl() {
 
 function saveState() {
   attachLocalFactoryResetMarkerToState();
-  stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
@@ -2358,7 +2332,6 @@ function saveState() {
 
 function saveStateLocalOnly() {
   attachLocalFactoryResetMarkerToState();
-  stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
@@ -2956,10 +2929,8 @@ async function syncStateToSupabase(options = {}) {
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   supabaseIsSaving = true;
-  setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
+  setSyncStatus("saving", "Sync: Saving");
   const updatedAt = new Date().toISOString();
-  stampCurrentAppVersion(state, updatedAt);
-  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   let error = null;
   try {
     const result = await withSupabaseTimeout(
@@ -3063,16 +3034,8 @@ function applyPendingCloudState(source = "auto") {
   return true;
 }
 
-function queueCurrentVersionCloudSave(reason = "") {
-  if (!supabaseClient || supabaseIsSaving) return;
-  clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(() => syncStateToSupabase({ versionUpgrade: true }), SUPABASE_SAVE_DELAY_MS);
-  setSyncStatus("saving", "Sync: Upgrading Data", reason || `Old-version data loaded. Saving again as ${APP_VERSION}.`);
-}
-
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
-  const shouldUpgradeCloudVersion = cloudStateNeedsCurrentVersionSave(cloudState);
   state = normalizeState(cloudState);
   clearImagePreviewCaches();
   const appliedResetAt = stateFactoryResetAt(state);
@@ -3095,9 +3058,6 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     setSyncStatus("online", `Live Sync: Updated ${time}`);
   } else {
     setSyncStatus("online", "Live Sync: Auto");
-  }
-  if (shouldUpgradeCloudVersion) {
-    queueCurrentVersionCloudSave(`Loaded old data and upgraded it to ${APP_VERSION}.`);
   }
 }
 
@@ -17464,9 +17424,6 @@ function seedMetalSafeFromLedger(currentState) {
 }
 
 function normalizeState(currentState) {
-  if (!currentState || typeof currentState !== "object") {
-    currentState = structuredClone(demoState);
-  }
   currentState.factoryResetAt = currentState.factoryResetAt || "";
   currentState.factoryResetReason = currentState.factoryResetReason || "";
   currentState.nextOrder = currentState.nextOrder || 1004;
@@ -17897,7 +17854,6 @@ function normalizeState(currentState) {
   currentState.ledger = currentState.ledger || [];
   applyWaxStoneIssueLedgerMigration(currentState);
   seedMetalSafeFromLedger(currentState);
-  stampCurrentAppVersion(currentState);
   return currentState;
 }
 
