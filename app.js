@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v286";
+const APP_VERSION = "v287";
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -199,7 +199,7 @@ const pageInfo = {
   dashboard: ["Dashboard", "Track metal safe, factory stock, production stock, office stock, orders, wastage, and finished jewellery separately."],
   customers: ["Customers", "Add, edit, and manage customer details."],
   designs: ["Designs", "Upload and manage jewellery designs for stock and customer orders."],
-  catalogue: ["Catalogue", "Save edited design photos category wise, let customer select designs, then print or save the selected order as PDF."],
+  catalogue: ["Catalogue", "Upload catalogue images category wise, then separately select designs for client order summary."],
   "stone-library": ["Stone Library", "Master list of stone type, size, weight per pc, and price per pc."],
   orders: ["Job Orders", "Create and monitor customer jewellery manufacturing orders."],
   production: ["Production", "Issue gold to departments and complete finished lots."],
@@ -339,6 +339,7 @@ function resetOperationPage(viewId) {
 function resetBuiltInTilePage(view) {
   if (view === "orders") switchOrderPage("");
   if (view === "designs") switchDesignPage("");
+  if (view === "catalogue") switchCataloguePage("");
   if (view === "stone-library") switchStonePage("");
   if (view === "production") switchProductionPage("");
   if (view === "office") clearOfficePages();
@@ -360,6 +361,10 @@ document.querySelectorAll("[data-stone-page]").forEach((button) => {
   button.addEventListener("click", () => switchStonePage(button.dataset.stonePage));
 });
 
+document.querySelectorAll("[data-catalogue-page]").forEach((button) => {
+  button.addEventListener("click", () => switchCataloguePage(button.dataset.cataloguePage));
+});
+
 document.querySelectorAll("[data-production-page]").forEach((button) => {
   button.addEventListener("click", () => switchProductionPage(button.dataset.productionPage));
 });
@@ -370,7 +375,17 @@ document.getElementById("catalogue-category-input")?.addEventListener("input", r
 document.getElementById("catalogue-select-all")?.addEventListener("click", selectVisibleCatalogueItems);
 document.getElementById("catalogue-clear-selection")?.addEventListener("click", clearCatalogueSelection);
 document.getElementById("catalogue-clear-all")?.addEventListener("click", clearCatalogueImages);
-document.getElementById("catalogue-print")?.addEventListener("click", printCatalogueSelection);
+document.getElementById("catalogue-print")?.addEventListener("click", openCatalogueOrderDialog);
+document.getElementById("catalogue-order-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  printCatalogueSelection();
+});
+document.getElementById("catalogue-order-close")?.addEventListener("click", () => {
+  document.getElementById("catalogue-order-dialog")?.close();
+});
+document.getElementById("catalogue-order-cancel")?.addEventListener("click", () => {
+  document.getElementById("catalogue-order-dialog")?.close();
+});
 document.getElementById("catalogue-back-categories")?.addEventListener("click", () => {
   catalogueActiveCategory = "";
   renderCatalogue();
@@ -3084,6 +3099,21 @@ function switchDesignPage(page) {
     section.classList.toggle("active-design-page", section.id === `design-page-${page}`);
   });
   if (page === "stone") openStoneEntryDialog();
+}
+
+function switchCataloguePage(page) {
+  const section = document.getElementById("catalogue");
+  if (section) section.classList.toggle("catalogue-open", Boolean(page));
+  document.querySelectorAll("[data-catalogue-page]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.cataloguePage === page);
+  });
+  document.querySelectorAll(".catalogue-page").forEach((panel) => {
+    const isActive = panel.id === `catalogue-page-${page}`;
+    panel.classList.toggle("active-catalogue-page", isActive);
+    panel.hidden = !isActive;
+  });
+  if (page === "upload") renderCatalogueCategoryOptions();
+  if (page === "order") renderCatalogue();
 }
 
 function switchStonePage(page) {
@@ -6193,7 +6223,7 @@ async function handleCatalogueUpload(event) {
   catalogueItems = state.catalogueItems;
   saveState();
   event.target.value = "";
-  if (status) status.textContent = `${uploaded.length} image(s) saved. Select customer choices and use Print / Save PDF.`;
+  if (status) status.textContent = `${uploaded.length} image(s) saved in ${selectedCategory || "auto category"}. Open Client Order Selection to select designs and print order summary.`;
   renderCatalogue();
 }
 
@@ -6474,6 +6504,20 @@ function catalogueOrderData() {
   return form ? getFormData(form) : {};
 }
 
+function openCatalogueOrderDialog() {
+  const selected = catalogueSelectedItems();
+  if (!selected.length) {
+    alert("Select at least one catalogue image to print.");
+    return;
+  }
+  const dialog = document.getElementById("catalogue-order-dialog");
+  const form = document.getElementById("catalogue-order-form");
+  const summary = document.getElementById("catalogue-order-dialog-summary");
+  if (summary) summary.textContent = `${selected.length} design${selected.length === 1 ? "" : "s"} selected. Enter client details to print order summary.`;
+  dialog?.showModal();
+  form?.querySelector('[name="customerName"]')?.focus();
+}
+
 async function printCatalogueSelection() {
   const selected = catalogueSelectedItems();
   if (!selected.length) {
@@ -6484,6 +6528,7 @@ async function printCatalogueSelection() {
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = cataloguePrintHtml(catalogueOrderData(), selected);
   setPrintPageSize("catalogue");
+  document.getElementById("catalogue-order-dialog")?.close();
   document.body.classList.add("printing-catalogue");
   const cleanup = () => {
     document.body.classList.remove("printing-catalogue");

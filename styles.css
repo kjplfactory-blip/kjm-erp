@@ -6309,6 +6309,25 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   align-items: start;
 }
 
+.catalogue-page {
+  display: none;
+}
+
+.catalogue-page.active-catalogue-page {
+  display: grid;
+}
+
+#catalogue.catalogue-open > .catalogue-tile-grid {
+  display: none;
+}
+
+.catalogue-upload-panel {
+  display: grid;
+  gap: 14px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
 .catalogue-control-panel,
 .catalogue-selected-panel {
   position: sticky;
@@ -6323,6 +6342,17 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 .catalogue-order-form {
   margin-bottom: 12px;
+}
+
+.catalogue-order-dialog {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+.catalogue-order-dialog .dialog-header,
+.catalogue-order-dialog .dialog-actions,
+.catalogue-order-dialog .full-row {
+  grid-column: 1 / -1;
 }
 
 .catalogue-upload-box {
@@ -6518,6 +6548,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .catalogue-control-panel,
   .catalogue-selected-panel {
     position: static;
+  }
+
+  .catalogue-order-dialog {
+    grid-template-columns: 1fr;
   }
 }
 
