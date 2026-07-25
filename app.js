@@ -10,9 +10,11 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v300";
+const APP_VERSION = "v301";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
+const BARCODE_SCAN_RESET_MS = 140;
+const BARCODE_SCAN_MIN_LENGTH = 3;
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
@@ -103,6 +105,9 @@ let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueActiveCategory = "";
 let catalogueImageCache = new Map();
+let barcodeScanBuffer = "";
+let barcodeScanLastInputAt = 0;
+let barcodeScanStatusTimer = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
 
@@ -955,18 +960,21 @@ document.getElementById("order-item-list").addEventListener("input", (event) => 
   saveOrderDraft();
 });
 
-document.getElementById("barcode-scan").addEventListener("change", (event) => {
-  openOrderByBarcode(event.target.value);
-  event.target.value = "";
+const orderBarcodeScanInput = document.getElementById("barcode-scan");
+orderBarcodeScanInput?.addEventListener("change", handleBarcodeScanField);
+orderBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydown);
+
+const globalBarcodeScanInput = document.getElementById("global-barcode-scan");
+globalBarcodeScanInput?.addEventListener("change", handleBarcodeScanField);
+globalBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydown);
+
+document.getElementById("focus-barcode-scan")?.addEventListener("click", () => {
+  globalBarcodeScanInput?.focus();
+  globalBarcodeScanInput?.select();
+  setBarcodeScanStatus("Scanner ready", "success");
 });
 
-document.getElementById("barcode-scan").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    openOrderByBarcode(event.target.value);
-    event.target.value = "";
-  }
-});
+document.addEventListener("keydown", handleHardwareBarcodeScan, true);
 
 document.getElementById("repair-order-search").addEventListener("input", renderRepairJobOrders);
 
@@ -4103,36 +4111,252 @@ function sortedDesigns() {
   );
 }
 
-function openOrderByBarcode(value) {
-  const query = String(value || "").trim().toUpperCase();
-  const candidates = barcodeSearchCandidates(query);
-  const order = state.orders.find((item) =>
-    [item.barcode, item.productionNo, item.number].some((code) => {
-      const normalized = String(code || "").toUpperCase();
-      return normalized && (candidates.includes(normalized) || query.includes(normalized));
-    })
-  );
-  if (!order) {
-    alert("No product found for this barcode.");
+function handleBarcodeScanField(event) {
+  openScannedBarcode(event.target.value);
+  event.target.value = "";
+}
+
+function handleBarcodeScanFieldKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  handleBarcodeScanField(event);
+}
+
+function handleHardwareBarcodeScan(event) {
+  if (event.defaultPrevented || !currentUser) return;
+  if (isBarcodeTypingTarget(event.target)) return;
+
+  const now = Date.now();
+  if (now - barcodeScanLastInputAt > BARCODE_SCAN_RESET_MS) barcodeScanBuffer = "";
+  barcodeScanLastInputAt = now;
+
+  if (event.key === "Enter") {
+    const scannedText = barcodeScanBuffer.trim();
+    barcodeScanBuffer = "";
+    if (scannedText.length >= BARCODE_SCAN_MIN_LENGTH) {
+      event.preventDefault();
+      openScannedBarcode(scannedText);
+    }
     return;
   }
-  openOrderDetail(order.id);
+
+  if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+  barcodeScanBuffer += event.key;
+  if (barcodeScanBuffer.length > 240) barcodeScanBuffer = barcodeScanBuffer.slice(-240);
+}
+
+function isBarcodeTypingTarget(target) {
+  if (!target) return false;
+  if (target.closest?.("#global-barcode-scan, #barcode-scan")) return true;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return true;
+  return Boolean(target.isContentEditable);
+}
+
+function openScannedBarcode(value) {
+  const query = normalizeBarcodeText(value);
+  if (!query) return false;
+  const result = openProductByBarcode(query);
+  if (result.ok) {
+    setBarcodeScanStatus(`Opened ${result.label}`, "success");
+    return true;
+  }
+  setBarcodeScanStatus(result.message, "error");
+  alert(result.message);
+  return false;
+}
+
+function setBarcodeScanStatus(message, mode = "") {
+  const node = document.getElementById("barcode-scan-status");
+  if (!node) return;
+  node.textContent = message || "Ready";
+  node.className = ["scan-status", mode].filter(Boolean).join(" ");
+  clearTimeout(barcodeScanStatusTimer);
+  if (mode) {
+    barcodeScanStatusTimer = setTimeout(() => {
+      node.textContent = "Ready";
+      node.className = "scan-status";
+    }, 4500);
+  }
+}
+
+function openOrderByBarcode(value) {
+  const result = openProductByBarcode(value);
+  if (!result.ok) alert(result.message);
+  return result;
+}
+
+function openProductByBarcode(value) {
+  const query = normalizeBarcodeText(value);
+  if (!query) return { ok: false, message: "Scan barcode or enter production number." };
+  if (!currentUser) return { ok: false, message: "Login before scanning barcode." };
+
+  const order = findOrderByBarcode(query);
+  const officeEntry = findOfficeEntryByBarcode(query);
+  const preferOffice = officeEntry && shouldOpenOfficeBarcode(query);
+
+  if (preferOffice && canOpenScannedOfficeEntry(officeEntry)) return openOfficeEntryFromBarcode(officeEntry);
+  if (order && canOpenScannedJobDetails()) return openJobOrderFromBarcode(order);
+  if (officeEntry && canOpenScannedOfficeEntry(officeEntry)) return openOfficeEntryFromBarcode(officeEntry);
+
+  if (order) return { ok: false, message: "This login cannot open Job Order details." };
+  if (officeEntry) return { ok: false, message: "This login cannot open Office item details." };
+  return { ok: false, message: "No product found for this barcode." };
+}
+
+function findOrderByBarcode(value) {
+  const query = normalizeBarcodeText(value);
+  const candidates = barcodeSearchCandidates(query);
+  return (state.orders || []).find((item) =>
+    barcodeMatchesAny(query, candidates, [item.barcode, item.productionNo, item.number, item.jobNumber])
+  );
+}
+
+function findOfficeEntryByBarcode(value) {
+  const query = normalizeBarcodeText(value);
+  const candidates = barcodeSearchCandidates(query);
+  return allOfficeBillItemEntries().find(({ lot, bill, item, order }) =>
+    barcodeMatchesAny(query, candidates, [
+      item.productionNo,
+      order.productionNo,
+      order.barcode,
+      order.number,
+      order.jobNumber,
+      item.huid1,
+      item.huid2,
+      item.hallmarkLotNo,
+      item.hallmarkLotNumber,
+      bill.billNo,
+      lot.number,
+      lot.orderNumber,
+    ])
+  );
+}
+
+function allOfficeBillItemEntries() {
+  const entries = [];
+  (state.lots || []).forEach((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.items?.length) return;
+    bill.items.forEach((item) => {
+      entries.push({ lot, bill, item, order: findById("orders", item.orderId) || {} });
+    });
+  });
+  return entries;
+}
+
+function canOpenScannedJobDetails() {
+  return Boolean(currentUser && canAccessPage("orders"));
+}
+
+function canOpenScannedOfficeEntry(entry) {
+  if (!currentUser || !canAccessPage("office")) return false;
+  if (!isSalesUser()) return true;
+  return entry?.item?.salesTeam === currentSalesTeam() && entry.item.saleStatus !== "Sold";
+}
+
+function shouldOpenOfficeBarcode(query) {
+  if (isSalesUser()) return true;
+  const activeView = document.querySelector(".view.active-view")?.id || "";
+  if (activeView === "office") return true;
+  return /\b(HUID|HALLMARK|BILL|HM)\b/.test(normalizeBarcodeText(query));
+}
+
+function openJobOrderFromBarcode(order) {
+  closeDialogsForBarcode("order-dialog");
+  const bucket = isCompletedOrder(order) ? "completed" : "active";
+  switchView("orders");
+  openOrderDetail(order.id, false, bucket);
+  setTimeout(() => openJobItemDetail(order.id), 0);
+  return { ok: true, type: "job", label: order.productionNo || order.number || order.jobNumber || "job item" };
+}
+
+function openOfficeEntryFromBarcode(entry) {
+  closeDialogsForBarcode("office-details-dialog");
+  switchView("office");
+  const key = officeItemKey(entry.lot.id, entry.item);
+  openOfficeItemView(key);
+  return {
+    ok: true,
+    type: "office",
+    label: entry.item.productionNo || entry.order.productionNo || officeHuidText(entry.item) || "office item",
+  };
+}
+
+function closeDialogsForBarcode(targetDialogId) {
+  document.querySelectorAll("dialog[open]").forEach((dialog) => {
+    if (dialog.id !== targetDialogId) dialog.close();
+  });
+}
+
+function normalizeBarcodeText(value = "") {
+  return String(value || "").trim().toUpperCase().replace(/^\*+|\*+$/g, "").trim();
 }
 
 function barcodeSearchCandidates(value = "") {
-  const text = String(value || "").trim().toUpperCase();
-  const values = new Set([text]);
+  const text = normalizeBarcodeText(value);
+  const values = new Set();
+  addBarcodeCandidate(values, text);
+
+  const urlMatches = text.matchAll(/[?&](?:PR|PRODUCTIONNO|BARCODE|HUID|JOB|ITEM|LOT|BILL|HM)=([^&\s|]+)/g);
+  for (const match of urlMatches) addBarcodeCandidate(values, safeDecodeBarcodeText(match[1]));
+
   const patterns = [
-    /\bPR\s*[:#-]?\s*([A-Z0-9-]+)/,
-    /\bPRODUCTION\s*[:#-]?\s*([A-Z0-9-]+)/,
-    /\bITEM\s*[:#-]?\s*([A-Z0-9-]+)/,
-    /\bBARCODE\s*[:#-]?\s*([A-Z0-9-]+)/,
+    /\bPR\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bPRODUCTION\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bITEM\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bBARCODE\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bJOB\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bHUID\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bLOT\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bBILL\s*[:#-]?\s*([A-Z0-9-]+)/g,
+    /\bHM\s*[:#-]?\s*([A-Z0-9-]+)/g,
   ];
   patterns.forEach((pattern) => {
-    const match = text.match(pattern);
-    if (match?.[1]) values.add(match[1]);
+    let match = pattern.exec(text);
+    while (match) {
+      addBarcodeCandidate(values, match[1]);
+      match = pattern.exec(text);
+    }
+  });
+
+  text.split(/[|,;\n\r]+/).forEach((part) => {
+    const pieces = part.split(":");
+    if (pieces.length > 1) addBarcodeCandidate(values, pieces.slice(1).join(":"));
   });
   return [...values].filter(Boolean);
+}
+
+function safeDecodeBarcodeText(value = "") {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    return value;
+  }
+}
+
+function addBarcodeCandidate(values, value) {
+  const normalized = normalizeBarcodeText(value);
+  if (!normalized) return;
+  values.add(normalized);
+  values.add(normalized.replace(/\s+/g, ""));
+  if (/^PR[-\s:]?/i.test(normalized)) values.add(normalized.replace(/^PR[-\s:]?/i, ""));
+  if (/^HM[-\s:]?/i.test(normalized)) values.add(normalized.replace(/^HM[-\s:]?/i, ""));
+}
+
+function barcodeMatchesAny(query, candidates, codes = []) {
+  return codes.some((code) => barcodeCodeMatches(query, candidates, code));
+}
+
+function barcodeCodeMatches(query, candidates, code) {
+  const codeValues = new Set();
+  addBarcodeCandidate(codeValues, code);
+  const queryText = normalizeBarcodeText(query);
+  for (const codeValue of codeValues) {
+    if (!codeValue) continue;
+    if (candidates.includes(codeValue) || queryText.includes(codeValue)) return true;
+    if (codeValue.length >= 3 && candidates.some((candidate) => candidate.length >= 3 && codeValue.includes(candidate))) return true;
+  }
+  return false;
 }
 
 function barcodeSvg(value) {
