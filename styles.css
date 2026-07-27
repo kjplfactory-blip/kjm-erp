@@ -228,6 +228,10 @@ button.owner-only {
   display: none;
 }
 
+.top-header-hotspot {
+  display: none;
+}
+
 body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .always-brand {
   position: fixed;
   top: 12px;
@@ -7649,5 +7653,66 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   .design-duplicate-row > span {
     justify-self: start;
+  }
+}
+
+/* V302: hide the top header like the slide-out menu on desktop. */
+@media (min-width: 961px) {
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-header-hotspot {
+    position: fixed;
+    top: 0;
+    left: 24px;
+    right: 24px;
+    z-index: 37;
+    display: block;
+    height: 20px;
+  }
+
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-header-hotspot::before {
+    content: "HEADER";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    display: grid;
+    place-items: center;
+    min-width: 112px;
+    height: 20px;
+    padding: 0 16px;
+    border: 1px solid rgba(8, 119, 108, 0.18);
+    border-top: 0;
+    border-radius: 0 0 8px 8px;
+    background: linear-gradient(180deg, #bff2dc, #71d7b5);
+    color: #064f48;
+    box-shadow: 0 10px 24px rgba(5, 31, 27, 0.14);
+    font-size: 10px;
+    font-weight: 1000;
+    letter-spacing: 0.18em;
+    transform: translateX(-50%);
+  }
+
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar {
+    position: fixed;
+    top: 0;
+    left: 24px;
+    right: 24px;
+    z-index: 36;
+    width: auto;
+    max-width: none;
+    max-height: min(62vh, 320px);
+    margin: 0;
+    padding: 14px 28px 14px 268px;
+    overflow: visible;
+    border: 1px solid rgba(174, 216, 201, 0.78);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 18px 48px rgba(12, 56, 50, 0.14);
+    transform: translateY(calc(-100% - 4px));
+    transition: transform 190ms ease, box-shadow 190ms ease;
+  }
+
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-header-hotspot:hover + .topbar,
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar:hover,
+  body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar:focus-within {
+    transform: translateY(0);
   }
 }
