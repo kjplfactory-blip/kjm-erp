@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=302">
+    <link rel="stylesheet" href="styles.css?v=305">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v302</small>
+            <small class="app-version-badge">App v305</small>
           </div>
         </div>
         <label>User
@@ -109,7 +109,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v302</span>
+            <span class="app-version-badge">App v305</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1302,9 +1302,11 @@
           <button class="ghost-button" type="button" id="close-production-stone">Close</button>
         </div>
         <input type="hidden" name="orderId">
-        <p class="dialog-note">Stone rows are loaded from Design Master. Select setting type and manufacturing stage for each stone.</p>
+        <p class="dialog-note">Stone rows start from Design Master, but saving here changes only this job-card item. Design Master remains the main reference.</p>
         <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
         <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="add-production-stone-row">Add Stone Row</button>
+          <button class="ghost-button" type="button" id="reset-production-stone-design">Reset From Design Master</button>
           <button class="ghost-button" type="button" id="close-production-stone-bottom">Close</button>
           <button type="submit">Save Production Stone Plan</button>
         </div>
@@ -1447,8 +1449,8 @@
         <label class="melting-receive-casting">Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Other Received Weight (g) <input name="otherReceivedWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label class="melting-receive-casting xrf-receive-option"><input name="issueXrfSample" type="checkbox"> Issue XRF sample from this casting batch</label>
-        <label class="melting-receive-casting xrf-receive-option">XRF Issue Weight (g) <input name="xrfIssueWeight" type="number" min="0" step="0.001" value="0.500"></label>
+        <label class="melting-receive-casting xrf-receive-option"><input name="issueXrfSample" type="checkbox"> Issue XRF directly from this casting batch</label>
+        <label class="melting-receive-casting xrf-receive-option">XRF Issue Weight From Tree WSTG (g) <input name="xrfIssueWeight" type="number" min="0" step="0.001" value="0.500"></label>
         <p id="melting-xrf-issue-note" class="dialog-note melting-receive-casting"></p>
         <label class="melting-receive-rod hidden">Rod 1 Received (g) <input name="rod1Weight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-rod hidden">Rod 2 Received (g) <input name="rod2Weight" type="number" min="0" step="0.001" value="0"></label>
@@ -1654,6 +1656,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=302"></script>
+    <script src="app.js?v=305"></script>
 </body>
 </html>

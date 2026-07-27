@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v302";
+const APP_VERSION = "v305";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1735,6 +1735,15 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
     openOfficeDialogPage("sales");
     return;
   }
+  if (event.target.id === "office-back-hallmark-batches") {
+    closeHallmarkBatch();
+    return;
+  }
+  const hallmarkBatchTile = event.target.closest("[data-hallmark-batch-open]");
+  if (hallmarkBatchTile) {
+    openHallmarkBatch(hallmarkBatchTile.dataset.hallmarkBatchOpen);
+    return;
+  }
   if (event.target.id === "office-select-dialog-items") {
     selectAllOfficeDialogItems();
     return;
@@ -1784,16 +1793,16 @@ document.getElementById("bill-form").addEventListener("submit", (event) => {
 });
 
 document.getElementById("bill-qc-ok").addEventListener("click", () => {
-  if (isBillQcOnlyMode()) {
-    alert("QC check users can only select QC dropdown and save. Transfer to Office must be done by Bill, Manager, or Owner.");
+  if (!canEditQcStatus()) {
+    alert("Only QC, Office Main, or Owner can transfer QC OK items to Office.");
     return;
   }
   transferQcOkItemsToOffice();
 });
 
 document.getElementById("bill-qc-failed").addEventListener("click", () => {
-  if (isBillQcOnlyMode()) {
-    alert("QC check users can only select QC dropdown and save. Sending failed items back to production must be done by Bill, Manager, or Owner.");
+  if (!canEditQcStatus()) {
+    alert("Only QC, Office Main, or Owner can send QC failed items back to Production.");
     return;
   }
   returnQcFailedItemsToProduction();
@@ -2000,30 +2009,36 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   event.preventDefault();
   const order = findById("orders", event.target.orderId.value);
   if (!order) return;
-  const rows = [...document.querySelectorAll("#production-stone-details tr[data-design-stone-id]")];
-  if (!rows.length) {
-    alert("No Design Master stone data found for this item.");
+  let stoneItems = [];
+  try {
+    stoneItems = productionStoneRowsFromDialog({ validate: true });
+  } catch (error) {
+    alert(error.message || "Please correct the stone rows.");
     return;
   }
-  order.productionStoneItems = rows.map((row) => ({
-    id: row.dataset.productionStoneId || crypto.randomUUID(),
-    sourceDesignStoneId: row.dataset.designStoneId,
-    date: today(),
-    settingType: row.querySelector('[name="productionSettingType"]').value,
-    manufacturingStage: row.querySelector('[name="manufacturingStage"]').value,
-    stoneType: row.dataset.stoneType || "",
-    shape: row.dataset.shape || "",
-    size: row.dataset.size || "",
-    itemKey: row.dataset.itemKey || "",
-    code: row.dataset.code || "",
-    pcs: Number(row.dataset.pcs || 0),
-    weightPerPc: formatStoneWeight(row.dataset.weightPerPc),
-    totalWeight: row.dataset.totalWeight || totalStoneWeight(row.dataset.weightPerPc, row.dataset.pcs),
-  }));
+  const masterWeightUpdates = saveMissingProductionStoneWeightsToMaster(stoneItems, order);
+  order.productionStoneItems = stoneItems;
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
   saveState();
   renderProductionStoneItems(order);
   renderJobItemsDetail(getJobOrders(order));
-  alert("Production stone plan saved.");
+  openJobItemDetail(order.id);
+  alert(`Production stone plan saved.${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}`);
+});
+
+document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
+document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
+
+document.getElementById("production-stone-form").addEventListener("change", (event) => {
+  if (event.target.dataset.productionStoneField) handleProductionStoneRowChange(event);
+});
+
+document.getElementById("production-stone-form").addEventListener("input", (event) => {
+  if (event.target.dataset.productionStoneField) {
+    updateProductionStoneRowPreview(event.target.closest("[data-production-stone-row]"));
+    updateProductionStoneDialogSummary();
+  }
 });
 
 document.getElementById("issue-from-order").addEventListener("click", () => {
@@ -3248,6 +3263,8 @@ function switchOfficePage(page) {
     alert("Sales team login can access only its own holding.");
     page = "sales";
   }
+  const officeDialog = document.getElementById("office-details-dialog");
+  if (officeDialog) delete officeDialog.dataset.hallmarkBatch;
   document.querySelectorAll("[data-office-page]").forEach((button) => {
     button.classList.toggle("active", button.dataset.officePage === page);
   });
@@ -5473,7 +5490,7 @@ function syncFactoryOutLedgerForState(source) {
       const purity = item.purity || order.purity || lot.metalPurity || "18K";
       const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
       return { item, order, netWeight, finalGw, reducedWeight, purity, productionNo };
-    }).filter(({ item, netWeight }) => !item.discardStatus && netWeight > 0);
+    }).filter(({ item, netWeight }) => isFactoryOutBillItem(item) && !item.discardStatus && netWeight > 0);
     if (!billItems.length) return;
     const totalNetWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.netWeight)), 0);
     const totalGrossWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.finalGw)), 0);
@@ -5966,7 +5983,7 @@ function officeStockWeight() {
 }
 
 function isFactoryOutBillItem(item = {}) {
-  return item.factoryStatus === "Factory Out" || item.officeStatus === "Office";
+  return item.qcStatus === "QC OK" && (item.factoryStatus === "Factory Out" || item.officeStatus === "Office");
 }
 
 function billProductionStockWeight(bill = {}) {
@@ -7039,71 +7056,295 @@ function openProductionStoneEntry(orderId) {
   form.orderId.value = order.id;
   const design = findById("designs", order.designId);
   const designItems = designStoneItemsForOrder(design, order);
+  const itemItems = productionStoneItemsForOrder(order);
   const itemText = orderStoneItemKeys(order).map(stoneItemInputValue).join(" + ");
-  document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || ""} / ${itemText} / ${designItems.length || 0} design stone row${designItems.length === 1 ? "" : "s"}`;
+  document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || ""} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
   renderProductionStoneItems(order);
   document.getElementById("production-stone-dialog").showModal();
 }
 
-function renderProductionStoneItems(order) {
+function renderProductionStoneItems(order, forcedItems = null) {
   const container = document.getElementById("production-stone-details");
   const design = findById("designs", order.designId);
   const designItems = designStoneItemsForOrder(design, order);
-  const savedItems = order.productionStoneItems || [];
-  container.classList.toggle("empty", !designItems.length);
-  if (!designItems.length) {
-    container.innerHTML = "No stone data found in Design Master for this design.";
+  const items = Array.isArray(forcedItems) ? forcedItems : productionStoneItemsForOrder(order);
+  container.dataset.orderId = order.id;
+  container.classList.toggle("empty", !items.length);
+  if (!items.length) {
+    container.innerHTML = `
+      <div class="stone-total-summary">No stone saved for this job-card item.</div>
+      <div class="empty">Add a stone row here, or use Reset From Design Master if the master has stone rows for this design.</div>
+    `;
     return;
   }
-  const plannedItems = designItems.map((item) => {
-    const saved = savedItems.find((savedItem) => savedItem.sourceDesignStoneId === item.id) || {};
-    const automaticSetting = automaticProductionStoneSetting(item);
-    return {
-      ...item,
-      productionStoneId: saved.id || "",
-      settingType: saved.settingType || automaticSetting.settingType,
-      manufacturingStage: saved.manufacturingStage || automaticSetting.manufacturingStage,
-    };
-  });
   container.innerHTML = `
-    <div class="stone-total-summary">${productionStoneSummaryText(savedItems.length ? savedItems : plannedItems)}</div>
+    <div class="stone-total-summary">${productionStoneSummaryText(items)}</div>
+    <p class="dialog-note">${escapeHtml(productionStonePlanSourceText(order, designItems.length))}</p>
     <table>
-      <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th>Setting Type</th><th>Manufacturing Stage</th></tr></thead>
-      <tbody>${plannedItems.map((item) => `
-        <tr
-          data-design-stone-id="${escapeHtml(item.id)}"
-          data-production-stone-id="${escapeHtml(item.productionStoneId)}"
-          data-stone-type="${escapeHtml(item.stoneType || "")}"
-          data-shape="${escapeHtml(item.shape || "")}"
-          data-size="${escapeHtml(item.size || "")}"
-          data-item-key="${escapeHtml(normalizeStoneItemKey(item.itemKey))}"
-          data-code="${escapeHtml(item.code || stoneLookupCode(item))}"
-          data-pcs="${escapeHtml(item.pcs || 0)}"
-          data-weight-per-pc="${escapeHtml(item.weightPerPc || "")}"
-          data-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs))}"
-        >
-          <td>${escapeHtml(stoneItemInputValue(item.itemKey))}</td>
-          <td>${escapeHtml(item.code || stoneLookupCode(item))}</td>
-          <td>${escapeHtml(item.stoneType || "-")}</td>
-          <td>${escapeHtml(item.shape || "-")}</td>
-          <td>${escapeHtml(item.size || "-")}</td>
-          <td>${escapeHtml(item.pcs || "-")}</td>
-          <td>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")}</td>
-          <td>${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
-          <td><select name="productionSettingType">${productionSettingOptions(item.settingType)}</select></td>
-          <td><select name="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage)}</select></td>
-        </tr>
-      `).join("")}</tbody>
+      <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th>Setting Type</th><th>Manufacturing Stage</th><th></th></tr></thead>
+      <tbody>${items.map((item) => productionStoneRowHtml(item, order, design)).join("")}</tbody>
     </table>`;
+  container.querySelectorAll("[data-production-stone-row]").forEach((row) => {
+    refreshProductionStoneRowOptions(row);
+    updateProductionStoneRowPreview(row);
+  });
 }
 
 function removeProductionStoneItem(orderId, stoneItemId) {
   const order = findById("orders", orderId);
   if (!order) return;
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.id !== stoneItemId);
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
   saveState();
   renderProductionStoneItems(order);
   renderJobItemsDetail(getJobOrders(order));
+}
+
+function productionStonePlanSourceText(order = {}, designRowCount = 0) {
+  if (order.productionStoneOverride) {
+    return "This is a job-card item stone plan. Changes here do not affect Design Master.";
+  }
+  if (order.productionStoneItems?.length) {
+    return "This job-card item has its own copied stone plan from Design Master. Edit here for this item only.";
+  }
+  return designRowCount
+    ? "Showing Design Master rows as this job-card item reference."
+    : "No Design Master stone rows found. You can add item-level stone rows here.";
+}
+
+function productionStoneRowHtml(item = {}, order = {}, design = null) {
+  const id = item.id || crypto.randomUUID();
+  const stoneType = item.stoneType || "SW";
+  const shape = normalizeOcrShape(item.shape || "");
+  const size = item.size || "";
+  const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
+  return `
+    <tr
+      data-production-stone-row="${escapeHtml(id)}"
+      data-production-stone-id="${escapeHtml(id)}"
+      data-source-design-stone-id="${escapeHtml(item.sourceDesignStoneId || "")}"
+      data-original-stone-key="${escapeHtml(stoneKey)}"
+      data-original-weight-per-pc="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}"
+      data-original-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}"
+    >
+      <td><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select></td>
+      <td data-production-stone-code>${escapeHtml(item.code || stoneLookupCode({ stoneType, shape, size }) || "-")}</td>
+      <td><select data-production-stone-field="stoneType">${stoneEditOptions("stoneType", stoneType)}</select></td>
+      <td><select data-production-stone-field="shape">${stoneEditOptions("shape", shape)}</select></td>
+      <td><select data-production-stone-field="size">${stoneEditOptions("size", size)}</select></td>
+      <td><input data-production-stone-field="pcs" type="number" min="0" step="1" value="${escapeHtml(item.pcs || "")}"></td>
+      <td><input data-production-stone-field="weightPerPc" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}" placeholder="0.00000"></td>
+      <td data-production-stone-total>${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
+      <td><select data-production-stone-field="settingType">${productionSettingOptions(item.settingType || automaticProductionStoneSetting(item).settingType)}</select></td>
+      <td><select data-production-stone-field="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage || automaticProductionStoneSetting(item).manufacturingStage)}</select></td>
+      <td><button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove</button></td>
+    </tr>
+  `;
+}
+
+function productionStoneItemOptionsForOrder(order = {}, design = null, selected = "") {
+  const keys = new Set(orderStoneItemKeys(order).map(normalizeStoneItemKey));
+  designStoneChartItemKeys(design || {}).forEach((key) => keys.add(normalizeStoneItemKey(key)));
+  (design?.stoneItems || []).forEach((item) => keys.add(normalizeStoneItemKey(item.itemKey)));
+  if (selected) keys.add(normalizeStoneItemKey(selected));
+  if (!keys.size) keys.add(DEFAULT_STONE_ITEM_KEY);
+  const selectedKey = normalizeStoneItemKey(selected || [...keys][0]);
+  return [...keys]
+    .map((key) => `<option value="${escapeHtml(key)}" ${key === selectedKey ? "selected" : ""}>${escapeHtml(stoneItemInputValue(key))}</option>`)
+    .join("");
+}
+
+function refreshProductionStoneRowOptions(row) {
+  if (!row) return;
+  const typeSelect = row.querySelector('[data-production-stone-field="stoneType"]');
+  const shapeSelect = row.querySelector('[data-production-stone-field="shape"]');
+  const sizeSelect = row.querySelector('[data-production-stone-field="size"]');
+  const selectedType = typeSelect?.value || "";
+  const selectedShape = shapeSelect?.value || "";
+  const selectedSize = sizeSelect?.value || "";
+  setSelectOptions(typeSelect, stoneOptionValues("stoneType", state.stones), "Select Type", selectedType);
+  if (!typeSelect.value && [...typeSelect.options].some((option) => option.value === "SW")) typeSelect.value = "SW";
+  const shapeSource = typeSelect.value
+    ? state.stones.filter((stone) => stone.stoneType === typeSelect.value)
+    : state.stones;
+  setSelectOptions(shapeSelect, stoneOptionValues("shape", shapeSource), "Select Shape", selectedShape);
+  const sizeSource = shapeSource.filter((stone) => !shapeSelect.value || stone.shape === shapeSelect.value);
+  setSelectOptions(sizeSelect, stoneOptionValues("size", sizeSource), "Select Size", selectedSize);
+}
+
+function handleProductionStoneRowChange(event) {
+  const row = event.target.closest("[data-production-stone-row]");
+  if (!row) return;
+  const field = event.target.dataset.productionStoneField;
+  if (field === "stoneType") {
+    row.querySelector('[data-production-stone-field="shape"]').value = "";
+    row.querySelector('[data-production-stone-field="size"]').value = "";
+    row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
+  }
+  if (field === "shape") {
+    row.querySelector('[data-production-stone-field="size"]').value = "";
+    row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
+  }
+  if (field === "size") row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
+  if (["stoneType", "shape", "size"].includes(field)) refreshProductionStoneRowOptions(row);
+  updateProductionStoneRowPreview(row);
+  updateProductionStoneDialogSummary();
+}
+
+function updateProductionStoneRowPreview(row) {
+  if (!row) return;
+  const stoneType = row.querySelector('[data-production-stone-field="stoneType"]')?.value || "";
+  const shape = normalizeOcrShape(row.querySelector('[data-production-stone-field="shape"]')?.value || "");
+  const size = row.querySelector('[data-production-stone-field="size"]')?.value || "";
+  const pcs = Number(row.querySelector('[data-production-stone-field="pcs"]')?.value || 0);
+  const weightInput = row.querySelector('[data-production-stone-field="weightPerPc"]');
+  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
+  const canUseOriginalWeight = stoneKey === row.dataset.originalStoneKey;
+  const enteredWeight = formatStoneWeight(weightInput?.value || "");
+  const libraryWeight = formatStoneWeight(libraryStone?.weightPerPc || "");
+  const originalWeight = canUseOriginalWeight ? formatStoneWeight(row.dataset.originalWeightPerPc || "") : "";
+  const weightPerPc = enteredWeight || libraryWeight || originalWeight;
+  const code = stoneType && shape && size ? designStoneCodeForSelection(stoneType, shape, size) : "-";
+  const total = weightPerPc ? totalStoneWeight(weightPerPc, pcs) : (canUseOriginalWeight ? row.dataset.originalTotalWeight : "");
+  const codeCell = row.querySelector("[data-production-stone-code]");
+  const totalCell = row.querySelector("[data-production-stone-total]");
+  if (codeCell) codeCell.textContent = code || "-";
+  if (weightInput && !enteredWeight && weightPerPc) weightInput.value = weightPerPc;
+  if (totalCell) totalCell.textContent = total || "-";
+}
+
+function productionStoneRowsFromDialog({ validate = false } = {}) {
+  const rows = [...document.querySelectorAll("#production-stone-details [data-production-stone-row]")];
+  const items = [];
+  rows.forEach((row, index) => {
+    const item = productionStoneItemFromDialogRow(row, { validate, rowNumber: index + 1 });
+    if (item) items.push(item);
+  });
+  return items;
+}
+
+function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1 } = {}) {
+  const stoneType = row.querySelector('[data-production-stone-field="stoneType"]')?.value || "";
+  const shape = normalizeOcrShape(row.querySelector('[data-production-stone-field="shape"]')?.value || "");
+  const size = row.querySelector('[data-production-stone-field="size"]')?.value || "";
+  const pcs = Number(row.querySelector('[data-production-stone-field="pcs"]')?.value || 0);
+  const enteredWeight = formatStoneWeight(row.querySelector('[data-production-stone-field="weightPerPc"]')?.value || "");
+  const isBlank = !stoneType && !shape && !size && !pcs && !enteredWeight;
+  if (isBlank) return null;
+  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
+  const canUseOriginalWeight = stoneKey === row.dataset.originalStoneKey;
+  const weightPerPc = formatStoneWeight(enteredWeight || libraryStone?.weightPerPc || (canUseOriginalWeight ? row.dataset.originalWeightPerPc : ""));
+  if ((!stoneType || !shape || !size || pcs <= 0 || Number(weightPerPc || 0) <= 0) && validate) {
+    throw new Error(`Stone row ${rowNumber}: select Type, Shape, Size, No. Pcs and Wt/Pc.`);
+  }
+  if (!stoneType || !shape || !size || pcs <= 0 || Number(weightPerPc || 0) <= 0) return null;
+  const settingType = row.querySelector('[data-production-stone-field="settingType"]')?.value || automaticProductionStoneSetting({ size }).settingType;
+  const manufacturingStage = row.querySelector('[data-production-stone-field="manufacturingStage"]')?.value || automaticProductionStoneSetting({ size }).manufacturingStage;
+  return {
+    id: row.dataset.productionStoneId || crypto.randomUUID(),
+    sourceDesignStoneId: row.dataset.sourceDesignStoneId || "",
+    date: today(),
+    settingType,
+    manufacturingStage,
+    itemKey: normalizeStoneItemKey(row.querySelector('[data-production-stone-field="itemKey"]')?.value || DEFAULT_STONE_ITEM_KEY),
+    stoneType,
+    shape,
+    size,
+    code: designStoneCodeForSelection(stoneType, shape, size),
+    pcs,
+    weightPerPc,
+    totalWeight: weightPerPc ? totalStoneWeight(weightPerPc, pcs) : "",
+  };
+}
+
+function saveMissingProductionStoneWeightsToMaster(items = [], order = {}) {
+  let updated = 0;
+  items.forEach((item) => {
+    const weightPerPc = formatStoneWeight(item.weightPerPc);
+    if (!item.stoneType || !item.shape || !item.size || Number(weightPerPc || 0) <= 0) return;
+    const existing = findStoneByLibraryFields(item.stoneType, item.shape, item.size);
+    if (existing) {
+      if (!Number(existing.weightPerPc || 0)) {
+        existing.weightPerPc = weightPerPc;
+        existing.code = existing.code || item.code || stoneLookupCode(item);
+        existing.remarks = existing.remarks || `Weight added from job item ${order.productionNo || order.number || ""}`.trim();
+        updated += 1;
+      }
+      return;
+    }
+    state.stones.unshift(normalizeStone({
+      id: crypto.randomUUID(),
+      stoneType: item.stoneType,
+      shape: item.shape,
+      size: item.size,
+      code: item.code || stoneLookupCode(item),
+      weightPerPc,
+      pricePerPc: "",
+      remarks: `Added from job item ${order.productionNo || order.number || ""}`.trim(),
+    }));
+    updated += 1;
+  });
+  if (updated) {
+    state.stones = dedupeStoneLibrary(state.stones);
+    renderStoneLibrary();
+  }
+  return updated;
+}
+
+function updateProductionStoneDialogSummary() {
+  const summary = document.querySelector("#production-stone-details .stone-total-summary");
+  if (!summary) return;
+  summary.textContent = productionStoneSummaryText(productionStoneRowsFromDialog());
+}
+
+function addProductionStoneRow() {
+  const form = document.getElementById("production-stone-form");
+  const order = findById("orders", form.orderId.value);
+  if (!order) return;
+  const container = document.getElementById("production-stone-details");
+  const design = findById("designs", order.designId);
+  const blank = {
+    id: crypto.randomUUID(),
+    itemKey: orderStoneItemKeys(order)[0] || DEFAULT_STONE_ITEM_KEY,
+    stoneType: "SW",
+    settingType: "hand",
+    manufacturingStage: "Setting",
+  };
+  const tbody = container.querySelector("tbody");
+  if (!tbody) {
+    renderProductionStoneItems(order, [blank]);
+    return;
+  }
+  tbody.insertAdjacentHTML("beforeend", productionStoneRowHtml(blank, order, design));
+  const row = tbody.lastElementChild;
+  refreshProductionStoneRowOptions(row);
+  updateProductionStoneRowPreview(row);
+  updateProductionStoneDialogSummary();
+}
+
+function removeProductionStoneRow(button) {
+  const row = button?.closest("[data-production-stone-row]");
+  if (!row) return;
+  row.remove();
+  updateProductionStoneDialogSummary();
+}
+
+function resetProductionStoneFromDesign() {
+  const form = document.getElementById("production-stone-form");
+  const order = findById("orders", form.orderId.value);
+  if (!order) return;
+  const designItems = buildProductionStoneItemsForOrder(order);
+  if (!confirm(`Reset stone rows for ${order.productionNo || order.number} from Design Master?\n\nThis will not change Design Master.`)) return;
+  order.productionStoneItems = designItems;
+  order.productionStoneOverride = false;
+  order.productionStoneUpdatedAt = today();
+  saveState();
+  renderProductionStoneItems(order);
+  renderJobItemsDetail(getJobOrders(order));
+  openJobItemDetail(order.id);
 }
 
 function productionStoneSummaryText(items = []) {
@@ -7427,6 +7668,10 @@ function printBill(lotId, billOverride = null) {
     alert("Generate bill first, then print.");
     return;
   }
+  if (!billHasFinalQcOkItems(bill)) {
+    alert("Only QC OK items transferred to Office can be printed in the final bill.");
+    return;
+  }
   startBillPrint(billPrintHtml(lot, bill));
 }
 
@@ -7436,6 +7681,10 @@ function printPackingList(lotId, billOverride = null) {
   const bill = billOverride || lot.bill || state.bills?.find((item) => item.lotId === lot.id);
   if (!bill?.id) {
     alert("Generate bill first, then print packing list.");
+    return;
+  }
+  if (!billHasFinalQcOkItems(bill)) {
+    alert("Only QC OK items transferred to Office can be printed in the packing list.");
     return;
   }
   startPackingListPrint(packingListPrintHtml(lot, bill));
@@ -7641,7 +7890,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
 }
 
 function billPrintHtml(lot, bill) {
-  const orders = billableOrdersForLot(lot, bill);
+  const orders = billPrintOrders(lot, bill);
   const items = billPrintItems(lot, bill, orders);
   const totals = billTotals(items);
   const customer = billPrintCustomer(orders);
@@ -7732,7 +7981,7 @@ function billPrintCustomer(orders = []) {
 }
 
 function packingListPrintHtml(lot, bill) {
-  const orders = billableOrdersForLot(lot, bill);
+  const orders = billPrintOrders(lot, bill);
   const items = billPrintItems(lot, bill, orders);
   const totals = billTotals(items);
   return `
@@ -7780,12 +8029,26 @@ function billPrintItems(lot, bill, orders = []) {
   const orderMap = Object.fromEntries(orders.map((order) => [order.id, order]));
   const savedItems = Array.isArray(bill.items) ? bill.items : [];
   if (savedItems.length) {
-    return savedItems.map((item, index) => {
+    return billPrintableSavedItems(bill).map((item, index) => {
       const order = orderMap[item.orderId] || findById("orders", item.orderId) || {};
       return billPrintItem(item, order, index);
     });
   }
   return orders.map((order, index) => billPrintItem({}, order, index));
+}
+
+function billPrintableSavedItems(bill = {}) {
+  return (bill.items || []).filter((item) => isFactoryOutBillItem(item) && !isDiscardedItem(item));
+}
+
+function billHasFinalQcOkItems(bill = {}) {
+  return billPrintableSavedItems(bill).length > 0;
+}
+
+function billPrintOrders(lot = {}, bill = {}) {
+  const printableOrderIds = billPrintableSavedItems(bill).map((item) => item.orderId).filter(Boolean);
+  const orders = printableOrderIds.map((id) => findById("orders", id)).filter(Boolean);
+  return orders.length ? orders : billableOrdersForLot(lot, bill);
 }
 
 function billPrintItem(item = {}, order = {}, index = 0) {
@@ -8147,6 +8410,7 @@ function productionStoneTotalsForOrders(orders = [], settingType = "") {
 }
 
 function productionStoneItemsForOrder(order) {
+  if (order.productionStoneOverride) return order.productionStoneItems || [];
   if (order.productionStoneItems?.length) return order.productionStoneItems;
   return buildProductionStoneItemsForOrder(order);
 }
@@ -11738,17 +12002,20 @@ function renderDepartmentPuritySplit(totals) {
   if (!purities.length) return "";
   return `
     <div class="department-purity-split">
-      <div class="department-purity-head"><span>Purity</span><span>Gold</span><span>Stone</span><span>Non-Gold</span><span>Loss</span><span>Fine</span></div>
-      ${purities.map(([purity, item]) => `
+      <div class="department-purity-head"><span>Purity</span><span>GW</span><span>Other</span><span>Net W</span><span>Loss</span><span>Fine</span></div>
+      ${purities.map(([purity, item]) => {
+        const stoneWeight = Number(weight3(Number(item.waxStone || 0) + Number(item.handStone || 0)));
+        const otherWeight = Number(weight3(stoneWeight + Number(item.nonGold || 0)));
+        return `
         <div class="department-purity-row">
           <span>${escapeHtml(purity)}</span>
+          <span>${gram(item.gross)}</span>
+          <span title="Wax + hand stone + non-gold">${gram(otherWeight)}</span>
           <span>${gram(item.gold)}</span>
-          <span>${gram(item.waxStone + item.handStone)}</span>
-          <span>${gram(item.nonGold)}</span>
           <span>${gram(item.loss)}</span>
           <span>${gram(item.fineGold + item.lossFineGold)}</span>
         </div>
-      `).join("")}
+      `; }).join("")}
     </div>
   `;
 }
@@ -13690,7 +13957,10 @@ function openOfficeDialogPage(page) {
   const content = document.getElementById("office-dialog-content");
   const detailsPanel = document.querySelector("#office-details-dialog .table-panel");
   const config = officeDialogConfig(page);
-  if (dialog) dialog.dataset.page = page;
+  if (dialog) {
+    dialog.dataset.page = page;
+    if (!["hallmarking", "hallmarked"].includes(page)) delete dialog.dataset.hallmarkBatch;
+  }
   if (title) title.textContent = config.title;
   if (note) note.textContent = config.note;
   if (actions) actions.innerHTML = `${officeAccessNote()}${config.actions}`;
@@ -13708,6 +13978,7 @@ function officeAccessNote() {
 
 function officeDialogConfig(page) {
   const items = officeItems();
+  const selectedHmBatch = document.getElementById("office-details-dialog")?.dataset.hallmarkBatch || "";
   const groups = {
     "non-hallmarked": items.filter((entry) => officeDepartment(entry.item) === "non-hallmarked"),
     hallmarked: items.filter((entry) => officeDepartment(entry.item) === "hallmarked"),
@@ -13725,17 +13996,20 @@ function officeDialogConfig(page) {
   }
   if (page === "hallmarking") {
     return {
-      title: "Hallmarking Dept",
-      note: "Enter HUID, then receive item to Hallmarked Item.",
-      actions: '<button type="button" id="office-receive-hallmark" class="ghost-button">Receive To Hallmarked Item</button>',
-      content: renderHallmarkLotLibraryItems(groups.hallmarking, "No item issued to Hallmarking."),
+      title: selectedHmBatch ? `Hallmarking Batch - ${selectedHmBatch}` : "Hallmarking Dept",
+      note: selectedHmBatch ? "Enter HUID for every item, then receive this batch lot-wise." : "Open a hallmarking batch tile to enter HUID and receive lot-wise.",
+      actions: selectedHmBatch
+        ? '<button type="button" id="office-back-hallmark-batches" class="ghost-button">Back To Batches</button><button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button><button type="button" id="office-receive-hallmark" class="ghost-button">Receive This Batch</button>'
+        : "",
+      content: renderHallmarkLotLibraryItems(groups.hallmarking, "No item issued to Hallmarking.", "hallmarking"),
     };
   }
   if (page === "hallmarked") {
     return {
-      title: "Hallmarked Item",
-      note: "Select item and transfer to Sales Team.",
-      actions: `
+      title: selectedHmBatch ? `Hallmarked Batch - ${selectedHmBatch}` : "Hallmarked Item",
+      note: selectedHmBatch ? "Select item from this batch and transfer to Sales Team or print tags." : "Open a hallmarked batch tile to view items lot-wise.",
+      actions: selectedHmBatch ? `
+        <button type="button" id="office-back-hallmark-batches" class="ghost-button">Back To Batches</button>
         <select id="office-sales-team">
           <option value="">Select sales team</option>
           <option>Sales Team 1</option>
@@ -13747,8 +14021,8 @@ function officeDialogConfig(page) {
         <button type="button" id="office-issue-sales" class="ghost-button">Transfer To Sales Team</button>
         <button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button>
         <button type="button" id="office-print-tags" class="ghost-button">Print Selected Tags</button>
-      `,
-      content: renderHallmarkLotLibraryItems(groups.hallmarked, "No hallmarked stock."),
+      ` : "",
+      content: renderHallmarkLotLibraryItems(groups.hallmarked, "No hallmarked stock.", "hallmarked"),
     };
   }
   if (page === "sales") {
@@ -13987,27 +14261,84 @@ function renderRepairItems(entries, emptyText) {
   `;
 }
 
-function renderHallmarkLotLibraryItems(entries, emptyText) {
+function renderHallmarkLotLibraryItems(entries, emptyText, page = "") {
   if (!entries.length) return `<div class="empty">${emptyText}</div>`;
-  const groups = entries.reduce((acc, entry) => {
+  const groups = hallmarkBatchGroups(entries);
+  const selectedBatch = document.getElementById("office-details-dialog")?.dataset.hallmarkBatch || "";
+  if (!selectedBatch) return renderHallmarkBatchTiles(groups, page);
+  const selectedEntries = groups[selectedBatch] || [];
+  if (!selectedEntries.length) {
+    delete document.getElementById("office-details-dialog").dataset.hallmarkBatch;
+    return renderHallmarkBatchTiles(groups, page);
+  }
+  const totals = hallmarkBatchTotals(selectedEntries);
+  return `
+    <section class="hallmark-batch-detail">
+      <div class="panel-heading hallmark-lot-heading">
+        <div>
+          <h3>${escapeHtml(selectedBatch)}</h3>
+          <p class="dialog-note">${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} / GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</p>
+        </div>
+        <span class="status ${page === "hallmarking" ? "transfer" : "completed"}">${page === "hallmarking" ? "Pending Return" : "Received"}</span>
+      </div>
+      ${renderOfficeLibraryItems(selectedEntries, "")}
+    </section>
+  `;
+}
+
+function hallmarkBatchGroups(entries = []) {
+  return entries.reduce((acc, entry) => {
     const lotNo = hallmarkLotLabel(entry.item) || "No HM Lot";
     acc[lotNo] = acc[lotNo] || [];
     acc[lotNo].push(entry);
     return acc;
   }, {});
+}
+
+function hallmarkBatchTotals(entries = []) {
+  return entries.reduce((totals, { item }) => ({
+    gw: Number(weight3(totals.gw + Number(item.finalGw || 0))),
+    netWeight: Number(weight3(totals.netWeight + Number(item.netWeight || 0))),
+  }), { gw: 0, netWeight: 0 });
+}
+
+function renderHallmarkBatchTiles(groups = {}, page = "") {
+  const batches = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
   return `
-    <div class="hallmark-lot-groups">
-      ${Object.entries(groups).map(([lotNo, lotEntries]) => `
-        <section class="hallmark-lot-group">
-          <div class="panel-heading hallmark-lot-heading">
-            <h3>${escapeHtml(lotNo)}</h3>
-            <span>${lotEntries.length} pcs</span>
-          </div>
-          ${renderOfficeLibraryItems(lotEntries, "")}
-        </section>
-      `).join("")}
+    <div class="hallmark-batch-grid">
+      ${batches.map(([lotNo, entries]) => {
+        const totals = hallmarkBatchTotals(entries);
+        const dates = entries.map(({ item }) => page === "hallmarking"
+          ? item.hallmarkLotIssueDate || item.hallmarkIssueDate
+          : item.hallmarkLotReceiveDate || item.hallmarkReceiveDate
+        ).filter(Boolean);
+        const dateText = dates[0] || "-";
+        return `
+          <button type="button" class="hallmark-batch-tile" data-hallmark-batch-open="${escapeHtml(lotNo)}">
+            <strong>${escapeHtml(lotNo)}</strong>
+            <span>${entries.length} item${entries.length === 1 ? "" : "s"}</span>
+            <small>${page === "hallmarking" ? "Issued" : "Returned"} ${escapeHtml(dateText)}</small>
+            <small>GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</small>
+          </button>
+        `;
+      }).join("")}
     </div>
   `;
+}
+
+function openHallmarkBatch(lotNo = "") {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog || !lotNo) return;
+  dialog.dataset.hallmarkBatch = lotNo;
+  openOfficeDialogPage(dialog.dataset.page || "hallmarking");
+}
+
+function closeHallmarkBatch() {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog) return;
+  const page = dialog.dataset.page || "hallmarking";
+  delete dialog.dataset.hallmarkBatch;
+  openOfficeDialogPage(page);
 }
 
 function renderOfficeLibraryItems(entries, emptyText) {
@@ -14666,7 +14997,9 @@ function isDiscardedItem(item = {}) {
 }
 
 function selectedOfficeKeys() {
-  return Array.from(document.querySelectorAll(".office-item-check:checked")).map((input) => input.value);
+  const dialog = document.getElementById("office-details-dialog");
+  const scope = dialog?.open ? dialog : document;
+  return Array.from(scope.querySelectorAll(".office-item-check:checked")).map((input) => input.value);
 }
 
 function hallmarkLotLabel(item = {}) {
@@ -14846,8 +15179,8 @@ function applyBillAccessMode() {
   const transferOk = document.getElementById("bill-qc-ok");
   const transferFailed = document.getElementById("bill-qc-failed");
   const submitButton = form.querySelector('button[type="submit"]');
-  if (transferOk) transferOk.classList.toggle("hidden", qcOnlyMode);
-  if (transferFailed) transferFailed.classList.toggle("hidden", qcOnlyMode);
+  if (transferOk) transferOk.classList.toggle("hidden", !canChangeQc);
+  if (transferFailed) transferFailed.classList.toggle("hidden", !canChangeQc);
   if (submitButton) {
     submitButton.classList.toggle("hidden", lockedForUser);
     submitButton.disabled = lockedForUser;
@@ -16613,6 +16946,8 @@ function renderMeltingHistoryTile(item) {
   const isReceived = status === "Received";
   const department = meltingDashboardDepartmentName(item);
   const inHand = isReceived ? 0 : Number(item.finalWeight || item.sourceWeight || 0);
+  const xrfEntry = findCastingReceiveXrfEntry(item.id);
+  const xrfText = xrfEntry ? `${xrfEntryStatus(xrfEntry)} / ${gram(xrfEntry.weightIssue || 0)}` : "";
   const receivedText = isReceived
     ? `Received NT ${gram(item.receivedWeight)} / Loss ${gram(item.meltingLoss)}`
     : `Metal in hand ${gram(inHand)}`;
@@ -16624,6 +16959,7 @@ function renderMeltingHistoryTile(item) {
       </div>
       <small>${escapeHtml(item.date || "-")} / ${escapeHtml(formatPurity(item.targetPurity))} / ${escapeHtml(item.colour || "-")}</small>
       <small>${escapeHtml(receivedText)}</small>
+      ${xrfText ? `<small>XRF ${escapeHtml(xrfText)}</small>` : ""}
       <div class="melting-history-card-footer">
         <span class="status ${statusClass(status)}">${escapeHtml(status)}</span>
         ${renderMeltingActionButtons(item)}
@@ -17478,7 +17814,7 @@ function updateMeltingReceiveXrfNote() {
   const batchName = melting?.batchName || (melting ? assignMeltingBatchName(melting) : "Casting Batch");
   const checked = form.issueXrfSample?.checked;
   note.textContent = checked
-    ? `${batchName}: XRF issue ${gram(issueWeight)} from Tree + Wastage available ${gram(available)}.`
+    ? `${batchName}: XRF issue ${gram(issueWeight)} from Tree + Wastage available ${gram(available)}. Casting loss is calculated from Final Issue - Received Net Wt.`
     : `${batchName}: tick XRF issue if sample is sent for purity testing. Available Tree + Wastage ${gram(available)}.`;
 }
 
@@ -18058,6 +18394,7 @@ function normalizeState(currentState) {
       ? calculateDueDate(order.orderDate, order.productionDays)
       : order.dueDate;
     order.urgent = Boolean(order.urgent);
+    const hasProductionStoneOverride = order.productionStoneOverride === true;
     const normalizedProductionStoneItems = (order.productionStoneItems || []).map((item) => {
       const designStoneCandidates = designStoneItemsForOrder(design, order);
       const matchedDesignStone = designStoneCandidates.find((stoneItem) =>
@@ -18088,7 +18425,11 @@ function normalizeState(currentState) {
     });
     order.productionStoneItems = normalizedProductionStoneItems.length
       ? normalizedProductionStoneItems
-      : buildProductionStoneItemsForOrder(order, design);
+      : hasProductionStoneOverride
+        ? []
+        : buildProductionStoneItemsForOrder(order, design);
+    order.productionStoneOverride = hasProductionStoneOverride;
+    order.productionStoneUpdatedAt = order.productionStoneUpdatedAt || "";
     if (!order.customerId && order.customer) {
       let customer = currentState.customers.find((item) => item.name.toLowerCase() === order.customer.toLowerCase());
       if (!customer) {
@@ -18194,6 +18535,7 @@ function productionStoneTotalsForOrderList(currentState, orders = [], settingTyp
 }
 
 function productionStoneItemsForStateOrder(currentState, order) {
+  if (order.productionStoneOverride) return order.productionStoneItems || [];
   if (order.productionStoneItems?.length) return order.productionStoneItems;
   const design = currentState.designs.find((item) => item.id === order.designId);
   return designStoneItemsForOrder(design, order).map((item) => {
@@ -18251,8 +18593,18 @@ function migrateCbBothRingOrders(currentState) {
     order.cgSize = "";
     order.cbSplitFrom = order.cbSplitFrom || "";
     const design = currentState.designs.find((item) => item.id === order.designId);
-    order.productionStoneItems = buildProductionStoneItemsForOrder(order, design);
-    cgOrder.productionStoneItems = buildProductionStoneItemsForOrder(cgOrder, design);
+    const existingStoneItems = order.productionStoneItems || [];
+    if (existingStoneItems.length) {
+      const clKeys = new Set(["CL", "CLR"]);
+      const cgKeys = new Set(["CG", "CGR"]);
+      order.productionStoneItems = existingStoneItems.filter((item) => clKeys.has(normalizeStoneItemKey(item.itemKey)));
+      cgOrder.productionStoneItems = existingStoneItems.filter((item) => cgKeys.has(normalizeStoneItemKey(item.itemKey)));
+      order.productionStoneOverride = Boolean(order.productionStoneOverride);
+      cgOrder.productionStoneOverride = Boolean(order.productionStoneOverride);
+    } else {
+      order.productionStoneItems = buildProductionStoneItemsForOrder(order, design);
+      cgOrder.productionStoneItems = buildProductionStoneItemsForOrder(cgOrder, design);
+    }
     splitOrders.push(cgOrder);
     splitPairs.push({ fromId: order.id, toId: cgOrder.id });
   });

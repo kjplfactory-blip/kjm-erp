@@ -1159,6 +1159,12 @@ form.active-operation-page,
   font-size: 11px;
 }
 
+.department-purity-row span:nth-child(3),
+.department-purity-row span:nth-child(4) {
+  font-weight: 900;
+  color: var(--ink);
+}
+
 .department-breakup .loss-row {
   color: var(--danger);
 }
@@ -1956,6 +1962,53 @@ input[type="hidden"] {
 }
 
 .hallmark-lot-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.hallmark-batch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.hallmark-batch-tile {
+  display: grid;
+  gap: 7px;
+  min-height: 122px;
+  padding: 15px;
+  border: 1px solid #bee7d8;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at top right, rgba(113, 215, 181, 0.22), transparent 95px),
+    #ffffff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 82, 73, 0.08);
+}
+
+.hallmark-batch-tile:hover {
+  border-color: #71d7b5;
+  background:
+    radial-gradient(circle at top right, rgba(113, 215, 181, 0.32), transparent 105px),
+    #f4fff9;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(15, 82, 73, 0.13);
+}
+
+.hallmark-batch-tile strong {
+  color: #123d35;
+  font-size: 20px;
+}
+
+.hallmark-batch-tile span,
+.hallmark-batch-tile small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.hallmark-batch-detail {
   display: grid;
   gap: 12px;
 }
@@ -3657,6 +3710,30 @@ dialog::backdrop {
 
 .production-stone-dialog {
   width: min(1180px, 96vw);
+}
+
+.production-stone-dialog .design-stone-details {
+  max-height: 68vh;
+  overflow: auto;
+}
+
+.production-stone-dialog table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.production-stone-dialog th,
+.production-stone-dialog td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.production-stone-dialog select,
+.production-stone-dialog input {
+  width: 100%;
+  min-width: 0;
 }
 
 .job-item-row span,
@@ -7656,7 +7733,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 }
 
-/* V302: hide the top header like the slide-out menu on desktop. */
+/* Desktop: hide the top header like the slide-out menu. */
 @media (min-width: 961px) {
   body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-header-hotspot {
     position: fixed;
