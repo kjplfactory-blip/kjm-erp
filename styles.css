@@ -1094,6 +1094,49 @@ form.active-operation-page,
   overflow-wrap: anywhere;
 }
 
+.compact-transfer-wrap .remark-cell,
+.compact-transfer-wrap .department-oneline-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.remark-hover {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.remark-inline {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remark-popup {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 50;
+  display: none;
+  width: min(360px, 72vw);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.remark-hover:hover .remark-popup,
+.remark-hover:focus-within .remark-popup {
+  display: block;
+}
+
 .compact-transfer-wrap th:nth-child(1),
 .compact-transfer-wrap td:nth-child(1) {
   width: 78px;

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v305";
+const APP_VERSION = "v308";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -41,6 +41,12 @@ const LOGIN_HISTORY_LIMIT = 500;
 const MIN_PRODUCTION_DAYS = 10;
 const PRODUCTION_DAYS_MIN_ERROR = "Production days must be 10 days or more.";
 const SAFE_LOCKERS = ["9K", "14K", "18K", "22K"];
+const KARAT_PURITY_PERCENT = {
+  "9K": 38.5,
+  "14K": 58.5,
+  "18K": 75,
+  "22K": 91.6,
+};
 const DEFAULT_STONE_ITEM_KEY = "GENERAL";
 const STONE_ITEM_PRESETS = [
   ["GENERAL", "General"],
@@ -1022,6 +1028,7 @@ document.getElementById("customer-form").addEventListener("submit", (event) => {
   resetCustomerForm();
   saveState();
   render();
+  if (existing) openOperationPage("customers", "master");
 });
 
 document.getElementById("cancel-customer-edit").addEventListener("click", () => {
@@ -12132,7 +12139,7 @@ function addDepartmentWeight(departments, department, totals = {}) {
   const splitKey = departmentDashboardSplitLabel(rawDepartment);
   const current = departments[key] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0, alwaysShow: false, sections: {}, purities: {} };
   const currentSection = current.sections[splitKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, loss: 0, lossFineGold: 0 };
-  const purityKey = displayPurity(totals.purity);
+  const purityKey = dashboardPurityLabel(totals.purity);
   const currentPurity = current.purities[purityKey] || { gross: 0, gold: 0, waxStone: 0, handStone: 0, nonGold: 0, fineGold: 0, loss: 0, lossFineGold: 0 };
   const added = {
     gross: Number(totals.gross || 0),
@@ -12956,6 +12963,7 @@ function resetDesignForm() {
 function editCustomer(id) {
   const customer = findById("customers", id);
   if (!customer) return;
+  openOperationPage("customers", "add");
   const form = document.getElementById("customer-form");
   form.customerId.value = customer.id;
   form.name.value = customer.name;
@@ -12966,6 +12974,7 @@ function editCustomer(id) {
   document.getElementById("customer-form-title").textContent = "Edit Customer";
   document.getElementById("customer-submit").textContent = "Update Customer";
   document.getElementById("cancel-customer-edit").classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function resetCustomerForm() {
@@ -17029,19 +17038,42 @@ function displayPurity(value) {
   return Number.isFinite(percent) && percent > 0 ? `${percent.toFixed(2)}%` : "-";
 }
 
+function dashboardPurityLabel(value) {
+  const karat = karatPurityKey(value);
+  const percent = purityPercent(value);
+  if (karat && Number.isFinite(percent) && percent > 0) return `${karat} / ${percent.toFixed(2)}%`;
+  return Number.isFinite(percent) && percent > 0 ? `${percent.toFixed(2)}%` : "-";
+}
+
 function fineGoldWeight(weight, purity) {
   return Number(weight3(Number(weight || 0) * (purityPercent(purity) / 100)));
+}
+
+function karatPurityKey(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim().toUpperCase();
+  const match = text.match(/(\d+(?:\.\d+)?)\s*K\b/);
+  if (!match) return "";
+  const karat = Number(match[1]);
+  if (!Number.isFinite(karat)) return "";
+  const key = `${String(karat).replace(/\.0$/, "")}K`;
+  return KARAT_PURITY_PERCENT[key] !== undefined ? key : "";
 }
 
 function purityPercent(value) {
   if (typeof value === "string") {
     const text = value.trim().toUpperCase();
-    if (text.includes("K")) {
-      return (Number(text.replace("K", "")) / 24) * 100;
+    const karat = karatPurityKey(text);
+    if (karat) return KARAT_PURITY_PERCENT[karat];
+    const karatMatch = text.match(/(\d+(?:\.\d+)?)\s*K\b/);
+    if (karatMatch) {
+      return (Number(karatMatch[1]) / 24) * 100;
     }
-    return Number(text.replace("%", "") || 0);
+    const numeric = Number(text.replace("%", "") || 0);
+    return Number.isFinite(numeric) ? numeric : 0;
   }
-  return Number(value || 0);
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function renderKarigars() {
@@ -17345,6 +17377,30 @@ function departmentTransferDetail(departmentName = "", processName = "") {
   return `${department} / ${process}`;
 }
 
+function transferRemarkCell(value = "") {
+  return transferOneLinePopupCell(value);
+}
+
+function transferDepartmentCell(counterparty = "", process = "") {
+  const counterpartyText = String(counterparty || "-").trim() || "-";
+  const processText = String(process || "").trim();
+  const fullText = processText && !counterpartyText.toLowerCase().includes(processText.toLowerCase())
+    ? `${counterpartyText} / ${processText}`
+    : counterpartyText;
+  return transferOneLinePopupCell(fullText);
+}
+
+function transferOneLinePopupCell(value = "") {
+  const fullText = String(value || "-").trim() || "-";
+  const oneLine = fullText.replace(/\s+/g, " ");
+  return `
+    <span class="remark-hover" tabindex="0" title="${escapeHtml(fullText)}">
+      <span class="remark-inline">${escapeHtml(oneLine)}</span>
+      ${oneLine !== "-" ? `<span class="remark-popup">${escapeHtml(fullText)}</span>` : ""}
+    </span>
+  `;
+}
+
 function renderDepartmentTransferRow(event, direction) {
   const gw = direction === "in" ? event.receiveGw : event.issueGw;
   const difference = direction === "out" ? gram(event.difference) : "-";
@@ -17353,12 +17409,12 @@ function renderDepartmentTransferRow(event, direction) {
     <tr>
       <td>${escapeHtml(event.date || "-")}</td>
       <td><button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button></td>
-      <td>${escapeHtml(event.counterparty || "-")}<br><small>${escapeHtml(event.process || "")}</small></td>
+      <td class="department-oneline-cell">${transferDepartmentCell(event.counterparty, event.process)}</td>
       <td>${gram(gw)}</td>
       <td>${gram(event.netWeight)}</td>
       <td>${difference}</td>
       <td>${fineGold}</td>
-      <td>${escapeHtml(event.remarks || "-")}</td>
+      <td class="remark-cell">${transferRemarkCell(event.remarks)}</td>
     </tr>
   `;
 }
@@ -17377,7 +17433,7 @@ function transferReducedWeight(transfer) {
 
 function transferFineGold(transfer, lot = null) {
   const lotPurity = lot ? (lot.metalPurity || getLotOrders(lot)[0]?.purity || 0) : 0;
-  return Number(transfer.differenceFineGold ?? fineGoldWeight(transfer.departmentBalance, transfer.differencePurity || lotPurity));
+  return fineGoldWeight(transfer.departmentBalance, transfer.differencePurity || lotPurity);
 }
 
 function renderTransferHistoryRow(entry) {
@@ -18508,6 +18564,9 @@ function normalizeLotIssueWeights(currentState, lot) {
       balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || ""),
       fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || ""),
       toDepartment: mergedProductionDepartmentName(transfer.toDepartment || ""),
+    })).map((transfer) => ({
+      ...transfer,
+      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, transfer.differencePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0),
     })),
     currentDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || ""),
     issueDate: lot.issueDate || "",
