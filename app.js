@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v308";
+const APP_VERSION = "v312";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -937,17 +937,28 @@ document.getElementById("add-order-item").addEventListener("click", commitCurren
 document.getElementById("order-item-list").addEventListener("change", (event) => {
   const row = event.target.closest(".order-item-row");
   if (event.target.name === "category") {
+    row.querySelector('[name="designId"]').value = "";
+    clearOrderMultiDesignSelection(row);
     updateOrderItemDesignOptions(row);
     updateOrderItemCategoryFields(row);
   }
   if (event.target.name === "ringType") updateOrderItemCategoryFields(row);
   if (event.target.name === "cmItemType") updateOrderItemCategoryFields(row);
   if (event.target.name === "designId") {
-    syncOrderDesignSearch(row, event.target.value);
-    applyDesignToOrderItem(row, event.target.value);
-    clearOrderMultiDesignSelection(row);
+    const selectedDesignId = event.target.value;
+    const hasSearchText = Boolean(row.querySelector('[name="designSearch"]')?.value.trim());
+    const hasMultipleSelections = selectedOrderDesignIds(row).length > 0;
+    syncOrderDesignSearch(row, selectedDesignId);
+    applyDesignToOrderItem(row, selectedDesignId);
+    if (selectedDesignId && (hasSearchText || hasMultipleSelections)) {
+      addOrderMultiDesignSelection(row, selectedDesignId);
+      event.target.value = "";
+    } else {
+      clearOrderMultiDesignSelection(row);
+    }
   }
   if (event.target.name === "designIds") {
+    persistVisibleOrderDesignSelection(row);
     if (selectedOrderDesignIds(row).length) row.querySelector('[name="designId"]').value = "";
     renderOrderEntrySummary();
   }
@@ -1921,6 +1932,7 @@ document.getElementById("close-job-item-detail").addEventListener("click", () =>
 });
 
 document.getElementById("split-job-items").addEventListener("click", splitSelectedJobItems);
+document.getElementById("add-job-card-item").addEventListener("click", openJobCardAddItem);
 
 document.getElementById("close-barcode-generator").addEventListener("click", () => {
   document.getElementById("barcode-generator-dialog").close();
@@ -1984,6 +1996,16 @@ document.getElementById("item-edit-form").addEventListener("submit", (event) => 
   const data = getFormData(event.target);
   const order = findById("orders", data.orderId);
   if (!order) return;
+  if (event.target.dataset.mode === "add") {
+    const addedCount = addItemsToJobCard(order, data);
+    if (!addedCount) return;
+    saveState();
+    render();
+    document.getElementById("item-edit-dialog").close();
+    openOrderDetail(order.id, true, document.getElementById("order-dialog")?.dataset.bucket || "all");
+    alert(`${addedCount} item${addedCount === 1 ? "" : "s"} added to ${order.jobNumber || order.number}.`);
+    return;
+  }
   const design = findById("designs", data.designId);
   order.designId = data.designId || "";
   order.designNumber = design ? designText(design) : "";
@@ -2333,6 +2355,16 @@ function canEditGeneratedBill() {
   return isOwner() || isManagerUser();
 }
 
+function canDeleteErpData() {
+  return isOwner() || isManagerUser();
+}
+
+function requireDeletePermission(action = "delete ERP data") {
+  if (canDeleteErpData()) return true;
+  alert(`Only Owner or Manager can ${action}.`);
+  return false;
+}
+
 function isGeneratedBillLockedForCurrentUser(bill = {}) {
   return Boolean(bill?.id) && !isBillQcOnlyMode() && !canEditGeneratedBill();
 }
@@ -2401,6 +2433,10 @@ function clearImagePreviewCaches() {
 }
 
 async function resetFactoryData() {
+  if (!isOwner()) {
+    alert("Only Owner can reset ERP data.");
+    return false;
+  }
   const resetAt = new Date().toISOString();
   setFactoryResetProtection(true, resetAt);
   supabasePendingCloudState = null;
@@ -2464,6 +2500,10 @@ async function resetFactoryInventoryToZeroFromUi(event) {
 }
 
 async function resetFactoryInventoryToZero() {
+  if (!isOwner()) {
+    alert("Only Owner can reset factory inventory.");
+    return false;
+  }
   const resetAt = new Date().toISOString();
   setFactoryResetProtection(true, resetAt);
   supabasePendingCloudState = null;
@@ -3463,6 +3503,7 @@ function addOrderItemRow(item = {}, mode = "entry") {
   const row = document.createElement("div");
   row.className = `order-item-row ${mode}`;
   row.dataset.mode = mode;
+  row.dataset.selectedDesignIds = normalizeOrderDesignIds(item.designIds || []).join(",");
   const isSaved = mode === "saved";
   row.innerHTML = isSaved ? savedOrderItemRowHtml(item) : entryOrderItemRowHtml(item);
   if (!isSaved) {
@@ -3476,6 +3517,10 @@ function addOrderItemRow(item = {}, mode = "entry") {
     const action = button.dataset.orderItemAction || (isSaved ? "remove" : "clear");
     if (action === "add") {
       commitCurrentOrderItem();
+      return;
+    }
+    if (action === "remove-design") {
+      removeOrderMultiDesignSelection(row, button.dataset.designId);
       return;
     }
     if (action === "remove") {
@@ -3511,6 +3556,7 @@ function entryOrderItemRowHtml(item = {}) {
       <select name="designIds" multiple size="6"></select>
       <small>For same category: hold Ctrl and click multiple designs, then press Add Item.</small>
     </label>
+    <div class="selected-design-chips" data-order-selected-designs></div>
     <label class="cb-field">CB Ring
       <select name="ringType">
         ${renderRingTypeOptions(item.ringType)}
@@ -3839,10 +3885,8 @@ function restoreOrderDraft(draft = null) {
 function restoreOrderEntryRow(row, item = {}) {
   if (!row) return;
   row.querySelector('[name="designSearch"]').value = item.designSearch || "";
+  setOrderMultiDesignSelection(row, item.designIds || []);
   updateOrderItemDesignOptions(row, item.designId || "");
-  row.querySelectorAll('[name="designIds"] option').forEach((option) => {
-    option.selected = (item.designIds || []).includes(option.value);
-  });
   updateOrderItemCategoryFields(row);
   updateOrderItemStonePreview(row);
 }
@@ -4026,6 +4070,7 @@ function updateOrderItemDesignOptions(row, selectedDesignId = "") {
       ? multiDesigns.map((design) => `<option value="${design.id}" ${previousMultiValues.includes(design.id) ? "selected" : ""}>${escapeHtml(designText(design))}</option>`).join("")
       : `<option value="">${category ? "No designs in this category" : "Select category first"}</option>`;
   }
+  setOrderMultiDesignSelection(row, previousMultiValues);
   if (exactMatch) {
     select.value = exactMatch.id;
     applyDesignToOrderItem(row, exactMatch.id);
@@ -4035,15 +4080,78 @@ function updateOrderItemDesignOptions(row, selectedDesignId = "") {
 }
 
 function selectedOrderDesignIds(row) {
+  return normalizeOrderDesignIds([
+    ...storedOrderDesignIds(row),
+    ...visibleSelectedOrderDesignIds(row),
+  ]);
+}
+
+function normalizeOrderDesignIds(values = []) {
+  const list = Array.isArray(values) ? values : String(values || "").split(",");
+  return [...new Set(list.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function storedOrderDesignIds(row) {
+  return normalizeOrderDesignIds(row?.dataset.selectedDesignIds || "");
+}
+
+function visibleSelectedOrderDesignIds(row) {
   const select = row?.querySelector('[name="designIds"]');
   if (!select) return [];
   return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
 }
 
-function clearOrderMultiDesignSelection(row) {
-  row?.querySelectorAll('[name="designIds"] option').forEach((option) => {
-    option.selected = false;
+function setOrderMultiDesignSelection(row, ids = []) {
+  if (!row) return [];
+  const selectedIds = normalizeOrderDesignIds(ids);
+  row.dataset.selectedDesignIds = selectedIds.join(",");
+  row.querySelectorAll('[name="designIds"] option').forEach((option) => {
+    option.selected = selectedIds.includes(option.value);
   });
+  renderOrderSelectedDesignChips(row, selectedIds);
+  return selectedIds;
+}
+
+function persistVisibleOrderDesignSelection(row) {
+  const select = row?.querySelector('[name="designIds"]');
+  if (!select) return setOrderMultiDesignSelection(row, storedOrderDesignIds(row));
+  const visibleIds = new Set([...select.options].map((option) => option.value).filter(Boolean));
+  const selectedVisibleIds = [...select.selectedOptions].map((option) => option.value).filter(Boolean);
+  const carriedIds = storedOrderDesignIds(row).filter((designId) => !visibleIds.has(designId));
+  return setOrderMultiDesignSelection(row, [...carriedIds, ...selectedVisibleIds]);
+}
+
+function addOrderMultiDesignSelection(row, designId) {
+  if (!designId) return selectedOrderDesignIds(row);
+  return setOrderMultiDesignSelection(row, [...selectedOrderDesignIds(row), designId]);
+}
+
+function removeOrderMultiDesignSelection(row, designId) {
+  const nextIds = selectedOrderDesignIds(row).filter((selectedId) => selectedId !== designId);
+  setOrderMultiDesignSelection(row, nextIds);
+  updateOrderItemStonePreview(row);
+  renderOrderEntrySummary();
+  saveOrderDraft();
+}
+
+function renderOrderSelectedDesignChips(row, ids = selectedOrderDesignIds(row)) {
+  const holder = row?.querySelector("[data-order-selected-designs]");
+  if (!holder) return;
+  const selectedIds = normalizeOrderDesignIds(ids);
+  if (!selectedIds.length) {
+    holder.innerHTML = '<small class="selected-design-empty">No selected designs yet.</small>';
+    return;
+  }
+  holder.innerHTML = selectedIds.map((designId) => `
+    <span class="selected-design-chip">
+      <b>${escapeHtml(designLabel(designId) || designId)}</b>
+      <button type="button" data-order-item-action="remove-design" data-design-id="${escapeHtml(designId)}" aria-label="Remove selected design">x</button>
+    </span>
+  `).join("");
+}
+
+function clearOrderMultiDesignSelection(row) {
+  setOrderMultiDesignSelection(row, []);
 }
 
 function designMatchesOrderSearch(design, query = "") {
@@ -5963,6 +6071,7 @@ function syncMeltingReceiveRecords(melting) {
 }
 
 function deleteMeltingEntry(meltingId) {
+  if (!requireDeletePermission("delete melting or casting entries")) return;
   const melting = findById("melting", meltingId);
   if (!melting) return;
   if (!confirm("Delete this melting entry? Issue, receive, loss and safe locker records for this melting will be corrected.")) return;
@@ -6006,10 +6115,7 @@ function workInProgress() {
 }
 
 async function removeItem(collection, id) {
-  if (collection === "karigars" && !isOwner()) {
-    alert("Only Owner can remove departments.");
-    return;
-  }
+  if (!requireDeletePermission(`delete ${collection} records`)) return;
   if (collection === "customers" && state.orders.some((order) => order.customerId === id)) {
     alert("This customer has job orders. Edit the customer instead of deleting.");
     return;
@@ -6117,11 +6223,13 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   const order = findById("orders", orderId);
   if (!order) return;
   const form = document.getElementById("update-order-form");
+  const dialog = document.getElementById("order-dialog");
   form.orderId.value = order.id;
   form.customerId.value = order.customerId || "";
   form.orderDate.value = order.orderDate;
   form.productionDays.value = order.productionDays;
   form.dueDate.value = order.dueDate;
+  if (dialog) dialog.dataset.bucket = bucket;
   const jobOrders = filterJobOrdersForBucket(getJobOrders(order), bucket);
   document.getElementById("order-dialog-summary").textContent = [
     order.jobNumber || order.number,
@@ -6134,7 +6242,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   renderOrderLots(order);
   document.getElementById("order-production-panel")?.classList.remove("hidden");
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
-  document.getElementById("order-dialog").showModal();
+  dialog.showModal();
 }
 
 function getJobOrders(order) {
@@ -6493,6 +6601,7 @@ function jobItemDetailHtml(order) {
         <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Phone Barcode</button>
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
         <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
+        <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
       </div>
     </div>
   `;
@@ -6891,6 +7000,7 @@ function clearCatalogueSelection() {
 }
 
 async function removeCatalogueItem(id) {
+  if (!requireDeletePermission("delete catalogue images")) return;
   const item = catalogueItemsList().find((entry) => entry.id === id);
   if (!item) return;
   if (!confirm(`Delete ${item.designNo || "this design"} from saved catalogue?`)) return;
@@ -6903,6 +7013,7 @@ async function removeCatalogueItem(id) {
 }
 
 async function clearCatalogueImages() {
+  if (!requireDeletePermission("delete saved catalogue images")) return;
   const items = catalogueItemsList();
   if (!items.length) return;
   if (!confirm("Delete all saved catalogue images? This will not affect production Design Master.")) return;
@@ -7098,6 +7209,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
 }
 
 function removeProductionStoneItem(orderId, stoneItemId) {
+  if (!requireDeletePermission("delete saved production stone rows")) return;
   const order = findById("orders", orderId);
   if (!order) return;
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.id !== stoneItemId);
@@ -7333,6 +7445,7 @@ function addProductionStoneRow() {
 }
 
 function removeProductionStoneRow(button) {
+  if (!requireDeletePermission("remove production stone rows")) return;
   const row = button?.closest("[data-production-stone-row]");
   if (!row) return;
   row.remove();
@@ -7412,9 +7525,11 @@ function openItemEdit(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
   const form = document.getElementById("item-edit-form");
+  form.dataset.mode = "edit";
   form.orderId.value = order.id;
   form.category.innerHTML = renderCategoryOptions(order.category || "");
   form.designId.innerHTML = renderDesignOptions();
+  form.cmItemType.innerHTML = renderCmItemTypeOptions(order.cmItemType || defaultCmItemTypeForCategory(order.category || ""));
   form.category.value = order.category || "";
   updateItemEditDesignOptions(form, order.designId || "");
   form.ringType.value = order.ringType || "";
@@ -7426,8 +7541,149 @@ function openItemEdit(orderId) {
   form.purity.value = order.purity || "18K";
   form.remarks.value = order.remarks || "";
   updateItemEditCategoryFields(form);
+  document.getElementById("item-edit-title").textContent = "Edit Job Item";
+  document.getElementById("item-edit-submit").textContent = "Save Item";
   document.getElementById("item-edit-summary").textContent = `${order.productionNo || order.number} / ${order.customer || ""}`;
   document.getElementById("item-edit-dialog").showModal();
+}
+
+function openJobCardAddItem() {
+  const baseOrder = findById("orders", document.getElementById("update-order-form").orderId.value);
+  if (!baseOrder) {
+    alert("Open a job card first.");
+    return;
+  }
+  const form = document.getElementById("item-edit-form");
+  form.dataset.mode = "add";
+  form.orderId.value = baseOrder.id;
+  form.category.innerHTML = renderCategoryOptions("");
+  form.designId.innerHTML = renderDesignOptions();
+  form.cmItemType.innerHTML = renderCmItemTypeOptions("");
+  form.category.value = "";
+  updateItemEditDesignOptions(form, "");
+  form.ringType.value = "";
+  form.cmItemType.value = "";
+  form.size.value = "";
+  form.clSize.value = "";
+  form.cgSize.value = "";
+  form.color.value = baseOrder.color || "Pink";
+  form.purity.value = baseOrder.purity || "18K";
+  form.remarks.value = "";
+  updateItemEditCategoryFields(form);
+  document.getElementById("item-edit-title").textContent = "Add Item To Job Card";
+  document.getElementById("item-edit-submit").textContent = "Add Item";
+  document.getElementById("item-edit-summary").textContent = `${baseOrder.jobNumber || baseOrder.number} / ${baseOrder.customer || ""}`;
+  document.getElementById("item-edit-dialog").showModal();
+}
+
+function itemEditDataToOrderItem(data = {}) {
+  const design = findById("designs", data.designId);
+  const item = {
+    designId: data.designId || "",
+    designNumber: design ? designText(design) : "",
+    category: data.category || design?.category || "",
+    item: design ? designText(design) : data.category || data.remarks || "Job item",
+    ringType: data.ringType || "",
+    cmItemType: data.cmItemType || "",
+    clSize: data.clSize || "",
+    cgSize: data.cgSize || "",
+    size: data.size || "",
+    color: data.color || "",
+    purity: data.purity || "18K",
+    targetWeight: 0,
+    remarks: data.remarks || "",
+  };
+  cleanItemSizeFields(item);
+  return item;
+}
+
+function addItemsToJobCard(baseOrder, data = {}) {
+  const baseItem = itemEditDataToOrderItem(data);
+  if (!hasOrderItemDetails(baseItem)) {
+    alert("Select or enter item details first.");
+    return 0;
+  }
+  const newItems = expandOrderItemCombinations(baseItem).filter(hasOrderItemDetails);
+  if (!newItems.length) {
+    alert("Select or enter item details first.");
+    return 0;
+  }
+  const jobNumber = baseOrder.jobNumber || baseOrder.productionNo || baseOrder.number || `JOB-${state.nextOrder}`;
+  newItems.forEach((item) => {
+    const design = findById("designs", item.designId);
+    const productionNo = `PR-${state.nextOrder++}`;
+    const orderRecord = {
+      id: crypto.randomUUID(),
+      number: productionNo,
+      jobNumber,
+      productionNo,
+      barcode: productionNo,
+      customerId: baseOrder.customerId || "",
+      customer: baseOrder.customer || "",
+      designId: item.designId || "",
+      designNumber: design ? designText(design) : item.designNumber || "",
+      category: item.category || design?.category || "",
+      item: item.item || (design ? designText(design) : "") || item.category || item.remarks || "Job item",
+      size: item.size || "",
+      ringType: item.ringType || "",
+      cmItemType: item.cmItemType || "",
+      clSize: item.clSize || "",
+      cgSize: item.cgSize || "",
+      color: item.color || "",
+      purity: item.purity || baseOrder.purity || "18K",
+      targetWeight: 0,
+      remarks: item.remarks || "",
+      orderDate: baseOrder.orderDate || isoToday(),
+      productionDays: Number(baseOrder.productionDays || MIN_PRODUCTION_DAYS),
+      dueDate: baseOrder.dueDate || calculateDueDate(baseOrder.orderDate || isoToday(), Number(baseOrder.productionDays || MIN_PRODUCTION_DAYS)),
+      urgent: Boolean(baseOrder.urgent),
+      status: "Pending",
+      addedToJobCard: true,
+      addedAt: today(),
+    };
+    cleanItemSizeFields(orderRecord);
+    orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
+    state.orders.push(orderRecord);
+  });
+  return newItems.length;
+}
+
+function jobCardItemRemoveBlockers(order = {}) {
+  const blockers = [];
+  if (String(order.status || "Pending").toLowerCase() !== "pending") blockers.push(`status is ${order.status || "not pending"}`);
+  if (lotsForOrder(order).length) blockers.push("production lot exists");
+  if (findBillItemForOrder(order)) blockers.push("bill entry exists");
+  if (officeItems().some((entry) =>
+    entry.item?.orderId === order.id
+    || entry.item?.productionNo === order.productionNo
+    || entry.order?.id === order.id
+    || entry.order?.productionNo === order.productionNo
+  )) blockers.push("office stock entry exists");
+  return blockers;
+}
+
+function removeJobCardItem(orderId) {
+  if (!requireDeletePermission("remove job-card items")) return;
+  const order = findById("orders", orderId);
+  if (!order) return;
+  const jobNumber = order.jobNumber || order.productionNo || order.number;
+  const jobOrders = getJobOrders(order);
+  if (jobOrders.length <= 1) {
+    alert("This is the only item in the job card. Use Delete on the job card if you want to remove the full job card.");
+    return;
+  }
+  const blockers = jobCardItemRemoveBlockers(order);
+  if (blockers.length) {
+    alert(`This item cannot be removed because ${blockers.join(", ")}. Remove only unused pending items from Job Card Edit.`);
+    return;
+  }
+  const label = order.productionNo || order.number || order.designNumber || "this item";
+  if (!confirm(`Remove ${label} from job card ${jobNumber}?`)) return;
+  state.orders = state.orders.filter((item) => item.id !== order.id);
+  const nextOrder = state.orders.find((item) => (item.jobNumber || item.productionNo || item.number) === jobNumber);
+  saveState();
+  render();
+  if (nextOrder) openOrderDetail(nextOrder.id, true, document.getElementById("order-dialog")?.dataset.bucket || "all");
 }
 
 function updateItemEditDesignOptions(form, selectedDesignId = "") {
@@ -8970,6 +9226,7 @@ function openTransferEdit(lotId, transferId) {
 }
 
 function deleteTransfer(lotId, transferId) {
+  if (!requireDeletePermission("delete transfer entries")) return;
   const lot = findById("lots", lotId);
   const transfer = lot?.transfers?.find((item) => item.id === transferId);
   if (!lot || !transfer) return;
@@ -9605,6 +9862,10 @@ function saveLoginUser(userId, row) {
 }
 
 function deleteLoginUser(userId) {
+  if (!isOwner()) {
+    alert("Only Owner can delete login users.");
+    return;
+  }
   if (!confirm(`Delete user ${userId}?`)) return;
   state.customUsers = (state.customUsers || []).filter((user) => user.id !== userId);
   delete state.userPasswords[userId];
@@ -9854,7 +10115,7 @@ function editStone(id) {
 }
 
 function removeStone(id) {
-  if (!requireOwnerPermission("delete stone from master")) return;
+  if (!requireDeletePermission("delete stone from master")) return;
   if (!confirm("Delete this stone from library?")) return;
   state.stones = state.stones.filter((stone) => stone.id !== id);
   saveState();
@@ -11655,6 +11916,7 @@ async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEF
 }
 
 function removeDesignStoneItem(stoneItemId) {
+  if (!requireDeletePermission("delete design stone rows")) return;
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) return;
@@ -12405,6 +12667,7 @@ function findJobOrderForBucket(jobNumber, bucket = "all") {
 }
 
 function removeJobOrder(jobNumber) {
+  if (!requireDeletePermission("delete job cards")) return;
   if (!confirm(`Delete full job card ${jobNumber}?`)) return;
   state.orders = state.orders.filter((order) => (order.jobNumber || order.productionNo || order.number) !== jobNumber);
   saveState();
@@ -12584,6 +12847,7 @@ async function resizeDesignImagesAndCleanChartCopies() {
 }
 
 async function deleteSelectedDesigns() {
+  if (!requireDeletePermission("delete designs")) return;
   const ids = [...selectedDesignIds].filter((id) => state.designs.some((design) => design.id === id));
   if (!ids.length) {
     alert("Select design first.");
@@ -12799,6 +13063,7 @@ async function openStoneChart(designId) {
 }
 
 async function removeDesignStoneChart(designId) {
+  if (!requireDeletePermission("remove design stone charts")) return;
   const design = findById("designs", designId);
   if (!design) return;
   const chartKeys = designStoneChartItemKeys(design);
@@ -13609,10 +13874,7 @@ function editSettingSetter(setterId) {
 }
 
 function deleteSettingSetter(setterId) {
-  if (!canManageSettingSetters()) {
-    alert("Only Owner or Manager can delete setter master.");
-    return;
-  }
+  if (!requireDeletePermission("delete setter master")) return;
   const setter = (state.settingSetters || []).find((item) => item.id === setterId);
   if (!setter) return;
   if ((state.settingManagerEntries || []).some((entry) => entry.setterId === setterId)) {
@@ -14492,6 +14754,7 @@ function resetOfficeCustomerForm() {
 }
 
 function deleteOfficeCustomer(id) {
+  if (!requireDeletePermission("delete office customers")) return;
   if (state.lots.some((lot) => {
     const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
     return (bill?.items || []).some((item) => item.soldCustomerId === id);
@@ -16911,6 +17174,7 @@ function editXrfEntry(entryId) {
 }
 
 function deleteXrfEntry(entryId) {
+  if (!requireDeletePermission("delete XRF entries")) return;
   const entry = findById("xrfTests", entryId);
   if (!entry) return;
   if (!confirm("Delete this XRF entry?")) return;

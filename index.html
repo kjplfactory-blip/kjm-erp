@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=308">
+    <link rel="stylesheet" href="styles.css?v=312">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v308</small>
+            <small class="app-version-badge">App v312</small>
           </div>
         </div>
         <label>User
@@ -109,7 +109,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v308</span>
+            <span class="app-version-badge">App v312</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1197,6 +1197,7 @@
           <div class="panel-heading">
             <h2>Job Items</h2>
             <div class="job-split-toolbar">
+              <button class="ghost-button" type="button" id="add-job-card-item">Add Item</button>
               <label>Split GW <input id="split-job-gw" type="number" min="0" step="0.001" placeholder="Only if in production"></label>
               <button class="ghost-button" type="button" id="split-job-items">Split Selected</button>
             </div>
@@ -1226,7 +1227,7 @@
       <form method="dialog" id="item-edit-form" class="dialog-card">
         <div class="dialog-header">
           <div>
-            <h2>Edit Job Item</h2>
+            <h2 id="item-edit-title">Edit Job Item</h2>
             <p id="item-edit-summary" class="dialog-note"></p>
           </div>
           <button class="ghost-button" type="button" id="cancel-item-edit">Close</button>
@@ -1271,7 +1272,7 @@
             </select>
           </label>
           <label class="wide-field">Remark <input name="remarks" placeholder="Item remark"></label>
-          <button type="submit">Save Item</button>
+          <button type="submit" id="item-edit-submit">Save Item</button>
         </div>
       </form>
     </dialog>
@@ -1656,6 +1657,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=308"></script>
+    <script src="app.js?v=312"></script>
 </body>
 </html>

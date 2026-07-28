@@ -234,8 +234,8 @@ button.owner-only {
 
 body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .always-brand {
   position: fixed;
-  top: 12px;
-  left: 34px;
+  right: 18px;
+  bottom: 18px;
   z-index: 38;
   display: flex;
   align-items: center;
@@ -1586,6 +1586,65 @@ form.active-operation-page,
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
+}
+
+.selected-design-chips {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px;
+  border: 1px dashed rgba(15, 118, 110, 0.28);
+  border-radius: 8px;
+  background: #f4fbf8;
+}
+
+.selected-design-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.selected-design-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #b7dfd4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.selected-design-chip b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-design-chip button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  border-radius: 50%;
+  background: #e9f7f3;
+  color: var(--brand-dark);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.selected-design-chip button:hover {
+  background: #d9f2ea;
 }
 
 .order-item-row.saved {
@@ -6440,8 +6499,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 
   body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .always-brand {
-    left: 12px;
-    width: min(250px, calc(100vw - 24px));
+    right: 12px;
+    bottom: 12px;
+    width: min(220px, calc(100vw - 24px));
   }
 }
 
@@ -6777,8 +6837,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand {
-  top: 10px;
-  left: 36px;
+  top: auto;
+  left: auto;
+  right: 18px;
+  bottom: 18px;
   width: 220px;
   min-height: 48px;
   padding: 6px 10px 6px 7px;
@@ -7820,7 +7882,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     max-width: none;
     max-height: min(62vh, 320px);
     margin: 0;
-    padding: 14px 28px 14px 268px;
+    padding: 14px 28px;
     overflow: visible;
     border: 1px solid rgba(174, 216, 201, 0.78);
     border-top: 0;
