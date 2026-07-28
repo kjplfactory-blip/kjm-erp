@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=312">
+    <link rel="stylesheet" href="styles.css?v=314">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v312</small>
+            <small class="app-version-badge">App v314</small>
           </div>
         </div>
         <label>User
@@ -109,7 +109,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v312</span>
+            <span class="app-version-badge">App v314</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -127,8 +127,15 @@
 
       <section id="dashboard" class="view active-view">
         <div class="metric-grid">
+          <article class="metric factory-stock-metric">
+            <span>Factory Stock</span>
+            <div class="metric-pair">
+              <div><small>Total Wt</small><strong id="metric-factory-in">0 g</strong></div>
+              <div><small>Net Fine</small><strong id="metric-factory-fine-stock">0 g</strong></div>
+            </div>
+            <button class="metric-open" type="button" data-dashboard-view="factory" data-dashboard-operation="summary">Open</button>
+          </article>
           <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
-          <article class="metric"><span>Factory In Total</span><strong id="metric-factory-in">0 g</strong><button class="metric-open" type="button" data-dashboard-view="factory" data-dashboard-operation="summary">Open</button></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
           <article class="metric"><span>Non-Gold In Departments</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="non-gold">Open</button></article>
           <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
@@ -1657,6 +1664,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=312"></script>
+    <script src="app.js?v=314"></script>
 </body>
 </html>

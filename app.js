@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v312";
+const APP_VERSION = "v314";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -4949,19 +4949,7 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
 }
 
 function factoryInWeight() {
-  const safeStock = safeItemStockWeight();
-  const safeDepartmentStock = safeDepartmentIssuesInHand()
-    .reduce((total, issue) => Number(weight3(total + Number(issue.grossWeight || 0))), 0);
-  const activeProduction = state.lots
-    .filter((lot) => lot.status !== "Completed")
-    .reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || lot.issuedWeight || 0), 0);
-  const billPending = state.lots.reduce((total, lot) => {
-    if (lot.status !== "Completed") return total;
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
-    if (bill?.items?.length) return total + billProductionStockWeight(bill);
-    return total + Number(lot.finishedWeight || 0);
-  }, 0);
-  return Number(weight3(safeStock + safeDepartmentStock + activeProduction + billPending));
+  return factoryPhysicalStock().grossWeight;
 }
 
 function addSafeItem(item) {
@@ -5686,25 +5674,131 @@ function factoryLedgerTotals() {
   }, { inFine: 0, outFine: 0, balanceFine: 0 });
 }
 
-function factoryPhysicalFineStock() {
-  const metalFine = Object.values(metalSafeBalances()).reduce((total, item) => Number(weight3(total + Number(item.fineGold || 0))), 0);
-  const shelfFine = (state.safeItems || [])
-    .filter((item) => item.status !== "Out")
-    .reduce((total, item) => Number(weight3(total + fineGoldWeight(item.netWeight ?? item.grossWeight ?? 0, safeItemDesiredPurity(item)))), 0);
-  const productionFine = (state.lots || [])
-    .filter((lot) => lot.status !== "Completed")
-    .reduce((total, lot) => {
-      const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
-      return Number(weight3(total + fineGoldWeight(currentTransferIssueWeight(lot) || lot.issuedWeight || 0, purity)));
-    }, 0);
-  const departmentIssueFine = safeDepartmentIssuesInHand()
-    .reduce((total, issue) => Number(weight3(total + fineGoldWeight(issue.netWeight || 0, issue.purity || issue.locker || 0))), 0);
-  return {
-    metalFine,
-    shelfFine,
-    productionFine: Number(weight3(productionFine + departmentIssueFine)),
-    totalFine: Number(weight3(metalFine + shelfFine + productionFine + departmentIssueFine)),
+function blankFactoryStockPart(label = "") {
+  return { label, grossWeight: 0, goldWeight: 0, fineGold: 0 };
+}
+
+function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = grossWeight, purity = "", fineGoldOverride = null) {
+  const part = parts[key] || blankFactoryStockPart(label);
+  const gross = Number(grossWeight || 0);
+  const gold = Number(goldWeight ?? grossWeight ?? 0);
+  const fineGold = fineGoldOverride === null
+    ? fineGoldWeight(gold, purity)
+    : Number(fineGoldOverride || 0);
+  part.label = label;
+  part.grossWeight = Number(weight3(part.grossWeight + gross));
+  part.goldWeight = Number(weight3(part.goldWeight + gold));
+  part.fineGold = Number(weight3(part.fineGold + fineGold));
+  parts[key] = part;
+  return part;
+}
+
+function addFactoryCompletedBillStock(parts) {
+  (state.lots || []).forEach((lot) => {
+    if (lot.status !== "Completed") return;
+    const bill = lot.bill || (state.bills || []).find((item) => item.lotId === lot.id);
+    if (bill?.items?.length) {
+      (bill.items || [])
+        .filter((item) => !isFactoryOutBillItem(item) && !isRepairItem(item) && !isDiscardedItem(item))
+        .forEach((item) => {
+          const order = item.orderId ? findById("orders", item.orderId) : null;
+          const gross = Number(item.finalGw || item.grossWeight || item.netWeight || 0);
+          const gold = Number(item.netWeight ?? Math.max(gross - Number(item.reducedWeight || 0), 0));
+          const purity = item.purity || order?.purity || lot.metalPurity || "18K";
+          addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gold, purity);
+        });
+      return;
+    }
+    const fallbackWeight = Number(lot.finishedWeight || lot.productionStockWeight || 0);
+    if (fallbackWeight <= 0) return;
+    const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+    addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", fallbackWeight, fallbackWeight, purity);
+  });
+}
+
+function factoryPhysicalStock() {
+  const parts = {
+    metal: blankFactoryStockPart("Metal Safe"),
+    shelf: blankFactoryStockPart("Safe Locker Items"),
+    production: blankFactoryStockPart("Production Lots"),
+    billPending: blankFactoryStockPart("Completed / Bill Pending"),
+    departmentIssues: blankFactoryStockPart("Safe Items In Departments"),
+    meltingCasting: blankFactoryStockPart("Melting / Casting In Hand"),
+    xrf: blankFactoryStockPart("XRF Sample Pending"),
+    nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Departments"),
   };
+
+  Object.values(metalSafeBalances()).forEach((item) => {
+    const weight = Number(item.weight || 0);
+    addFactoryStockPart(parts, "metal", "Metal Safe", weight, weight, item.purity, item.fineGold);
+  });
+
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out")
+    .forEach((item) => {
+      const gross = Number(item.grossWeight ?? item.netWeight ?? 0);
+      const gold = Number(item.netWeight ?? gross);
+      addFactoryStockPart(parts, "shelf", "Safe Locker Items", gross, gold, safeItemDesiredPurity(item));
+    });
+
+  (state.lots || [])
+    .filter((lot) => lot.status !== "Completed")
+    .forEach((lot) => {
+      const totals = departmentCurrentLotTotals(lot);
+      addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K");
+    });
+
+  addFactoryCompletedBillStock(parts);
+
+  safeDepartmentIssuesInHand().forEach((issue) => {
+    const gross = Number(issue.grossWeight || issue.netWeight || 0);
+    const gold = Number(issue.netWeight || gross);
+    addFactoryStockPart(parts, "departmentIssues", "Safe Items In Departments", gross, gold, issue.purity || issue.locker || "");
+  });
+
+  (state.melting || [])
+    .filter((item) => (item.status || "Issued") !== "Received")
+    .forEach((item) => {
+      const weight = Number(item.finalWeight || item.sourceWeight || 0);
+      addFactoryStockPart(parts, "meltingCasting", "Melting / Casting In Hand", weight, weight, item.targetPurity || item.sourcePurity || "");
+    });
+
+  (state.xrfTests || [])
+    .map(normalizeXrfEntry)
+    .filter((entry) => xrfEntryStatus(entry) !== "XRF Return")
+    .forEach((entry) => {
+      addFactoryStockPart(parts, "xrf", "XRF Sample Pending", entry.weightIssue, entry.weightIssue, entry.sourcePurity || entry.karat || "");
+    });
+
+  const directNonGoldWeight = productionNonGoldDirectDepartmentEntries()
+    .reduce((total, { issue }) => Number(weight3(total + Number(issue.weight || 0))), 0);
+  if (directNonGoldWeight > 0) {
+    addFactoryStockPart(parts, "nonGoldDirect", "Direct Non-Gold In Departments", directNonGoldWeight, 0, "", 0);
+  }
+
+  const allParts = Object.values(parts);
+  const grossWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.grossWeight || 0))), 0);
+  const goldWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.goldWeight || 0))), 0);
+  const totalFine = allParts.reduce((total, part) => Number(weight3(total + Number(part.fineGold || 0))), 0);
+  return {
+    parts,
+    grossWeight,
+    goldWeight,
+    metalWeight: parts.metal.grossWeight,
+    metalFine: parts.metal.fineGold,
+    shelfWeight: parts.shelf.grossWeight,
+    shelfGoldWeight: parts.shelf.goldWeight,
+    shelfFine: parts.shelf.fineGold,
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold)),
+    nonGoldWeight: parts.nonGoldDirect.grossWeight,
+    totalFine,
+  };
+}
+
+function factoryPhysicalFineStock() {
+  return factoryPhysicalStock();
 }
 
 function vendorBalanceRows() {
@@ -7959,7 +8053,7 @@ function printFactorySummary() {
 
 function factorySummaryPrintHtml() {
   const ledger = factoryLedgerTotals();
-  const physical = factoryPhysicalFineStock();
+  const physical = factoryPhysicalStock();
   const vendorRows = vendorBalanceRows();
   const vendorTotals = factoryVendorFineTotals(vendorRows);
   const totalFineStock = totalFactoryFineStock(physical, vendorTotals);
@@ -7982,23 +8076,26 @@ function factorySummaryPrintHtml() {
         </div>
       </header>
       <section class="bill-sample-info">
+        <span><b>Total Factory Weight</b>${gram(physical.grossWeight)}</span>
+        <span><b>Net Gold Wt</b>${gram(physical.goldWeight)}</span>
+        <span><b>Physical Fine</b>${gram(physical.totalFine)}</span>
         <span><b>Factory In Fine</b>${gram(ledger.inFine)}</span>
         <span><b>Factory Out Fine</b>${gram(ledger.outFine)}</span>
-        <span><b>Balance Fine</b>${gram(ledger.balanceFine)}</span>
-        <span><b>Factory Item Fine</b>${gram(physical.totalFine)}</span>
-        <span><b>Vendor Fine Balance</b>${gram(vendorTotals.netBalance)}</span>
-        <span><b>Total Factory Fine</b>${gram(totalFineStock)}</span>
+        <span><b>Party Fine Balance</b>${gram(vendorTotals.netBalance)}</span>
+        <span><b>Net Factory Fine</b>${gram(totalFineStock)}</span>
       </section>
       <table class="bill-print-table bill-sample-table bill-weight-category-table">
         <thead>
-          <tr><th>Sr.</th><th>Weight Category</th><th>Weight (g)</th><th>Remarks</th></tr>
+          <tr><th>Sr.</th><th>Weight Category</th><th>Gross Wt</th><th>Net Wt</th><th>Fine</th><th>Remarks</th></tr>
         </thead>
         <tbody>
           ${factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineStock).map((row, index) => `
             <tr class="${row.highlight ? "bill-sample-total-row" : ""}">
               <td>${index + 1}</td>
               <td>${escapeHtml(row.label)}</td>
-              <td>${escapeHtml(row.value)}</td>
+              <td>${escapeHtml(row.gross || "-")}</td>
+              <td>${escapeHtml(row.net || "-")}</td>
+              <td>${escapeHtml(row.fine || "-")}</td>
               <td>${escapeHtml(row.note || "")}</td>
             </tr>
           `).join("")}
@@ -8036,18 +8133,34 @@ function factorySummaryPrintHtml() {
 }
 
 function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineStock) {
+  const parts = physical.parts || {};
+  const partRow = (key, label, note = "") => {
+    const part = parts[key] || {};
+    return {
+      label,
+      gross: weight3(part.grossWeight || 0),
+      net: weight3(part.goldWeight || 0),
+      fine: weight3(part.fineGold || 0),
+      note,
+    };
+  };
   return [
-    { label: "Factory In Fine", value: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
-    { label: "Factory Out Fine", value: weight3(ledger.outFine), note: "Bill + metal/stock out" },
-    { label: "Ledger Fine Balance", value: weight3(ledger.balanceFine), note: "Factory in - factory out", highlight: true },
-    { label: "Metal Safe Fine", value: weight3(physical.metalFine), note: "Physical raw metal fine" },
-    { label: "Shelf Fine", value: weight3(physical.shelfFine), note: "Safe locker item fine" },
-    { label: "Production Fine", value: weight3(physical.productionFine), note: "Lots in production" },
-    { label: "Factory Item Fine", value: weight3(physical.totalFine), note: "Metal + shelf + production", highlight: true },
-    { label: "Vendor Fine Balance", value: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine" },
-    { label: "Total Factory Fine Stock", value: weight3(totalFineStock), note: "Factory item fine - vendor fine balance", highlight: true },
-    { label: "Payable To Vendors", value: weight3(vendorTotals.payable), note: "Metal to give to party" },
-    { label: "Receivable From Vendors", value: weight3(vendorTotals.receivable), note: "Metal to receive from party" },
+    { label: "Total Factory Physical Stock", gross: weight3(physical.grossWeight), net: weight3(physical.goldWeight), fine: weight3(physical.totalFine), note: "All factory locations", highlight: true },
+    { label: "Net Factory Fine Stock", fine: weight3(totalFineStock), note: "Physical fine - party fine balance", highlight: true },
+    partRow("metal", "Metal Safe", "Raw gold / pure metal"),
+    partRow("shelf", "Safe Shelf", "Rod, casting item and wastage in safe"),
+    partRow("production", "Production Lots", "Open job cards in departments"),
+    partRow("billPending", "Completed / Bill Pending", "Completed factory stock not yet out"),
+    partRow("departmentIssues", "Dept Issued Safe Items", "Safe item issued directly to department"),
+    partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
+    partRow("xrf", "XRF Pending", "Sample issued and not returned"),
+    partRow("nonGoldDirect", "Direct Non-Gold In Departments", "Physical only, no fine gold"),
+    { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine" },
+    { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
+    { label: "Factory Out Fine Ledger", fine: weight3(ledger.outFine), note: "Bill + metal/stock out" },
+    { label: "Ledger Fine Balance", fine: weight3(ledger.balanceFine), note: "Factory in - factory out" },
+    { label: "Payable To Vendors", fine: weight3(vendorTotals.payable), note: "Metal to give to party" },
+    { label: "Receivable From Vendors", fine: weight3(vendorTotals.receivable), note: "Metal to receive from party" },
   ];
 }
 
@@ -12160,8 +12273,12 @@ function designStoneSummaryText(items = []) {
 }
 
 function renderDashboard() {
+  const factoryStock = factoryPhysicalStock();
+  const factoryVendorTotals = factoryVendorFineTotals();
   document.getElementById("metric-raw").textContent = gram(rawGoldStock());
-  document.getElementById("metric-factory-in").textContent = gram(factoryInWeight());
+  document.getElementById("metric-factory-in").textContent = gram(factoryStock.grossWeight);
+  const factoryFineMetric = document.getElementById("metric-factory-fine-stock");
+  if (factoryFineMetric) factoryFineMetric.textContent = gram(totalFactoryFineStock(factoryStock, factoryVendorTotals));
   document.getElementById("metric-wip").textContent = gram(workInProgress());
   document.getElementById("metric-production-non-gold").textContent = gram(productionNonGoldInDepartmentsWeight());
   document.getElementById("metric-safe-items").textContent = gram(safeItemStockWeight());
@@ -16302,20 +16419,33 @@ function renderFactorySummary() {
   const grid = document.getElementById("factory-summary-grid");
   if (!grid) return;
   const ledger = factoryLedgerTotals();
-  const physical = factoryPhysicalFineStock();
+  const physical = factoryPhysicalStock();
   const vendorRows = vendorBalanceRows();
   const vendorTotals = factoryVendorFineTotals(vendorRows);
   const totalFineStock = totalFactoryFineStock(physical, vendorTotals);
+  const parts = physical.parts || {};
   grid.innerHTML = [
-    factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Vendor inward + WSTG + opening stock"),
-    factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Bills + metal/stock out"),
+    factorySummaryCard("Total Factory Weight", gram(physical.grossWeight), `NW ${gram(physical.goldWeight)} / Fine ${gram(physical.totalFine)}`, "owned"),
+    factorySummaryCard("Net Factory Fine Stock", gram(totalFineStock), "Physical fine - party fine balance", "owned"),
+    factorySummaryCard("Party Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)}`),
+    factorySummaryCard("Metal Safe", gram(parts.metal?.grossWeight || 0), factoryStockPartNote(parts.metal)),
+    factorySummaryCard("Safe Shelf", gram(parts.shelf?.grossWeight || 0), factoryStockPartNote(parts.shelf)),
+    factorySummaryCard("Production Lots", gram(parts.production?.grossWeight || 0), factoryStockPartNote(parts.production)),
+    factorySummaryCard("Bill Pending", gram(parts.billPending?.grossWeight || 0), factoryStockPartNote(parts.billPending)),
+    factorySummaryCard("Dept Issued Items", gram(parts.departmentIssues?.grossWeight || 0), factoryStockPartNote(parts.departmentIssues)),
+    factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
+    factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
+    factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
+    factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
+    factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Ledger: bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
-    factorySummaryCard("Factory Item Fine", gram(physical.totalFine), `Metal ${gram(physical.metalFine)} / Shelf ${gram(physical.shelfFine)} / Production ${gram(physical.productionFine)}`),
-    factorySummaryCard("Vendor Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)}`),
-    factorySummaryCard("Total Factory Fine Stock", gram(totalFineStock), "Factory item fine - vendor fine balance", "owned"),
     factorySummaryCard("Payable To Vendors", gram(vendorTotals.payable), "Metal to give to party", vendorTotals.payable > 0 ? "payable" : ""),
     factorySummaryCard("Receivable From Vendors", gram(vendorTotals.receivable), "Metal to receive from party", vendorTotals.receivable > 0 ? "receivable" : ""),
   ].join("");
+}
+
+function factoryStockPartNote(part = {}) {
+  return `NW ${gram(part.goldWeight || 0)} / Fine ${gram(part.fineGold || 0)}`;
 }
 
 function factorySummaryCard(title, value, note, variant = "") {
