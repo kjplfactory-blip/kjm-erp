@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=320">
+    <link rel="stylesheet" href="styles.css?v=330">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v320</small>
+            <small class="app-version-badge">App v330</small>
           </div>
         </div>
         <label>User
@@ -27,6 +27,7 @@
             <option value="settingManager">Setting Manager</option>
             <option value="officeMain">Office Main Dept</option>
             <option value="officeOps">Office Operations</option>
+            <option value="demo">Demo View Only</option>
             <option value="sales1">Sales Team 1</option>
             <option value="sales2">Sales Team 2</option>
             <option value="sales3">Sales Team 3</option>
@@ -47,6 +48,7 @@
             <span>Setting Manager / setting123</span>
             <span>Office Main / office123</span>
             <span>Office Ops / ops123</span>
+            <span>Demo View Only / demo123</span>
             <span>Sales Team 1 / sales1123</span>
             <span>Sales Team 2 / sales2123</span>
             <span>Sales Team 3 / sales3123</span>
@@ -109,7 +111,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v320</span>
+            <span class="app-version-badge">App v330</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -151,13 +153,13 @@
         </section>
 
         <div class="content-grid">
-          <section class="panel">
+          <section class="panel dashboard-scroll-panel">
             <div class="panel-heading"><h2>Pending Job Orders</h2></div>
-            <div id="pending-orders-list" class="stack-list"></div>
+            <div id="pending-orders-list" class="stack-list dashboard-scroll-list"></div>
           </section>
-          <section class="panel">
+          <section class="panel dashboard-scroll-panel">
             <div class="panel-heading"><h2>Recent Transfer History</h2></div>
-            <div id="activity-list" class="stack-list"></div>
+            <div id="activity-list" class="stack-list dashboard-scroll-list"></div>
           </section>
         </div>
       </section>
@@ -649,10 +651,10 @@
               <h2>Online Transfer History</h2>
               <input id="production-transfer-search" class="search" placeholder="Search lot or department">
             </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
-                <tbody id="production-transfer-table"></tbody>
+          <div class="table-wrap online-transfer-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+              <tbody id="production-transfer-table"></tbody>
               </table>
             </div>
           </section>
@@ -1061,28 +1063,41 @@
         </div>
       </section>
 
-      <section id="transfer-history" class="view">
-        <section class="panel table-panel">
+      <section id="transfer-history" class="view"></section>
+    </main>
+
+    <dialog id="transfer-history-operation-dialog">
+      <div class="dialog-card history-dialog transfer-history-operation-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2 id="transfer-history-operation-title">Transfer History</h2>
+            <p id="transfer-history-operation-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-transfer-history-operation">Close</button>
+        </div>
+        <div class="transfer-history-dialog-body">
+          <section class="panel table-panel transfer-history-dialog-page" data-transfer-history-dialog-page="history" hidden>
           <div class="panel-heading">
             <h2>Online Transfer History</h2>
             <input id="transfer-history-search" class="search" placeholder="Search lot or department">
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap online-transfer-wrap">
             <table>
               <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
               <tbody id="transfer-history-table"></tbody>
             </table>
           </div>
-        </section>
-        <section class="panel department-transfer-panel">
+          </section>
+          <section class="panel department-transfer-panel transfer-history-dialog-page" data-transfer-history-dialog-page="department" hidden>
           <div class="panel-heading">
             <h2>Department Transfer History</h2>
             <input id="department-transfer-search" class="search" placeholder="Search department">
           </div>
           <div id="department-transfer-grid" class="department-transfer-grid"></div>
-        </section>
-      </section>
-    </main>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="catalogue-order-dialog">
       <form id="catalogue-order-form" class="dialog-card catalogue-order-dialog">
@@ -1113,21 +1128,22 @@
           <button class="ghost-button" type="button" id="close-department-transfer">Close</button>
         </div>
         <div id="department-transfer-total-cards" class="department-transfer-total-cards"></div>
+        <section id="department-transfer-purity-panel" class="department-transfer-purity-panel"></section>
         <div class="department-transfer-columns">
-          <section class="panel table-panel">
-            <div class="panel-heading"><h2>IN To Department</h2></div>
+          <section class="panel table-panel department-transfer-panel in-panel">
+            <div class="panel-heading"><h2 id="department-transfer-in-title">IN To Department</h2></div>
             <div class="table-wrap compact-transfer-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot</th><th>From</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>From</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
                 <tbody id="department-transfer-in-table"></tbody>
               </table>
             </div>
           </section>
-          <section class="panel table-panel">
-            <div class="panel-heading"><h2>OUT From Department</h2></div>
+          <section class="panel table-panel department-transfer-panel out-panel">
+            <div class="panel-heading"><h2 id="department-transfer-out-title">OUT From Department</h2></div>
             <div class="table-wrap compact-transfer-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
                 <tbody id="department-transfer-out-table"></tbody>
               </table>
             </div>
@@ -1189,6 +1205,7 @@
             <button class="ghost-button" type="button" id="edit-order-details">Edit</button>
             <button type="button" id="print-order">Print A4</button>
             <button class="ghost-button" type="button" id="print-order-a6">Print A6</button>
+            <button class="ghost-button" type="button" id="print-transfer-bag">Transfer Bag</button>
             <button class="ghost-button" type="button" id="close-order">Close</button>
           </div>
         </div>
@@ -1665,6 +1682,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=320"></script>
+    <script src="app.js?v=330"></script>
 </body>
 </html>

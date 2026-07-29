@@ -415,6 +415,20 @@ th {
   font-size: 13px;
 }
 
+.read-only-user .user-pill {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.read-only-user [data-readonly-locked="true"] {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.read-only-user button[data-readonly-locked="true"] {
+  box-shadow: none;
+}
+
 .sync-detail {
   max-width: 220px;
   color: var(--muted);
@@ -995,12 +1009,18 @@ form.active-operation-page,
 }
 
 .department-card {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcff;
+}
+
+.department-card:hover,
+.department-card:focus-within {
+  z-index: 25;
 }
 
 .department-card span {
@@ -1022,6 +1042,83 @@ form.active-operation-page,
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.department-card-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.department-card-summary small {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(151, 207, 186, 0.42);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.department-card-summary b {
+  color: var(--ink);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.department-hover-popup {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 10px);
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  width: min(560px, calc(100vw - 54px));
+  max-height: min(62vh, 520px);
+  padding: 14px;
+  border: 1px solid rgba(8, 119, 108, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f0fff7 100%);
+  box-shadow: 0 24px 70px rgba(17, 32, 51, 0.22);
+  opacity: 0;
+  overflow: auto;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  visibility: hidden;
+}
+
+.department-card:hover .department-hover-popup,
+.department-card:focus-within .department-hover-popup {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+.department-popup-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(8, 119, 108, 0.14);
+}
+
+.department-popup-heading strong {
+  color: var(--brand-dark);
+  font-size: 16px;
+}
+
+.department-popup-heading small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-align: right;
   text-transform: uppercase;
 }
 
@@ -1094,33 +1191,142 @@ form.active-operation-page,
 }
 
 .department-transfer-dialog-card {
-  grid-template-rows: auto auto minmax(0, 1fr);
-  overflow: hidden;
+  grid-template-rows: auto auto auto auto;
+  gap: 10px;
+  padding: 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+#department-transfer-dialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  height: calc(100vh - 12px);
+  max-height: calc(100vh - 12px);
 }
 
 .department-transfer-total-cards {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
+.department-transfer-total-cards .factory-summary-card {
+  min-height: 0;
+  padding: 9px 10px;
+}
+
+.department-transfer-total-cards .factory-summary-card span,
+.department-transfer-total-cards .factory-summary-card small {
+  font-size: 11px;
+}
+
+.department-transfer-total-cards .factory-summary-card strong {
+  font-size: 17px;
+}
+
+.department-transfer-purity-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(36, 87, 214, 0.10);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f6fffb 100%);
+}
+
+.department-transfer-purity-panel .compact-heading {
+  margin: 0;
+}
+
+.department-transfer-purity-table {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.department-transfer-purity-head,
+.department-transfer-purity-row {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.department-transfer-purity-head {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.department-transfer-purity-row {
+  padding: 6px 8px;
+  border: 1px solid rgba(151, 207, 186, 0.38);
+  border-radius: 8px;
+  background: #fbfffd;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.department-transfer-purity-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.department-transfer-purity-row span:first-child {
+  color: var(--brand-dark);
+}
+
 .department-transfer-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  min-height: 0;
+  min-height: 520px;
+  padding-bottom: 8px;
 }
 
-.department-transfer-columns .table-panel {
+.department-transfer-panel {
   display: flex;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  border-color: rgba(151, 207, 186, 0.56);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fffc 100%);
+}
+
+.department-transfer-panel.in-panel {
+  border-top: 4px solid #0f766e;
+}
+
+.department-transfer-panel.out-panel {
+  border-top: 4px solid #b45309;
+}
+
+.department-transfer-panel .panel-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(8, 119, 108, 0.12);
+  background: inherit;
+}
+
+.department-transfer-panel .panel-heading h2 {
+  color: var(--brand-dark);
+  font-size: 16px;
 }
 
 .compact-transfer-wrap {
   flex: 1;
+  height: clamp(430px, 58vh, 660px);
+  min-height: 430px;
   max-height: none;
   overflow: auto;
+  border: 1px solid rgba(215, 226, 222, 0.88);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .compact-transfer-wrap table {
@@ -1131,15 +1337,52 @@ form.active-operation-page,
 
 .compact-transfer-wrap th,
 .compact-transfer-wrap td {
-  padding: 8px;
+  padding: 6px 7px;
+  font-size: 12px;
+  line-height: 1.25;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.compact-transfer-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #eefaf5;
+  color: #245047;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.compact-transfer-wrap tbody tr:nth-child(even) td {
+  background: #fbfffd;
+}
+
+.compact-transfer-wrap tbody tr:hover td {
+  background: #eefdf6;
 }
 
 .compact-transfer-wrap .remark-cell,
 .compact-transfer-wrap .department-oneline-cell {
   position: relative;
   overflow: visible;
+}
+
+.transfer-lot-job-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.transfer-lot-job-cell small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remark-hover {
@@ -1186,7 +1429,7 @@ form.active-operation-page,
 
 .compact-transfer-wrap th:nth-child(2),
 .compact-transfer-wrap td:nth-child(2) {
-  width: 92px;
+  width: 118px;
 }
 
 .compact-transfer-wrap th:nth-child(4),
@@ -1198,6 +1441,128 @@ form.active-operation-page,
 .compact-transfer-wrap th:nth-child(7),
 .compact-transfer-wrap td:nth-child(7) {
   width: 82px;
+}
+
+.online-transfer-wrap {
+  max-height: clamp(460px, 66vh, 760px);
+  overflow: auto;
+}
+
+#transfer-history .operation-tile-grid {
+  grid-template-columns: repeat(2, minmax(min(260px, 100%), 1fr));
+  max-height: none;
+}
+
+#transfer-history-operation-dialog {
+  width: min(100vw - 22px, 1540px);
+  height: min(100vh - 22px, 920px);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+}
+
+.transfer-history-operation-dialog-card {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.transfer-history-dialog-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+}
+
+.transfer-history-dialog-page {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.transfer-history-dialog-page.active-transfer-history-dialog-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.transfer-history-dialog-page .online-transfer-wrap,
+.transfer-history-dialog-page .department-transfer-grid {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}
+
+.transfer-history-dialog-page .department-transfer-grid {
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.online-transfer-wrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.online-transfer-wrap th,
+.online-transfer-wrap td {
+  padding: 6px 5px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.online-transfer-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #eefaf5;
+  color: #245047;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.online-transfer-wrap tbody tr:hover td,
+.online-transfer-wrap tbody tr:focus-within td {
+  background: #eefdf6;
+}
+
+.online-transfer-wrap .remark-cell,
+.online-transfer-wrap .department-oneline-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.online-transfer-row:hover .remark-cell .remark-popup,
+.online-transfer-row:focus-within .remark-cell .remark-popup {
+  display: block;
+}
+
+.online-transfer-remarks-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.online-transfer-remarks-actions .remark-hover {
+  flex: 1;
+}
+
+.transfer-history-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.transfer-history-actions button {
+  min-height: 26px;
+  padding: 4px 6px;
+  font-size: 10px;
 }
 
 .link-button {
@@ -2948,6 +3313,56 @@ th {
   gap: 10px;
 }
 
+#dashboard .content-grid {
+  align-items: stretch;
+}
+
+#dashboard .dashboard-scroll-panel {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+}
+
+#dashboard .dashboard-scroll-panel .panel-heading {
+  flex-shrink: 0;
+}
+
+#dashboard .dashboard-scroll-list {
+  flex: 1;
+  min-height: 240px;
+  max-height: clamp(280px, 38vh, 520px);
+  padding-right: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+#dashboard .dashboard-scroll-list .empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  text-align: center;
+}
+
+#dashboard .dashboard-scroll-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+#dashboard .dashboard-scroll-list::-webkit-scrollbar-track {
+  background: #eef7f4;
+  border-radius: 999px;
+}
+
+#dashboard .dashboard-scroll-list::-webkit-scrollbar-thumb {
+  background: rgba(15, 118, 110, 0.42);
+  border-radius: 999px;
+}
+
+#dashboard .dashboard-scroll-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 118, 110, 0.68);
+}
+
 .stack-item {
   display: flex;
   justify-content: space-between;
@@ -2977,21 +3392,56 @@ th {
   transform: translateY(-1px);
 }
 
-.dashboard-job-item span,
-.dashboard-transfer-item span,
-.dashboard-transfer-item strong {
+.dashboard-job-item span {
   overflow-wrap: anywhere;
+}
+
+.dashboard-transfer-title,
+.dashboard-transfer-remark,
+.dashboard-transfer-item strong {
+  min-width: 0;
+}
+
+.dashboard-transfer-title .remark-inline,
+.dashboard-transfer-remark .remark-inline,
+.dashboard-transfer-item strong .remark-inline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-transfer-item {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 5px;
+  grid-template-columns: minmax(115px, 1fr) minmax(160px, 1.2fr) minmax(110px, 0.9fr) auto;
+  gap: 8px;
+  overflow: visible;
 }
 
 .dashboard-transfer-item strong {
   color: var(--muted);
   font-size: 12px;
+}
+
+.dashboard-transfer-item:hover .dashboard-transfer-remark .remark-popup,
+.dashboard-transfer-item:focus-within .dashboard-transfer-remark .remark-popup {
+  display: block;
+}
+
+.dashboard-transfer-item .dashboard-open-button {
+  justify-self: end;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+@media (max-width: 920px) {
+  .dashboard-transfer-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .dashboard-transfer-item strong,
+  .dashboard-transfer-remark {
+    grid-column: 1 / -1;
+  }
 }
 
 .empty {
@@ -4214,6 +4664,209 @@ dialog::backdrop {
 
 .print-barcode.combined small {
   font-size: 8px;
+}
+
+.transfer-bag-print {
+  width: 105mm;
+  background: #fff;
+  color: #111827;
+}
+
+.transfer-bag-page {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  gap: 2.2mm;
+  width: 105mm;
+  height: 148.5mm;
+  padding: 3.5mm;
+  border: 1px solid #111827;
+  box-sizing: border-box;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.transfer-bag-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 4mm;
+  padding-bottom: 1.4mm;
+  border-bottom: 1px solid #111827;
+  text-transform: uppercase;
+}
+
+.transfer-bag-head div {
+  display: grid;
+  gap: 0.6mm;
+}
+
+.transfer-bag-head div:last-child {
+  text-align: right;
+}
+
+.transfer-bag-head strong,
+.transfer-bag-head b {
+  font-size: 10px;
+  line-height: 1.05;
+}
+
+.transfer-bag-head span,
+.transfer-bag-head small {
+  color: #4b5563;
+  font-size: 7.5px;
+  font-weight: 900;
+}
+
+.transfer-bag-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.2mm;
+}
+
+.transfer-bag-summary span {
+  display: grid;
+  gap: 0.4mm;
+  min-height: 8mm;
+  padding: 1.2mm;
+  border: 1px solid #d1d5db;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.transfer-bag-summary b,
+.transfer-bag-section h3 {
+  color: #6b7280;
+  font-size: 6.5px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.transfer-bag-section {
+  min-height: 0;
+}
+
+.transfer-bag-section h3 {
+  margin: 0 0 1mm;
+}
+
+.transfer-bag-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.transfer-bag-table th,
+.transfer-bag-table td {
+  border: 1px solid #d1d5db;
+  padding: 0.75mm;
+  font-size: 7px;
+  line-height: 1.05;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.transfer-bag-table th {
+  background: #f3f4f6;
+  color: #111827;
+  font-size: 6px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.transfer-bag-lot-table th:nth-child(1),
+.transfer-bag-lot-table td:nth-child(1) {
+  width: 20%;
+}
+
+.transfer-bag-lot-table th:nth-child(2),
+.transfer-bag-lot-table td:nth-child(2) {
+  width: 34%;
+}
+
+.transfer-bag-item-table th:nth-child(1),
+.transfer-bag-item-table td:nth-child(1) {
+  width: 5%;
+}
+
+.transfer-bag-item-table th:nth-child(2),
+.transfer-bag-item-table td:nth-child(2) {
+  width: 17%;
+}
+
+.transfer-bag-item-table th:nth-child(4),
+.transfer-bag-item-table td:nth-child(4),
+.transfer-bag-item-table th:nth-child(5),
+.transfer-bag-item-table td:nth-child(5),
+.transfer-bag-item-table th:nth-child(6),
+.transfer-bag-item-table td:nth-child(6),
+.transfer-bag-item-table th:nth-child(7),
+.transfer-bag-item-table td:nth-child(7) {
+  width: 9%;
+}
+
+.transfer-bag-manual-table td {
+  height: 4mm;
+}
+
+.transfer-bag-manual-table th:nth-child(1),
+.transfer-bag-manual-table td:nth-child(1) {
+  width: 5%;
+  text-align: center;
+}
+
+.transfer-bag-manual-table th:nth-child(2),
+.transfer-bag-manual-table td:nth-child(2) {
+  width: 35%;
+}
+
+.transfer-bag-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40mm;
+  gap: 2mm;
+  align-items: center;
+  padding-top: 1.2mm;
+  border-top: 1px solid #111827;
+  font-size: 7px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.transfer-bag-barcode .barcode-wrap {
+  min-width: 0;
+}
+
+.transfer-bag-barcode .barcode {
+  width: 100%;
+  height: 8mm;
+}
+
+.transfer-bag-page.many-items {
+  gap: 1.4mm;
+  padding: 3mm;
+}
+
+.transfer-bag-page.many-items .transfer-bag-summary span {
+  min-height: 6.4mm;
+  padding: 0.9mm;
+  font-size: 7px;
+}
+
+.transfer-bag-page.many-items .transfer-bag-table th,
+.transfer-bag-page.many-items .transfer-bag-table td {
+  padding: 0.45mm;
+  font-size: 6.1px;
+}
+
+.transfer-bag-page.many-items .transfer-bag-table th {
+  font-size: 5.5px;
+}
+
+.transfer-bag-page.many-items .transfer-bag-manual-table td {
+  height: 3.2mm;
 }
 
 .bill-print-document {
@@ -7740,6 +8393,33 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 
   body.printing-order .barcode {
+    fill: #111827;
+  }
+}
+
+@media print {
+  body.printing-transfer-bag .order-print-area {
+    width: 105mm;
+  }
+
+  body.printing-transfer-bag .transfer-bag-print {
+    width: 105mm;
+  }
+
+  body.printing-transfer-bag .transfer-bag-page {
+    width: 105mm;
+    height: 148.5mm;
+    min-height: 148.5mm;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body.printing-transfer-bag .transfer-bag-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  body.printing-transfer-bag .barcode {
     fill: #111827;
   }
 }

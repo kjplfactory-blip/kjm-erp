@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v320";
+const APP_VERSION = "v330";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -126,6 +126,7 @@ const users = {
   settingManager: { name: "Setting Manager", password: "setting123", role: "setting-manager", pages: ["production"], productionPages: ["setting"] },
   officeMain: { name: "Office Main Dept", password: "office123", role: "office-main", pages: ["orders", "billing", "office"], canEditOfficeWeights: true },
   officeOps: { name: "Office Operations", password: "ops123", role: "office-ops", pages: ["orders", "office"], canEditOfficeWeights: false },
+  demo: { name: "Demo View Only", password: "demo123", role: "demo", pages: "all", readOnly: true },
   sales1: { name: "Sales Team 1", password: "sales1123", role: "sales", pages: ["office"], salesTeam: "Sales Team 1" },
   sales2: { name: "Sales Team 2", password: "sales2123", role: "sales", pages: ["office"], salesTeam: "Sales Team 2" },
   sales3: { name: "Sales Team 3", password: "sales3123", role: "sales", pages: ["office"], salesTeam: "Sales Team 3" },
@@ -343,6 +344,10 @@ function initializeOperationTiles() {
 }
 
 function openOperationPage(viewId, pageId) {
+  if (viewId === "transfer-history") {
+    openTransferHistoryOperationDialog(pageId);
+    return;
+  }
   const section = document.getElementById(viewId);
   if (!section) return;
   section.classList.add("operation-open");
@@ -379,6 +384,45 @@ function resetOperationPage(viewId) {
     page.classList.remove("active-operation-page");
     page.hidden = true;
   });
+  if (viewId === "transfer-history") closeTransferHistoryOperationDialog();
+}
+
+function openTransferHistoryOperationDialog(pageId) {
+  const dialog = document.getElementById("transfer-history-operation-dialog");
+  if (!dialog) return;
+  const operation = (operationTileConfigs["transfer-history"] || []).find((item) => item.id === pageId);
+  if (!operation) return;
+  const section = document.getElementById("transfer-history");
+  section?.classList.add("operation-open");
+  section?.querySelectorAll("[data-operation-view='transfer-history']").forEach((button) => {
+    button.classList.toggle("active", button.dataset.operationPage === pageId);
+  });
+  document.getElementById("transfer-history-operation-title").textContent = operation.title;
+  document.getElementById("transfer-history-operation-summary").textContent = operation.description;
+  dialog.querySelectorAll("[data-transfer-history-dialog-page]").forEach((page) => {
+    const isActivePage = page.dataset.transferHistoryDialogPage === pageId;
+    page.hidden = !isActivePage;
+    page.classList.toggle("active-transfer-history-dialog-page", isActivePage);
+  });
+  refreshOperationPage("transfer-history", pageId);
+  if (!dialog.open) dialog.showModal();
+}
+
+function clearTransferHistoryOperationState() {
+  const section = document.getElementById("transfer-history");
+  section?.classList.remove("operation-open");
+  section?.querySelectorAll("[data-operation-view='transfer-history']").forEach((button) => button.classList.remove("active"));
+  const dialog = document.getElementById("transfer-history-operation-dialog");
+  dialog?.querySelectorAll("[data-transfer-history-dialog-page]").forEach((page) => {
+    page.hidden = true;
+    page.classList.remove("active-transfer-history-dialog-page");
+  });
+}
+
+function closeTransferHistoryOperationDialog() {
+  const dialog = document.getElementById("transfer-history-operation-dialog");
+  if (dialog?.open) dialog.close();
+  clearTransferHistoryOperationState();
 }
 
 function resetBuiltInTilePage(view) {
@@ -479,6 +523,24 @@ document.addEventListener("keydown", (event) => {
   if (!handleEscapeBack()) return;
   event.preventDefault();
   event.stopPropagation();
+}, true);
+
+document.addEventListener("submit", (event) => {
+  if (event.target?.id === "login-form") return;
+  blockReadOnlyAction(event);
+}, true);
+
+document.addEventListener("click", (event) => {
+  const control = event.target.closest("button, input[type='button'], input[type='submit']");
+  if (!control || readOnlyButtonAllowed(control)) return;
+  blockReadOnlyAction(event);
+}, true);
+
+document.addEventListener("change", (event) => {
+  const control = event.target;
+  if (!control?.matches?.("input, select, textarea")) return;
+  if (readOnlyFieldAllowed(control)) return;
+  blockReadOnlyAction(event);
 }, true);
 
 document.querySelectorAll("[data-office-page]").forEach((button) => {
@@ -1957,6 +2019,8 @@ document.getElementById("print-order-a6").addEventListener("click", () => {
   printOpenJobOrder("single");
 });
 
+document.getElementById("print-transfer-bag").addEventListener("click", printOpenJobTransferBag);
+
 document.getElementById("edit-order-details").addEventListener("click", () => {
   document.getElementById("update-order-form").classList.toggle("hidden");
 });
@@ -2223,6 +2287,8 @@ document.getElementById("close-history").addEventListener("click", () => {
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("production-transfer-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("department-transfer-search")?.addEventListener("input", renderDepartmentTransferHistoryBoard);
+document.getElementById("close-transfer-history-operation")?.addEventListener("click", closeTransferHistoryOperationDialog);
+document.getElementById("transfer-history-operation-dialog")?.addEventListener("close", clearTransferHistoryOperationState);
 document.getElementById("close-department-transfer")?.addEventListener("click", () => {
   document.getElementById("department-transfer-dialog")?.close();
 });
@@ -2286,7 +2352,7 @@ function applyLoginState() {
   const isLoggedIn = Boolean(currentUser);
   document.body.classList.toggle("logged-out", !isLoggedIn);
   document.body.classList.toggle("is-owner", isOwner());
-  document.getElementById("active-user").textContent = isLoggedIn ? currentUser.name : "Not logged in";
+  document.getElementById("active-user").textContent = isLoggedIn ? `${currentUser.name}${isReadOnlyUser() ? " / Read Only" : ""}` : "Not logged in";
   renderLoginUserOptions();
   applyAccessControl();
   renderLoginUsers();
@@ -2360,6 +2426,69 @@ function isBillDeptUser() {
   return currentUserConfig()?.role === "bill";
 }
 
+function isReadOnlyUser() {
+  const config = currentUserConfig();
+  return Boolean(config?.readOnly || config?.role === "demo");
+}
+
+function readOnlyNotice() {
+  return "Demo View is read only. It can view all screens but cannot make changes.";
+}
+
+function blockReadOnlyAction(event) {
+  if (!isReadOnlyUser()) return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  alert(readOnlyNotice());
+  return true;
+}
+
+function readOnlyButtonAllowed(button) {
+  if (!isReadOnlyUser()) return true;
+  if (!button) return true;
+  if (button.closest("#login-form")) return true;
+  if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan") return true;
+  if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button")) return true;
+  if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
+  const onclick = String(button.getAttribute("onclick") || "").trim();
+  if (/^(open|switch|resetOperationPage|close)/i.test(onclick)) return true;
+  const text = String(button.textContent || button.value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  return /^(open|view|close|cancel|back|history|scan|refresh|logout)\b/.test(text);
+}
+
+function readOnlyFieldAllowed(control) {
+  if (!isReadOnlyUser()) return true;
+  if (!control) return true;
+  if (control.closest("#login-form")) return true;
+  if (control.id === "global-barcode-scan" || control.id === "barcode-scan") return true;
+  if (control.matches(".search, [type='search']")) return true;
+  return false;
+}
+
+function applyReadOnlyControls() {
+  document.body.classList.toggle("read-only-user", isReadOnlyUser());
+  document.querySelectorAll("[data-readonly-locked='true']").forEach((control) => {
+    control.disabled = control.dataset.readonlyWasDisabled === "true";
+    control.removeAttribute("aria-disabled");
+    delete control.dataset.readonlyLocked;
+    delete control.dataset.readonlyWasDisabled;
+  });
+  if (!isReadOnlyUser()) return;
+  document.querySelectorAll("form:not(#login-form) input, form:not(#login-form) select, form:not(#login-form) textarea, input[type='file']").forEach((control) => {
+    if (readOnlyFieldAllowed(control)) return;
+    control.dataset.readonlyWasDisabled = control.disabled ? "true" : "false";
+    control.disabled = true;
+    control.dataset.readonlyLocked = "true";
+  });
+  document.querySelectorAll("button, input[type='button'], input[type='submit']").forEach((button) => {
+    if (readOnlyButtonAllowed(button)) return;
+    button.dataset.readonlyWasDisabled = button.disabled ? "true" : "false";
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+    button.dataset.readonlyLocked = "true";
+  });
+}
+
 function canCreateBill() {
   return isOwner() || isManagerUser() || isBillDeptUser();
 }
@@ -2409,6 +2538,7 @@ function applyAccessControl() {
     element.classList.toggle("hidden", currentUser && !canManageSettingSetters());
   });
   document.body.classList.toggle("office-readonly", currentUserConfig()?.role === "office-ops" || isSalesUser());
+  document.body.classList.toggle("read-only-user", isReadOnlyUser());
   document.body.classList.toggle("qc-only-user", isBillQcOnlyMode());
   document.body.classList.toggle("setting-manager-user", isSettingManagerUser());
   if (currentUser && !canAccessPage(document.querySelector(".view.active-view")?.id || "dashboard")) {
@@ -2420,6 +2550,7 @@ function applyAccessControl() {
       switchProductionPage(defaultProductionPage());
     }
   }
+  applyReadOnlyControls();
 }
 
 function saveState() {
@@ -3328,7 +3459,7 @@ function openDashboardDepartment(department) {
     return;
   }
   switchView("transfer-history");
-  openOperationPage("transfer-history", "department");
+  renderDepartmentTransferHistoryBoard();
   openDepartmentTransferHistory(label);
 }
 
@@ -7983,6 +8114,14 @@ async function printOpenJobOrder(mode = "job") {
   startJobPrint(await jobOrderPrintHtml(order, jobOrders, { itemsPerPage: mode === "single" ? 1 : 4 }), mode);
 }
 
+async function printOpenJobTransferBag() {
+  const orderId = document.getElementById("update-order-form").orderId.value;
+  const order = findById("orders", orderId);
+  if (!order) return;
+  const jobOrders = getJobOrders(order);
+  startJobPrint(jobCardTransferBagPrintHtml(order, jobOrders), "transfer-bag");
+}
+
 async function printSingleJobItem(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
@@ -7995,9 +8134,11 @@ function startJobPrint(html, mode = "job") {
   setPrintPageSize(mode);
   document.body.classList.add("printing-order");
   document.body.classList.toggle("printing-single-item", mode === "single");
+  document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
   const cleanup = () => {
     document.body.classList.remove("printing-order");
     document.body.classList.remove("printing-single-item");
+    document.body.classList.remove("printing-transfer-bag");
     printArea.innerHTML = "";
     setPrintPageSize("job");
     window.removeEventListener("afterprint", cleanup);
@@ -8023,7 +8164,7 @@ function setPrintPageSize(mode = "job") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 10mm; } }";
   } else if (mode === "catalogue") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 8mm; } }";
-  } else if (mode === "single") {
+  } else if (mode === "single" || mode === "transfer-bag") {
     style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } }";
   } else {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
@@ -8606,6 +8747,109 @@ function billPrintItemTableHtml(items = []) {
       </thead>
       <tbody>${rows || `<tr><td colspan="14">No item details</td></tr>`}</tbody>
     </table>
+  `;
+}
+
+function jobCardTransferBagPrintHtml(job, jobOrders = []) {
+  const items = jobOrders.length ? jobOrders : [job].filter(Boolean);
+  const lots = lotsForJobOrders(items);
+  const activeLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;
+  const jobNumber = job.jobNumber || job.productionNo || job.number || "-";
+  const customerName = job.customer || items[0]?.customer || "-";
+  const lotNumbers = lots.map((lot) => lot.number).filter(Boolean).join(", ") || "-";
+  const currentDepartment = activeLot ? (activeLot.currentDepartment || activeLot.karigarName || "-") : "Gold Not Issued";
+  const totalCurrentGw = lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0);
+  const totalIssueGw = lots.reduce((total, lot) => total + Number(lot.grossIssuedWeight || lot.issuedWeight || 0), 0);
+  const itemRows = items.map((item, index) => transferBagItemRow(item, index)).join("");
+  const lotRows = lots.length ? lots.map(transferBagLotRow).join("") : `
+    <tr><td>-</td><td>Gold Not Issued</td><td>-</td><td>-</td><td>-</td></tr>
+  `;
+  const manualRows = Array.from({ length: 8 }, (_, index) => `
+    <tr><td>${index + 1}</td><td></td><td></td><td></td><td></td><td></td></tr>
+  `).join("");
+  return `
+    <div class="transfer-bag-print">
+      <section class="transfer-bag-page ${items.length > 14 ? "many-items" : ""}">
+        <div class="transfer-bag-head">
+          <div>
+            <strong>KHUSHALI JEWELLS</strong>
+            <span>JOB CARD TRANSFER BAG</span>
+          </div>
+          <div>
+            <b>${escapeHtml(jobNumber)}</b>
+            <small>${escapeHtml(new Date().toLocaleDateString("en-IN"))}</small>
+          </div>
+        </div>
+        <div class="transfer-bag-summary">
+          <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
+          <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+          <span><b>Customer</b>${escapeHtml(customerName)}</span>
+          <span><b>Current Dept</b>${escapeHtml(currentDepartment)}</span>
+          <span><b>Total Items</b>${items.length}</span>
+          <span><b>Current GW</b>${gram(totalCurrentGw || totalIssueGw)}</span>
+        </div>
+        <section class="transfer-bag-section">
+          <h3>Lot / Weight</h3>
+          <table class="transfer-bag-table transfer-bag-lot-table">
+            <thead><tr><th>Lot</th><th>Dept</th><th>Purity</th><th>Issue GW</th><th>Now GW</th></tr></thead>
+            <tbody>${lotRows}</tbody>
+          </table>
+        </section>
+        <section class="transfer-bag-section transfer-bag-items-section">
+          <h3>Item Details</h3>
+          <table class="transfer-bag-table transfer-bag-item-table">
+            <thead><tr><th>#</th><th>PR No</th><th>Design</th><th>Item</th><th>Size</th><th>Color</th><th>Purity</th><th>Remark</th></tr></thead>
+            <tbody>${itemRows}</tbody>
+          </table>
+        </section>
+        <section class="transfer-bag-section transfer-bag-manual-section">
+          <h3>Manual Transfer History / GW</h3>
+          <table class="transfer-bag-table transfer-bag-manual-table">
+            <thead><tr><th>#</th><th>Department / Process</th><th>Date</th><th>Issue GW</th><th>Receive GW</th><th>Sign</th></tr></thead>
+            <tbody>${manualRows}</tbody>
+          </table>
+        </section>
+        <div class="transfer-bag-footer">
+          <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+          <div class="transfer-bag-barcode">${barcodeSvg(jobNumber)}</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function lotsForJobOrders(jobOrders = []) {
+  const orderIds = new Set(jobOrders.map((order) => order.id).filter(Boolean));
+  return state.lots.filter((lot) => getLotOrderIds(lot).some((id) => orderIds.has(id)));
+}
+
+function transferBagLotRow(lot) {
+  return `
+    <tr>
+      <td>${escapeHtml(lot.number || "-")}</td>
+      <td>${escapeHtml(lot.currentDepartment || lot.karigarName || "-")}</td>
+      <td>${escapeHtml(displayPurity(lot.metalPurity || "-"))}</td>
+      <td>${gram(lot.grossIssuedWeight || lot.issuedWeight || 0)}</td>
+      <td>${gram(currentTransferIssueWeight(lot))}</td>
+    </tr>
+  `;
+}
+
+function transferBagItemRow(item, index) {
+  const design = item.designNumber || designLabel(item.designId) || "-";
+  const itemLabel = printBagItemKeyForOrder(item) || item.category || item.item || "-";
+  const size = soldItemSizeText(item) || item.size || "-";
+  return `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${escapeHtml(item.productionNo || item.number || "-")}</td>
+      <td>${escapeHtml(design)}</td>
+      <td>${escapeHtml(itemLabel)}</td>
+      <td>${escapeHtml(size || "-")}</td>
+      <td>${escapeHtml(item.color || "-")}</td>
+      <td>${escapeHtml(item.purity || "-")}</td>
+      <td>${escapeHtml(item.remarks || "-")}</td>
+    </tr>
   `;
 }
 
@@ -9848,6 +10092,7 @@ function render() {
   renderDepartmentTransferHistoryBoard();
   renderReports();
   renderLoginUsers();
+  applyAccessControl();
 }
 
 function renderLoginUsers() {
@@ -12590,7 +12835,7 @@ function dashboardPendingOrderItem(job) {
   `;
 }
 
-function recentDashboardTransfers(limit = 8) {
+function recentDashboardTransfers(limit = 30) {
   return state.lots
     .flatMap((lot) => (lot.transfers || []).map((transfer) => ({ lot, transfer })))
     .sort((a, b) => String(b.transfer.date || "").localeCompare(String(a.transfer.date || "")))
@@ -12602,10 +12847,12 @@ function dashboardTransferItem({ lot, transfer }) {
   const to = transfer.toDepartment || transfer.toKarigarName || "-";
   const title = `${lot.orderNumber || lot.number || "-"} / ${from} -> ${to}`;
   const detail = `${transfer.date || "-"} / Issue ${gram(transfer.transferWeight)} / Net ${gram(transfer.receivedWeight)} / Diff ${gram(transfer.departmentBalance)}`;
+  const remarks = transfer.reason || "-";
   return `
-    <div class="stack-item dashboard-transfer-item">
-      <span>${escapeHtml(title)}</span>
-      <strong>${escapeHtml(detail)}</strong>
+    <div class="stack-item dashboard-transfer-item" tabindex="0">
+      <span class="dashboard-transfer-title">${transferOneLinePopupCell(title)}</span>
+      <strong>${transferOneLinePopupCell(detail)}</strong>
+      <span class="dashboard-transfer-remark">${transferRemarkCell(remarks)}</span>
       <button class="dashboard-open-button" type="button" onclick="openLotHistory('${lot.id}')">Open</button>
     </div>
   `;
@@ -12619,26 +12866,45 @@ function renderDepartmentMetal() {
       return scoreDiff || a[0].localeCompare(b[0]);
     })
     .map(([department, totals]) => `
-      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}">
+      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}" tabindex="0">
         <span>${escapeHtml(department)}</span>
         <strong>${gram(totals.gold)}</strong>
-        <small class="department-holding-label">Current Gold Holding</small>
-        <div class="department-breakup">
+        <small class="department-holding-label">Net Gold Holding</small>
+        <div class="department-card-summary">
           <small><b>GW</b>${gram(totals.gross)}</small>
-          <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
-          <small><b>Hand Stone</b>${gram(totals.handStone)}</small>
-          <small><b>Total Stone</b>${gram(totals.waxStone + totals.handStone)}</small>
-          <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
-          ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
-          ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
+          <small><b>Other</b>${gram(Number(totals.waxStone || 0) + Number(totals.handStone || 0) + Number(totals.nonGold || 0))}</small>
+          <small><b>Fine</b>${gram(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0))}</small>
         </div>
-        ${renderDepartmentPuritySplit(totals)}
-        ${renderDepartmentSplit(totals)}
+        <div class="department-hover-popup" role="tooltip">
+          <div class="department-popup-heading">
+            <strong>${escapeHtml(department)}</strong>
+            <small>Karat-wise holding detail</small>
+          </div>
+          ${renderDepartmentHoldingDetail(totals)}
+        </div>
         <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
       </article>
     `)
     .join("");
   document.getElementById("department-metal-list").innerHTML = rows || '<div class="empty">No department gold or stone in hand yet.</div>';
+}
+
+function renderDepartmentHoldingDetail(totals) {
+  return `
+    <div class="department-breakup">
+      <small><b>Total GW</b>${gram(totals.gross)}</small>
+      <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
+      <small><b>Hand Stone</b>${gram(totals.handStone)}</small>
+      <small><b>Total Stone</b>${gram(totals.waxStone + totals.handStone)}</small>
+      <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
+      <small><b>Net Gold</b>${gram(totals.gold)}</small>
+      <small><b>Fine Gold</b>${gram(totals.fineGold + totals.lossFineGold)}</small>
+      ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
+      ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
+    </div>
+    ${renderDepartmentPuritySplit(totals)}
+    ${renderDepartmentSplit(totals)}
+  `;
 }
 
 function departmentHoldingScore(totals = {}) {
@@ -17882,6 +18148,9 @@ function openDepartmentTransferHistory(departmentName) {
   document.getElementById("department-transfer-summary").textContent =
     `${summary.inCount} inward entries and ${summary.outCount} outward entries. Difference and fine are counted when item goes out from this department.`;
   document.getElementById("department-transfer-total-cards").innerHTML = renderDepartmentTransferTotals(summary);
+  document.getElementById("department-transfer-purity-panel").innerHTML = renderDepartmentTransferPurityBreakup(events);
+  document.getElementById("department-transfer-in-title").textContent = `IN To Department (${inRows.length})`;
+  document.getElementById("department-transfer-out-title").textContent = `OUT From Department (${outRows.length})`;
   document.getElementById("department-transfer-in-table").innerHTML =
     inRows.length ? inRows.map((event) => renderDepartmentTransferRow(event, "in")).join("") : tableEmpty(8, "No inward entries for this department.");
   document.getElementById("department-transfer-out-table").innerHTML =
@@ -17898,6 +18167,60 @@ function renderDepartmentTransferTotals(summary) {
     factorySummaryCard("Total Reduced", gram(summary.difference), "Difference booked to this department", summary.difference ? "payable" : ""),
     factorySummaryCard("Fine Gold Reduced", gram(summary.fineGold), "Fine gold of department difference", summary.fineGold ? "receivable" : ""),
   ].join("");
+}
+
+function renderDepartmentTransferPurityBreakup(events = []) {
+  const rows = departmentTransferPurityRows(events);
+  if (!rows.length) return '<div class="empty">No karat-wise transfer weight recorded for this department.</div>';
+  return `
+    <div class="panel-heading compact-heading">
+      <h2>Karat Wise Bifurcation</h2>
+    </div>
+    <div class="department-transfer-purity-table">
+      <div class="department-transfer-purity-head">
+        <span>Karat / Purity</span><span>IN GW</span><span>IN Net</span><span>OUT GW</span><span>OUT Net</span><span>Reduced</span><span>Fine</span>
+      </div>
+      ${rows.map((row) => `
+        <div class="department-transfer-purity-row">
+          <span>${escapeHtml(row.purity)}</span>
+          <span>${gram(row.inGw)}</span>
+          <span>${gram(row.inNet)}</span>
+          <span>${gram(row.outGw)}</span>
+          <span>${gram(row.outNet)}</span>
+          <span>${gram(row.difference)}</span>
+          <span>${gram(row.fineGold)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function departmentTransferPurityRows(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    const key = dashboardPurityLabel(event.purity || "");
+    if (!groups.has(key)) {
+      groups.set(key, { purity: key, inGw: 0, inNet: 0, outGw: 0, outNet: 0, difference: 0, fineGold: 0 });
+    }
+    const group = groups.get(key);
+    if (event.direction === "in") {
+      group.inGw = Number(weight3(group.inGw + Number(event.receiveGw || 0)));
+      group.inNet = Number(weight3(group.inNet + Number(event.netWeight || 0)));
+    } else {
+      group.outGw = Number(weight3(group.outGw + Number(event.issueGw || 0)));
+      group.outNet = Number(weight3(group.outNet + Number(event.netWeight || 0)));
+      group.difference = Number(weight3(group.difference + Number(event.difference || 0)));
+      group.fineGold = Number(weight3(group.fineGold + Number(event.fineGold || 0)));
+    }
+  });
+  return [...groups.values()]
+    .filter((row) => row.inGw || row.inNet || row.outGw || row.outNet || row.difference || row.fineGold)
+    .sort((a, b) => puritySortValue(b.purity) - puritySortValue(a.purity) || a.purity.localeCompare(b.purity));
+}
+
+function puritySortValue(value = "") {
+  const percent = purityPercent(value);
+  return Number.isFinite(percent) ? percent : 0;
 }
 
 function departmentTransferSummaries() {
@@ -17977,6 +18300,7 @@ function departmentTransferEvents() {
         departmentDetail: departmentTransferDetail(firstDepartment, firstProcess),
         date: lot.issueDate || "-",
         lotNumber: lot.number || "-",
+        jobNumber: lot.orderNumber || "-",
         counterparty: sourceName,
         process: firstProcess,
         issueGw,
@@ -17999,6 +18323,7 @@ function departmentTransferEvents() {
         type: "Transfer",
         date: transfer.date || "-",
         lotNumber: lot.number || "-",
+        jobNumber: lot.orderNumber || "-",
         issueGw: Number(transfer.transferWeight || 0),
         receiveGw: Number(transfer.grossReceivedWeight || 0),
         netWeight: Number(transfer.receivedWeight || 0),
@@ -18075,7 +18400,10 @@ function renderDepartmentTransferRow(event, direction) {
   return `
     <tr>
       <td>${escapeHtml(event.date || "-")}</td>
-      <td><button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button></td>
+      <td class="transfer-lot-job-cell">
+        <button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button>
+        <small>${escapeHtml(event.jobNumber || "-")}</small>
+      </td>
       <td class="department-oneline-cell">${transferDepartmentCell(event.counterparty, event.process)}</td>
       <td>${gram(gw)}</td>
       <td>${gram(event.netWeight)}</td>
@@ -18108,12 +18436,14 @@ function renderTransferHistoryRow(entry) {
   if (type === "issue") {
     const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
     const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
+    const departmentText = `${sourceName} to ${firstDepartment}`;
+    const movedText = `${sourceName} to ${transfer.toKarigarName || firstDepartment}`;
     return `
-      <tr>
+      <tr class="online-transfer-row" tabindex="0">
         <td>${escapeHtml(transfer.date || "-")}</td>
         <td>${escapeHtml(lot.number)}</td>
-        <td>${escapeHtml(sourceName)} to ${escapeHtml(firstDepartment)}</td>
-        <td>${escapeHtml(sourceName)} to ${escapeHtml(transfer.toKarigarName || firstDepartment)}</td>
+        <td class="department-oneline-cell">${transferOneLinePopupCell(departmentText)}</td>
+        <td class="department-oneline-cell">${transferOneLinePopupCell(movedText)}</td>
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
@@ -18123,16 +18453,18 @@ function renderTransferHistoryRow(entry) {
         <td>-</td>
         <td>${escapeHtml(displayPurity(transfer.differencePurity || lot.metalPurity || "-"))}</td>
         <td>${gram(transferFineGold(transfer, lot))}</td>
-        <td>${escapeHtml(transfer.reason || "-")}</td>
+        <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
       </tr>
     `;
   }
+  const departmentText = `${transfer.fromDepartment || "-"} to ${transfer.toDepartment || "-"}`;
+  const movedText = `${transfer.fromKarigarName || "-"} to ${transfer.toKarigarName || "-"}`;
   return `
-    <tr>
+    <tr class="online-transfer-row" tabindex="0">
       <td>${escapeHtml(transfer.date || "-")}</td>
       <td>${escapeHtml(lot.number)}</td>
-      <td>${escapeHtml(transfer.fromDepartment || "-")} to ${escapeHtml(transfer.toDepartment || "-")}</td>
-      <td>${escapeHtml(transfer.fromKarigarName || "-")} to ${escapeHtml(transfer.toKarigarName || "-")}</td>
+      <td class="department-oneline-cell">${transferOneLinePopupCell(departmentText)}</td>
+      <td class="department-oneline-cell">${transferOneLinePopupCell(movedText)}</td>
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
@@ -18142,7 +18474,12 @@ function renderTransferHistoryRow(entry) {
       <td>${gram(transfer.departmentBalance)}</td>
       <td>${escapeHtml(displayPurity(transfer.differencePurity || lot.metalPurity || "-"))}</td>
       <td>${gram(transferFineGold(transfer, lot))}</td>
-      <td>${escapeHtml(transfer.reason || "-")}<br><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lot.id}', '${transfer.id}')">Delete</button></div></td>
+      <td class="remark-cell">
+        <div class="online-transfer-remarks-actions">
+          ${transferRemarkCell(transfer.reason || "-")}
+          <div class="row-actions transfer-history-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lot.id}', '${transfer.id}')">Delete</button></div>
+        </div>
+      </td>
     </tr>
   `;
 }
