@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v336";
+const APP_VERSION = "v337";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -703,6 +703,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
   const form = event.target;
   const data = getFormData(form);
   const selectedCategory = normalizeDesignCategory(data.category);
+  const selectedItemKeys = normalizeDesignItemKeys(data.itemKeys, selectedCategory);
   const existing = data.designId ? findById("designs", data.designId) : null;
   const imageFiles = [...form.image.files];
   const stoneChartFiles = [...form.stoneChart.files];
@@ -719,6 +720,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
     return;
   }
   form.category.value = selectedCategory;
+  if (form.itemKeys) form.itemKeys.value = designItemKeysText(selectedItemKeys);
   submitButton.disabled = true;
   const previousDesigns = [...state.designs];
   const uploadCropPermission = createStoneCropUploadPermission();
@@ -741,6 +743,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         number: data.number || designName,
         name: data.name || data.number || designName,
         category: selectedCategory,
+        itemKeys: selectedItemKeys,
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
         stoneChartItems: existing.stoneChartItems || [],
@@ -767,7 +770,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           duplicateGroups.push({ group, existingDesign: duplicateDesign });
           continue;
         }
-        const design = createDesignFromUploadGroup(group, selectedCategory);
+        const design = createDesignFromUploadGroup(group, selectedCategory, "", selectedItemKeys);
         try {
           let chartAttachedForDesign = 0;
           if (group.designFile) {
@@ -805,7 +808,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
           status.textContent = `${duplicateActionProgressText(duplicateAction)} ${index + 1} of ${totalDuplicates}: ${designName}`;
           await waitForUiPaint();
           try {
-            const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction });
+            const result = await resolveDuplicateDesignUpload(group, existingDesign, selectedCategory, stoneChartFiles, { cropPermission: uploadCropPermission, duplicateAction, itemKeys: selectedItemKeys });
             updatedCount += result.updated;
             createdCount += result.created;
             matchedStoneCharts += result.chartAttached;
@@ -850,6 +853,10 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
 });
 
 document.getElementById("cancel-design-edit").addEventListener("click", resetDesignForm);
+document.getElementById("design-form").addEventListener("input", (event) => {
+  if (event.target.name === "category") setDesignItemKeysFromCategory();
+  if (event.target.name === "itemKeys") event.target.dataset.autoValue = "";
+});
 
 document.getElementById("design-search").addEventListener("input", renderDesigns);
 document.getElementById("design-select-all").addEventListener("click", selectAllDesigns);
@@ -3756,6 +3763,7 @@ function addOrderItemRow(item = {}, mode = "entry") {
 }
 
 function entryOrderItemRowHtml(item = {}) {
+  const selectedDesign = findById("designs", item.designId);
   return `
     <div class="order-item-entry-head">
       <div>
@@ -3777,12 +3785,12 @@ function entryOrderItemRowHtml(item = {}) {
     <div class="selected-design-chips" data-order-selected-designs></div>
     <label class="cb-field">CB Ring
       <select name="ringType">
-        ${renderRingTypeOptions(item.ringType)}
+        ${renderRingTypeOptions(item.ringType, designOrderRingKeys(selectedDesign, item.category))}
       </select>
     </label>
     <label class="cm-field">CM Item
       <select name="cmItemType">
-        ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForCategory(item.category))}
+        ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForDesign(selectedDesign, item.category), designOrderCmKeys(selectedDesign, item.category))}
       </select>
     </label>
     <label class="normal-size-field">Size <input name="size" value="${escapeHtml(item.size || "")}" placeholder="Size"></label>
@@ -3860,13 +3868,42 @@ function renderColorOptions(selected = "") {
   ).join("");
 }
 
-function renderRingTypeOptions(selected = "") {
-  return [
-    ["", "Select"],
-    ["CL", "CL - Ladies Ring"],
-    ["CG", "CG - Gents Ring"],
-    ["CL+CG", "Both CL + CG"],
-  ].map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+function designOrderRingKeys(design = null, category = "") {
+  const keys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
+    .map((key) => key === "CLR" ? "CL" : key === "CGR" ? "CG" : key)
+    .filter((key) => ["CL", "CG"].includes(key));
+  return [...new Set(keys)].length ? [...new Set(keys)] : ["CL", "CG"];
+}
+
+function designOrderCmKeys(design = null, category = "") {
+  const keys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
+    .filter((key) => CM_ITEM_KEYS.includes(key));
+  return [...new Set(keys)].length ? [...new Set(keys)] : CM_ITEM_KEYS;
+}
+
+function itemKeyCombinations(keys = []) {
+  const cleanKeys = [...new Set(keys.filter(Boolean))];
+  const combinations = [];
+  const total = 1 << cleanKeys.length;
+  for (let mask = 1; mask < total; mask += 1) {
+    const combo = cleanKeys.filter((_, index) => mask & (1 << index));
+    combinations.push(combo);
+  }
+  return combinations.sort((a, b) =>
+    a.length - b.length
+    || cleanKeys.indexOf(a[0]) - cleanKeys.indexOf(b[0])
+    || a.join("+").localeCompare(b.join("+"))
+  );
+}
+
+function renderRingTypeOptions(selected = "", keys = ["CL", "CG"]) {
+  const ringKeys = [...new Set(keys.filter((key) => ["CL", "CG"].includes(key)))];
+  const options = [["", "Select"]];
+  if (ringKeys.includes("CL")) options.push(["CL", "CL - Ladies Ring"]);
+  if (ringKeys.includes("CG")) options.push(["CG", "CG - Gents Ring"]);
+  if (ringKeys.includes("CL") && ringKeys.includes("CG")) options.push(["CL+CG", "Both CL + CG"]);
+  if (selected && !options.some(([value]) => value === selected)) options.push([selected, ringTypeLabel(selected)]);
+  return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function ringTypeLabel(value = "") {
@@ -3877,17 +3914,14 @@ function ringTypeLabel(value = "") {
   }[value] || "-";
 }
 
-function renderCmItemTypeOptions(selected = "") {
-  return [
-    ["", "Select CM item"],
-    ["CM", "CM - Chams"],
-    ["CME", "CME - Chams Ear Rings"],
-    ["CMB", "CMB - Chams Bracelet"],
-    ["CM+CME", "CM + CME"],
-    ["CM+CMB", "CM + CMB"],
-    ["CME+CMB", "CME + CMB"],
-    ["CM+CME+CMB", "All CM + CME + CMB"],
-  ].map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+function renderCmItemTypeOptions(selected = "", keys = CM_ITEM_KEYS) {
+  const cmKeys = [...new Set(keys.filter((key) => CM_ITEM_KEYS.includes(key)))];
+  const options = [["", "Select CM item"], ...itemKeyCombinations(cmKeys).map((combo) => {
+    const value = combo.join("+");
+    return [value, combo.map(stoneItemInputValue).join(" + ")];
+  })];
+  if (selected && !options.some(([value]) => value === selected)) options.push([selected, cmItemTypeLabel(selected)]);
+  return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function cmItemTypeKeys(value = "") {
@@ -3906,6 +3940,12 @@ function cmItemTypeLabel(value = "") {
 function defaultCmItemTypeForCategory(value = "") {
   const category = categoryCode(value);
   return CM_ITEM_KEYS.includes(category) ? category : "";
+}
+
+function defaultCmItemTypeForDesign(design = null, category = "") {
+  const keys = designOrderCmKeys(design, category);
+  const code = categoryCode(design?.category || category);
+  return keys.includes(code) ? code : keys[0] || "";
 }
 
 function categoryCode(value = "") {
@@ -3927,27 +3967,41 @@ function needsNormalSize(value = "") {
 function updateOrderItemCategoryFields(row) {
   if (!row || row.dataset.mode === "saved") return;
   const category = row.querySelector('[name="category"]').value;
-  const ringType = row.querySelector('[name="ringType"]').value;
+  const design = findById("designs", row.querySelector('[name="designId"]')?.value || "");
+  const ringSelect = row.querySelector('[name="ringType"]');
+  const cmSelect = row.querySelector('[name="cmItemType"]');
+  const ringType = ringSelect.value;
   const showCb = isCbCategory(category);
   const showCm = isCmCategory(category);
   const showNormalSize = needsNormalSize(category);
+  if (showCb) {
+    ringSelect.innerHTML = renderRingTypeOptions(ringType, designOrderRingKeys(design, category));
+    if (![...ringSelect.options].some((option) => option.value === ringSelect.value)) ringSelect.value = "";
+  }
+  if (showCm) {
+    const cmType = cmSelect.value || defaultCmItemTypeForDesign(design, category);
+    cmSelect.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category));
+    cmSelect.value = [...cmSelect.options].some((option) => option.value === cmType) ? cmType : defaultCmItemTypeForDesign(design, category);
+  }
+  const activeRingTypeForVisibility = ringSelect.value;
   row.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
   row.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
-  row.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(ringType)));
-  row.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(ringType)));
+  row.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(activeRingTypeForVisibility)));
+  row.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(activeRingTypeForVisibility)));
   row.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
   if (!showCb) {
-    row.querySelector('[name="ringType"]').value = "";
+    ringSelect.value = "";
     row.querySelector('[name="clSize"]').value = "";
     row.querySelector('[name="cgSize"]').value = "";
   } else {
-    if (!["CL", "CL+CG"].includes(ringType)) row.querySelector('[name="clSize"]').value = "";
-    if (!["CG", "CL+CG"].includes(ringType)) row.querySelector('[name="cgSize"]').value = "";
+    const activeRingType = ringSelect.value;
+    if (!["CL", "CL+CG"].includes(activeRingType)) row.querySelector('[name="clSize"]').value = "";
+    if (!["CG", "CL+CG"].includes(activeRingType)) row.querySelector('[name="cgSize"]').value = "";
   }
   if (!showCm) {
-    row.querySelector('[name="cmItemType"]').value = "";
-  } else if (!row.querySelector('[name="cmItemType"]').value) {
-    row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForCategory(category);
+    cmSelect.value = "";
+  } else if (!cmSelect.value) {
+    cmSelect.value = defaultCmItemTypeForDesign(design, category);
   }
   if (!showNormalSize) row.querySelector('[name="size"]').value = "";
   updateOrderItemStonePreview(row);
@@ -4256,7 +4310,7 @@ function applyDesignToOrderItem(row, designId) {
   if (!row || !design) return;
   row.querySelector('[name="category"]').value = design.category || "";
   if (isCmCategory(design.category) && !row.querySelector('[name="cmItemType"]').value) {
-    row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForCategory(design.category);
+    row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForDesign(design, design.category);
   }
   updateOrderItemCategoryFields(row);
   renderOrderEntrySummary();
@@ -4422,6 +4476,42 @@ function normalizeDesignCategory(value = "") {
   if (!clean) return "";
   const existing = designCategoryNames().find((category) => category.toLowerCase() === clean.toLowerCase());
   return existing || clean.toUpperCase();
+}
+
+function defaultDesignItemKeysForCategory(category = "") {
+  const code = categoryCode(category);
+  if (code === "CB") return ["CL", "CG"];
+  if (code === "CBR") return ["CLR", "CGR"];
+  if (CM_ITEM_KEYS.includes(code)) return ["CM", "CME", "CMB"];
+  if (TM_ITEM_KEYS.includes(code)) return ["TM", "TME"];
+  if (["LR", "GR", "RING", "RINGS"].includes(code)) return ["LR", "GR"];
+  return [];
+}
+
+function normalizeDesignItemKeys(value = "", category = "") {
+  const parts = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[,+/\n]+/);
+  const keys = parts
+    .map((item) => normalizeStoneItemKey(item))
+    .filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  const uniqueKeys = [...new Set(keys)];
+  return uniqueKeys.length ? uniqueKeys : defaultDesignItemKeysForCategory(category);
+}
+
+function designItemKeysText(value = "", category = "") {
+  return normalizeDesignItemKeys(value, category).map(stoneItemInputValue).join(", ");
+}
+
+function setDesignItemKeysFromCategory(force = false) {
+  const form = document.getElementById("design-form");
+  const input = document.getElementById("design-item-keys");
+  if (!form || !input) return;
+  const nextText = designItemKeysText("", form.category?.value || "");
+  const previousAuto = input.dataset.autoValue || "";
+  if (!force && input.value.trim() && input.value.trim() !== previousAuto) return;
+  input.value = nextText;
+  input.dataset.autoValue = nextText;
 }
 
 function renderDesignCategoryDatalist() {
@@ -7853,11 +7943,13 @@ function openItemEdit(orderId) {
   form.orderId.value = order.id;
   form.category.innerHTML = renderCategoryOptions(order.category || "");
   form.designId.innerHTML = renderDesignOptions();
-  form.cmItemType.innerHTML = renderCmItemTypeOptions(order.cmItemType || defaultCmItemTypeForCategory(order.category || ""));
+  const design = findById("designs", order.designId || "");
+  form.ringType.innerHTML = renderRingTypeOptions(order.ringType || "", designOrderRingKeys(design, order.category || ""));
+  form.cmItemType.innerHTML = renderCmItemTypeOptions(order.cmItemType || defaultCmItemTypeForDesign(design, order.category || ""), designOrderCmKeys(design, order.category || ""));
   form.category.value = order.category || "";
   updateItemEditDesignOptions(form, order.designId || "");
   form.ringType.value = order.ringType || "";
-  form.cmItemType.value = order.cmItemType || defaultCmItemTypeForCategory(order.category || "");
+  form.cmItemType.value = order.cmItemType || defaultCmItemTypeForDesign(design, order.category || "");
   form.size.value = order.size || "";
   form.clSize.value = order.clSize || "";
   form.cgSize.value = order.cgSize || "";
@@ -7882,6 +7974,7 @@ function openJobCardAddItem() {
   form.orderId.value = baseOrder.id;
   form.category.innerHTML = renderCategoryOptions("");
   form.designId.innerHTML = renderDesignOptions();
+  form.ringType.innerHTML = renderRingTypeOptions("");
   form.cmItemType.innerHTML = renderCmItemTypeOptions("");
   form.category.value = "";
   updateItemEditDesignOptions(form, "");
@@ -8026,33 +8119,45 @@ function applyDesignToItemEdit(form, designId) {
   const design = findById("designs", designId);
   if (!design) return;
   form.category.value = design.category || "";
+  if (isCmCategory(design.category) && !form.cmItemType.value) form.cmItemType.value = defaultCmItemTypeForDesign(design, design.category);
   updateItemEditDesignOptions(form, designId);
   updateItemEditCategoryFields(form);
 }
 
 function updateItemEditCategoryFields(form) {
   const category = form.category.value;
+  const design = findById("designs", form.designId?.value || "");
   const ringType = form.ringType.value;
   const showCb = isCbCategory(category);
   const showCm = isCmCategory(category);
   const showNormalSize = needsNormalSize(category);
+  if (showCb) {
+    form.ringType.innerHTML = renderRingTypeOptions(ringType, designOrderRingKeys(design, category));
+    if (![...form.ringType.options].some((option) => option.value === form.ringType.value)) form.ringType.value = "";
+  }
+  if (showCm) {
+    const cmType = form.cmItemType.value || defaultCmItemTypeForDesign(design, category);
+    form.cmItemType.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category));
+    form.cmItemType.value = [...form.cmItemType.options].some((option) => option.value === cmType) ? cmType : defaultCmItemTypeForDesign(design, category);
+  }
+  const activeRingType = form.ringType.value;
   form.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
   form.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
-  form.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(ringType)));
-  form.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(ringType)));
+  form.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(activeRingType)));
+  form.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(activeRingType)));
   form.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
   if (!showCb) {
     form.ringType.value = "";
     form.clSize.value = "";
     form.cgSize.value = "";
   } else {
-    if (!["CL", "CL+CG"].includes(ringType)) form.clSize.value = "";
-    if (!["CG", "CL+CG"].includes(ringType)) form.cgSize.value = "";
+    if (!["CL", "CL+CG"].includes(activeRingType)) form.clSize.value = "";
+    if (!["CG", "CL+CG"].includes(activeRingType)) form.cgSize.value = "";
   }
   if (!showCm) {
     form.cmItemType.value = "";
   } else if (!form.cmItemType.value) {
-    form.cmItemType.value = defaultCmItemTypeForCategory(category);
+    form.cmItemType.value = defaultCmItemTypeForDesign(design, category);
   }
   if (!showNormalSize) form.size.value = "";
 }
@@ -11051,6 +11156,8 @@ function isRegularRingStoneDesign(design = null) {
 }
 
 function baseStoneItemKeysForDesign(design = null) {
+  const savedItemKeys = normalizeDesignItemKeys(design?.itemKeys || []);
+  if (savedItemKeys.length) return savedItemKeys;
   const category = categoryCode(design?.category || "");
   if (isCbrStoneDesign(design)) return ["CLR", "CGR"];
   if (category === "CB") return ["CL", "CG"];
@@ -11072,6 +11179,9 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   const name = ` ${designNameFromFile(fileName).toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
   const isCbr = isCbrStoneDesign(design);
   const category = categoryCode(design?.category || "");
+  const savedItemKey = normalizeDesignItemKeys(design?.itemKeys || [])
+    .find((key) => new RegExp(`\\b${escapeRegExp(key)}\\b`).test(name));
+  if (savedItemKey) return savedItemKey;
   if (/\bCGR\b/.test(name) || (isCbr && /\bCG\b/.test(name))) return "CGR";
   if (/\bCLR\b/.test(name) || (isCbr && /\bCL\b/.test(name))) return "CLR";
   if (isCbr && (/\bGR\b/.test(name) || /\bGENTS?\b/.test(name))) return "CGR";
@@ -11093,8 +11203,9 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
 }
 
 function stoneItemOptionKeysForDesign(design = null) {
+  const hasSavedDesignItems = normalizeDesignItemKeys(design?.itemKeys || []).length > 0;
   const baseKeys = baseStoneItemKeysForDesign(design);
-  const isSpecificMultiItemDesign = isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design) || isTmSetStoneDesign(design);
+  const isSpecificMultiItemDesign = hasSavedDesignItems || isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design) || isTmSetStoneDesign(design);
   const keys = new Set(baseKeys);
   const category = categoryCode(design?.category || "");
   if (!isSpecificMultiItemDesign && category) keys.add(category);
@@ -11281,13 +11392,14 @@ function groupDesignUploadFiles(files = []) {
   });
 }
 
-function createDesignFromUploadGroup(group, category, nameOverride = "") {
+function createDesignFromUploadGroup(group, category, nameOverride = "", itemKeys = []) {
   const designName = nameOverride || group.designName || designNameFromFile(group.designFile?.name) || "Design";
   return {
     id: crypto.randomUUID(),
     number: designName,
     name: designName,
     category: normalizeDesignCategory(category),
+    itemKeys: normalizeDesignItemKeys(itemKeys, category),
     stoneDetails: "",
     stoneItems: [],
     stoneChartItems: [],
@@ -11305,6 +11417,9 @@ async function mergeUploadGroupIntoDesign(group, design, category, stoneChartFil
   if (!group || !design) return { updated: 0, chartAttached: 0 };
   const selectedCategory = normalizeDesignCategory(category);
   if (selectedCategory) design.category = selectedCategory;
+  if (Object.prototype.hasOwnProperty.call(options, "itemKeys")) {
+    design.itemKeys = normalizeDesignItemKeys(options.itemKeys, selectedCategory || design.category);
+  }
   let chartAttached = 0;
   if (group.designFile && !isStoneChartUploadFile(group.designFile.name)) {
     const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: replaceDesignImage, cropPermission: options.cropPermission });
@@ -11465,7 +11580,7 @@ async function resolveDuplicateDesignUpload(group, existingDesign, category, sto
     const copyName = options.duplicateAction ? uniqueDuplicateDesignCopyName(designName) : prompt("Enter design number for this separate duplicate:", uniqueDuplicateDesignCopyName(designName));
     const cleanCopyName = String(copyName || "").trim();
     if (!cleanCopyName) return { created: 0, updated: 0, chartAttached: 0 };
-    const design = createDesignFromUploadGroup(group, category, cleanCopyName);
+    const design = createDesignFromUploadGroup(group, category, cleanCopyName, options.itemKeys);
     let chartAttached = 0;
     if (group.designFile) {
       const smartImageResult = await saveDesignUploadImageAndAutoChart(design, group.designFile, { saveDesign: true, cropPermission: options.cropPermission });
@@ -13679,6 +13794,8 @@ function renderDesignCard(design) {
   const chartKeys = designStoneChartItemKeys(design);
   const hasSource = Boolean(design.hasStoneChartSource);
   const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
+  const itemKeys = normalizeDesignItemKeys(design.itemKeys || [], design.category || "");
+  const itemSummary = itemKeys.length ? `Items: ${itemKeys.map(stoneItemInputValue).join(" / ")}` : "Items: General";
   return `
     <article class="design-category-item" data-design-card="${escapeHtml(design.id)}">
       <label class="design-select-check">
@@ -13694,6 +13811,7 @@ function renderDesignCard(design) {
       </div>
       <strong>${escapeHtml(designText(design))}</strong>
       <span>${escapeHtml(design.category || "Uncategorised")}</span>
+      <span class="design-item-summary">${escapeHtml(itemSummary)}</span>
       <span class="dialog-note">${chartKeys.length ? `${chartKeys.length} item crop${chartKeys.length === 1 ? "" : "s"} saved` : "No item crop saved"}${hasSource ? " / old full chart copy can be cleaned" : ""}${escapeHtml(stoneSummary)}</span>
       <div class="row-actions">
         <button class="ghost-button" onclick="openDesignImage('${design.id}')">View</button>
@@ -13865,6 +13983,11 @@ async function mergeDesignPrompt(sourceDesignId) {
 async function mergeDesignRecords(source, target) {
   if (!source || !target || source.id === target.id) return;
   if (!target.category && source.category) target.category = source.category;
+  const mergedItemKeys = [
+    ...normalizeDesignItemKeys(target.itemKeys || [], target.category || ""),
+    ...normalizeDesignItemKeys(source.itemKeys || [], source.category || ""),
+  ];
+  target.itemKeys = [...new Set(mergedItemKeys)];
   if (!target.stoneItems?.length && source.stoneItems?.length) {
     target.stoneItems = source.stoneItems.map((item) => ({ ...item, id: crypto.randomUUID() }));
   } else if (source.stoneItems?.length) {
@@ -13941,6 +14064,10 @@ function editDesign(id) {
   form.number.value = design.number;
   form.name.value = design.name;
   form.category.value = design.category || "";
+  if (form.itemKeys) {
+    form.itemKeys.value = designItemKeysText(design.itemKeys || [], design.category);
+    form.itemKeys.dataset.autoValue = form.itemKeys.value;
+  }
   form.image.value = "";
   form.stoneChart.value = "";
   document.getElementById("design-form-title").textContent = "Edit Design / Add Stone Charts";
@@ -13955,6 +14082,7 @@ function resetDesignForm() {
   const form = document.getElementById("design-form");
   form.reset();
   form.designId.value = "";
+  if (form.itemKeys) form.itemKeys.dataset.autoValue = "";
   document.getElementById("design-form-title").textContent = "Add Design";
   document.getElementById("design-submit").textContent = "Upload Design(s)";
   document.getElementById("design-upload-status").textContent = "Design images are saved in 4x6 size. If the same image contains a stone chart, use Crop Chart From Design in Design Master instead of uploading the chart again.";
@@ -19455,6 +19583,7 @@ function normalizeState(currentState) {
       number: design.number || "",
       name: design.name || "",
       category: design.category || "",
+      itemKeys: normalizeDesignItemKeys(design.itemKeys || [], design.category || ""),
       imageData: design.imageData || "",
       stoneDetails: stoneItems.length ? designStoneDetailsText(stoneItems) : design.stoneDetails || "",
       stoneItems,

@@ -3086,6 +3086,24 @@ th {
   box-shadow: 0 0 0 3px rgba(216, 180, 90, 0.22);
 }
 
+.design-item-summary {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #eefdf6;
+  color: #0f5f55;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.design-item-list-field input {
+  text-transform: uppercase;
+}
+
 .design-select-check {
   display: inline-flex;
   align-items: center;
