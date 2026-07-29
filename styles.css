@@ -3962,10 +3962,10 @@ dialog::backdrop {
 
 .print-job-item {
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  gap: 6px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 4px;
   border: 1px solid #111827;
-  padding: 7px;
+  padding: 5px;
   box-sizing: border-box;
   width: 105mm;
   height: 148.5mm;
@@ -3979,8 +3979,8 @@ dialog::backdrop {
   justify-content: space-between;
   gap: 8px;
   border-bottom: 1px solid #111827;
-  padding-bottom: 5px;
-  font-size: 11px;
+  padding-bottom: 3px;
+  font-size: 10px;
 }
 
 .print-card-head div {
@@ -3994,18 +3994,22 @@ dialog::backdrop {
 
 .print-card-head span {
   color: #4b5563;
-  font-size: 10px;
+  font-size: 8.5px;
 }
 
 .print-card-body {
   display: grid;
-  grid-template-columns: 38% 1fr;
-  gap: 8px;
+  grid-template-columns: 31mm minmax(0, 1fr);
+  gap: 5px;
+  align-items: start;
   min-height: 0;
 }
 
 .print-design-image {
-  min-height: 84px;
+  align-self: start;
+  min-height: 0;
+  height: 39mm;
+  max-height: 39mm;
   display: grid;
   place-items: center;
   border: 1px solid #d1d5db;
@@ -4017,34 +4021,36 @@ dialog::backdrop {
 .print-design-image img {
   width: 100%;
   height: 100%;
-  max-height: 98mm;
   object-fit: contain;
+  object-position: top center;
 }
 
 .print-job-details {
   display: grid;
-  gap: 6px;
+  gap: 3px;
+  align-self: start;
 }
 
 .print-detail-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
 }
 
 .print-detail-grid span {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   border: 1px solid #d1d5db;
-  padding: 4px;
-  min-height: 30px;
-  font-size: 11px;
+  padding: 2px 3px;
+  min-height: 17px;
+  font-size: 8.8px;
+  line-height: 1.12;
   overflow-wrap: anywhere;
 }
 
 .print-detail-grid b {
   color: #6b7280;
-  font-size: 8px;
+  font-size: 6.4px;
   text-transform: uppercase;
 }
 
@@ -4062,9 +4068,9 @@ dialog::backdrop {
 
 .print-customer-box small {
   display: block;
-  margin-top: 1.5mm;
+  margin-top: 0.5mm;
   color: #5f1330;
-  font-size: 8px;
+  font-size: 6.5px;
   font-weight: 800;
 }
 
@@ -4087,9 +4093,9 @@ dialog::backdrop {
 
 .print-stone-details {
   border: 1px solid #d1d5db;
-  padding: 4px;
-  font-size: 8.5px;
-  line-height: 1.25;
+  padding: 3px;
+  font-size: 8px;
+  line-height: 1.16;
   box-sizing: border-box;
   height: 100%;
   overflow: hidden;
@@ -4105,14 +4111,14 @@ dialog::backdrop {
 .print-stone-details table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 3px;
+  margin-top: 2px;
   table-layout: fixed;
 }
 
 .print-stone-details th,
 .print-stone-details td {
   border: 1px solid #d1d5db;
-  padding: 2px;
+  padding: 1.4px;
   text-align: left;
   vertical-align: top;
   word-break: break-word;
@@ -4147,13 +4153,27 @@ dialog::backdrop {
   font-size: 7.2px;
 }
 
+.print-stone-details .stone-item-total-row td {
+  background: #eefdf7;
+  color: #0f3f35;
+  font-weight: 900;
+  border-top-color: #111827;
+  border-bottom-color: #111827;
+}
+
 .print-stone-details .stone-total-row td {
   background: #f9fafb;
   font-weight: 800;
 }
 
+.print-stone-details .stone-grand-total-row td {
+  background: #111827;
+  color: #ffffff;
+  font-weight: 900;
+}
+
 .print-stone-details .manual-stone-row td {
-  height: 5mm;
+  height: 3.5mm;
 }
 
 .print-barcode .barcode {
