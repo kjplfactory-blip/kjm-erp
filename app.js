@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v330";
+const APP_VERSION = "v336";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -255,7 +255,7 @@ const pageInfo = {
   factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and total factory fine stock."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
-  "transfer-history": ["Transfer History", "Online one-line history for every lot transfer."],
+  "transfer-history": ["Transfer History", "Open online lot transfer history separately from department-wise IN/OUT history."],
   reports: ["Reports", "Review wastage, making charges, and completed orders."],
   users: ["Login Details", "Owner can retrieve and change user passwords."],
 };
@@ -298,8 +298,8 @@ const operationTileConfigs = {
     { id: "bill", title: "Bill / Packing", description: "Open completed job cards for bill, QC, and packing list", selector: "#billing .table-panel" },
   ],
   "transfer-history": [
-    { id: "history", title: "Online Transfer History", description: "View all lot movement in one table", selector: "#transfer-history .table-panel" },
-    { id: "department", title: "Department Wise History", description: "Open each department to view IN and OUT entries", selector: ".department-transfer-panel" },
+    { id: "history", title: "Online Transfer History", description: "Show every lot movement in one compact online table", selector: "#online-transfer-history-dialog .table-panel" },
+    { id: "department", title: "Department Transfer History", description: "Open department tiles with separate IN and OUT entries", selector: "#department-transfer-history-dialog .department-transfer-panel" },
   ],
 };
 
@@ -388,40 +388,41 @@ function resetOperationPage(viewId) {
 }
 
 function openTransferHistoryOperationDialog(pageId) {
-  const dialog = document.getElementById("transfer-history-operation-dialog");
-  if (!dialog) return;
   const operation = (operationTileConfigs["transfer-history"] || []).find((item) => item.id === pageId);
   if (!operation) return;
+  const onlineDialog = document.getElementById("online-transfer-history-dialog");
+  const departmentDialog = document.getElementById("department-transfer-history-dialog");
+  if (pageId === "history" && !onlineDialog) return;
+  if (pageId === "department" && !departmentDialog) return;
+  if (pageId === "history" && departmentDialog?.open) departmentDialog.close();
+  if (pageId === "department" && onlineDialog?.open) onlineDialog.close();
   const section = document.getElementById("transfer-history");
+  const dialog = pageId === "history" ? onlineDialog : departmentDialog;
+  dialog.dataset.activePage = pageId;
   section?.classList.add("operation-open");
   section?.querySelectorAll("[data-operation-view='transfer-history']").forEach((button) => {
     button.classList.toggle("active", button.dataset.operationPage === pageId);
-  });
-  document.getElementById("transfer-history-operation-title").textContent = operation.title;
-  document.getElementById("transfer-history-operation-summary").textContent = operation.description;
-  dialog.querySelectorAll("[data-transfer-history-dialog-page]").forEach((page) => {
-    const isActivePage = page.dataset.transferHistoryDialogPage === pageId;
-    page.hidden = !isActivePage;
-    page.classList.toggle("active-transfer-history-dialog-page", isActivePage);
   });
   refreshOperationPage("transfer-history", pageId);
   if (!dialog.open) dialog.showModal();
 }
 
 function clearTransferHistoryOperationState() {
+  const onlineDialog = document.getElementById("online-transfer-history-dialog");
+  const departmentDialog = document.getElementById("department-transfer-history-dialog");
+  if (onlineDialog?.open || departmentDialog?.open) return;
   const section = document.getElementById("transfer-history");
   section?.classList.remove("operation-open");
   section?.querySelectorAll("[data-operation-view='transfer-history']").forEach((button) => button.classList.remove("active"));
-  const dialog = document.getElementById("transfer-history-operation-dialog");
-  dialog?.querySelectorAll("[data-transfer-history-dialog-page]").forEach((page) => {
-    page.hidden = true;
-    page.classList.remove("active-transfer-history-dialog-page");
-  });
+  if (onlineDialog) delete onlineDialog.dataset.activePage;
+  if (departmentDialog) delete departmentDialog.dataset.activePage;
 }
 
 function closeTransferHistoryOperationDialog() {
-  const dialog = document.getElementById("transfer-history-operation-dialog");
-  if (dialog?.open) dialog.close();
+  const onlineDialog = document.getElementById("online-transfer-history-dialog");
+  const departmentDialog = document.getElementById("department-transfer-history-dialog");
+  if (onlineDialog?.open) onlineDialog.close();
+  if (departmentDialog?.open) departmentDialog.close();
   clearTransferHistoryOperationState();
 }
 
@@ -2287,8 +2288,10 @@ document.getElementById("close-history").addEventListener("click", () => {
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("production-transfer-search").addEventListener("input", renderOnlineTransferHistory);
 document.getElementById("department-transfer-search")?.addEventListener("input", renderDepartmentTransferHistoryBoard);
-document.getElementById("close-transfer-history-operation")?.addEventListener("click", closeTransferHistoryOperationDialog);
-document.getElementById("transfer-history-operation-dialog")?.addEventListener("close", clearTransferHistoryOperationState);
+document.getElementById("close-online-transfer-history")?.addEventListener("click", closeTransferHistoryOperationDialog);
+document.getElementById("close-department-transfer-history")?.addEventListener("click", closeTransferHistoryOperationDialog);
+document.getElementById("online-transfer-history-dialog")?.addEventListener("close", clearTransferHistoryOperationState);
+document.getElementById("department-transfer-history-dialog")?.addEventListener("close", clearTransferHistoryOperationState);
 document.getElementById("close-department-transfer")?.addEventListener("click", () => {
   document.getElementById("department-transfer-dialog")?.close();
 });
@@ -8756,6 +8759,20 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
   const activeLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;
   const jobNumber = job.jobNumber || job.productionNo || job.number || "-";
   const customerName = job.customer || items[0]?.customer || "-";
+  const isCustomerOrder = isManufacturingCustomerOrder(customerName);
+  const orderType = manufacturingOrderTypeLabel(customerName);
+  const officeDestination = manufacturingOfficeDestinationLabel(customerName);
+  const detailPageClasses = [
+    "transfer-bag-page",
+    "transfer-bag-detail-page",
+    isCustomerOrder ? "customer-order-print" : "stock-order-print",
+    items.length > 14 ? "many-items" : "",
+  ].filter(Boolean).join(" ");
+  const historyPageClasses = [
+    "transfer-bag-page",
+    "transfer-bag-history-page",
+    isCustomerOrder ? "customer-order-print" : "stock-order-print",
+  ].join(" ");
   const lotNumbers = lots.map((lot) => lot.number).filter(Boolean).join(", ") || "-";
   const currentDepartment = activeLot ? (activeLot.currentDepartment || activeLot.karigarName || "-") : "Gold Not Issued";
   const totalCurrentGw = lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0);
@@ -8764,26 +8781,24 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
   const lotRows = lots.length ? lots.map(transferBagLotRow).join("") : `
     <tr><td>-</td><td>Gold Not Issued</td><td>-</td><td>-</td><td>-</td></tr>
   `;
-  const manualRows = Array.from({ length: 8 }, (_, index) => `
-    <tr><td>${index + 1}</td><td></td><td></td><td></td><td></td><td></td></tr>
-  `).join("");
+  const historyRows = transferBagHistoryRows(lots, 18).join("");
   return `
     <div class="transfer-bag-print">
-      <section class="transfer-bag-page ${items.length > 14 ? "many-items" : ""}">
+      <section class="${detailPageClasses}">
         <div class="transfer-bag-head">
           <div>
             <strong>KHUSHALI JEWELLS</strong>
-            <span>JOB CARD TRANSFER BAG</span>
+            <span>JOB CARD TRANSFER BAG - DETAILS</span>
           </div>
           <div>
             <b>${escapeHtml(jobNumber)}</b>
-            <small>${escapeHtml(new Date().toLocaleDateString("en-IN"))}</small>
+            <small>Page 1 / 2 - ${escapeHtml(new Date().toLocaleDateString("en-IN"))}</small>
           </div>
         </div>
         <div class="transfer-bag-summary">
           <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
           <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
-          <span><b>Customer</b>${escapeHtml(customerName)}</span>
+          <span class="transfer-bag-customer-box"><b>Customer</b>${escapeHtml(customerName)}<small>${escapeHtml(orderType)} / To ${escapeHtml(officeDestination)}</small></span>
           <span><b>Current Dept</b>${escapeHtml(currentDepartment)}</span>
           <span><b>Total Items</b>${items.length}</span>
           <span><b>Current GW</b>${gram(totalCurrentGw || totalIssueGw)}</span>
@@ -8802,11 +8817,33 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
             <tbody>${itemRows}</tbody>
           </table>
         </section>
+        <div class="transfer-bag-footer">
+          <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+          <div class="transfer-bag-barcode">${barcodeSvg(jobNumber)}</div>
+        </div>
+      </section>
+      <section class="${historyPageClasses}">
+        <div class="transfer-bag-head">
+          <div>
+            <strong>KHUSHALI JEWELLS</strong>
+            <span>TRANSFER HISTORY / GW SHEET</span>
+          </div>
+          <div>
+            <b>${escapeHtml(jobNumber)}</b>
+            <small>Page 2 / 2 - ${escapeHtml(lotNumbers)}</small>
+          </div>
+        </div>
+        <div class="transfer-bag-history-meta">
+          <span><b>Customer</b>${escapeHtml(customerName)}</span>
+          <span><b>Order Type</b>${escapeHtml(orderType)}</span>
+          <span><b>Current Dept</b>${escapeHtml(currentDepartment)}</span>
+          <span><b>Current GW</b>${gram(totalCurrentGw || totalIssueGw)}</span>
+        </div>
         <section class="transfer-bag-section transfer-bag-manual-section">
-          <h3>Manual Transfer History / GW</h3>
+          <h3>Transfer History / Manual GW Writing</h3>
           <table class="transfer-bag-table transfer-bag-manual-table">
-            <thead><tr><th>#</th><th>Department / Process</th><th>Date</th><th>Issue GW</th><th>Receive GW</th><th>Sign</th></tr></thead>
-            <tbody>${manualRows}</tbody>
+            <thead><tr><th>#</th><th>From Dept</th><th>To Dept</th><th>Date</th><th>Transfer GWT</th><th>Sign</th></tr></thead>
+            <tbody>${historyRows}</tbody>
           </table>
         </section>
         <div class="transfer-bag-footer">
@@ -8821,6 +8858,49 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
 function lotsForJobOrders(jobOrders = []) {
   const orderIds = new Set(jobOrders.map((order) => order.id).filter(Boolean));
   return state.lots.filter((lot) => getLotOrderIds(lot).some((id) => orderIds.has(id)));
+}
+
+function transferBagHistoryRows(lots = [], minimumRows = 18) {
+  const entries = [];
+  lots.forEach((lot) => {
+    const firstDepartment = lot.issueDepartment || lot.karigarName || lot.currentDepartment || "-";
+    const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)) || 0);
+    if (lot.issueDate || issueGw > 0) {
+      entries.push({
+        fromDepartment: lot.issueSourceName || lotIssueSourceName(lot),
+        toDepartment: firstDepartment,
+        date: lot.issueDate || "",
+        transferGwt: issueGw,
+      });
+    }
+    (lot.transfers || []).forEach((transfer) => {
+      entries.push({
+        fromDepartment: transfer.fromKarigarName || transfer.fromDepartment || "-",
+        toDepartment: transfer.toKarigarName || transfer.toDepartment || "-",
+        date: transfer.date || "",
+        transferGwt: Number(transfer.transferWeight || 0),
+      });
+    });
+  });
+  const totalRows = Math.max(minimumRows, entries.length);
+  return Array.from({ length: totalRows }, (_, index) => {
+    const entry = entries[index] || {};
+    return transferBagHistoryRow(entry, index);
+  });
+}
+
+function transferBagHistoryRow(entry = {}, index = 0) {
+  const hasEntry = Boolean(entry.fromDepartment || entry.toDepartment);
+  return `
+    <tr class="${hasEntry ? "transfer-bag-prefilled-row" : ""}">
+      <td>${index + 1}</td>
+      <td>${escapeHtml(entry.fromDepartment || "")}</td>
+      <td>${escapeHtml(entry.toDepartment || "")}</td>
+      <td>${escapeHtml(entry.date || "")}</td>
+      <td>${hasEntry ? gram(entry.transferGwt || 0) : ""}</td>
+      <td></td>
+    </tr>
+  `;
 }
 
 function transferBagLotRow(lot) {
@@ -18102,12 +18182,14 @@ function renderOnlineTransferHistory() {
         ? `${lot.number} gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
         : `${lot.number} ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
       return text.includes(query);
-    })
+  })
     .map(renderTransferHistoryRow)
     .join("");
   const content = rows || tableEmpty(14, "No transfer history recorded.");
-  document.getElementById("transfer-history-table").innerHTML = content;
-  document.getElementById("production-transfer-table").innerHTML = content;
+  const historyTable = document.getElementById("transfer-history-table");
+  const productionTable = document.getElementById("production-transfer-table");
+  if (historyTable) historyTable.innerHTML = content;
+  if (productionTable) productionTable.innerHTML = content;
 }
 
 function renderDepartmentTransferHistoryBoard() {
@@ -18379,7 +18461,12 @@ function transferDepartmentCell(counterparty = "", process = "") {
   const fullText = processText && !counterpartyText.toLowerCase().includes(processText.toLowerCase())
     ? `${counterpartyText} / ${processText}`
     : counterpartyText;
-  return transferOneLinePopupCell(fullText);
+  return transferOneLineCell(fullText);
+}
+
+function transferOneLineCell(value = "") {
+  const oneLine = String(value || "-").trim().replace(/\s+/g, " ") || "-";
+  return `<span class="transfer-inline">${escapeHtml(oneLine)}</span>`;
 }
 
 function transferOneLinePopupCell(value = "") {
@@ -18442,8 +18529,8 @@ function renderTransferHistoryRow(entry) {
       <tr class="online-transfer-row" tabindex="0">
         <td>${escapeHtml(transfer.date || "-")}</td>
         <td>${escapeHtml(lot.number)}</td>
-        <td class="department-oneline-cell">${transferOneLinePopupCell(departmentText)}</td>
-        <td class="department-oneline-cell">${transferOneLinePopupCell(movedText)}</td>
+        <td class="department-oneline-cell">${transferOneLineCell(departmentText)}</td>
+        <td class="department-oneline-cell">${transferOneLineCell(movedText)}</td>
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
@@ -18463,8 +18550,8 @@ function renderTransferHistoryRow(entry) {
     <tr class="online-transfer-row" tabindex="0">
       <td>${escapeHtml(transfer.date || "-")}</td>
       <td>${escapeHtml(lot.number)}</td>
-      <td class="department-oneline-cell">${transferOneLinePopupCell(departmentText)}</td>
-      <td class="department-oneline-cell">${transferOneLinePopupCell(movedText)}</td>
+      <td class="department-oneline-cell">${transferOneLineCell(departmentText)}</td>
+      <td class="department-oneline-cell">${transferOneLineCell(movedText)}</td>
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>

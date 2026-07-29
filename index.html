@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=330">
+    <link rel="stylesheet" href="styles.css?v=336">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v330</small>
+            <small class="app-version-badge">App v336</small>
           </div>
         </div>
         <label>User
@@ -111,7 +111,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v330</span>
+            <span class="app-version-badge">App v336</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1066,34 +1066,48 @@
       <section id="transfer-history" class="view"></section>
     </main>
 
-    <dialog id="transfer-history-operation-dialog">
-      <div class="dialog-card history-dialog transfer-history-operation-dialog-card">
+    <dialog id="online-transfer-history-dialog">
+      <div class="dialog-card history-dialog transfer-history-operation-dialog-card online-transfer-history-dialog-card">
         <div class="dialog-header">
           <div>
-            <h2 id="transfer-history-operation-title">Transfer History</h2>
-            <p id="transfer-history-operation-summary" class="dialog-note"></p>
+            <h2>Online Transfer History</h2>
+            <p class="dialog-note">One-line online history for every lot transfer.</p>
           </div>
-          <button class="ghost-button" type="button" id="close-transfer-history-operation">Close</button>
+          <button class="ghost-button" type="button" id="close-online-transfer-history">Close</button>
         </div>
         <div class="transfer-history-dialog-body">
-          <section class="panel table-panel transfer-history-dialog-page" data-transfer-history-dialog-page="history" hidden>
-          <div class="panel-heading">
-            <h2>Online Transfer History</h2>
-            <input id="transfer-history-search" class="search" placeholder="Search lot or department">
-          </div>
-          <div class="table-wrap online-transfer-wrap">
-            <table>
-              <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
-              <tbody id="transfer-history-table"></tbody>
-            </table>
-          </div>
+          <section class="panel table-panel transfer-history-panel">
+            <div class="panel-heading">
+              <h2>Online Transfer History</h2>
+              <input id="transfer-history-search" class="search" placeholder="Search lot or department">
+            </div>
+            <div class="table-wrap online-transfer-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+                <tbody id="transfer-history-table"></tbody>
+              </table>
+            </div>
           </section>
-          <section class="panel department-transfer-panel transfer-history-dialog-page" data-transfer-history-dialog-page="department" hidden>
-          <div class="panel-heading">
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="department-transfer-history-dialog">
+      <div class="dialog-card history-dialog transfer-history-operation-dialog-card department-transfer-history-dialog-card">
+        <div class="dialog-header">
+          <div>
             <h2>Department Transfer History</h2>
-            <input id="department-transfer-search" class="search" placeholder="Search department">
+            <p class="dialog-note">Department-wise IN and OUT history. Open a department tile for full detail.</p>
           </div>
-          <div id="department-transfer-grid" class="department-transfer-grid"></div>
+          <button class="ghost-button" type="button" id="close-department-transfer-history">Close</button>
+        </div>
+        <div class="transfer-history-dialog-body">
+          <section class="panel department-transfer-panel transfer-history-panel">
+            <div class="panel-heading">
+              <h2>Department Wise Transfer History</h2>
+              <input id="department-transfer-search" class="search" placeholder="Search department">
+            </div>
+            <div id="department-transfer-grid" class="department-transfer-grid"></div>
           </section>
         </div>
       </div>
@@ -1682,6 +1696,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=330"></script>
+    <script src="app.js?v=336"></script>
 </body>
 </html>
