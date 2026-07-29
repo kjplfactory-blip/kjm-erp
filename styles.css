@@ -4068,6 +4068,13 @@ dialog::backdrop {
   font-weight: 800;
 }
 
+.print-bag-items {
+  background: #eefdf7;
+  border-color: #68bfa4 !important;
+  color: #0f3f35;
+  font-weight: 800;
+}
+
 .print-barcode .barcode-wrap {
   min-width: 100%;
   justify-items: center;
@@ -4120,6 +4127,24 @@ dialog::backdrop {
 
 .print-stone-details td {
   font-size: 8px;
+}
+
+.print-stone-details.multi-item {
+  padding: 3px;
+  font-size: 7.5px;
+}
+
+.print-stone-details.multi-item b {
+  font-size: 7.5px;
+}
+
+.print-stone-details.multi-item th {
+  font-size: 6.5px;
+}
+
+.print-stone-details.multi-item td {
+  padding: 1.5px;
+  font-size: 7.2px;
 }
 
 .print-stone-details .stone-total-row td {

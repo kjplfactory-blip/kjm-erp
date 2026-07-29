@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v314";
+const APP_VERSION = "v315";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -7860,10 +7860,14 @@ function orderSizeDetailHtml(order) {
 
 function printSizeDetailHtml(order) {
   if (isCbCategory(order.category)) {
+    const isCbr = categoryCode(order.category) === "CBR";
+    const leftLabel = isCbr ? "CLR Size" : "CL Size";
+    const rightLabel = isCbr ? "CGR Size" : "CG Size";
+    const ringLabel = isCbr && order.ringType === "CL+CG" ? "Both CLR + CGR" : ringTypeLabel(order.ringType);
     return `
-      <span><b>Ring</b>${escapeHtml(ringTypeLabel(order.ringType))}</span>
-      <span><b>CL Size</b>${escapeHtml(order.clSize || "-")}</span>
-      <span><b>CG Size</b>${escapeHtml(order.cgSize || "-")}</span>
+      <span><b>Ring</b>${escapeHtml(ringLabel)}</span>
+      <span><b>${escapeHtml(leftLabel)}</b>${escapeHtml(order.clSize || "-")}</span>
+      <span><b>${escapeHtml(rightLabel)}</b>${escapeHtml(order.cgSize || "-")}</span>
     `;
   }
   if (needsNormalSize(order.category)) {
@@ -8518,7 +8522,7 @@ async function jobOrderPrintHtml(order, orders) {
     }
     return { item, design, imageData };
   }));
-  const printableGroups = groupCbPrintItems(printableItems);
+  const printableGroups = groupBagPrintItems(printableItems);
   return `
     <div class="print-items">
       ${chunkPrintItems(printableGroups).map((pageItems) => `
@@ -8538,6 +8542,10 @@ function chunkPrintItems(items, size = 4) {
   return pages;
 }
 
+function groupBagPrintItems(printableItems) {
+  return groupSetBagPrintItems(groupCbPrintItems(printableItems));
+}
+
 function groupCbPrintItems(printableItems) {
   const groups = [];
   const used = new Set();
@@ -8545,7 +8553,7 @@ function groupCbPrintItems(printableItems) {
     if (used.has(index)) return;
     const item = entry.item;
     if (!isCbCategory(item.category) || item.ringType !== "CL") {
-      groups.push({ ...entry, items: [item] });
+      groups.push({ ...entry, items: [item], printIndex: index });
       used.add(index);
       return;
     }
@@ -8555,11 +8563,11 @@ function groupCbPrintItems(printableItems) {
       isMatchingCbPrintPair(item, candidate.item)
     );
     if (pairIndex >= 0) {
-      groups.push({ ...entry, items: [item, printableItems[pairIndex].item] });
+      groups.push({ ...entry, items: [item, printableItems[pairIndex].item], printIndex: index });
       used.add(index);
       used.add(pairIndex);
     } else {
-      groups.push({ ...entry, items: [item] });
+      groups.push({ ...entry, items: [item], printIndex: index });
       used.add(index);
     }
   });
@@ -8573,10 +8581,133 @@ function isMatchingCbPrintPair(left, right) {
     .every((field) => String(left[field] || "") === String(right[field] || ""));
 }
 
+function groupSetBagPrintItems(entries) {
+  const output = [];
+  const openGroups = new Map();
+  const closeGroup = (key) => {
+    const group = openGroups.get(key);
+    if (!group) return;
+    output.push(combinedSetBagEntry(group));
+    openGroups.delete(key);
+  };
+
+  entries.forEach((entry, index) => {
+    const entryIndex = entry.printIndex ?? index;
+    const items = entry.items || [entry.item].filter(Boolean);
+    const item = items[0];
+    if (items.length > 1 || !item) {
+      output.push({ ...entry, printIndex: entryIndex });
+      return;
+    }
+
+    const family = setBagFamilyForOrder(item);
+    const itemKey = setBagItemKeyForOrder(item);
+    const groupKey = family ? setBagGroupKey(item, family) : "";
+    if (!family || !itemKey || !groupKey) {
+      output.push({ ...entry, items: [item], printIndex: entryIndex });
+      return;
+    }
+
+    let group = openGroups.get(groupKey);
+    if (!group || group.itemKeys.has(itemKey)) {
+      closeGroup(groupKey);
+      group = {
+        family,
+        firstEntry: entry,
+        firstIndex: entryIndex,
+        entries: [],
+        items: [],
+        itemKeys: new Set(),
+      };
+      openGroups.set(groupKey, group);
+    }
+    group.entries.push(entry);
+    group.items.push(item);
+    group.itemKeys.add(itemKey);
+    group.firstIndex = Math.min(group.firstIndex, entryIndex);
+  });
+
+  openGroups.forEach((group) => output.push(combinedSetBagEntry(group)));
+  return output.sort((left, right) => (left.printIndex ?? 0) - (right.printIndex ?? 0));
+}
+
+function combinedSetBagEntry(group) {
+  if (!group?.items?.length) return group?.firstEntry || {};
+  return {
+    ...group.firstEntry,
+    items: group.items,
+    bagFamily: group.family,
+    printIndex: group.firstIndex,
+  };
+}
+
+function setBagFamilyForOrder(order = {}) {
+  const keys = orderStoneItemKeys(order).map(normalizeStoneItemKey);
+  if (keys.some((key) => CM_ITEM_KEYS.includes(key))) return "CM";
+  if (keys.some((key) => TM_ITEM_KEYS.includes(key))) return "TM";
+  return "";
+}
+
+function setBagItemKeyForOrder(order = {}) {
+  const family = setBagFamilyForOrder(order);
+  const keys = orderStoneItemKeys(order).map(normalizeStoneItemKey);
+  if (family === "CM") return keys.find((key) => CM_ITEM_KEYS.includes(key)) || "";
+  if (family === "TM") return keys.find((key) => TM_ITEM_KEYS.includes(key)) || "";
+  return "";
+}
+
+function setBagGroupKey(order = {}, family = "") {
+  return [
+    family,
+    order.jobNumber || "",
+    order.customerId || order.customer || "",
+    order.designId || order.designNumber || "",
+    order.color || "",
+    order.purity || "",
+    order.remarks || "",
+    order.orderDate || "",
+    order.dueDate || "",
+  ].map((value) => String(value || "").trim().toUpperCase()).join("|");
+}
+
+function printBagItemKeyForOrder(order = {}) {
+  const category = categoryCode(order.category || "");
+  if (category === "CBR") {
+    if (order.ringType === "CL") return "CLR";
+    if (order.ringType === "CG") return "CGR";
+  }
+  if (category === "CB") {
+    if (["CL", "CG"].includes(order.ringType)) return order.ringType;
+  }
+  return setBagItemKeyForOrder(order) || orderStoneItemKeys(order)[0] || category || "";
+}
+
+function combinedBagPrintItem(items) {
+  if (!items?.length || items.length === 1) return items?.[0];
+  if (items.some((item) => isCbCategory(item.category))) return combinedCbPrintItem(items);
+  const base = items[0];
+  const itemKeys = items.map(printBagItemKeyForOrder).filter(Boolean);
+  return {
+    ...base,
+    item: itemKeys.join("+"),
+    cmItemType: itemKeys.some((key) => CM_ITEM_KEYS.includes(key)) ? itemKeys.join("+") : base.cmItemType,
+    productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
+    number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
+    bagItemLabels: itemKeys,
+    barcodeValues: items.map((item) => ({
+      label: printBagItemKeyForOrder(item),
+      value: item.barcode || item.productionNo || item.number,
+    })).filter((item) => item.value),
+  };
+}
+
 function combinedCbPrintItem(items) {
   if (!items?.length || items.length === 1) return items?.[0];
   const cl = items.find((item) => item.ringType === "CL") || items[0];
   const cg = items.find((item) => item.ringType === "CG") || items[1];
+  const isCbr = categoryCode(cl.category || cg.category || "") === "CBR";
+  const clLabel = isCbr ? "CLR" : "CL";
+  const cgLabel = isCbr ? "CGR" : "CG";
   return {
     ...cl,
     ringType: "CL+CG",
@@ -8584,15 +8715,17 @@ function combinedCbPrintItem(items) {
     cgSize: cg.cgSize || cg.size || "",
     productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
     number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
+    bagItemLabels: [clLabel, cgLabel],
     barcodeValues: [
-      { label: "CL", value: cl.barcode || cl.productionNo || cl.number },
-      { label: "CG", value: cg.barcode || cg.productionNo || cg.number },
+      { label: clLabel, value: cl.barcode || cl.productionNo || cl.number },
+      { label: cgLabel, value: cg.barcode || cg.productionNo || cg.number },
     ].filter((item) => item.value),
   };
 }
 
 function printJobItemHtml(job, entry) {
-  const order = combinedCbPrintItem(entry.items || [entry.item]);
+  const bagItems = entry.items || [entry.item].filter(Boolean);
+  const order = combinedBagPrintItem(bagItems);
   const { design, imageData } = entry;
   const designName = order.designNumber || (design ? designText(design) : "") || "-";
   const jobNumber = job.jobNumber || job.productionNo || job.number;
@@ -8622,6 +8755,7 @@ function printJobItemHtml(job, entry) {
           <div class="print-detail-grid">
             <span class="print-wide print-customer-box"><b>Customer</b>${escapeHtml(customerName || "-")}<small>${escapeHtml(manufacturingOrderTypeLabel(customerName))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(customerName))}</small></span>
             <span class="print-wide"><b>Design</b>${escapeHtml(designName)}</span>
+            ${printBagItemsSummaryHtml(bagItems)}
             <span><b>Category</b>${escapeHtml(order.category || "-")}</span>
             ${printSizeDetailHtml(order)}
             <span><b>Color</b>${escapeHtml(order.color || "-")}</span>
@@ -8631,7 +8765,7 @@ function printJobItemHtml(job, entry) {
         </div>
       </div>
       <div class="print-stone-section">
-        ${printStoneDetailsHtml(design, order)}
+        ${printStoneDetailsHtml(design, order, bagItems)}
       </div>
       <div class="print-barcode ${barcodeValues.length > 1 ? "combined" : ""}">
         ${barcodeValues.map((barcode) => `
@@ -8645,8 +8779,28 @@ function printJobItemHtml(job, entry) {
   `;
 }
 
-function printStoneDetailsHtml(design, order = {}) {
-  const items = designStoneItemsForOrder(design, order);
+function printBagItemsSummaryHtml(items = []) {
+  if (!items || items.length <= 1) return "";
+  const summary = items.map((item) => {
+    const label = printBagItemKeyForOrder(item) || item.category || "Item";
+    const productionNo = item.productionNo || item.number || "-";
+    const size = soldItemSizeText(item) || item.size || item.clSize || item.cgSize || "";
+    return `${label}: ${productionNo}${size ? ` / Size ${size}` : ""}`;
+  }).join(" | ");
+  return `<span class="print-wide print-bag-items"><b>Single Bag Items</b>${escapeHtml(summary)}</span>`;
+}
+
+function printStoneRowsForOrder(design, order = {}) {
+  const itemKey = printBagItemKeyForOrder(order);
+  return productionStoneItemsForOrder(order).map((item) => ({
+    ...item,
+    itemKey: normalizeStoneItemKey(item.itemKey || itemKey),
+  }));
+}
+
+function printStoneDetailsHtml(design, order = {}, bagItems = null) {
+  const sourceOrders = Array.isArray(bagItems) && bagItems.length ? bagItems : [order];
+  const items = sourceOrders.flatMap((itemOrder) => printStoneRowsForOrder(design, itemOrder));
   const totals = designStoneTotals(items);
   const stoneRows = items.map((item) => `
     <tr>
@@ -8669,9 +8823,10 @@ function printStoneDetailsHtml(design, order = {}) {
   const blankRows = Array.from({ length: 5 }, () => `
     <tr class="manual-stone-row"><td></td><td></td><td></td><td></td><td></td><td></td></tr>
   `).join("");
+  const itemLabels = [...new Set(sourceOrders.flatMap((itemOrder) => orderStoneItemKeys(itemOrder)).map(stoneItemInputValue))];
   return `
-    <div class="print-stone-details">
-      <b>Stone Details - ${escapeHtml(orderStoneItemKeys(order).map(stoneItemInputValue).join(" + "))}</b>
+    <div class="print-stone-details ${sourceOrders.length > 1 ? "multi-item" : ""}">
+      <b>Stone Details - ${escapeHtml(itemLabels.join(" + ") || "-")}</b>
       <table>
         <thead><tr><th>Item</th><th>Type</th><th>Shape</th><th>No of Pcs</th><th>Wt/Pc</th><th>Total Weight</th></tr></thead>
         <tbody>${stoneRows}${totalRow}${blankRows}</tbody>
