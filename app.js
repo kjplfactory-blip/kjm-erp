@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v319";
+const APP_VERSION = "v320";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -222,6 +222,8 @@ const demoState = {
 
 let state = loadState();
 let currentUser = loadCurrentUser();
+let viewHistory = [];
+let restoringViewFromHistory = false;
 let stoneLibraryPage = 1;
 const stoneLibraryPageSize = 100;
 let selectedStoneChartFiles = [];
@@ -470,6 +472,13 @@ document.addEventListener("keydown", (event) => {
   const form = target.closest("form");
   if (!form) return;
   if (["INPUT", "SELECT"].includes(target.tagName)) event.preventDefault();
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (!["Escape", "Esc"].includes(event.key) || event.defaultPrevented) return;
+  if (!handleEscapeBack()) return;
+  event.preventDefault();
+  event.stopPropagation();
 }, true);
 
 document.querySelectorAll("[data-office-page]").forEach((button) => {
@@ -3189,11 +3198,82 @@ function isUserActivelyEditing() {
   return Boolean(editingElement || openDialog || activeOrderDraft);
 }
 
+function activeViewId() {
+  return document.querySelector(".view.active-view")?.id || "";
+}
+
+function rememberViewForBack(previousView, nextView) {
+  if (restoringViewFromHistory || !previousView || previousView === nextView) return;
+  viewHistory.push(previousView);
+  if (viewHistory.length > 25) viewHistory = viewHistory.slice(-25);
+}
+
+function closeTopDialogForBack() {
+  const openDialogs = Array.from(document.querySelectorAll("dialog[open]"));
+  const dialog = openDialogs[openDialogs.length - 1];
+  if (!dialog) return false;
+  const dialogId = dialog.id;
+  dialog.close();
+  if (dialogId === "office-details-dialog") clearOfficePages();
+  return true;
+}
+
+function activeTilePageOpen(view) {
+  const section = document.getElementById(view);
+  if (!section) return false;
+  if (section.classList.contains("operation-open")) return true;
+  const selectors = {
+    orders: ".order-page.active-order-page",
+    designs: ".design-page.active-design-page",
+    catalogue: ".catalogue-page.active-catalogue-page",
+    "stone-library": ".stone-page.active-stone-page",
+    production: ".production-page.active-production-page",
+    office: "[data-office-page].active",
+  };
+  const selector = selectors[view];
+  return Boolean(selector && section.querySelector(selector));
+}
+
+function resetActiveTilePageForBack() {
+  const view = activeViewId();
+  if (!view || !activeTilePageOpen(view)) return false;
+  resetBuiltInTilePage(view);
+  return true;
+}
+
+function switchToPreviousViewForBack() {
+  const currentView = activeViewId();
+  let previousView = "";
+  while (viewHistory.length && !previousView) {
+    const candidate = viewHistory.pop();
+    if (!candidate || candidate === currentView || !document.getElementById(candidate)) continue;
+    if (currentUser && !canAccessPage(candidate)) continue;
+    previousView = candidate;
+  }
+  if (!previousView && currentView !== "dashboard") {
+    const fallbackView = !currentUser || canAccessPage("dashboard") ? "dashboard" : defaultAllowedPage();
+    if (fallbackView && fallbackView !== currentView && document.getElementById(fallbackView)) previousView = fallbackView;
+  }
+  if (!previousView) return false;
+  restoringViewFromHistory = true;
+  switchView(previousView);
+  restoringViewFromHistory = false;
+  return true;
+}
+
+function handleEscapeBack() {
+  if (closeTopDialogForBack()) return true;
+  if (resetActiveTilePageForBack()) return true;
+  return switchToPreviousViewForBack();
+}
+
 function switchView(view) {
   if (currentUser && !canAccessPage(view)) {
     alert("This login does not have access to this page.");
     view = defaultAllowedPage();
   }
+  const previousView = activeViewId();
+  rememberViewForBack(previousView, view);
   document.querySelectorAll(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   document.querySelectorAll(".view").forEach((section) => section.classList.toggle("active-view", section.id === view));
   document.getElementById("page-title").textContent = pageInfo[view][0];
