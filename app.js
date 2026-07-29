@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v317";
+const APP_VERSION = "v319";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1941,7 +1941,11 @@ document.getElementById("close-barcode-generator").addEventListener("click", () 
 document.getElementById("print-generated-barcode").addEventListener("click", printGeneratedBarcode);
 
 document.getElementById("print-order").addEventListener("click", () => {
-  printOpenJobOrder();
+  printOpenJobOrder("job");
+});
+
+document.getElementById("print-order-a6").addEventListener("click", () => {
+  printOpenJobOrder("single");
 });
 
 document.getElementById("edit-order-details").addEventListener("click", () => {
@@ -7390,6 +7394,7 @@ function handleProductionStoneRowChange(event) {
   const row = event.target.closest("[data-production-stone-row]");
   if (!row) return;
   const field = event.target.dataset.productionStoneField;
+  if (field === "settingType") syncProductionStoneStageForSettingType(row);
   if (field === "stoneType") {
     row.querySelector('[data-production-stone-field="shape"]').value = "";
     row.querySelector('[data-production-stone-field="size"]').value = "";
@@ -7588,6 +7593,17 @@ function automaticProductionStoneSetting(item = {}) {
   return stoneMaxMm(item.size) <= 2
     ? { settingType: "wax", manufacturingStage: "Wax" }
     : { settingType: "hand", manufacturingStage: "Setting" };
+}
+
+function manufacturingStageForSettingType(settingType = "") {
+  return settingType === "wax" ? "Wax" : settingType === "hand" ? "Setting" : "";
+}
+
+function syncProductionStoneStageForSettingType(row) {
+  const settingType = row?.querySelector('[data-production-stone-field="settingType"]')?.value || "";
+  const stageSelect = row?.querySelector('[data-production-stone-field="manufacturingStage"]');
+  const stage = manufacturingStageForSettingType(settingType);
+  if (stageSelect && stage) stageSelect.value = stage;
 }
 
 function stoneMaxMm(size = "") {
@@ -7879,18 +7895,18 @@ function printSizeDetailHtml(order) {
   return "";
 }
 
-async function printOpenJobOrder() {
+async function printOpenJobOrder(mode = "job") {
   const orderId = document.getElementById("update-order-form").orderId.value;
   const order = findById("orders", orderId);
   if (!order) return;
   const jobOrders = getJobOrders(order);
-  startJobPrint(await jobOrderPrintHtml(order, jobOrders));
+  startJobPrint(await jobOrderPrintHtml(order, jobOrders, { itemsPerPage: mode === "single" ? 1 : 4 }), mode);
 }
 
 async function printSingleJobItem(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
-  startJobPrint(await jobOrderPrintHtml(order, [order]), "single");
+  startJobPrint(await jobOrderPrintHtml(order, [order], { itemsPerPage: 1 }), "single");
 }
 
 function startJobPrint(html, mode = "job") {
@@ -8513,7 +8529,7 @@ function billPrintItemTableHtml(items = []) {
   `;
 }
 
-async function jobOrderPrintHtml(order, orders) {
+async function jobOrderPrintHtml(order, orders, options = {}) {
   const printableItems = await Promise.all(orders.map(async (item) => {
     const design = findById("designs", item.designId);
     let imageData = "";
@@ -8523,9 +8539,10 @@ async function jobOrderPrintHtml(order, orders) {
     return { item, design, imageData };
   }));
   const printableGroups = groupBagPrintItems(printableItems);
+  const itemsPerPage = Number(options.itemsPerPage || 4);
   return `
     <div class="print-items">
-      ${chunkPrintItems(printableGroups).map((pageItems) => `
+      ${chunkPrintItems(printableGroups, itemsPerPage).map((pageItems) => `
         <section class="print-page">
           ${pageItems.map((entry) => printJobItemHtml(order, entry)).join("")}
         </section>

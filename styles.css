@@ -7761,6 +7761,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     page-break-after: always;
   }
 
+  body.printing-single-item .print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
   body.printing-single-item .print-job-item {
     width: 105mm;
     height: 148.5mm;
