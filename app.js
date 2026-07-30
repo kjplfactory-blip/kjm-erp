@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v338";
+const APP_VERSION = "v339";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -2526,6 +2526,13 @@ function canEditPageData(view) {
 }
 
 function requirePageEditPermission(view, action = "edit this page") {
+  if (canEditPageData(view)) return true;
+  const pageName = pageInfo[view]?.[0] || view;
+  alert(`Your login does not have permission to ${action}. Ask Owner to give access to ${pageName}.`);
+  return false;
+}
+
+function requirePageDeletePermission(view, action = "delete this page data") {
   if (canEditPageData(view)) return true;
   const pageName = pageInfo[view]?.[0] || view;
   alert(`Your login does not have permission to ${action}. Ask Owner to give access to ${pageName}.`);
@@ -6532,7 +6539,11 @@ function workInProgress() {
 }
 
 async function removeItem(collection, id) {
-  if (!requireDeletePermission(`delete ${collection} records`)) return;
+  if (collection === "designs") {
+    if (!requirePageDeletePermission("designs", "delete designs")) return;
+  } else if (!requireDeletePermission(`delete ${collection} records`)) {
+    return;
+  }
   if (collection === "customers" && state.orders.some((order) => order.customerId === id)) {
     alert("This customer has job orders. Edit the customer instead of deleting.");
     return;
@@ -7144,6 +7155,10 @@ function printGeneratedBarcode() {
 }
 
 async function handleCatalogueUpload(event) {
+  if (!requirePageEditPermission("catalogue", "upload catalogue images")) {
+    event.target.value = "";
+    return;
+  }
   const files = [...event.target.files].filter((file) => file.type.startsWith("image/"));
   const status = document.getElementById("catalogue-status");
   if (!files.length) {
@@ -7417,7 +7432,7 @@ function clearCatalogueSelection() {
 }
 
 async function removeCatalogueItem(id) {
-  if (!requireDeletePermission("delete catalogue images")) return;
+  if (!requirePageDeletePermission("catalogue", "delete catalogue images")) return;
   const item = catalogueItemsList().find((entry) => entry.id === id);
   if (!item) return;
   if (!confirm(`Delete ${item.designNo || "this design"} from saved catalogue?`)) return;
@@ -7430,7 +7445,7 @@ async function removeCatalogueItem(id) {
 }
 
 async function clearCatalogueImages() {
-  if (!requireDeletePermission("delete saved catalogue images")) return;
+  if (!requirePageDeletePermission("catalogue", "delete saved catalogue images")) return;
   const items = catalogueItemsList();
   if (!items.length) return;
   if (!confirm("Delete all saved catalogue images? This will not affect production Design Master.")) return;
@@ -10794,6 +10809,7 @@ function renderStoneFormOptions() {
 }
 
 function addStoneDropdownOption(field) {
+  if (!requirePageEditPermission("stone-library", "add stone dropdown options")) return;
   const labels = { stoneType: "Stone Type", shape: "Shape", size: "Size" };
   const value = prompt(`Enter new ${labels[field] || "option"}`);
   const cleanValue = String(value || "").trim();
@@ -10946,7 +10962,7 @@ function editStone(id) {
 }
 
 function removeStone(id) {
-  if (!requireDeletePermission("delete stone from master")) return;
+  if (!requirePageDeletePermission("stone-library", "delete stone from master")) return;
   if (!confirm("Delete this stone from library?")) return;
   state.stones = state.stones.filter((stone) => stone.id !== id);
   saveState();
@@ -12762,7 +12778,7 @@ async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEF
 }
 
 function removeDesignStoneItem(stoneItemId) {
-  if (!requireDeletePermission("delete design stone rows")) return;
+  if (!requirePageDeletePermission("designs", "delete design stone rows")) return;
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) return;
@@ -13721,7 +13737,7 @@ async function resizeDesignImagesAndCleanChartCopies() {
 }
 
 async function deleteSelectedDesigns() {
-  if (!requireDeletePermission("delete designs")) return;
+  if (!requirePageDeletePermission("designs", "delete designs")) return;
   const ids = [...selectedDesignIds].filter((id) => state.designs.some((design) => design.id === id));
   if (!ids.length) {
     alert("Select design first.");
@@ -13940,7 +13956,7 @@ async function openStoneChart(designId) {
 }
 
 async function removeDesignStoneChart(designId) {
-  if (!requireDeletePermission("remove design stone charts")) return;
+  if (!requirePageDeletePermission("designs", "remove design stone charts")) return;
   const design = findById("designs", designId);
   if (!design) return;
   const chartKeys = designStoneChartItemKeys(design);
