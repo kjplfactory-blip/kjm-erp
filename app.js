@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v353";
+const APP_VERSION = "v354";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -8540,7 +8540,11 @@ function startJobPrint(html, mode = "job") {
   activeJobPrintCleanup = cleanup;
   window.addEventListener("afterprint", cleanup);
   if (mobilePrint) {
-    closeMobilePrompt = showMobileJobPrintPrompt(mode, printNow, cleanup);
+    const openPrintOnlyPage = () => {
+      if (openMobileJobPrintWindow(html, mode)) cleanup();
+      else printNow();
+    };
+    closeMobilePrompt = showMobileJobPrintPrompt(mode, openPrintOnlyPage, cleanup);
     return;
   }
   document.body.classList.add("printing-order");
@@ -8549,6 +8553,102 @@ function startJobPrint(html, mode = "job") {
   setTimeout(() => {
     if (!cleaned) window.print();
   }, 100);
+}
+
+function openMobileJobPrintWindow(html, mode = "job") {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) return false;
+  const styleUrl = new URL(`styles.css?v=${APP_BUILD}`, window.location.href).href;
+  const pageClass = mode === "single"
+    ? "printing-order printing-single-item"
+    : mode === "transfer-bag"
+      ? "printing-order printing-transfer-bag"
+      : "printing-order";
+  const paperWidth = mode === "job" ? "210mm" : "105mm";
+  const layoutLabel = jobPrintModeLabel(mode);
+  try {
+    printWindow.document.open();
+    printWindow.document.write(`<!doctype html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Job Bag Print - ${escapeHtml(layoutLabel)}</title>
+          <link rel="stylesheet" href="${escapeHtml(styleUrl)}">
+          <style>
+            html, body { margin: 0 !important; min-height: 100%; background: #eef4f1 !important; }
+            body.mobile-job-print-page { display: block !important; width: auto !important; overflow: auto !important; }
+            .mobile-print-page-toolbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: #ffffff; border-bottom: 1px solid #cbded8; box-shadow: 0 8px 24px rgba(7, 50, 43, 0.14); font-family: Arial, sans-serif; }
+            .mobile-print-page-toolbar div { display: grid; gap: 2px; }
+            .mobile-print-page-toolbar strong { color: #123e37; font-size: 16px; }
+            .mobile-print-page-toolbar small { color: #587269; font-size: 11px; }
+            .mobile-print-page-actions { display: flex; gap: 8px; }
+            .mobile-print-page-actions button { min-height: 42px; padding: 8px 14px; border: 1px solid #0f766e; border-radius: 7px; background: #0f766e; color: #ffffff; font: 800 13px Arial, sans-serif; }
+            .mobile-print-page-actions button.ghost { background: #ffffff; color: #0f5d55; }
+            .mobile-print-page-actions button:disabled { cursor: wait; opacity: 0.6; }
+            body.mobile-job-print-page .global-print-area { display: block !important; position: static !important; width: ${paperWidth} !important; margin: 14px auto !important; overflow: visible !important; background: #ffffff !important; }
+            @media (max-width: 620px) {
+              .mobile-print-page-toolbar { align-items: stretch; flex-direction: column; }
+              .mobile-print-page-actions { display: grid; grid-template-columns: 1fr 1fr; }
+              .mobile-print-page-actions button { width: 100%; }
+            }
+            @media print {
+              .mobile-print-page-toolbar { display: none !important; }
+              body.mobile-job-print-page .global-print-area { margin: 0 !important; }
+            }
+          </style>
+        </head>
+        <body class="mobile-job-print-page ${pageClass}">
+          <header class="mobile-print-page-toolbar" id="mobile-print-page-toolbar">
+            <div>
+              <strong>Job Bag Print</strong>
+              <small>${escapeHtml(layoutLabel)} / Only the bag below will print</small>
+            </div>
+            <div class="mobile-print-page-actions">
+              <button class="ghost" type="button" id="mobile-print-page-close">Close</button>
+              <button type="button" id="mobile-print-page-print" disabled>Preparing Bag...</button>
+            </div>
+          </header>
+          <section id="global-print-area" class="order-print-area global-print-area">${html}</section>
+        </body>
+      </html>`);
+    printWindow.document.close();
+  } catch (error) {
+    printWindow.close();
+    return false;
+  }
+  const enablePrint = () => {
+    const printButton = printWindow.document.getElementById("mobile-print-page-print");
+    if (!printButton) return;
+    printButton.disabled = false;
+    printButton.textContent = "Print / Save PDF";
+  };
+  const handlePrint = () => {
+    const toolbar = printWindow.document.getElementById("mobile-print-page-toolbar");
+    const printArea = printWindow.document.getElementById("global-print-area");
+    toolbar?.remove();
+    printArea?.getBoundingClientRect();
+    printWindow.focus();
+    printWindow.print();
+  };
+  const bindPrintPage = () => {
+    const printButton = printWindow.document.getElementById("mobile-print-page-print");
+    const closeButton = printWindow.document.getElementById("mobile-print-page-close");
+    printButton?.addEventListener("click", handlePrint);
+    closeButton?.addEventListener("click", () => printWindow.close());
+    const images = Array.from(printWindow.document.images || []);
+    const imageReady = images.map((image) => image.complete
+      ? Promise.resolve()
+      : new Promise((resolve) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", resolve, { once: true });
+      }));
+    Promise.all(imageReady).then(enablePrint);
+    printWindow.setTimeout(enablePrint, 3000);
+  };
+  if (printWindow.document.readyState === "complete") bindPrintPage();
+  else printWindow.addEventListener("load", bindPrintPage, { once: true });
+  return true;
 }
 
 function isolateJobBagForMobilePrint(printArea, mode = "job") {
@@ -8606,7 +8706,7 @@ function showMobileJobPrintPrompt(mode, onPrint, onCancel) {
     onPrint();
     return () => {};
   }
-  if (format) format.textContent = jobPrintModeLabel(mode);
+  if (format) format.textContent = `${jobPrintModeLabel(mode)} / Opens In A Print-Only Page`;
   let settled = false;
   const detach = () => {
     printButton.removeEventListener("click", handlePrint);
