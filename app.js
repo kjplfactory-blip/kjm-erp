@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v349";
+const APP_VERSION = "v351";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -2231,20 +2231,6 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
 
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
 document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
-document.getElementById("select-all-production-stone-targets")?.addEventListener("click", () => {
-  document.querySelectorAll("#production-stone-targets [data-production-stone-target]").forEach((input) => {
-    input.checked = true;
-  });
-  updateProductionStoneTargetSummary();
-});
-document.getElementById("current-only-production-stone-target")?.addEventListener("click", () => {
-  const currentOrderId = document.getElementById("production-stone-form").orderId.value;
-  document.querySelectorAll("#production-stone-targets [data-production-stone-target]").forEach((input) => {
-    input.checked = input.value === currentOrderId;
-  });
-  updateProductionStoneTargetSummary();
-});
-document.getElementById("production-stone-targets")?.addEventListener("change", updateProductionStoneTargetSummary);
 
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
   if (event.target.dataset.productionStoneField) handleProductionStoneRowChange(event);
@@ -7770,35 +7756,33 @@ function matchingDesignJobOrders(order = {}) {
   const designId = String(order.designId || "");
   const designName = normalizeSearchText(order.designNumber || designLabel(order.designId));
   return getJobOrders(order).filter((candidate) => {
+    const candidateDesignName = normalizeSearchText(candidate.designNumber || designLabel(candidate.designId));
+    if (designName) return candidateDesignName === designName;
     if (designId && candidate.designId) return String(candidate.designId) === designId;
-    if (!designName) return candidate.id === order.id;
-    return normalizeSearchText(candidate.designNumber || designLabel(candidate.designId)) === designName;
+    return candidate.id === order.id;
   });
 }
 
-function productionStoneTargetDetail(order = {}) {
-  const itemType = order.ringType || order.cmItemType || order.item || order.category || "Item";
-  const size = order.size || order.clSize || order.cgSize || "";
-  return [itemType, size ? `Size ${size}` : "", order.color || "", order.status || "Pending"].filter(Boolean).join(" / ");
-}
-
 function renderProductionStoneTargets(order = {}) {
+  const panel = document.getElementById("production-stone-target-panel");
   const container = document.getElementById("production-stone-targets");
-  if (!container) return;
+  if (!panel || !container) return;
   const candidates = matchingDesignJobOrders(order);
+  const hasSameDesign = candidates.length > 1;
+  panel.classList.toggle("hidden", !hasSameDesign);
+  if (!hasSameDesign) {
+    container.innerHTML = "";
+    return;
+  }
   container.innerHTML = candidates.map((candidate) => {
     const isCurrent = candidate.id === order.id;
     return `
       <label class="production-stone-target ${isCurrent ? "current" : ""}">
         <input type="checkbox" data-production-stone-target value="${escapeHtml(candidate.id)}" ${isCurrent ? "checked disabled" : ""}>
-        <span>
-          <strong>${escapeHtml(candidate.productionNo || candidate.number || "-")}</strong>
-          <small>${escapeHtml(productionStoneTargetDetail(candidate))}</small>
-        </span>
+        <strong>${escapeHtml(candidate.productionNo || candidate.number || "-")}</strong>
       </label>
     `;
   }).join("");
-  updateProductionStoneTargetSummary();
 }
 
 function selectedProductionStoneTargetOrders(order = {}) {
@@ -7810,13 +7794,6 @@ function selectedProductionStoneTargetOrders(order = {}) {
   );
   selectedIds.add(order.id);
   return matchingDesignJobOrders(order).filter((candidate) => selectedIds.has(candidate.id));
-}
-
-function updateProductionStoneTargetSummary() {
-  const summary = document.getElementById("production-stone-target-summary");
-  if (!summary) return;
-  const selected = [...document.querySelectorAll("#production-stone-targets [data-production-stone-target]:checked")];
-  summary.textContent = `${selected.length} production number${selected.length === 1 ? "" : "s"} selected. Saving will update each selected item separately.`;
 }
 
 function cloneProductionStonePlan(items = []) {

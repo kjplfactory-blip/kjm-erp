@@ -4424,41 +4424,26 @@ dialog::backdrop {
 }
 
 .production-stone-target-panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
+  padding: 7px 9px;
   border: 1px solid #c9e5df;
   border-radius: 8px;
   background: #f7fbfa;
 }
 
-.production-stone-target-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.production-stone-target-head h3,
-.production-stone-target-head p {
-  margin: 0;
-}
-
 .production-stone-targets {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  max-height: 155px;
-  overflow-y: auto;
 }
 
 .production-stone-target {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
+  width: auto;
   min-width: 0;
-  padding: 9px;
+  padding: 6px 9px;
   border: 1px solid #d5e7e1;
   border-radius: 8px;
   background: #ffffff;
@@ -4470,30 +4455,20 @@ dialog::backdrop {
   background: #eaf7f2;
 }
 
-.production-stone-target input {
-  width: auto;
-  min-height: 0;
+.production-stone-dialog .production-stone-target input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
   flex: 0 0 auto;
 }
 
-.production-stone-target span,
-.production-stone-target strong,
-.production-stone-target small {
+.production-stone-target strong {
   display: block;
   min-width: 0;
-}
-
-.production-stone-target strong {
   color: var(--brand-dark);
-  font-size: 13px;
-}
-
-.production-stone-target small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
+  font-size: 20px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .production-stone-dialog .design-stone-details {

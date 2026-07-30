@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=349">
+    <link rel="stylesheet" href="styles.css?v=351">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v349</small>
+            <small class="app-version-badge">App v351</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v349</span>
+            <span class="app-version-badge">App v351</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1510,20 +1510,9 @@
           <button class="ghost-button" type="button" id="close-production-stone">Close</button>
         </div>
         <input type="hidden" name="orderId">
-        <p class="dialog-note">Stone rows start from Design Master, but saving here changes only this job-card item. Design Master remains the main reference.</p>
-        <section class="production-stone-target-panel">
-          <div class="production-stone-target-head">
-            <div>
-              <h3>Apply To Production Numbers</h3>
-              <p class="dialog-note">Select matching-design pieces from this job card. The current production number is always included.</p>
-            </div>
-            <div class="row-actions">
-              <button class="ghost-button" type="button" id="select-all-production-stone-targets">Select All Same Design</button>
-              <button class="ghost-button" type="button" id="current-only-production-stone-target">Current Only</button>
-            </div>
-          </div>
+        <p class="dialog-note">Stone rows start from Design Master. When the design repeats, tick the required PR numbers to update those items. Design Master remains unchanged.</p>
+        <section id="production-stone-target-panel" class="production-stone-target-panel hidden">
           <div id="production-stone-targets" class="production-stone-targets"></div>
-          <p id="production-stone-target-summary" class="dialog-note"></p>
         </section>
         <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
         <div class="dialog-actions">
@@ -1915,6 +1904,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=349"></script>
+    <script src="app.js?v=351"></script>
 </body>
 </html>
