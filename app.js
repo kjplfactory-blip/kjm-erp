@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v339";
+const APP_VERSION = "v345";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -70,6 +70,13 @@ const PRODUCTION_NON_GOLD_TYPES = [
   { value: "spring", label: "Spring" },
   { value: "other", label: "Other" },
 ];
+const DAILY_TALLY_MODES = [
+  { value: "department", label: "Department Daily Tally" },
+  { value: "stock", label: "Stock / Safe Tally" },
+  { value: "polish-received", label: "Polish Received Only" },
+  { value: "setting", label: "Setting Requirement" },
+  { value: "other", label: "Other Physical Tally" },
+];
 
 function appVersionBuild(version = "") {
   const digits = String(version || "").match(/\d+/g);
@@ -120,7 +127,7 @@ const designImagePending = new Map();
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
   order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory", "daily-tally"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   settingManager: { name: "Setting Manager", password: "setting123", role: "setting-manager", pages: ["production"], productionPages: ["setting"] },
@@ -148,6 +155,7 @@ const loginAccessPages = [
   "office",
   "safe",
   "factory",
+  "daily-tally",
   "karigars",
   "transfer-history",
   "reports",
@@ -184,6 +192,8 @@ const demoState = {
     sourceType: "factory-default",
     sourceId: "factory-default-ledger",
   }],
+  dailyTallies: [],
+  dailyTallyContainers: [],
   designs: [],
   catalogueItems: [],
   stones: [],
@@ -253,6 +263,7 @@ const pageInfo = {
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
   factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and total factory fine stock."],
+  "daily-tally": ["Daily Stock Tally", "Tally physical department and stock weight against ERP holding every day."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
   "transfer-history": ["Transfer History", "Open online lot transfer history separately from department-wise IN/OUT history."],
@@ -1601,11 +1612,7 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
 
 document.getElementById("melting-receive-form").addEventListener("input", (event) => {
   if (allMeltingReceiveWeightFields().includes(event.target.name)) updateMeltingReceiveLoss();
-  if (["issueXrfSample", "xrfIssueWeight"].includes(event.target.name)) updateMeltingReceiveXrfNote();
-});
-
-document.getElementById("melting-receive-form").addEventListener("change", (event) => {
-  if (event.target.name === "issueXrfSample") updateMeltingReceiveXrfNote();
+  if (event.target.name === "xrfIssueWeight") updateMeltingReceiveXrfNote();
 });
 
 document.getElementById("melting-receive-form").addEventListener("submit", (event) => {
@@ -1644,10 +1651,25 @@ document.getElementById("xrf-form").addEventListener("change", (event) => {
   if (event.target.name === "sourceGroupId") applyXrfSourceDefaults();
 });
 
+document.getElementById("xrf-receive-selected").addEventListener("click", () => {
+  const form = document.getElementById("xrf-form");
+  const entry = findSelectedXrfEntry(form?.sourceGroupId?.value || "");
+  if (!entry) {
+    alert("Select a casting batch with an XRF issue first.");
+    return;
+  }
+  openXrfReceiveDialog(entry.id);
+});
+
 document.getElementById("xrf-form").addEventListener("submit", (event) => {
   event.preventDefault();
   updateXrfLoss();
   const data = getFormData(event.target);
+  const selectedEntry = !data.xrfId ? findSelectedXrfEntry(data.sourceGroupId) : null;
+  if (selectedEntry) {
+    openXrfReceiveDialog(selectedEntry.id);
+    return;
+  }
   const existingEntry = data.xrfId ? findById("xrfTests", data.xrfId) : null;
   const previousEntry = existingEntry ? normalizeXrfEntry(existingEntry) : null;
   const sourceGroup = findXrfSourceGroup(data.sourceGroupId);
@@ -1678,6 +1700,7 @@ document.getElementById("xrf-form").addEventListener("submit", (event) => {
     createdAt: new Date().toISOString(),
   };
   if (previousEntry) {
+    removeXrfSampleShelfOut(previousEntry.id);
     removeXrfWastageReturn(previousEntry.id);
     restoreXrfWastageIssue(previousEntry);
   }
@@ -1715,6 +1738,53 @@ document.getElementById("xrf-form").addEventListener("submit", (event) => {
   saveState();
   render();
 });
+
+document.getElementById("xrf-receive-form").addEventListener("input", (event) => {
+  if (["fireReport", "touchPuliya", "wstgWeight"].includes(event.target.name)) updateXrfReceiveCalculation();
+});
+
+document.getElementById("xrf-receive-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!requirePageEditPermission("melting", "receive XRF samples")) return;
+  updateXrfReceiveCalculation();
+  const form = event.target;
+  const data = getFormData(form);
+  const entry = findById("xrfTests", data.xrfId);
+  if (!entry) {
+    alert("XRF issue entry was not found. Refresh XRF Issue / Return and try again.");
+    return;
+  }
+  const previous = normalizeXrfEntry(entry);
+  const wstgWeight = Number(data.wstgWeight || 0);
+  const issueWeight = Number(previous.weightIssue || 0);
+  if (wstgWeight > issueWeight + 0.0005) {
+    alert(`WSTG return cannot be greater than XRF issue weight ${gram(issueWeight)}.`);
+    form.wstgWeight.focus();
+    return;
+  }
+  if (wstgWeight <= 0 && Number(data.touchPuliya || 0) <= 0 && xrfFirePercent(data.fireReport) <= 0) {
+    alert("Enter the XRF return weights or Fire Report before receiving the sample.");
+    return;
+  }
+  const updated = normalizeXrfEntry({
+    ...previous,
+    returnedDate: data.returnedDate || isoToday(),
+    xrfReport: data.xrfReport,
+    fireReport: data.fireReport,
+    touchPuliya: data.touchPuliya,
+    wstgWeight: data.wstgWeight,
+    remarks: data.remarks,
+    updatedAt: new Date().toISOString(),
+  });
+  Object.assign(entry, updated);
+  syncXrfReturnRecords(entry);
+  document.getElementById("xrf-receive-dialog").close();
+  saveState();
+  render();
+});
+
+document.getElementById("close-xrf-receive").addEventListener("click", closeXrfReceiveDialog);
+document.getElementById("cancel-xrf-receive").addEventListener("click", closeXrfReceiveDialog);
 
 document.getElementById("karigar-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2329,6 +2399,17 @@ document.getElementById("login-users-table")?.addEventListener("click", (event) 
 });
 
 document.getElementById("login-history-search")?.addEventListener("input", renderLoginHistory);
+document.getElementById("daily-tally-form")?.addEventListener("submit", saveDailyTally);
+document.getElementById("daily-tally-form")?.addEventListener("input", handleDailyTallyFormInput);
+document.getElementById("daily-tally-form")?.addEventListener("change", handleDailyTallyFormInput);
+document.getElementById("daily-tally-search")?.addEventListener("input", renderDailyTally);
+document.getElementById("cancel-daily-tally-edit")?.addEventListener("click", resetDailyTallyForm);
+document.getElementById("open-daily-tally-containers")?.addEventListener("click", openDailyTallyContainerManager);
+document.getElementById("close-daily-tally-containers")?.addEventListener("click", closeDailyTallyContainerManager);
+document.getElementById("daily-tally-container-form")?.addEventListener("submit", saveDailyTallyContainer);
+document.getElementById("daily-tally-container-form")?.addEventListener("change", handleDailyTallyContainerMasterChange);
+document.getElementById("daily-tally-container-cancel")?.addEventListener("click", resetDailyTallyContainerForm);
+document.getElementById("daily-tally-container-search")?.addEventListener("input", renderDailyTallyContainers);
 
 function loadState() {
   try {
@@ -3477,6 +3558,15 @@ function openDashboardShortcut(button) {
 function openDashboardDepartment(department) {
   const label = String(department || "").trim();
   if (!label) return;
+  if (textMatchesAny(label, ["xrf"])) {
+    if (currentUser && !canAccessPage("melting")) {
+      alert("This login does not have access to this page.");
+      return;
+    }
+    switchView("melting");
+    openOperationPage("melting", "xrf");
+    return;
+  }
   if (textMatchesAny(label, ["melting", "casting"])) {
     if (currentUser && !canAccessPage("melting")) {
       alert("This login does not have access to this page.");
@@ -10300,6 +10390,7 @@ function render() {
   renderOffice();
   renderSafe();
   renderFactory();
+  renderDailyTally();
   renderLedger();
   renderMelting();
   renderKarigars();
@@ -11084,6 +11175,7 @@ function renderSelects() {
     `;
   });
   refreshXrfSourceOptions();
+  renderDailyTallyDepartmentOptions();
   document.querySelectorAll('select[name="customerId"]').forEach((select) => {
     select.innerHTML = customerOptions || '<option value="">Add a customer first</option>';
   });
@@ -13030,6 +13122,7 @@ function renderDashboard() {
   const factoryFineMetric = document.getElementById("metric-factory-fine-stock");
   if (factoryFineMetric) factoryFineMetric.textContent = gram(totalFactoryFineStock(factoryStock, factoryVendorTotals));
   document.getElementById("metric-wip").textContent = gram(workInProgress());
+  document.getElementById("metric-xrf-pending").textContent = gram(xrfPendingGrossWeight());
   document.getElementById("metric-production-non-gold").textContent = gram(productionNonGoldInDepartmentsWeight());
   document.getElementById("metric-safe-items").textContent = gram(safeItemStockWeight());
   document.getElementById("metric-production-stock").textContent = gram(finishedStock());
@@ -13223,6 +13316,7 @@ function departmentMetalInHand() {
     });
   });
   addMeltingCastingDashboardWeights(departments);
+  addXrfDashboardWeights(departments);
   return Object.fromEntries(Object.entries(departments).filter(([, totals]) =>
     totals.alwaysShow || departmentHasHolding(totals)
   ));
@@ -13232,7 +13326,7 @@ function seedDashboardDepartments(departments) {
   (state.karigars || []).forEach((department) => {
     addDepartmentWeight(departments, department.name || primaryDepartmentProcess(department) || "Unassigned", { alwaysShow: true });
   });
-  ["Casting Department", "Melting Department"].forEach((department) => {
+  ["Casting Department", "Melting Department", "XRF Department"].forEach((department) => {
     addDepartmentWeight(departments, department, { alwaysShow: true });
   });
 }
@@ -13262,6 +13356,19 @@ function addMeltingCastingDashboardWeights(departments) {
       });
     }
   });
+}
+
+function addXrfDashboardWeights(departments) {
+  (state.xrfTests || [])
+    .map(normalizeXrfEntry)
+    .filter((entry) => xrfEntryStatus(entry) === "XRF Issue")
+    .forEach((entry) => {
+      addDepartmentWeight(departments, "XRF Department", {
+        gross: Number(entry.weightIssue || 0),
+        gold: Number(entry.weightIssue || 0),
+        purity: entry.sourcePurity || entry.karat || "",
+      });
+    });
 }
 
 function meltingDashboardDepartmentName(melting = {}) {
@@ -13337,6 +13444,585 @@ function addDepartmentWeight(departments, department, totals = {}) {
       },
     },
   };
+}
+
+function dailyTallyModeLabel(value = "") {
+  return DAILY_TALLY_MODES.find((mode) => mode.value === value)?.label || value || "-";
+}
+
+function normalizeDailyTallyEntry(entry = {}) {
+  const totalWeight = Number(weight3(entry.totalWeight || 0));
+  const boxWeight = Number(weight3(entry.boxWeight ?? entry.dabbaWeight ?? 0));
+  const tallyWeight = Number(weight3(entry.tallyWeight ?? entry.netWeight ?? (totalWeight - boxWeight)));
+  const expectedGross = Number(weight3(entry.expectedGross ?? entry.expectedWeight ?? 0));
+  const difference = Number(weight3(entry.difference ?? (tallyWeight - expectedGross)));
+  return {
+    id: entry.id || crypto.randomUUID(),
+    createdAt: entry.createdAt || new Date().toISOString(),
+    updatedAt: entry.updatedAt || "",
+    date: entry.date || isoToday(),
+    target: departmentDashboardHeader(entry.target || entry.department || entry.location || ""),
+    mode: entry.mode || "department",
+    karat: karatPurityKey(entry.karat || entry.purity || ""),
+    containerId: entry.containerId || "",
+    containerName: entry.containerName || entry.dabbaName || "",
+    totalWeight,
+    boxWeight,
+    tallyWeight,
+    expectedGross,
+    expectedGold: Number(weight3(entry.expectedGold || 0)),
+    expectedFine: Number(weight3(entry.expectedFine || 0)),
+    waxStone: Number(weight3(entry.waxStone || 0)),
+    handStone: Number(weight3(entry.handStone || 0)),
+    nonGold: Number(weight3(entry.nonGold || 0)),
+    loss: Number(weight3(entry.loss || 0)),
+    contents: entry.contents || "",
+    remarks: entry.remarks || "",
+    createdBy: entry.createdBy || "",
+  };
+}
+
+function normalizeDailyTallyContainer(container = {}) {
+  const department = container.department || container.departmentName || "";
+  return {
+    id: container.id || crypto.randomUUID(),
+    name: String(container.name || container.containerName || container.dabbaName || "").trim(),
+    department: department ? departmentDashboardHeader(department) : "",
+    karat: karatPurityKey(container.karat || container.purity || ""),
+    type: container.type || "Dabba",
+    weight: Number(weight3(container.weight ?? container.emptyWeight ?? container.boxWeight ?? 0)),
+    remarks: container.remarks || "",
+    createdAt: container.createdAt || new Date().toISOString(),
+    updatedAt: container.updatedAt || "",
+  };
+}
+
+function dailyTallyUsesKarat(target = "") {
+  return textMatchesAny(target, ["vinod"]);
+}
+
+function dailyTallyKaratLabel(karat = "") {
+  const key = karatPurityKey(karat);
+  return key ? `${key} / ${Number(KARAT_PURITY_PERCENT[key] || 0).toFixed(2)}%` : "All Karats";
+}
+
+function dailyTallyContainerById(containerId = "") {
+  return (state.dailyTallyContainers || []).map(normalizeDailyTallyContainer).find((container) => container.id === containerId) || null;
+}
+
+function dailyTallyMatchingContainers(target = "", karat = "") {
+  if (!target) return [];
+  const targetKey = departmentTextKey(departmentDashboardHeader(target));
+  const allContainers = (state.dailyTallyContainers || [])
+    .map(normalizeDailyTallyContainer)
+    .filter((container) => container.name);
+  const departmentContainers = allContainers.filter((container) => departmentTextKey(container.department) === targetKey);
+  const generalContainers = allContainers.filter((container) => !container.department);
+  if (dailyTallyUsesKarat(target)) {
+    const karatKey = karatPurityKey(karat) || "18K";
+    const exact = departmentContainers.filter((container) => container.karat === karatKey);
+    if (exact.length) return exact;
+    const departmentGeneral = departmentContainers.filter((container) => !container.karat);
+    if (departmentGeneral.length) return departmentGeneral;
+    return generalContainers.filter((container) => !container.karat || container.karat === karatKey);
+  }
+  const departmentGeneral = departmentContainers.filter((container) => !container.karat);
+  return departmentGeneral.length ? departmentGeneral : generalContainers.filter((container) => !container.karat);
+}
+
+function renderDailyTallyContainerOptions(autoSelect = false) {
+  const select = document.getElementById("daily-tally-container-select");
+  if (!select) return;
+  const selected = select.value;
+  const form = document.getElementById("daily-tally-form");
+  const target = departmentDashboardHeader(form?.elements.target.value || "");
+  const karat = dailyTallyUsesKarat(target) ? (karatPurityKey(form?.elements.karat.value || "") || "18K") : "";
+  const containers = dailyTallyMatchingContainers(target, karat)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
+  const emptyLabel = target ? "No Dabba / Container (0.000 g)" : "Select department first";
+  select.innerHTML = `<option value="">${emptyLabel}</option>${containers.map((container) => `
+    <option value="${escapeHtml(container.id)}">${escapeHtml(container.name)} - ${escapeHtml(container.type)} - ${weight3(container.weight)} g</option>
+  `).join("")}`;
+  const selectedAvailable = containers.some((container) => container.id === selected);
+  select.value = selectedAvailable ? selected : (autoSelect && containers.length === 1 ? containers[0].id : "");
+  if (autoSelect && form) {
+    form.elements.boxWeight.value = weight3(dailyTallyContainerById(select.value)?.weight || 0);
+  }
+}
+
+function renderDailyTallyContainerMasterDepartmentOptions() {
+  const select = document.querySelector('#daily-tally-container-form select[name="department"]');
+  if (!select) return;
+  const selected = select.value;
+  const options = dailyTallyTargetOptions();
+  select.innerHTML = `<option value="">Select main department</option>${options.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}`;
+  select.value = options.includes(selected) ? selected : "";
+}
+
+function updateDailyTallyContainerMasterRules() {
+  const form = document.getElementById("daily-tally-container-form");
+  const karatField = document.getElementById("daily-tally-container-karat-field");
+  if (!form || !karatField) return;
+  const department = form.elements.department.value || "";
+  const usesKarat = dailyTallyUsesKarat(department);
+  karatField.classList.toggle("hidden", !usesKarat);
+  if (usesKarat && !form.elements.karat.value) form.elements.karat.value = "18K";
+  if (!usesKarat) form.elements.karat.value = "";
+}
+
+function handleDailyTallyContainerMasterChange(event) {
+  if (event.target.name === "department") updateDailyTallyContainerMasterRules();
+}
+
+function resetDailyTallyContainerForm() {
+  const form = document.getElementById("daily-tally-container-form");
+  if (!form) return;
+  form.reset();
+  form.elements.containerId.value = "";
+  form.elements.type.value = "Dabba";
+  renderDailyTallyContainerMasterDepartmentOptions();
+  updateDailyTallyContainerMasterRules();
+  document.getElementById("daily-tally-container-form-title").textContent = "Add Container";
+  document.getElementById("daily-tally-container-save").textContent = "Save Container";
+  document.getElementById("daily-tally-container-cancel").classList.add("hidden");
+}
+
+function openDailyTallyContainerManager() {
+  if (!requirePageEditPermission("daily-tally", "manage dabba or container weights")) return;
+  resetDailyTallyContainerForm();
+  renderDailyTallyContainers();
+  const dialog = document.getElementById("daily-tally-container-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function closeDailyTallyContainerManager() {
+  document.getElementById("daily-tally-container-dialog")?.close();
+  resetDailyTallyContainerForm();
+}
+
+function saveDailyTallyContainer(event) {
+  event.preventDefault();
+  if (!requirePageEditPermission("daily-tally", "save dabba or container weights")) return;
+  const form = event.currentTarget;
+  const id = form.elements.containerId.value || "";
+  const name = form.elements.name.value.trim();
+  const department = departmentDashboardHeader(form.elements.department.value || "");
+  const karat = dailyTallyUsesKarat(department) ? (karatPurityKey(form.elements.karat.value || "") || "18K") : "";
+  const weight = Number(form.elements.weight.value || 0);
+  if (!name) {
+    alert("Enter a container name.");
+    return;
+  }
+  if (!(weight > 0)) {
+    alert("Enter the empty container weight greater than zero.");
+    return;
+  }
+  if (!department) {
+    alert("Select the main department for this container.");
+    return;
+  }
+  const duplicate = (state.dailyTallyContainers || []).map(normalizeDailyTallyContainer).find((container) =>
+    container.id !== id &&
+    container.name.toLowerCase() === name.toLowerCase() &&
+    departmentTextKey(container.department) === departmentTextKey(department) &&
+    container.karat === karat
+  );
+  if (duplicate) {
+    alert("A container with this name is already saved. Edit the existing container instead.");
+    return;
+  }
+  const existing = id ? (state.dailyTallyContainers || []).find((container) => container.id === id) : null;
+  const container = normalizeDailyTallyContainer({
+    ...existing,
+    id: id || crypto.randomUUID(),
+    name,
+    department,
+    karat,
+    type: form.elements.type.value || "Other",
+    weight,
+    remarks: form.elements.remarks.value.trim(),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  state.dailyTallyContainers = state.dailyTallyContainers || [];
+  state.dailyTallyContainers = existing
+    ? state.dailyTallyContainers.map((item) => item.id === container.id ? container : item)
+    : [...state.dailyTallyContainers, container];
+  saveState();
+  renderDailyTallyContainers();
+  renderDailyTallyContainerOptions(false);
+  const tallyForm = document.getElementById("daily-tally-form");
+  if (tallyForm && [...tallyForm.elements.containerId.options].some((option) => option.value === container.id)) {
+    tallyForm.elements.containerId.value = container.id;
+    tallyForm.elements.boxWeight.value = weight3(container.weight);
+    updateDailyTallyCalculation();
+  }
+  resetDailyTallyContainerForm();
+}
+
+function editDailyTallyContainer(containerId) {
+  if (!requirePageEditPermission("daily-tally", "edit dabba or container weights")) return;
+  const container = dailyTallyContainerById(containerId);
+  const form = document.getElementById("daily-tally-container-form");
+  if (!container || !form) return;
+  renderDailyTallyContainerMasterDepartmentOptions();
+  form.elements.containerId.value = container.id;
+  form.elements.name.value = container.name;
+  form.elements.department.value = container.department || "";
+  updateDailyTallyContainerMasterRules();
+  form.elements.karat.value = container.karat || "";
+  form.elements.type.value = container.type || "Other";
+  form.elements.weight.value = weight3(container.weight);
+  form.elements.remarks.value = container.remarks || "";
+  document.getElementById("daily-tally-container-form-title").textContent = "Edit Container";
+  document.getElementById("daily-tally-container-save").textContent = "Update Container";
+  document.getElementById("daily-tally-container-cancel").classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function deleteDailyTallyContainer(containerId) {
+  if (!requireDeletePermission("delete dabba or container master entries")) return;
+  const container = dailyTallyContainerById(containerId);
+  if (!container || !confirm(`Delete ${container.name} from the container master? Saved tally history will remain unchanged.`)) return;
+  state.dailyTallyContainers = (state.dailyTallyContainers || []).filter((item) => item.id !== containerId);
+  const tallyForm = document.getElementById("daily-tally-form");
+  if (tallyForm?.elements.containerId.value === containerId) {
+    tallyForm.elements.containerId.value = "";
+    tallyForm.elements.boxWeight.value = weight3(0);
+  }
+  saveState();
+  renderDailyTallyContainers();
+  renderDailyTallyContainerOptions();
+  updateDailyTallyCalculation();
+}
+
+function renderDailyTallyContainers() {
+  const table = document.getElementById("daily-tally-container-table");
+  const count = document.getElementById("daily-tally-container-count");
+  if (!table) return;
+  const containers = (state.dailyTallyContainers || [])
+    .map(normalizeDailyTallyContainer)
+    .filter((container) => container.name)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
+  const query = (document.getElementById("daily-tally-container-search")?.value || "").trim().toLowerCase();
+  const filtered = containers.filter((container) => !query || [container.name, container.department, container.karat, container.type, container.remarks, container.weight].join(" ").toLowerCase().includes(query));
+  if (count) count.textContent = `${containers.length} saved`;
+  table.innerHTML = filtered.map((container) => `
+    <tr>
+      <td><strong>${escapeHtml(container.name)}</strong></td>
+      <td>${escapeHtml(container.department || "General")}</td>
+      <td>${escapeHtml(dailyTallyKaratLabel(container.karat))}</td>
+      <td>${escapeHtml(container.type)}</td>
+      <td><strong>${gram(container.weight)}</strong></td>
+      <td>${escapeHtml(container.remarks || "-")}</td>
+      <td><div class="row-actions"><button type="button" onclick="editDailyTallyContainer('${container.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteDailyTallyContainer('${container.id}')">Delete</button></div></td>
+    </tr>
+  `).join("") || tableEmpty(7, "No dabba or container saved yet.");
+}
+
+function dailyTallyExpectedFromTotals(totals = {}, source = "Department Dashboard") {
+  const fine = totals.fine ?? totals.totalFine ?? ((totals.fineGold || 0) + (totals.lossFineGold || 0));
+  return {
+    source,
+    gross: Number(weight3(totals.gross || totals.grossWeight || 0)),
+    gold: Number(weight3(totals.gold || totals.goldWeight || 0)),
+    fine: Number(weight3(fine)),
+    waxStone: Number(weight3(totals.waxStone || 0)),
+    handStone: Number(weight3(totals.handStone || 0)),
+    nonGold: Number(weight3(totals.nonGold || 0)),
+    loss: Number(weight3(totals.loss || 0)),
+  };
+}
+
+function dailyTallyStockTargets() {
+  const physical = factoryPhysicalStock();
+  const parts = physical.parts || {};
+  return {
+    [departmentDashboardHeader("Factory Stock")]: {
+      source: "Factory Summary",
+      gross: physical.grossWeight,
+      gold: physical.goldWeight,
+      fine: physical.totalFine,
+    },
+    [departmentDashboardHeader("Metal Safe")]: { source: "Metal Safe", ...(parts.metal || {}) },
+    [departmentDashboardHeader("Safe Locker Items")]: { source: "Safe Locker", ...(parts.shelf || {}) },
+    [departmentDashboardHeader("Production Lots")]: { source: "Production Lots", ...(parts.production || {}) },
+    [departmentDashboardHeader("Completed / Bill Pending")]: { source: "Bill Pending", ...(parts.billPending || {}) },
+    [departmentDashboardHeader("Dept Issued Items")]: { source: "Safe Items In Departments", ...(parts.departmentIssues || {}) },
+    [departmentDashboardHeader("Melting / Casting")]: { source: "Melting / Casting", ...(parts.meltingCasting || {}) },
+    [departmentDashboardHeader("XRF Pending")]: { source: "XRF Pending", ...(parts.xrf || {}) },
+    [departmentDashboardHeader("Direct Non-Gold")]: { source: "Direct Non-Gold", ...(parts.nonGoldDirect || {}) },
+    [departmentDashboardHeader("Office Item Stock")]: {
+      source: "Office Stock",
+      grossWeight: officeStockWeight(),
+      goldWeight: officeStockWeight(),
+      fineGold: 0,
+    },
+  };
+}
+
+function dailyTallyExpectedForTarget(target = "", karat = "") {
+  const cleanTarget = departmentDashboardHeader(target);
+  const departments = departmentMetalInHand();
+  if (departments[cleanTarget]) {
+    const totals = departments[cleanTarget];
+    if (dailyTallyUsesKarat(cleanTarget) && karatPurityKey(karat)) {
+      const karatKey = karatPurityKey(karat);
+      const purityTotals = Object.entries(totals.purities || {}).find(([purity]) => karatPurityKey(purity) === karatKey)?.[1] || {};
+      return dailyTallyExpectedFromTotals(purityTotals, `${karatKey} Department Holding`);
+    }
+    return dailyTallyExpectedFromTotals(totals, "Department Dashboard");
+  }
+  const stockTargets = dailyTallyStockTargets();
+  if (stockTargets[cleanTarget]) return dailyTallyExpectedFromTotals(stockTargets[cleanTarget], stockTargets[cleanTarget].source || "Stock Summary");
+  return dailyTallyExpectedFromTotals({}, "Manual");
+}
+
+function dailyTallyTargetOptions() {
+  const names = new Set();
+  (state.karigars || []).forEach((department) => {
+    if (department.name) names.add(departmentDashboardHeader(department.name));
+  });
+  ["Casting Department", "Melting Department"].forEach((name) => {
+    names.add(departmentDashboardHeader(name));
+  });
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
+}
+
+function renderDailyTallyDepartmentOptions() {
+  const options = dailyTallyTargetOptions();
+  document.querySelectorAll('#daily-tally-form select[name="target"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = `<option value="">Select main department</option>${options.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}`;
+    select.value = selected && options.includes(selected) ? selected : "";
+  });
+}
+
+function updateDailyTallyDepartmentRules(autoSelectContainer = false) {
+  const form = document.getElementById("daily-tally-form");
+  const karatField = document.getElementById("daily-tally-karat-field");
+  if (!form || !karatField) return;
+  const target = departmentDashboardHeader(form.elements.target.value || "");
+  const usesKarat = dailyTallyUsesKarat(target);
+  karatField.classList.toggle("hidden", !usesKarat);
+  if (usesKarat && !karatPurityKey(form.elements.karat.value || "")) form.elements.karat.value = "18K";
+  if (!usesKarat) form.elements.karat.value = "";
+  renderDailyTallyContainerOptions(autoSelectContainer);
+}
+
+function dailyTallyFormPayload() {
+  const form = document.getElementById("daily-tally-form");
+  if (!form) return null;
+  const target = departmentDashboardHeader(form.elements.target.value || "");
+  const karat = dailyTallyUsesKarat(target) ? (karatPurityKey(form.elements.karat.value || "") || "18K") : "";
+  const container = dailyTallyContainerById(form.elements.containerId.value || "");
+  const totalWeight = Number(form.totalWeight.value || 0);
+  const boxWeight = Number(form.boxWeight.value || 0);
+  const tallyWeight = Number(weight3(totalWeight - boxWeight));
+  const expected = dailyTallyExpectedForTarget(target, karat);
+  return {
+    id: form.tallyId.value || "",
+    date: form.date.value || isoToday(),
+    target,
+    mode: form.mode.value || "department",
+    karat,
+    containerId: container?.id || "",
+    containerName: container?.name || "",
+    totalWeight: Number(weight3(totalWeight)),
+    boxWeight: Number(weight3(boxWeight)),
+    tallyWeight,
+    expectedGross: expected.gross,
+    expectedGold: expected.gold,
+    expectedFine: expected.fine,
+    waxStone: expected.waxStone,
+    handStone: expected.handStone,
+    nonGold: expected.nonGold,
+    loss: expected.loss,
+    difference: Number(weight3(tallyWeight - expected.gross)),
+    contents: form.contents.value || "",
+    remarks: form.remarks.value || "",
+  };
+}
+
+function updateDailyTallyCalculation() {
+  const form = document.getElementById("daily-tally-form");
+  if (!form) return;
+  if (!form.date.value) form.date.value = isoToday();
+  const payload = dailyTallyFormPayload();
+  if (!payload) return;
+  form.tallyWeight.value = weight3(payload.tallyWeight);
+  form.expectedGross.value = weight3(payload.expectedGross);
+  form.expectedGold.value = weight3(payload.expectedGold);
+  form.expectedFine.value = weight3(payload.expectedFine);
+  form.difference.value = weight3(payload.difference);
+}
+
+function handleDailyTallyFormInput(event) {
+  if (!event.target.closest("#daily-tally-form")) return;
+  if (event.target.name === "target" || event.target.name === "karat") {
+    updateDailyTallyDepartmentRules(true);
+    updateDailyTallyCalculation();
+    return;
+  }
+  if (event.target.name === "containerId") {
+    const container = dailyTallyContainerById(event.target.value || "");
+    event.currentTarget.elements.boxWeight.value = weight3(container?.weight || 0);
+  }
+  updateDailyTallyCalculation();
+}
+
+function resetDailyTallyForm() {
+  const form = document.getElementById("daily-tally-form");
+  if (!form) return;
+  form.reset();
+  form.tallyId.value = "";
+  form.date.value = isoToday();
+  form.mode.value = "department";
+  document.getElementById("daily-tally-form-title").textContent = "New Department Tally";
+  document.getElementById("daily-tally-submit").textContent = "Save Department Tally";
+  document.getElementById("cancel-daily-tally-edit").classList.add("hidden");
+  renderDailyTallyDepartmentOptions();
+  updateDailyTallyDepartmentRules(false);
+  updateDailyTallyCalculation();
+}
+
+function saveDailyTally(event) {
+  event.preventDefault();
+  if (!requirePageEditPermission("daily-tally", "save daily stock tally")) return;
+  const payload = dailyTallyFormPayload();
+  if (!payload?.target) {
+    alert("Select a main department to tally.");
+    return;
+  }
+  if (!payload.totalWeight && !payload.boxWeight) {
+    alert("Enter physical total weight.");
+    return;
+  }
+  if (payload.tallyWeight < 0) {
+    alert("Dabba / box weight cannot be more than total physical weight.");
+    return;
+  }
+  const existing = payload.id ? (state.dailyTallies || []).find((entry) => entry.id === payload.id) : null;
+  const entry = normalizeDailyTallyEntry({
+    ...existing,
+    ...payload,
+    id: payload.id || crypto.randomUUID(),
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy: existing?.createdBy || currentUserConfig()?.name || currentUser?.id || "",
+  });
+  state.dailyTallies = state.dailyTallies || [];
+  if (existing) {
+    state.dailyTallies = state.dailyTallies.map((item) => item.id === entry.id ? entry : item);
+  } else {
+    state.dailyTallies.unshift(entry);
+  }
+  saveState();
+  render();
+  resetDailyTallyForm();
+}
+
+function editDailyTally(entryId) {
+  if (!requirePageEditPermission("daily-tally", "edit daily stock tally")) return;
+  const entry = (state.dailyTallies || []).find((item) => item.id === entryId);
+  if (!entry) return;
+  switchView("daily-tally");
+  const form = document.getElementById("daily-tally-form");
+  renderDailyTallyDepartmentOptions();
+  form.tallyId.value = entry.id;
+  form.date.value = entry.date || isoToday();
+  form.elements.target.value = entry.target || "";
+  form.mode.value = entry.mode || "department";
+  form.elements.karat.value = entry.karat || "18K";
+  updateDailyTallyDepartmentRules(false);
+  form.elements.containerId.value = dailyTallyContainerById(entry.containerId) ? entry.containerId : "";
+  form.totalWeight.value = weight3(entry.totalWeight);
+  form.boxWeight.value = weight3(entry.boxWeight);
+  form.contents.value = entry.contents || "";
+  form.remarks.value = entry.remarks || "";
+  document.getElementById("daily-tally-form-title").textContent = "Edit Daily Stock Tally";
+  document.getElementById("daily-tally-submit").textContent = "Update Tally";
+  document.getElementById("cancel-daily-tally-edit").classList.remove("hidden");
+  updateDailyTallyCalculation();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function deleteDailyTally(entryId) {
+  if (!requireDeletePermission("delete daily stock tally entries")) return;
+  const entry = (state.dailyTallies || []).find((item) => item.id === entryId);
+  if (!entry) return;
+  if (!confirm("Delete this daily tally entry?")) return;
+  state.dailyTallies = (state.dailyTallies || []).filter((item) => item.id !== entryId);
+  saveState();
+  render();
+}
+
+function dailyTallyDifferenceStatus(difference = 0) {
+  const value = Number(difference || 0);
+  if (Math.abs(value) <= 0.01) return "completed";
+  return value > 0 ? "pending" : "overdue";
+}
+
+function renderDailyTally() {
+  const summary = document.getElementById("daily-tally-summary");
+  const table = document.getElementById("daily-tally-table");
+  if (!summary && !table) return;
+  renderDailyTallyDepartmentOptions();
+  updateDailyTallyDepartmentRules(false);
+  renderDailyTallyContainers();
+  updateDailyTallyCalculation();
+  const entries = (state.dailyTallies || []).map(normalizeDailyTallyEntry);
+  const todayEntries = entries.filter((entry) => entry.date === isoToday());
+  const todayDepartments = new Set(todayEntries.map((entry) => entry.target).filter(Boolean));
+  const todayTotals = todayEntries.reduce((totals, entry) => {
+    totals.tallyWeight = Number(weight3(totals.tallyWeight + entry.tallyWeight));
+    totals.expectedGross = Number(weight3(totals.expectedGross + entry.expectedGross));
+    totals.expectedFine = Number(weight3(totals.expectedFine + entry.expectedFine));
+    totals.difference = Number(weight3(totals.difference + entry.difference));
+    return totals;
+  }, { tallyWeight: 0, expectedGross: 0, expectedFine: 0, difference: 0 });
+  if (summary) {
+    summary.innerHTML = [
+      factorySummaryCard("Departments Tallied", String(todayDepartments.size), `${todayEntries.length} entries saved today`),
+      factorySummaryCard("Physical GW", gram(todayTotals.tallyWeight), "After deducting dabba weight"),
+      factorySummaryCard("ERP Expected GW", gram(todayTotals.expectedGross), "Live department holding"),
+      factorySummaryCard("Difference", gram(todayTotals.difference), "Physical GW minus ERP GW", Math.abs(todayTotals.difference) > 0.01 ? "payable" : "owned"),
+    ].join("");
+  }
+  if (!table) return;
+  const query = (document.getElementById("daily-tally-search")?.value || "").trim().toLowerCase();
+  const rows = entries
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
+    .filter((entry) => !query || [
+      entry.date,
+      entry.target,
+      entry.karat,
+      entry.containerName,
+      dailyTallyModeLabel(entry.mode),
+      entry.contents,
+      entry.remarks,
+      entry.createdBy,
+    ].join(" ").toLowerCase().includes(query))
+    .slice(0, 100)
+    .map(renderDailyTallyRow)
+    .join("");
+  table.innerHTML = rows || tableEmpty(7, "No department tally saved yet.");
+}
+
+function renderDailyTallyRow(entry) {
+  const differenceClass = dailyTallyDifferenceStatus(entry.difference);
+  const otherWeight = Number(weight3(entry.waxStone + entry.handStone + entry.nonGold));
+  return `
+    <tr>
+      <td>${escapeHtml(entry.date || "-")}</td>
+      <td><strong>${escapeHtml(entry.target || "-")}</strong>${entry.karat ? `<small>${escapeHtml(dailyTallyKaratLabel(entry.karat))}</small>` : `<small>All Karats / Total GW</small>`}</td>
+      <td><strong>${gram(entry.tallyWeight)}</strong><small>Total ${gram(entry.totalWeight)} / ${escapeHtml(entry.containerName || "Dabba")} ${gram(entry.boxWeight)}</small></td>
+      <td><strong>${gram(entry.expectedGross)}</strong><small>Net ${gram(entry.expectedGold)} / Other ${gram(otherWeight)} / Fine ${gram(entry.expectedFine)}</small></td>
+      <td><span class="status ${differenceClass}">${gram(entry.difference)}</span></td>
+      <td><span class="daily-tally-note">${escapeHtml(entry.contents || entry.remarks || "-")}</span><small>${entry.contents && entry.remarks ? escapeHtml(entry.remarks) : ""}${entry.createdBy ? `${entry.contents || entry.remarks ? " / " : ""}By ${escapeHtml(entry.createdBy)}` : ""}</small></td>
+      <td><div class="row-actions"><button type="button" onclick="editDailyTally('${entry.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteDailyTally('${entry.id}')">Delete</button></div></td>
+    </tr>
+  `;
 }
 
 function renderOrders() {
@@ -17660,7 +18346,6 @@ function isXrfWastageSource(item = {}) {
   if (!item || item.status === "Out" || safeItemKind(item) !== "wastage") return false;
   const sourceLine = String(item.sourceLine || "").toLowerCase();
   return sourceLine === "treecutweight"
-    || sourceLine === "wastageweight"
     || (item.sourceType === "xrf-issue-return" && sourceLine === "treecutweight");
 }
 
@@ -17737,13 +18422,30 @@ function renderXrfSourceOptions(selected = "", creditEntry = null) {
       });
     }
   }
-  const optionGroups = [...byId.values()].sort((a, b) =>
+  const castingEntryOptions = [...(state.xrfTests || [])]
+    .map(normalizeXrfEntry)
+    .filter((entry) => entry.castingBatchId)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .map((entry) => {
+      const melting = findById("melting", entry.castingBatchId);
+      const castingWeight = Number(melting?.receiveBreakup?.xrfIssueWeight ?? entry.weightIssue ?? 0);
+      const status = xrfEntryStatus(entry) === "XRF Return" ? "RETURNED" : "PENDING RETURN";
+      const value = `xrf-entry:${entry.id}`;
+      return `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(entry.castingBatchName || "Casting Batch")} / ${escapeHtml(entry.karat || "-")} / ${escapeHtml(entry.colour || "-")} / XRF Issue ${gram(castingWeight)} / ${status}</option>`;
+    })
+    .join("");
+  const linkedSourceIds = new Set((state.xrfTests || []).map((entry) => entry.sourceGroupId).filter(Boolean));
+  const optionGroups = [...byId.values()]
+    .filter((group) => !linkedSourceIds.has(group.id) || group.id === selected || creditEntry?.sourceGroupId === group.id)
+    .sort((a, b) =>
     `${a.castingBatchName} ${a.locker} ${a.colour} ${a.purity}`.localeCompare(`${b.castingBatchName} ${b.locker} ${b.colour} ${b.purity}`, undefined, { sensitivity: "base" })
   );
-  const options = optionGroups.map((group) =>
-    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(group.description)} / Available ${gram(group.weight)}</option>`
+  const manualOptions = optionGroups.map((group) =>
+    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(group.description)} / Manual XRF Available ${gram(group.weight)}</option>`
   ).join("");
-  return options || '<option value="">No Casting Tree WSTG in safe</option>';
+  return castingEntryOptions || manualOptions
+    ? `${castingEntryOptions}${manualOptions}`
+    : '<option value="">No Casting XRF issue or Tree WSTG available</option>';
 }
 
 function refreshXrfSourceOptions(selected = "", creditEntry = null) {
@@ -17755,9 +18457,37 @@ function refreshXrfSourceOptions(selected = "", creditEntry = null) {
   applyXrfSourceDefaults();
 }
 
+function findSelectedXrfEntry(selectedValue = "") {
+  const match = String(selectedValue || "").match(/^xrf-entry:(.+)$/);
+  return match ? findById("xrfTests", match[1]) : null;
+}
+
 function applyXrfSourceDefaults() {
   const form = document.getElementById("xrf-form");
   if (!form?.sourceGroupId?.value) return;
+  const selectedEntry = findSelectedXrfEntry(form.sourceGroupId.value);
+  const receiveButton = document.getElementById("xrf-receive-selected");
+  const submitButton = document.getElementById("xrf-submit");
+  const sourceNote = document.getElementById("xrf-source-note");
+  if (selectedEntry) {
+    const normalized = normalizeXrfEntry(selectedEntry);
+    const melting = findById("melting", normalized.castingBatchId);
+    const capturedWeight = Number(melting?.receiveBreakup?.xrfIssueWeight ?? normalized.weightIssue ?? 0);
+    form.date.value = normalized.date || isoToday();
+    form.karat.value = normalized.karat || "18K";
+    if ([...form.colour.options].some((option) => option.value === normalized.colour)) form.colour.value = normalized.colour;
+    form.weightIssue.value = weight3(capturedWeight);
+    form.weightIssue.readOnly = true;
+    if (receiveButton) {
+      receiveButton.disabled = false;
+      receiveButton.classList.remove("hidden");
+      receiveButton.textContent = xrfEntryStatus(normalized) === "XRF Return" ? "View / Edit XRF Return" : "Receive Selected XRF";
+    }
+    if (submitButton && !form.xrfId.value) submitButton.classList.add("hidden");
+    if (sourceNote) sourceNote.textContent = `${normalized.castingBatchName || "Casting Batch"}: XRF issue weight ${gram(capturedWeight)} captured automatically from Casting Receive. Select Receive to enter the return.`;
+    updateXrfLoss();
+    return;
+  }
   const group = findXrfSourceGroup(form.sourceGroupId.value);
   const entry = form.xrfId.value ? findById("xrfTests", form.xrfId.value) : null;
   const fallback = entry?.sourceGroupId === form.sourceGroupId.value ? normalizeXrfEntry(entry) : null;
@@ -17765,6 +18495,16 @@ function applyXrfSourceDefaults() {
   const colour = group?.colour || fallback?.sourceColour || fallback?.colour || "";
   if (locker) form.karat.value = safeLockerForPurity(locker);
   if (colour && [...form.colour.options].some((option) => option.value === colour)) form.colour.value = colour;
+  form.weightIssue.readOnly = false;
+  if (receiveButton) {
+    receiveButton.disabled = true;
+    receiveButton.classList.add("hidden");
+    receiveButton.textContent = "Receive Selected XRF";
+  }
+  if (submitButton) submitButton.classList.remove("hidden");
+  if (sourceNote) sourceNote.textContent = group
+    ? "No XRF issue is linked to this casting source. Enter the issue weight and save the manual XRF issue."
+    : "";
 }
 
 function xrfSourceGroupAvailable(groupId = "", creditEntry = null) {
@@ -17816,7 +18556,7 @@ function xrfWastageReturnSafeItem(entry = {}) {
   if (Number(normalized.wstgWeight || 0) <= 0) return;
   return {
     id: `xrf-return-wstg-${normalized.id}`,
-    date: normalized.date || today(),
+    date: normalized.returnedDate || normalized.date || today(),
     locker: safeLockerForPurity(normalized.sourceLocker || normalized.karat),
     purity: normalized.sourcePurity || normalized.karat,
     description: `XRF WSTG Untreated Return - ${normalized.colour || "Casting"}`,
@@ -17856,13 +18596,13 @@ function issueXrfWastageSample(entry = {}) {
   const group = findXrfSourceGroup(entry.sourceGroupId) || findXrfSourceGroupByCastingId(entry.castingBatchId);
   if (!group || Number(entry.weightIssue || 0) <= 0) return false;
   let remaining = Number(weight3(entry.weightIssue));
-  const priority = { treecutweight: 0, wastageweight: 1 };
-  const items = [...group.items].sort((a, b) => {
-    const aLine = String(a.sourceLine || "").toLowerCase();
-    const bLine = String(b.sourceLine || "").toLowerCase();
-    return (priority[aLine] ?? 2) - (priority[bLine] ?? 2)
-      || String(a.date || "").localeCompare(String(b.date || ""));
-  });
+  const items = [...group.items]
+    .filter((item) => String(item.sourceLine || "").toLowerCase() === "treecutweight")
+    .sort((a, b) => {
+      const aLine = String(a.sourceLine || "").toLowerCase();
+      const bLine = String(b.sourceLine || "").toLowerCase();
+      return aLine.localeCompare(bLine) || String(a.date || "").localeCompare(String(b.date || ""));
+    });
   for (const item of items) {
     if (remaining <= 0.0005) break;
     const take = Number(weight3(Math.min(safeItemAvailableWeight(item), remaining)));
@@ -17870,9 +18610,9 @@ function issueXrfWastageSample(entry = {}) {
     issueFromSafeItem(
       item.id,
       take,
-      `XRF sample issued from Casting Tree WSTG / ${entry.sourceDescription || ""}`,
+      `XRF Shelf Out from Casting Tree Cut / ${entry.sourceDescription || ""}`,
       entry.id,
-      { sourceType: "xrf-issue", issueLabel: "XRF Sample Issue" }
+      { sourceType: "xrf-issue", issueLabel: "XRF Shelf Out" }
     );
     remaining = Number(weight3(remaining - take));
   }
@@ -17922,6 +18662,7 @@ function normalizeXrfEntry(entry = {}) {
     castingBatchId: entry.castingBatchId || entry.sourceMeltingId || "",
     castingBatchName,
     createdFrom: entry.createdFrom || "",
+    returnedDate: entry.returnedDate || "",
     weightIssue,
     xrfReport: entry.xrfReport || "",
     fireReport: entry.fireReport || "",
@@ -17946,6 +18687,13 @@ function xrfEntryStatus(entry = {}) {
     || Number(normalized.alloyLoss || 0) !== 0
     || Number(normalized.loss || 0) !== 0;
   return hasReturn ? "XRF Return" : "XRF Issue";
+}
+
+function xrfPendingGrossWeight() {
+  return Number(weight3((state.xrfTests || [])
+    .map(normalizeXrfEntry)
+    .filter((entry) => xrfEntryStatus(entry) === "XRF Issue")
+    .reduce((total, entry) => total + Number(entry.weightIssue || 0), 0)));
 }
 
 function xrfSummaryTotals() {
@@ -18000,13 +18748,15 @@ function renderXrfTests() {
 
 function renderXrfRow(entry) {
   const status = xrfEntryStatus(entry);
+  const isReturned = status === "XRF Return";
+  const actionLabel = isReturned ? "View / Edit Return" : "Receive";
   return `
     <tr>
       <td>${escapeHtml(entry.date || "-")}</td>
       <td>${escapeHtml(entry.castingBatchName || entry.sourceDescription || "Casting Batch")}</td>
       <td>${escapeHtml(entry.karat || "-")}</td>
       <td>${escapeHtml(entry.colour || "-")}</td>
-      <td>${gram(entry.weightIssue)}</td>
+      <td><strong class="xrf-issued-weight">${gram(entry.weightIssue)}</strong></td>
       <td>${gram(entry.wstgWeight)}</td>
       <td>${gram(entry.treatedMetal)}</td>
       <td>${escapeHtml(entry.xrfReport || "-")}</td>
@@ -18015,10 +18765,57 @@ function renderXrfRow(entry) {
       <td>${gram(entry.touchPuliyaWeight)}</td>
       <td>${gram(entry.loss)}</td>
       <td>${gram(entry.alloyLoss)}</td>
-      <td><span class="status ${statusClass(status)}">${escapeHtml(status)}</span>${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
-      <td><div class="row-actions"><button class="ghost-button" type="button" onclick="editXrfEntry('${entry.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteXrfEntry('${entry.id}')">Delete</button></div></td>
+      <td><span class="status ${statusClass(status)}">${escapeHtml(status)}</span>${isReturned && entry.returnedDate ? `<br><small>Returned ${escapeHtml(entry.returnedDate)}</small>` : ""}${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}</td>
+      <td><div class="row-actions"><button class="${isReturned ? "ghost-button" : ""}" type="button" onclick="openXrfReceiveDialog('${entry.id}')">${actionLabel}</button><button class="ghost-button" type="button" onclick="editXrfEntry('${entry.id}')">Edit Issue</button><button class="delete-btn" type="button" onclick="deleteXrfEntry('${entry.id}')">Delete</button></div></td>
     </tr>
   `;
+}
+
+function openXrfReceiveDialog(entryId) {
+  const entry = findById("xrfTests", entryId);
+  if (!entry) return;
+  const normalized = normalizeXrfEntry(entry);
+  const form = document.getElementById("xrf-receive-form");
+  const isReturned = xrfEntryStatus(normalized) === "XRF Return";
+  form.reset();
+  form.xrfId.value = normalized.id;
+  form.castingBatchName.value = normalized.castingBatchName || normalized.sourceDescription || "Casting Batch";
+  form.karat.value = normalized.karat || "";
+  form.colour.value = normalized.colour || "";
+  form.issueDate.value = normalized.date || "";
+  form.weightIssue.value = weight3(normalized.weightIssue);
+  form.returnedDate.value = normalized.returnedDate || isoToday();
+  form.xrfReport.value = normalized.xrfReport || "";
+  form.fireReport.value = normalized.fireReport || "";
+  form.wstgWeight.value = weight3(normalized.wstgWeight);
+  form.touchPuliya.value = weight3(normalized.touchPuliyaWeight);
+  form.remarks.value = normalized.remarks || "";
+  document.getElementById("xrf-receive-title").textContent = isReturned ? "View / Edit XRF Return" : "Receive XRF Sample";
+  document.getElementById("xrf-receive-summary").textContent = `${normalized.castingBatchName || "Casting Batch"} / Issued ${gram(normalized.weightIssue)} from Casting Tree WSTG`;
+  form.querySelector('button[type="submit"]').textContent = isReturned ? "Update XRF Return" : "Save XRF Return";
+  updateXrfReceiveCalculation();
+  document.getElementById("xrf-receive-dialog").showModal();
+}
+
+function closeXrfReceiveDialog() {
+  const dialog = document.getElementById("xrf-receive-dialog");
+  if (dialog?.open) dialog.close();
+}
+
+function updateXrfReceiveCalculation() {
+  const form = document.getElementById("xrf-receive-form");
+  if (!form) return;
+  const weightIssue = Number(form.weightIssue.value || 0);
+  const wstgWeight = Number(form.wstgWeight.value || 0);
+  const firePercent = xrfFirePercent(form.fireReport.value);
+  const touchPuliyaWeight = Number(form.touchPuliya.value || 0);
+  const treatedMetal = Number(weight3(Math.max(weightIssue - wstgWeight, 0)));
+  const pureMetal = Number(weight3(firePercent ? treatedMetal * xrfFireFraction(firePercent) : 0));
+  const hasTreatment = firePercent > 0 || touchPuliyaWeight > 0 || wstgWeight > 0;
+  form.treatedMetal.value = weight3(treatedMetal);
+  form.pureReturnWeight.value = weight3(pureMetal);
+  form.loss.value = weight3(hasTreatment ? pureMetal - touchPuliyaWeight : 0);
+  form.alloyLoss.value = weight3(hasTreatment ? treatedMetal - touchPuliyaWeight : 0);
 }
 
 function updateXrfLoss() {
@@ -18050,6 +18847,11 @@ function resetXrfForm() {
   form.wstgWeight.value = "0";
   form.alloyLoss.value = "0";
   if (form.treatedMetal) form.treatedMetal.value = "0.500";
+  form.weightIssue.readOnly = false;
+  document.getElementById("xrf-submit").classList.remove("hidden");
+  document.getElementById("xrf-receive-selected").classList.add("hidden");
+  document.getElementById("xrf-receive-selected").disabled = true;
+  document.getElementById("xrf-source-note").textContent = "";
   refreshXrfSourceOptions();
   if (!form.sourceGroupId.value) {
     form.karat.value = "18K";
@@ -18059,6 +18861,7 @@ function resetXrfForm() {
   document.getElementById("xrf-form-title").textContent = "XRF Issue / Return Entry";
   document.getElementById("xrf-submit").textContent = "Save XRF Entry";
   document.getElementById("cancel-xrf-edit").classList.add("hidden");
+  applyXrfSourceDefaults();
 }
 
 function editXrfEntry(entryId) {
@@ -18082,9 +18885,14 @@ function editXrfEntry(entryId) {
   form.wstgWeight.value = weight3(normalized.wstgWeight);
   form.alloyLoss.value = weight3(normalized.alloyLoss);
   form.remarks.value = normalized.remarks;
+  form.weightIssue.readOnly = false;
   updateXrfLoss();
   document.getElementById("xrf-form-title").textContent = "Edit XRF Issue / Return";
+  document.getElementById("xrf-submit").classList.remove("hidden");
   document.getElementById("xrf-submit").textContent = "Update XRF Entry";
+  document.getElementById("xrf-receive-selected").classList.add("hidden");
+  document.getElementById("xrf-receive-selected").disabled = true;
+  document.getElementById("xrf-source-note").textContent = "Editing the saved XRF issue. Use the Receive action in the XRF list to record its return.";
   document.getElementById("cancel-xrf-edit").classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -18094,6 +18902,7 @@ function deleteXrfEntry(entryId) {
   const entry = findById("xrfTests", entryId);
   if (!entry) return;
   if (!confirm("Delete this XRF entry?")) return;
+  removeXrfSampleShelfOut(entryId);
   restoreXrfWastageIssue(entry);
   state.xrfTests = (state.xrfTests || []).filter((item) => item.id !== entryId);
   removeXrfMetalSafeReturn(entryId);
@@ -18119,7 +18928,7 @@ function syncXrfMetalSafeReturn(entry) {
   entry.metalSafeMovementId = movementId;
   addMetalSafeMovement({
     id: movementId,
-    date: entry.date || today(),
+    date: entry.returnedDate || entry.date || today(),
     type: "XRF Return",
     direction: "in",
     purity: "99.9%",
@@ -18926,8 +19735,7 @@ function openMeltingReceive(meltingId) {
   form.wastage1Weight.value = weight3(breakup.wastage1Weight ?? (isRodReceive ? breakup.wastageWeight : 0));
   form.wastage2Weight.value = weight3(breakup.wastage2Weight);
   const xrfEntry = findCastingReceiveXrfEntry(melting.id);
-  if (form.issueXrfSample) form.issueXrfSample.checked = !isRodReceive && xrfEntry && xrfEntryStatus(xrfEntry) === "Issued";
-  if (form.xrfIssueWeight) form.xrfIssueWeight.value = weight3(xrfEntry?.weightIssue || 0.5);
+  if (form.xrfIssueWeight) form.xrfIssueWeight.value = weight3(breakup.xrfIssueWeight ?? xrfEntry?.weightIssue ?? 0.5);
   toggleMeltingReceiveMode(isRodReceive);
   document.getElementById("melting-receive-summary").textContent =
     `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
@@ -19085,29 +19893,25 @@ function updateMeltingReceiveLoss() {
 }
 
 function castingReceiveXrfAvailableFromBreakup(breakup = {}) {
-  return Number(weight3(Number(breakup.treeCutWeight || 0) + Number(breakup.wastageWeight || 0)));
+  return Number(weight3(Number(breakup.treeCutWeight || 0)));
 }
 
 function isCastingReceiveXrfChecked(data = {}) {
-  return data.issueXrfSample === "on" || data.issueXrfSample === true;
+  return Number(data.xrfIssueWeight || 0) > 0;
 }
 
 function validateCastingReceiveXrfIssue(data = {}, receiveBreakup = {}, melting = {}) {
-  if (isMeltingDepartmentReceive(melting) || !isCastingReceiveXrfChecked(data)) return true;
+  if (isMeltingDepartmentReceive(melting)) return true;
   const issueWeight = Number(data.xrfIssueWeight || 0);
-  const available = castingReceiveXrfAvailableFromBreakup(receiveBreakup);
-  if (issueWeight <= 0) {
-    alert("Enter XRF issue weight.");
-    document.getElementById("melting-receive-form")?.xrfIssueWeight?.focus();
-    return false;
-  }
-  if (issueWeight > available + 0.0005) {
-    alert(`XRF sample can be issued only from Casting Tree WSTG. Available Tree + Wastage is ${gram(available)}, but XRF issue is ${gram(issueWeight)}.`);
-    return false;
-  }
   const existing = findCastingReceiveXrfEntry(melting.id);
-  if (existing && xrfEntryStatus(existing) !== "XRF Issue") {
-    alert("This casting batch already has an XRF report/return entry. Edit it from XRF Testing instead of issuing again from Casting Receive.");
+  if (existing && xrfEntryStatus(existing) !== "XRF Issue" && (issueWeight <= 0 || Math.abs(Number(existing.weightIssue || 0) - issueWeight) > 0.0005)) {
+    alert(`This casting batch already has an XRF return for ${gram(existing.weightIssue || 0)}. Keep the same XRF weight here, or correct the return from XRF Issue / Return.`);
+    return false;
+  }
+  if (issueWeight <= 0) return true;
+  const available = castingReceiveXrfAvailableFromBreakup(receiveBreakup);
+  if (issueWeight > available + 0.0005) {
+    alert(`XRF sample can be issued only from Tree Cut weight. Available Tree Cut is ${gram(available)}, but XRF issue is ${gram(issueWeight)}.`);
     return false;
   }
   return true;
@@ -19119,6 +19923,7 @@ function updateMeltingReceiveXrfNote() {
   if (!form || !note) return;
   const melting = findById("melting", form.meltingId?.value);
   if (isMeltingDepartmentReceive(melting)) {
+    if (form.treeCutShelfBalance) form.treeCutShelfBalance.value = weight3(0);
     note.textContent = "";
     return;
   }
@@ -19126,10 +19931,11 @@ function updateMeltingReceiveXrfNote() {
   const available = castingReceiveXrfAvailableFromBreakup(breakup);
   const issueWeight = Number(form.xrfIssueWeight?.value || 0);
   const batchName = melting?.batchName || (melting ? assignMeltingBatchName(melting) : "Casting Batch");
-  const checked = form.issueXrfSample?.checked;
-  note.textContent = checked
-    ? `${batchName}: XRF issue ${gram(issueWeight)} from Tree + Wastage available ${gram(available)}. Casting loss is calculated from Final Issue - Received Net Wt.`
-    : `${batchName}: tick XRF issue if sample is sent for purity testing. Available Tree + Wastage ${gram(available)}.`;
+  const treeBalance = Number(weight3(Math.max(available - issueWeight, 0)));
+  if (form.treeCutShelfBalance) form.treeCutShelfBalance.value = weight3(treeBalance);
+  note.textContent = issueWeight > 0
+    ? `${batchName}: Tree Cut ${gram(available)} - XRF Shelf Out ${gram(issueWeight)} = Tree Cut shelf balance ${gram(treeBalance)}. XRF issue entry will be created automatically.`
+    : `${batchName}: no XRF issue. Tree Cut shelf balance ${gram(available)}.`;
 }
 
 function findCastingReceiveXrfEntry(castingBatchId = "") {
@@ -19140,20 +19946,31 @@ function findCastingReceiveXrfEntry(castingBatchId = "") {
   }) || null;
 }
 
+function removeXrfSampleShelfOut(entryId = "") {
+  if (!entryId) return;
+  state.safeItems = (state.safeItems || []).filter((item) =>
+    !(item.sourceType === "xrf-issue" && item.sourceId === entryId)
+  );
+}
+
 function syncCastingReceiveXrfIssue(melting = {}, data = {}) {
   if (!melting?.id || isMeltingDepartmentReceive(melting)) return;
   const existing = findCastingReceiveXrfEntry(melting.id);
-  if (existing && xrfEntryStatus(existing) === "XRF Issue") {
-    state.xrfTests = (state.xrfTests || []).filter((entry) => entry.id !== existing.id);
-    removeXrfMetalSafeReturn(existing.id);
-  }
+  const existingStatus = existing ? xrfEntryStatus(existing) : "";
+  const issueWeight = Number(data.xrfIssueWeight || 0);
+  if (existing) removeXrfSampleShelfOut(existing.id);
   if (!isCastingReceiveXrfChecked(data)) {
+    if (existing && existingStatus === "XRF Issue") {
+      state.xrfTests = (state.xrfTests || []).filter((entry) => entry.id !== existing.id);
+      removeXrfMetalSafeReturn(existing.id);
+      removeXrfWastageReturn(existing.id);
+    }
     melting.xrfEntryId = "";
     return;
   }
   const sourceGroup = findXrfSourceGroupByCastingId(melting.id);
   if (!sourceGroup) {
-    alert("Casting receive saved, but no Tree/Wastage source was found for XRF. Enter Tree Cut or Wastage weight, then issue XRF.");
+    alert("Casting receive saved, but no Tree Cut shelf source was found for XRF. Enter Tree Cut weight, then save again.");
     return;
   }
   const batchName = melting.batchName || assignMeltingBatchName(melting);
@@ -19171,18 +19988,23 @@ function syncCastingReceiveXrfIssue(melting = {}, data = {}) {
     castingBatchName: batchName,
     karat: safeLockerForPurity(melting.targetPurity),
     colour: melting.colour || sourceGroup.colour,
-    weightIssue: data.xrfIssueWeight || 0,
-    xrfReport: "",
-    fireReport: "",
-    touchPuliya: 0,
-    wstgWeight: 0,
-    remarks: `XRF sample issued from ${batchName} during casting receive`,
+    weightIssue: issueWeight,
+    xrfReport: existing?.xrfReport || "",
+    fireReport: existing?.fireReport || "",
+    touchPuliya: existing?.touchPuliyaWeight || existing?.touchPuliya || 0,
+    wstgWeight: existing?.wstgWeight || 0,
+    remarks: existing?.remarks || `XRF sample issued from ${batchName} during casting receive`,
   });
   if (!issueXrfWastageSample(entry)) {
-    alert("Casting receive saved, but XRF sample could not be issued from Tree/Wastage stock. Please check XRF Testing.");
+    alert("Casting receive saved, but XRF sample could not be issued from Tree Cut stock. Please check the Tree Cut shelf balance.");
     return;
   }
-  state.xrfTests.unshift(entry);
+  if (existing) {
+    Object.assign(existing, entry);
+    if (existingStatus === "XRF Return") syncXrfReturnRecords(existing);
+  } else {
+    state.xrfTests.unshift(entry);
+  }
   melting.xrfEntryId = entry.id;
 }
 
@@ -19237,6 +20059,7 @@ function getMeltingReceiveBreakup(data, melting = {}) {
       wastageWeight: 0,
       scrapDustWeight: 0,
       otherReceivedWeight: 0,
+      xrfIssueWeight: 0,
     };
   }
   return {
@@ -19251,6 +20074,7 @@ function getMeltingReceiveBreakup(data, melting = {}) {
     wastageWeight: Number(data.wastageWeight || 0),
     scrapDustWeight: Number(data.scrapDustWeight || 0),
     otherReceivedWeight: Number(data.otherReceivedWeight || 0),
+    xrfIssueWeight: Number(data.xrfIssueWeight || 0),
   };
 }
 
@@ -19369,6 +20193,10 @@ function normalizeState(currentState) {
     .map(normalizeLoginAuditEntry)
     .sort((a, b) => new Date(b.loginAt) - new Date(a.loginAt))
     .slice(0, LOGIN_HISTORY_LIMIT);
+  currentState.dailyTallies = (currentState.dailyTallies || []).map(normalizeDailyTallyEntry);
+  currentState.dailyTallyContainers = (currentState.dailyTallyContainers || currentState.dabbaMaster || [])
+    .map(normalizeDailyTallyContainer)
+    .filter((container) => container.name);
   currentState.customers = currentState.customers || [];
   currentState.officeCustomers = currentState.officeCustomers || [];
   currentState.vendors = (currentState.vendors || []).map((vendor) => ({

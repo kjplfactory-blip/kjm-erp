@@ -677,6 +677,79 @@ button:hover {
     #ffffff;
 }
 
+.daily-tally-workbench {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.daily-tally-form {
+  width: 100%;
+  max-width: none;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  border-color: rgba(174, 216, 201, 0.88);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(24, 121, 78, 0.12), transparent 240px),
+    linear-gradient(180deg, #ffffff 0%, #f5fbf8 100%);
+}
+
+.daily-tally-form > h2,
+.daily-tally-form > .full-row {
+  grid-column: 1 / -1;
+}
+
+#daily-tally-submit {
+  grid-column: 1 / 3;
+}
+
+#cancel-daily-tally-edit {
+  grid-column: 3 / 5;
+}
+
+.daily-tally-panel {
+  grid-column: 1 / -1;
+}
+
+.daily-tally-table-wrap {
+  max-height: min(58vh, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.daily-tally-panel table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.daily-tally-panel th,
+.daily-tally-panel td {
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.daily-tally-panel th:nth-child(1),
+.daily-tally-panel td:nth-child(1) {
+  width: 8%;
+}
+
+.daily-tally-panel th:nth-child(2),
+.daily-tally-panel td:nth-child(2) {
+  width: 15%;
+}
+
+.daily-tally-panel th:nth-child(9),
+.daily-tally-panel td:nth-child(9),
+.daily-tally-panel th:nth-child(10),
+.daily-tally-panel td:nth-child(10) {
+  width: 12%;
+}
+
+.daily-tally-panel th:last-child,
+.daily-tally-panel td:last-child {
+  width: 9%;
+}
+
 .factory-summary-card.payable {
   border-color: rgba(180, 83, 9, 0.35);
   background:
@@ -7296,6 +7369,687 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 }
 
+/* V341: clean daily department stock tally. */
+#daily-tally {
+  width: 100%;
+  max-width: none;
+  padding-bottom: 28px;
+  overflow-x: hidden;
+}
+
+#daily-tally .daily-tally-page-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 20px 22px;
+  border: 1px solid #cfe5dd;
+  border-left: 5px solid #08776c;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(10, 64, 57, 0.07);
+}
+
+#daily-tally .daily-tally-page-head h2,
+#daily-tally .daily-tally-page-head p {
+  margin: 0;
+}
+
+#daily-tally .daily-tally-page-head h2 {
+  margin-top: 3px;
+  color: #143c37;
+  font-size: clamp(22px, 2vw, 30px);
+}
+
+#daily-tally .daily-tally-page-head p {
+  margin-top: 6px;
+  color: #5e716d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#daily-tally .daily-tally-eyebrow {
+  display: block;
+  color: #08776c;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+#daily-tally .daily-tally-formula {
+  display: grid;
+  gap: 3px;
+  min-width: min(100%, 360px);
+  padding: 12px 16px;
+  border: 1px solid #b8ddd0;
+  border-radius: 8px;
+  background: #eefaf5;
+  color: #14594f;
+  text-align: right;
+}
+
+#daily-tally .daily-tally-formula small {
+  color: #5c776f;
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+#daily-tally .daily-tally-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+#daily-tally .daily-tally-summary .factory-summary-card {
+  min-height: 96px;
+  padding: 14px 16px;
+  border-color: #d5e6e0;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(10, 64, 57, 0.06);
+}
+
+#daily-tally .daily-tally-summary .factory-summary-card:nth-child(2) {
+  border-top: 3px solid #2879d0;
+}
+
+#daily-tally .daily-tally-summary .factory-summary-card:nth-child(3) {
+  border-top: 3px solid #8065b8;
+}
+
+#daily-tally .daily-tally-summary .factory-summary-card:nth-child(4) {
+  border-top: 3px solid #08776c;
+}
+
+#daily-tally .daily-tally-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+}
+
+#daily-tally .daily-tally-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid #cfe2dc;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(10, 64, 57, 0.08);
+}
+
+#daily-tally .daily-tally-form-head,
+#daily-tally .daily-tally-actions,
+#daily-tally .daily-tally-section-title {
+  display: flex;
+  align-items: center;
+}
+
+#daily-tally .daily-tally-form-head {
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e1ece8;
+}
+
+#daily-tally .daily-tally-form-head span:first-child {
+  color: #6b7d79;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+#daily-tally .daily-tally-form-head h2 {
+  margin: 3px 0 0;
+  color: #163e38;
+  font-size: 19px;
+}
+
+#daily-tally .daily-tally-live-badge {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #dff6ec;
+  color: #086759 !important;
+  white-space: nowrap;
+}
+
+#daily-tally .daily-tally-entry-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+  gap: 22px;
+}
+
+#daily-tally .daily-tally-section {
+  min-width: 0;
+}
+
+#daily-tally .daily-tally-physical-section {
+  padding-right: 22px;
+  border-right: 1px solid #dde9e5;
+}
+
+#daily-tally .daily-tally-section-title {
+  gap: 10px;
+  margin-bottom: 13px;
+}
+
+#daily-tally .daily-tally-section-title > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #08776c;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+#daily-tally .daily-tally-section-title div {
+  display: grid;
+  gap: 2px;
+}
+
+#daily-tally .daily-tally-section-title strong {
+  color: #173f39;
+  font-size: 14px;
+}
+
+#daily-tally .daily-tally-section-title small {
+  color: #74847f;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+#daily-tally .daily-tally-field-grid,
+#daily-tally .daily-tally-note-grid,
+#daily-tally .daily-tally-result-grid {
+  display: grid;
+  gap: 11px;
+}
+
+#daily-tally .daily-tally-field-grid,
+#daily-tally .daily-tally-note-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#daily-tally .daily-tally-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #3f5752;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.04em;
+}
+
+#daily-tally .daily-tally-form input,
+#daily-tally .daily-tally-form select {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  border: 1px solid #c8dcd5;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #183c37;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+#daily-tally .daily-tally-form input:focus,
+#daily-tally .daily-tally-form select:focus {
+  border-color: #08776c;
+  box-shadow: 0 0 0 3px rgba(8, 119, 108, 0.12);
+}
+
+#daily-tally .daily-tally-result-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#daily-tally .daily-tally-result-grid label {
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid #d7e6e1;
+  border-radius: 8px;
+  background: #f8fcfa;
+}
+
+#daily-tally .daily-tally-result-grid label span {
+  color: #657873;
+  font-size: 9px;
+}
+
+#daily-tally .daily-tally-result-grid input[readonly] {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #164b43;
+  font-size: 18px;
+  font-weight: 1000;
+}
+
+#daily-tally .daily-tally-result-grid .daily-tally-difference {
+  grid-column: 2 / 4;
+  border-color: #a9d8c8;
+  background: #e9f8f2;
+}
+
+#daily-tally .daily-tally-result-grid .daily-tally-difference input {
+  color: #08776c;
+}
+
+#daily-tally .daily-tally-note-grid {
+  padding-top: 15px;
+  border-top: 1px solid #e1ece8;
+}
+
+#daily-tally .daily-tally-actions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#daily-tally #daily-tally-submit,
+#daily-tally #cancel-daily-tally-edit {
+  grid-column: auto;
+  width: auto;
+  min-width: 190px;
+}
+
+#daily-tally .daily-tally-panel {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: #d2e4de;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(10, 64, 57, 0.07);
+}
+
+#daily-tally .daily-tally-panel .panel-heading {
+  margin: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid #dfeae6;
+  background: #f8fcfa;
+}
+
+#daily-tally .daily-tally-panel .panel-heading h2 {
+  margin: 3px 0 0;
+  color: #173f39;
+  font-size: 17px;
+}
+
+#daily-tally .daily-tally-table-wrap {
+  width: 100%;
+  max-height: 520px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0;
+}
+
+#daily-tally .daily-tally-panel table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+#daily-tally .daily-tally-panel th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 11px 10px;
+  background: #eaf5f1;
+  color: #315a53;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+#daily-tally .daily-tally-panel td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e8efec;
+  color: #334d48;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#daily-tally .daily-tally-panel tbody tr:hover td {
+  background: #f3fbf7;
+}
+
+#daily-tally .daily-tally-panel td small {
+  display: block;
+  margin-top: 4px;
+  color: #74847f;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+#daily-tally .daily-tally-panel th:nth-child(1) { width: 9%; }
+#daily-tally .daily-tally-panel th:nth-child(2) { width: 17%; }
+#daily-tally .daily-tally-panel th:nth-child(3) { width: 16%; }
+#daily-tally .daily-tally-panel th:nth-child(4) { width: 20%; }
+#daily-tally .daily-tally-panel th:nth-child(5) { width: 11%; }
+#daily-tally .daily-tally-panel th:nth-child(6) { width: 18%; }
+#daily-tally .daily-tally-panel th:nth-child(7) { width: 9%; }
+
+#daily-tally .daily-tally-note {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#daily-tally .daily-tally-panel .row-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+
+#daily-tally .daily-tally-panel .row-actions button {
+  min-width: 0;
+  padding: 6px;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  #daily-tally .daily-tally-entry-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #daily-tally .daily-tally-physical-section {
+    padding-right: 0;
+    padding-bottom: 16px;
+    border-right: 0;
+    border-bottom: 1px solid #dde9e5;
+  }
+}
+
+@media (max-width: 760px) {
+  #daily-tally .daily-tally-page-head,
+  #daily-tally .daily-tally-form-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #daily-tally .daily-tally-formula {
+    min-width: 0;
+    text-align: left;
+  }
+
+  #daily-tally .daily-tally-summary,
+  #daily-tally .daily-tally-field-grid,
+  #daily-tally .daily-tally-note-grid,
+  #daily-tally .daily-tally-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #daily-tally .daily-tally-result-grid .daily-tally-difference {
+    grid-column: auto;
+  }
+
+  #daily-tally .daily-tally-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #daily-tally #daily-tally-submit,
+  #daily-tally #cancel-daily-tally-edit {
+    width: 100%;
+  }
+
+  #daily-tally .daily-tally-table-wrap {
+    overflow-x: auto;
+  }
+
+  #daily-tally .daily-tally-panel table {
+    min-width: 760px;
+  }
+}
+
+/* V342: reusable dabba and container weights for daily tally. */
+#daily-tally .daily-tally-container-field {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  min-width: 0;
+}
+
+#daily-tally .daily-tally-karat-field:not(.hidden) {
+  padding: 10px 12px;
+  border: 1px solid #b8dcd0;
+  border-radius: 8px;
+  background: #eef9f5;
+}
+
+#daily-tally .daily-tally-container-field > label {
+  color: #3f5752;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.04em;
+}
+
+#daily-tally .daily-tally-container-field > small {
+  color: #73847f;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+#daily-tally .daily-tally-container-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+}
+
+#daily-tally .daily-tally-container-control button {
+  min-width: 88px;
+  height: 42px;
+  padding: 0 14px;
+}
+
+#daily-tally .daily-tally-form input[readonly] {
+  border-color: #c9ddd6;
+  background: #eef7f3;
+  color: #14584e;
+}
+
+#daily-tally-container-dialog {
+  width: calc(100vw - 24px);
+  max-width: 1180px;
+  height: min(760px, calc(100vh - 24px));
+}
+
+#daily-tally-container-dialog .daily-tally-container-dialog-card {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+#daily-tally-container-dialog .dialog-header h2,
+#daily-tally-container-dialog .dialog-header p {
+  margin: 0;
+}
+
+#daily-tally-container-dialog .dialog-header h2 {
+  margin-top: 3px;
+  color: #173f39;
+}
+
+#daily-tally-container-dialog .dialog-header p {
+  margin-top: 5px;
+}
+
+.daily-tally-container-manager {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.36fr) minmax(0, 0.64fr);
+  gap: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.daily-tally-container-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 13px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #cfe3dc;
+  border-radius: 8px;
+  background: #f8fcfa;
+  overflow-y: auto;
+}
+
+.daily-tally-container-form .daily-tally-section-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.daily-tally-container-form .daily-tally-section-title > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #08776c;
+  color: #ffffff;
+  font-weight: 1000;
+}
+
+.daily-tally-container-form .daily-tally-section-title div {
+  display: grid;
+  gap: 2px;
+}
+
+.daily-tally-container-form .daily-tally-section-title small {
+  color: #73847f;
+  font-size: 9px;
+}
+
+.daily-tally-container-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.daily-tally-container-form-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 3px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid #d9e8e3;
+  background: transparent;
+}
+
+.daily-tally-container-list-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: #d1e4dd;
+}
+
+.daily-tally-container-list-panel .panel-heading {
+  margin: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid #ddeae5;
+  background: #f5faf8;
+}
+
+.daily-tally-container-list-panel .panel-heading h2 {
+  margin: 0;
+  color: #173f39;
+  font-size: 16px;
+}
+
+.daily-tally-container-list-panel .table-wrap {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.daily-tally-container-list-panel table {
+  width: 100%;
+  min-width: 620px;
+  table-layout: fixed;
+}
+
+.daily-tally-container-list-panel th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #eaf5f1;
+}
+
+.daily-tally-container-list-panel th:nth-child(1) { width: 18%; }
+.daily-tally-container-list-panel th:nth-child(2) { width: 19%; }
+.daily-tally-container-list-panel th:nth-child(3) { width: 12%; }
+.daily-tally-container-list-panel th:nth-child(4) { width: 11%; }
+.daily-tally-container-list-panel th:nth-child(5) { width: 14%; }
+.daily-tally-container-list-panel th:nth-child(6) { width: 16%; }
+.daily-tally-container-list-panel th:nth-child(7) { width: 10%; }
+
+.daily-tally-container-list-panel td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.daily-tally-container-list-panel .row-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 5px;
+}
+
+@media (max-width: 820px) {
+  #daily-tally-container-dialog {
+    width: calc(100vw - 12px);
+    height: calc(100vh - 12px);
+    max-height: calc(100vh - 12px);
+  }
+
+  #daily-tally-container-dialog .daily-tally-container-dialog-card {
+    overflow-y: auto;
+  }
+
+  .daily-tally-container-manager {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .daily-tally-container-list-panel {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 560px) {
+  #daily-tally .daily-tally-container-control {
+    grid-template-columns: 1fr;
+  }
+
+  #daily-tally .daily-tally-container-control button {
+    width: 100%;
+  }
+}
+
 /* V268: left-edge menu popup and independent app scroll. */
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) {
   overflow: hidden;
@@ -8133,6 +8887,45 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   grid-column: 1 / -1;
 }
 
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .xrf-auto-issue-field {
+  border-color: rgba(8, 119, 108, 0.46);
+  background: linear-gradient(180deg, #e8f8ef 0%, #ffffff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .xrf-auto-issue-field input[readonly] {
+  color: #075e52;
+  font-weight: 900;
+  background: #dff4e8;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-source-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid #08776c;
+  border-radius: 6px;
+  background: #eefaf4;
+  color: #164f48;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-source-note:empty {
+  display: none;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-receive-selected {
+  background: #08776c;
+  border-color: #08776c;
+  color: #ffffff;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-dashboard-metric {
+  border-color: rgba(8, 119, 108, 0.42);
+  background: linear-gradient(180deg, #ebfaf3 0%, #ffffff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-dashboard-metric > strong {
+  color: #075e52;
+}
+
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: end;
@@ -8150,6 +8943,55 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid rgba(215, 232, 225, 0.86);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-receive-dialog {
+  width: calc(100vw - 16px);
+  max-width: none;
+  height: calc(100vh - 16px);
+  max-height: calc(100vh - 16px);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-dialog-card {
+  align-content: start;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-issue-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-issue-grid > label,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-entry-grid > label {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(174, 216, 201, 0.78);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-issue-grid {
+  padding: 14px;
+  border: 1px solid rgba(174, 216, 201, 0.84);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f0fbf6 0%, #ffffff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issue-weight-field {
+  border-color: rgba(8, 119, 108, 0.55) !important;
+  background: #e5f7ed !important;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issue-weight-field input,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issued-weight {
+  color: #075e52;
+  font-weight: 900;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-entry-grid > .full-row {
+  grid-column: 1 / -1;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-layout {
@@ -8212,6 +9054,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-issue-grid,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-entry-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

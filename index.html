@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=339">
+    <link rel="stylesheet" href="styles.css?v=345">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v339</small>
+            <small class="app-version-badge">App v345</small>
           </div>
         </div>
         <label>User
@@ -87,6 +87,7 @@
         <button class="nav-item" data-view="office">Office</button>
         <button class="nav-item" data-view="safe">Safe Locker</button>
         <button class="nav-item" data-view="factory">Factory In / Out</button>
+        <button class="nav-item" data-view="daily-tally">Daily Stock Tally</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
         <button class="nav-item" data-view="reports">Reports</button>
@@ -111,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v339</span>
+            <span class="app-version-badge">App v345</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -139,6 +140,7 @@
           </article>
           <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
+          <article class="metric xrf-dashboard-metric"><span>XRF Pending GW</span><strong id="metric-xrf-pending">0 g</strong><button class="metric-open" type="button" data-dashboard-view="melting" data-dashboard-operation="xrf">Open</button></article>
           <article class="metric"><span>Non-Gold In Departments</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="non-gold">Open</button></article>
           <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
           <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="billing" data-dashboard-operation="bill">Open</button></article>
@@ -830,6 +832,100 @@
         </section>
       </section>
 
+      <section id="daily-tally" class="view">
+        <div class="daily-tally-page-head">
+          <div>
+            <span class="daily-tally-eyebrow">Daily Physical Verification</span>
+            <h2>Department Stock Tally</h2>
+            <p>Compare each main department's physical holding with the current ERP balance.</p>
+          </div>
+          <div class="daily-tally-formula">
+            <small>Tally formula</small>
+            <strong>Total Weight - Dabba Weight = Physical GW</strong>
+          </div>
+        </div>
+        <div id="daily-tally-summary" class="factory-summary-grid daily-tally-summary"></div>
+        <div class="daily-tally-workbench">
+          <form id="daily-tally-form" class="daily-tally-form">
+            <input type="hidden" name="tallyId">
+            <input type="hidden" name="mode" value="department">
+            <div class="daily-tally-form-head">
+              <div>
+                <span>Physical Stock Entry</span>
+                <h2 id="daily-tally-form-title">New Department Tally</h2>
+              </div>
+              <span class="daily-tally-live-badge">ERP Live Comparison</span>
+            </div>
+
+            <div class="daily-tally-entry-grid">
+              <section class="daily-tally-section daily-tally-physical-section">
+                <div class="daily-tally-section-title"><span>1</span><div><strong>Physical Count</strong><small>Enter the weight measured in the department.</small></div></div>
+                <div class="daily-tally-field-grid">
+                  <label>Date <input name="date" type="date" required></label>
+                  <label>Main Department
+                    <select name="target" required></select>
+                  </label>
+                  <label id="daily-tally-karat-field" class="daily-tally-karat-field hidden">Karat
+                    <select name="karat">
+                      <option value="9K">9K / 38.50%</option>
+                      <option value="14K">14K / 58.50%</option>
+                      <option value="18K" selected>18K / 75.00%</option>
+                      <option value="22K">22K / 91.60%</option>
+                    </select>
+                  </label>
+                  <div class="daily-tally-container-field">
+                    <label for="daily-tally-container-select">Dabba / Container</label>
+                    <div class="daily-tally-container-control">
+                      <select id="daily-tally-container-select" name="containerId"></select>
+                      <button id="open-daily-tally-containers" class="ghost-button" type="button">Manage</button>
+                    </div>
+                    <small>Saved weight is deducted automatically.</small>
+                  </div>
+                  <label>Total Physical Weight (g) <input name="totalWeight" type="number" min="0" step="0.001" placeholder="0.000" required></label>
+                  <label>Auto Dabba Weight (g) <input name="boxWeight" type="number" min="0" step="0.001" value="0" placeholder="0.000" readonly></label>
+                </div>
+              </section>
+
+              <section class="daily-tally-section daily-tally-comparison-section">
+                <div class="daily-tally-section-title"><span>2</span><div><strong>ERP Comparison</strong><small>Calculated automatically from the selected department.</small></div></div>
+                <div class="daily-tally-result-grid">
+                  <label><span>Physical GW</span><input name="tallyWeight" type="number" readonly></label>
+                  <label><span>ERP Expected GW</span><input name="expectedGross" type="number" readonly></label>
+                  <label><span>ERP Net Gold</span><input name="expectedGold" type="number" readonly></label>
+                  <label><span>ERP Fine Gold</span><input name="expectedFine" type="number" readonly></label>
+                  <label class="daily-tally-difference"><span>Difference</span><input name="difference" type="number" readonly></label>
+                </div>
+              </section>
+            </div>
+
+            <div class="daily-tally-note-grid">
+              <label>Contents / Dabba Note <input name="contents" placeholder="Stone, beads, moti, spring included in GW"></label>
+              <label>Remarks <input name="remarks" placeholder="Enter mismatch reason or tally note"></label>
+            </div>
+            <div class="daily-tally-actions">
+              <button id="daily-tally-submit" type="submit">Save Department Tally</button>
+              <button id="cancel-daily-tally-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+            </div>
+          </form>
+
+          <section class="panel table-panel daily-tally-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="daily-tally-eyebrow">Saved Entries</span>
+                <h2>Department Tally History</h2>
+              </div>
+              <input id="daily-tally-search" class="search compact-search" placeholder="Search department, date or remarks">
+            </div>
+            <div class="table-wrap daily-tally-table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Main Department</th><th>Physical Weight</th><th>ERP Holding</th><th>Difference</th><th>Notes / Entered By</th><th>Action</th></tr></thead>
+                <tbody id="daily-tally-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section id="melting" class="view">
         <div class="tile-grid operation-tile-grid melting-operation-tiles">
           <button class="action-tile" type="button" data-operation-view="melting" data-operation-page="dashboard">
@@ -932,7 +1028,7 @@
                 <option>3 Tone</option>
               </select>
             </label>
-            <label>Weight Issue From Casting Tree WSTG (g) <input name="weightIssue" type="number" min="0" step="0.001" value="0.500" required></label>
+            <label class="xrf-auto-issue-field">XRF Issue Weight From Casting Receive (g) <input name="weightIssue" type="number" min="0" step="0.001" value="0.500" required></label>
             <label>XRF Report <input name="xrfReport" placeholder="Purity / report"></label>
             <label>Fire Report (%) <input name="fireReport" type="number" min="0" max="100" step="0.01" placeholder="Fire report %"></label>
             <label>WSTG Untreated Return To Shelf (g) <input name="wstgWeight" type="number" min="0" step="0.001" value="0"></label>
@@ -942,13 +1038,15 @@
             <label>Gold Loss (g) <input name="loss" type="number" readonly></label>
             <label>Alloy Loss (g) <input name="alloyLoss" type="number" readonly></label>
             <label>Remarks <input name="remarks" placeholder="Any note"></label>
+            <p id="xrf-source-note" class="dialog-note xrf-source-note"></p>
+            <button id="xrf-receive-selected" class="ghost-button" type="button" disabled>Receive Selected XRF</button>
             <button id="xrf-submit" type="submit">Save XRF Entry</button>
             <button id="cancel-xrf-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
           <div id="xrf-summary-grid" class="melting-summary-grid"></div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Casting Batch</th><th>Karat</th><th>Colour</th><th>XRF Issue</th><th>WSTG Shelf Return</th><th>Treated Metal</th><th>XRF Report</th><th>Fire Report</th><th>Pure Metal</th><th>Touch Puliya 99.9</th><th>Gold Loss</th><th>Alloy Loss</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Issue Date</th><th>Casting Batch</th><th>Karat</th><th>Colour</th><th>XRF Issue Weight (g)</th><th>WSTG Shelf Return</th><th>Treated Metal</th><th>XRF Report</th><th>Fire Report</th><th>Pure Metal</th><th>Touch Puliya 99.9</th><th>Gold Loss</th><th>Alloy Loss</th><th>Status</th><th>Action</th></tr></thead>
               <tbody id="xrf-table"></tbody>
             </table>
           </div>
@@ -1075,6 +1173,66 @@
 
       <section id="transfer-history" class="view"></section>
     </main>
+
+    <dialog id="daily-tally-container-dialog">
+      <div class="dialog-card daily-tally-container-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <span class="daily-tally-eyebrow">Reusable Weight Master</span>
+            <h2>Dabba / Container Master</h2>
+            <p class="dialog-note">Save each dabba, tray, box, bag, packet, or other container once.</p>
+          </div>
+          <button id="close-daily-tally-containers" class="ghost-button" type="button">Close</button>
+        </div>
+        <div class="daily-tally-container-manager">
+          <form id="daily-tally-container-form" class="form-panel daily-tally-container-form">
+            <input type="hidden" name="containerId">
+            <div class="daily-tally-section-title"><span>+</span><div><strong id="daily-tally-container-form-title">Add Container</strong><small>The weight will be available in every daily tally.</small></div></div>
+            <label>Container Name <input name="name" placeholder="Example: Vinod Dabba 1" required></label>
+            <label>Main Department
+              <select name="department" required></select>
+            </label>
+            <label id="daily-tally-container-karat-field" class="hidden">Karat For This Container
+              <select name="karat">
+                <option value="">All Karats</option>
+                <option value="9K">9K / 38.50%</option>
+                <option value="14K">14K / 58.50%</option>
+                <option value="18K">18K / 75.00%</option>
+                <option value="22K">22K / 91.60%</option>
+              </select>
+            </label>
+            <label>Container Type
+              <select name="type">
+                <option value="Dabba">Dabba</option>
+                <option value="Box">Box</option>
+                <option value="Tray">Tray</option>
+                <option value="Bag">Bag</option>
+                <option value="Packet">Packet</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label>Empty Weight (g) <input name="weight" type="number" min="0" step="0.001" placeholder="0.000" required></label>
+            <label>Remarks <input name="remarks" placeholder="Optional identification note"></label>
+            <div class="dialog-actions daily-tally-container-form-actions">
+              <button id="daily-tally-container-save" type="submit">Save Container</button>
+              <button id="daily-tally-container-cancel" class="ghost-button hidden" type="button">Cancel Edit</button>
+            </div>
+          </form>
+          <section class="panel table-panel daily-tally-container-list-panel">
+            <div class="panel-heading">
+              <div><h2>Saved Containers</h2><span id="daily-tally-container-count" class="dialog-note">0 saved</span></div>
+              <input id="daily-tally-container-search" class="search compact-search" placeholder="Search container">
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Department</th><th>Karat</th><th>Type</th><th>Empty Weight</th><th>Remarks</th><th>Action</th></tr></thead>
+                <tbody id="daily-tally-container-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="online-transfer-history-dialog">
       <div class="dialog-card history-dialog transfer-history-operation-dialog-card online-transfer-history-dialog-card">
@@ -1499,8 +1657,8 @@
         <label class="melting-receive-casting">Wastage Received (g) <input name="wastageWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Scrap / Dust Received (g) <input name="scrapDustWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Other Received Weight (g) <input name="otherReceivedWeight" type="number" min="0" step="0.001" value="0"></label>
-        <label class="melting-receive-casting xrf-receive-option"><input name="issueXrfSample" type="checkbox"> Issue XRF directly from this casting batch</label>
-        <label class="melting-receive-casting xrf-receive-option">XRF Issue Weight From Tree WSTG (g) <input name="xrfIssueWeight" type="number" min="0" step="0.001" value="0.500"></label>
+        <label class="melting-receive-casting xrf-receive-option">XRF Sample Weight - Auto Shelf Out (g) <input name="xrfIssueWeight" type="number" min="0" step="0.001" value="0.500"></label>
+        <label class="melting-receive-casting xrf-receive-option">Tree Cut Shelf Balance After XRF (g) <input name="treeCutShelfBalance" type="number" readonly value="0"></label>
         <p id="melting-xrf-issue-note" class="dialog-note melting-receive-casting"></p>
         <label class="melting-receive-rod hidden">Rod 1 Received (g) <input name="rod1Weight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-rod hidden">Rod 2 Received (g) <input name="rod2Weight" type="number" min="0" step="0.001" value="0"></label>
@@ -1511,6 +1669,43 @@
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-melting-receive">Cancel</button>
           <button value="default" type="submit">Book Receive</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="xrf-receive-dialog">
+      <form id="xrf-receive-form" class="dialog-card xrf-receive-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2 id="xrf-receive-title">Receive XRF Sample</h2>
+            <p id="xrf-receive-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-xrf-receive">Close</button>
+        </div>
+        <input type="hidden" name="xrfId">
+        <div class="xrf-receive-issue-grid">
+          <label>Casting Batch <input name="castingBatchName" readonly></label>
+          <label>Karat <input name="karat" readonly></label>
+          <label>Colour <input name="colour" readonly></label>
+          <label>Issue Date <input name="issueDate" type="date" readonly></label>
+          <label class="xrf-issue-weight-field">XRF Issue Weight (g) <input name="weightIssue" type="number" readonly></label>
+        </div>
+        <div class="xrf-receive-entry-grid">
+          <label>Return Date <input name="returnedDate" type="date" required></label>
+          <label>XRF Report <input name="xrfReport" placeholder="Purity / report"></label>
+          <label>Fire Report (%) <input name="fireReport" type="number" min="0" max="100" step="0.01" placeholder="Fire report %"></label>
+          <label>WSTG Untreated Return To Shelf (g) <input name="wstgWeight" type="number" min="0" step="0.001" value="0"></label>
+          <label>Treated Metal (g) <input name="treatedMetal" type="number" readonly></label>
+          <label>Pure Metal By Fire Report (g) <input name="pureReturnWeight" type="number" readonly></label>
+          <label>Touch Puliya 99.9 To Metal Safe (g) <input name="touchPuliya" type="number" min="0" step="0.001" value="0"></label>
+          <label>Gold Loss (g) <input name="loss" type="number" readonly></label>
+          <label>Alloy Loss (g) <input name="alloyLoss" type="number" readonly></label>
+          <label class="full-row">Remarks <input name="remarks" placeholder="XRF return note"></label>
+        </div>
+        <p class="dialog-note">The issued sample remains linked to this casting batch. Touch Puliya goes to Metal Safe and untreated WSTG returns to its karat and colour shelf.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-xrf-receive">Cancel</button>
+          <button type="submit">Save XRF Return</button>
         </div>
       </form>
     </dialog>
@@ -1706,6 +1901,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=339"></script>
+    <script src="app.js?v=345"></script>
 </body>
 </html>
