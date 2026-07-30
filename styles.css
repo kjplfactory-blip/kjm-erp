@@ -9523,6 +9523,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   margin: auto;
 }
 
+body.mobile-print-isolated .global-print-area {
+  display: block !important;
+  visibility: visible !important;
+}
+
 #mobile-print-dialog .mobile-print-dialog-card {
   width: 100%;
   height: auto;

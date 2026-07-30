@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v352";
+const APP_VERSION = "v353";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -8483,18 +8483,39 @@ function startJobPrint(html, mode = "job") {
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = html;
   setPrintPageSize(mode);
+  const mobilePrint = requiresDirectTapForPrint();
   let cleaned = false;
   let closeMobilePrompt = null;
+  let restoreMobilePage = null;
+  let mobilePrintReturnTimer = null;
+  let mobilePrintLeftPage = false;
+  const handleMobilePrintLeave = () => {
+    mobilePrintLeftPage = true;
+  };
+  const handleMobilePrintReturn = () => {
+    if (!mobilePrintLeftPage || cleaned) return;
+    window.clearTimeout(mobilePrintReturnTimer);
+    mobilePrintReturnTimer = window.setTimeout(cleanup, 250);
+  };
+  const handleMobilePrintVisibility = () => {
+    if (document.visibilityState === "hidden") handleMobilePrintLeave();
+    else handleMobilePrintReturn();
+  };
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    window.clearTimeout(mobilePrintReturnTimer);
     closeMobilePrompt?.();
     document.body.classList.remove("printing-order");
     document.body.classList.remove("printing-single-item");
     document.body.classList.remove("printing-transfer-bag");
+    restoreMobilePage?.();
     printArea.innerHTML = "";
     setPrintPageSize("job");
     window.removeEventListener("afterprint", cleanup);
+    window.removeEventListener("blur", handleMobilePrintLeave);
+    window.removeEventListener("focus", handleMobilePrintReturn);
+    document.removeEventListener("visibilitychange", handleMobilePrintVisibility);
     if (activeJobPrintCleanup === cleanup) activeJobPrintCleanup = null;
   };
   const printNow = () => {
@@ -8502,11 +8523,23 @@ function startJobPrint(html, mode = "job") {
     document.body.classList.add("printing-order");
     document.body.classList.toggle("printing-single-item", mode === "single");
     document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
-    window.print();
+    if (mobilePrint) {
+      restoreMobilePage = isolateJobBagForMobilePrint(printArea, mode);
+      window.addEventListener("blur", handleMobilePrintLeave);
+      window.addEventListener("focus", handleMobilePrintReturn);
+      document.addEventListener("visibilitychange", handleMobilePrintVisibility);
+    }
+    printArea.getBoundingClientRect();
+    try {
+      window.print();
+    } catch (error) {
+      cleanup();
+      alert(`Print could not open: ${error.message}`);
+    }
   };
   activeJobPrintCleanup = cleanup;
   window.addEventListener("afterprint", cleanup);
-  if (requiresDirectTapForPrint()) {
+  if (mobilePrint) {
     closeMobilePrompt = showMobileJobPrintPrompt(mode, printNow, cleanup);
     return;
   }
@@ -8516,6 +8549,39 @@ function startJobPrint(html, mode = "job") {
   setTimeout(() => {
     if (!cleaned) window.print();
   }, 100);
+}
+
+function isolateJobBagForMobilePrint(printArea, mode = "job") {
+  const body = document.body;
+  const bodyStyle = body.getAttribute("style");
+  const printAreaStyle = printArea.getAttribute("style");
+  const detachedPage = document.createDocumentFragment();
+  Array.from(body.childNodes).forEach((node) => {
+    if (node !== printArea) detachedPage.appendChild(node);
+  });
+  const paperWidth = mode === "job" ? "210mm" : "105mm";
+  body.classList.add("mobile-print-isolated");
+  body.style.setProperty("display", "block", "important");
+  body.style.setProperty("width", paperWidth, "important");
+  body.style.setProperty("margin", "0", "important");
+  body.style.setProperty("overflow", "visible", "important");
+  body.style.setProperty("background", "#ffffff", "important");
+  printArea.style.setProperty("display", "block", "important");
+  printArea.style.setProperty("position", "static", "important");
+  printArea.style.setProperty("width", paperWidth, "important");
+  printArea.style.setProperty("overflow", "visible", "important");
+  printArea.getBoundingClientRect();
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    body.insertBefore(detachedPage, printArea);
+    body.classList.remove("mobile-print-isolated");
+    if (bodyStyle === null) body.removeAttribute("style");
+    else body.setAttribute("style", bodyStyle);
+    if (printAreaStyle === null) printArea.removeAttribute("style");
+    else printArea.setAttribute("style", printAreaStyle);
+  };
 }
 
 function requiresDirectTapForPrint() {
