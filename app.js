@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v351";
+const APP_VERSION = "v352";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -121,6 +121,7 @@ let catalogueImageCache = new Map();
 let barcodeScanBuffer = "";
 let barcodeScanLastInputAt = 0;
 let barcodeScanStatusTimer = null;
+let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
 
@@ -8478,22 +8479,111 @@ async function printSingleJobItem(orderId) {
 }
 
 function startJobPrint(html, mode = "job") {
+  if (typeof activeJobPrintCleanup === "function") activeJobPrintCleanup();
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = html;
   setPrintPageSize(mode);
-  document.body.classList.add("printing-order");
-  document.body.classList.toggle("printing-single-item", mode === "single");
-  document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
+  let cleaned = false;
+  let closeMobilePrompt = null;
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    closeMobilePrompt?.();
     document.body.classList.remove("printing-order");
     document.body.classList.remove("printing-single-item");
     document.body.classList.remove("printing-transfer-bag");
     printArea.innerHTML = "";
     setPrintPageSize("job");
     window.removeEventListener("afterprint", cleanup);
+    if (activeJobPrintCleanup === cleanup) activeJobPrintCleanup = null;
   };
+  const printNow = () => {
+    if (cleaned) return;
+    document.body.classList.add("printing-order");
+    document.body.classList.toggle("printing-single-item", mode === "single");
+    document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
+    window.print();
+  };
+  activeJobPrintCleanup = cleanup;
   window.addEventListener("afterprint", cleanup);
-  setTimeout(() => window.print(), 100);
+  if (requiresDirectTapForPrint()) {
+    closeMobilePrompt = showMobileJobPrintPrompt(mode, printNow, cleanup);
+    return;
+  }
+  document.body.classList.add("printing-order");
+  document.body.classList.toggle("printing-single-item", mode === "single");
+  document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
+  setTimeout(() => {
+    if (!cleaned) window.print();
+  }, 100);
+}
+
+function requiresDirectTapForPrint() {
+  const userAgent = navigator.userAgent || "";
+  const mobileBrowser = /Android|iPad|iPhone|iPod|Mobile/i.test(userAgent);
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+  return Boolean(mobileBrowser || coarsePointer || navigator.maxTouchPoints > 1);
+}
+
+function jobPrintModeLabel(mode = "job") {
+  if (mode === "single") return "A6 / 1 Job Bag Per Page";
+  if (mode === "transfer-bag") return "A6 / 2 Transfer Bag Pages Per Job Card";
+  return "A4 / 4 Job Bags Per Page";
+}
+
+function showMobileJobPrintPrompt(mode, onPrint, onCancel) {
+  const dialog = document.getElementById("mobile-print-dialog");
+  const printButton = document.getElementById("mobile-print-now");
+  const cancelButton = document.getElementById("mobile-print-cancel");
+  const format = document.getElementById("mobile-print-format");
+  if (!dialog || !printButton || !cancelButton) {
+    onPrint();
+    return () => {};
+  }
+  if (format) format.textContent = jobPrintModeLabel(mode);
+  let settled = false;
+  const detach = () => {
+    printButton.removeEventListener("click", handlePrint);
+    cancelButton.removeEventListener("click", handleCancel);
+    dialog.removeEventListener("cancel", handleDialogCancel);
+    dialog.removeEventListener("close", handleDialogClose);
+  };
+  const closeDialog = () => {
+    if (dialog.open) dialog.close();
+  };
+  const handlePrint = () => {
+    if (settled) return;
+    settled = true;
+    detach();
+    closeDialog();
+    onPrint();
+  };
+  const handleCancel = () => {
+    if (settled) return;
+    settled = true;
+    detach();
+    closeDialog();
+    onCancel();
+  };
+  const handleDialogCancel = (event) => {
+    event.preventDefault();
+    handleCancel();
+  };
+  const handleDialogClose = () => {
+    if (!settled) handleCancel();
+  };
+  printButton.addEventListener("click", handlePrint);
+  cancelButton.addEventListener("click", handleCancel);
+  dialog.addEventListener("cancel", handleDialogCancel);
+  dialog.addEventListener("close", handleDialogClose);
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => printButton.focus());
+  return () => {
+    if (settled) return;
+    settled = true;
+    detach();
+    closeDialog();
+  };
 }
 
 function setPrintPageSize(mode = "job") {

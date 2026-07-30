@@ -9516,6 +9516,96 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   }
 }
 
+#mobile-print-dialog {
+  width: min(520px, calc(100vw - 24px));
+  height: auto;
+  max-height: calc(100vh - 24px);
+  margin: auto;
+}
+
+#mobile-print-dialog .mobile-print-dialog-card {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 28px;
+  gap: 14px;
+  overflow: visible;
+  text-align: center;
+}
+
+.mobile-print-kicker {
+  justify-self: center;
+  padding: 5px 10px;
+  border: 1px solid #9fd8c7;
+  border-radius: 999px;
+  background: #e9f8f2;
+  color: #0b6558;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mobile-print-dialog-card h2 {
+  margin: 2px 0 0;
+  color: #123e37;
+  font-size: 24px;
+}
+
+.mobile-print-dialog-card > p {
+  max-width: 430px;
+  margin: 0 auto;
+  color: #48675f;
+  line-height: 1.55;
+}
+
+.mobile-print-format-card {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+  border: 1px solid #cbded8;
+  border-radius: 8px;
+  background: #f6fbf9;
+  text-align: left;
+}
+
+.mobile-print-format-card small {
+  color: #668078;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mobile-print-format-card strong {
+  color: #123e37;
+  font-size: 16px;
+}
+
+.mobile-print-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 10px;
+}
+
+.mobile-print-actions button {
+  min-height: 48px;
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  #mobile-print-dialog .mobile-print-dialog-card {
+    padding: 22px;
+  }
+
+  .mobile-print-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #mobile-print-now {
+    grid-row: 1;
+  }
+}
+
 /* V288 catalogue order screen: two image columns with selected items pinned on the right. */
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #catalogue-page-order.catalogue-layout {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
