@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v337";
+const APP_VERSION = "v338";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -559,6 +559,7 @@ document.getElementById("close-stone-entry").addEventListener("click", () => {
 document.getElementById("stone-entry-dialog").addEventListener("close", restoreStoneEntryReturnContext);
 document.getElementById("crop-stone-chart").addEventListener("click", openStoneCropDialog);
 document.getElementById("assign-stone-charts").addEventListener("click", async () => {
+  if (!requirePageEditPermission("designs", "assign stone charts")) return;
   await assignSelectedStoneChartFiles();
 });
 document.getElementById("close-stone-crop").addEventListener("click", () => {
@@ -700,6 +701,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
 
 document.getElementById("design-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!requirePageEditPermission("designs", "upload or update designs")) return;
   const form = event.target;
   const data = getFormData(form);
   const selectedCategory = normalizeDesignCategory(data.category);
@@ -872,6 +874,7 @@ document.getElementById("design-delete-selected-category").addEventListener("cli
 
 document.getElementById("stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (!requirePageEditPermission("stone-library", "add or edit stone master")) return;
   const data = getFormData(event.target);
   const existing = data.stoneId ? findById("stones", data.stoneId) : null;
   const stone = {
@@ -990,6 +993,7 @@ document.querySelector('#stone-entry-form [name="stoneChart"]').addEventListener
 
 document.getElementById("stone-entry-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!requirePageEditPermission("designs", "save design stone entry")) return;
   const form = event.target;
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) {
@@ -2514,6 +2518,17 @@ function canDeleteErpData() {
 function requireDeletePermission(action = "delete ERP data") {
   if (canDeleteErpData()) return true;
   alert(`Only Owner or Manager can ${action}.`);
+  return false;
+}
+
+function canEditPageData(view) {
+  return Boolean(currentUser && !isReadOnlyUser() && canAccessPage(view));
+}
+
+function requirePageEditPermission(view, action = "edit this page") {
+  if (canEditPageData(view)) return true;
+  const pageName = pageInfo[view]?.[0] || view;
+  alert(`Your login does not have permission to ${action}. Ask Owner to give access to ${pageName}.`);
   return false;
 }
 
@@ -10909,7 +10924,7 @@ function renderStoneLookup() {
 }
 
 function editStone(id) {
-  if (!requireOwnerPermission("edit stone master")) return;
+  if (!requirePageEditPermission("stone-library", "edit stone master")) return;
   const stone = findById("stones", id);
   if (!stone) return;
   switchStonePage("add");
@@ -11780,6 +11795,7 @@ async function stoneCropSourcesFromSelection() {
 }
 
 async function openStoneCropDialog() {
+  if (!requirePageEditPermission("designs", "crop design stone charts")) return false;
   const sources = await stoneCropSourcesFromSelection();
   if (!sources.length) {
     alert("Upload a stone chart or design image first, then crop.");
@@ -12490,6 +12506,7 @@ function expandImageRect(rect, width, height, padding = 0) {
 }
 
 async function saveStoneCropToDesign(readAfterSave = false) {
+  if (!requirePageEditPermission("designs", "save cropped stone chart")) return;
   const design = findById("designs", document.getElementById("stone-crop-design").value);
   const status = document.getElementById("stone-crop-status");
   const itemKey = currentStoneCropItemKey();
@@ -12632,6 +12649,7 @@ function updateDesignStoneEditRowPreview(row) {
 }
 
 function addDesignStoneItem() {
+  if (!requirePageEditPermission("designs", "add design stone rows")) return;
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) {
@@ -12665,6 +12683,7 @@ function addDesignStoneItem() {
 }
 
 async function readStoneChartImage() {
+  if (!requirePageEditPermission("designs", "read and save stone chart rows")) return;
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   const summary = document.getElementById("stone-entry-summary");
@@ -12700,6 +12719,7 @@ async function readStoneChartImage() {
 }
 
 async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEFAULT_STONE_ITEM_KEY) {
+  if (!requirePageEditPermission("designs", "read and save stone chart rows")) return;
   const summary = document.getElementById("stone-entry-summary");
   const targetItemKey = normalizeStoneItemKey(itemKey);
   if (!window.Tesseract) {
@@ -12776,6 +12796,7 @@ function stoneItemEditOptions(selected = "") {
 }
 
 function saveDesignStoneItemEdit(stoneItemId) {
+  if (!requirePageEditPermission("designs", "edit design stone rows")) return;
   const form = document.getElementById("stone-entry-form");
   const design = findById("designs", form.stoneDesignId.value);
   if (!design) return;
@@ -13579,6 +13600,7 @@ function selectCurrentDesignCategory() {
 }
 
 async function autoCropExistingDesigns() {
+  if (!requirePageEditPermission("designs", "auto detect design stone charts")) return;
   const button = document.getElementById("design-auto-crop-existing");
   const status = document.getElementById("design-bulk-crop-status");
   const selected = selectedDesignIds.size
@@ -13641,6 +13663,7 @@ async function autoCropExistingDesigns() {
 }
 
 async function resizeDesignImagesAndCleanChartCopies() {
+  if (!requirePageEditPermission("designs", "resize design images and clean chart copies")) return;
   const button = document.getElementById("design-resize-clean");
   const status = document.getElementById("design-bulk-crop-status");
   const selected = selectedDesignIds.size
