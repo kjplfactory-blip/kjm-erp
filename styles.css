@@ -4423,6 +4423,79 @@ dialog::backdrop {
   width: min(1180px, 96vw);
 }
 
+.production-stone-target-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #c9e5df;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.production-stone-target-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.production-stone-target-head h3,
+.production-stone-target-head p {
+  margin: 0;
+}
+
+.production-stone-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  max-height: 155px;
+  overflow-y: auto;
+}
+
+.production-stone-target {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #d5e7e1;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.production-stone-target.current {
+  border-color: #56a995;
+  background: #eaf7f2;
+}
+
+.production-stone-target input {
+  width: auto;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.production-stone-target span,
+.production-stone-target strong,
+.production-stone-target small {
+  display: block;
+  min-width: 0;
+}
+
+.production-stone-target strong {
+  color: var(--brand-dark);
+  font-size: 13px;
+}
+
+.production-stone-target small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .production-stone-dialog .design-stone-details {
   max-height: 68vh;
   overflow: auto;
@@ -4889,6 +4962,25 @@ dialog::backdrop {
   font-weight: 800;
   line-height: 1.12;
   overflow-wrap: anywhere;
+}
+
+.transfer-bag-summary .transfer-bag-stone-weight {
+  border-color: #9ca3af;
+  background: #f8fafc;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.transfer-bag-summary .transfer-bag-total-stone {
+  border-color: #4b5563;
+  background: #eef2f7;
+  font-weight: 900;
+}
+
+.transfer-bag-summary .transfer-bag-stone-weight small {
+  color: #4b5563;
+  font-size: 6.2px;
+  font-weight: 800;
 }
 
 .transfer-bag-history-meta span {
@@ -9439,6 +9531,13 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     width: 105mm;
     height: 148.5mm;
     min-height: 148.5mm;
+  }
+
+  /* Keep the paper geometry unchanged while adding an even printer-safe margin. */
+  body.printing-order:not(.printing-transfer-bag) .print-job-item,
+  body.printing-transfer-bag .transfer-bag-page {
+    transform: scale(0.95);
+    transform-origin: center center;
   }
 }
 

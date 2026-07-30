@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v345";
+const APP_VERSION = "v349";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -690,6 +690,9 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
       cgSize: item.cgSize,
       color: item.color,
       purity: item.purity,
+      itemPcs: 1,
+      orderedPcs: Number(item.orderedPcs || 1),
+      pieceIndex: Number(item.pieceIndex || 1),
       targetWeight: 0,
       remarks: item.remarks,
       orderDate: data.orderDate,
@@ -2197,6 +2200,11 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   event.preventDefault();
   const order = findById("orders", event.target.orderId.value);
   if (!order) return;
+  const targetOrders = selectedProductionStoneTargetOrders(order);
+  if (!targetOrders.length) {
+    alert("Select at least one production number.");
+    return;
+  }
   let stoneItems = [];
   try {
     stoneItems = productionStoneRowsFromDialog({ validate: true });
@@ -2205,18 +2213,38 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
     return;
   }
   const masterWeightUpdates = saveMissingProductionStoneWeightsToMaster(stoneItems, order);
-  order.productionStoneItems = stoneItems;
-  order.productionStoneOverride = true;
-  order.productionStoneUpdatedAt = today();
+  targetOrders.forEach((targetOrder) => {
+    targetOrder.productionStoneItems = targetOrder.id === order.id
+      ? stoneItems
+      : cloneProductionStonePlan(stoneItems);
+    targetOrder.productionStoneOverride = true;
+    targetOrder.productionStoneUpdatedAt = today();
+    targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
+  });
   saveState();
   renderProductionStoneItems(order);
   renderJobItemsDetail(getJobOrders(order));
   openJobItemDetail(order.id);
-  alert(`Production stone plan saved.${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}`);
+  const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
+  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}`);
 });
 
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
 document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
+document.getElementById("select-all-production-stone-targets")?.addEventListener("click", () => {
+  document.querySelectorAll("#production-stone-targets [data-production-stone-target]").forEach((input) => {
+    input.checked = true;
+  });
+  updateProductionStoneTargetSummary();
+});
+document.getElementById("current-only-production-stone-target")?.addEventListener("click", () => {
+  const currentOrderId = document.getElementById("production-stone-form").orderId.value;
+  document.querySelectorAll("#production-stone-targets [data-production-stone-target]").forEach((input) => {
+    input.checked = input.value === currentOrderId;
+  });
+  updateProductionStoneTargetSummary();
+});
+document.getElementById("production-stone-targets")?.addEventListener("change", updateProductionStoneTargetSummary);
 
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
   if (event.target.dataset.productionStoneField) handleProductionStoneRowChange(event);
@@ -3921,6 +3949,9 @@ function entryOrderItemRowHtml(item = {}) {
         <option ${item.purity === "14K" ? "selected" : ""}>14K</option>
       </select>
     </label>
+    <label class="order-field-pcs">No. of Pcs
+      <input name="itemPcs" type="number" min="1" max="500" step="1" value="${orderItemPcs(item.itemPcs)}" required>
+    </label>
     <label class="order-field-remark">Remark <input name="remarks" value="${escapeHtml(item.remarks || "")}" placeholder="Remark"></label>
     <div class="order-item-action-buttons">
       <button class="order-add-item-button" type="button" data-order-item-action="add">Add Item</button>
@@ -3958,6 +3989,7 @@ function savedOrderItemRowHtml(item = {}) {
     <input type="hidden" name="cgSize" value="${escapeHtml(item.cgSize || "")}">
     <input type="hidden" name="color" value="${escapeHtml(item.color || "")}">
     <input type="hidden" name="purity" value="${escapeHtml(item.purity || "18K")}">
+    <input type="hidden" name="itemPcs" value="${orderItemPcs(item.itemPcs)}">
     <input type="hidden" name="targetWeight" value="0">
     <input type="hidden" name="remarks" value="${escapeHtml(item.remarks || "")}">
     <span class="saved-item-cell"><b>Category</b>${escapeHtml(item.category || "-")}</span>
@@ -3967,6 +3999,7 @@ function savedOrderItemRowHtml(item = {}) {
     ${normalSize}
     <span class="saved-item-cell"><b>Color</b>${escapeHtml(item.color || "-")}</span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
+    <span class="saved-item-cell"><b>No. of Pcs</b>${orderItemPcs(item.itemPcs)}</span>
     <span class="saved-item-cell stone-cell"><b>Wax Stone</b>${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g</span>
     <span class="saved-item-cell stone-cell"><b>Hand Stone</b>${handStone.pcs} pcs / ${weight3(handStone.weight)}g</span>
     <span class="saved-item-cell"><b>Remark</b>${escapeHtml(item.remarks || "-")}</span>
@@ -4125,6 +4158,7 @@ function updateOrderItemStonePreview(row) {
   if (!preview) return;
   const plannedItems = orderItemsFromEntryRow(row)
     .flatMap(expandOrderItemCombinations)
+    .flatMap(expandOrderItemPcs)
     .filter((item) => item.designId);
   if (!plannedItems.length) {
     preview.innerHTML = "<span>Stone Plan</span><strong>No design selected</strong><small>Select design to see wax / hand stone.</small>";
@@ -4277,6 +4311,12 @@ function restoreOrderEntryRow(row, item = {}) {
 
 function commitCurrentOrderItem() {
   const entryRow = document.querySelector('#order-item-list .order-item-row[data-mode="entry"]');
+  const pcsInput = entryRow?.querySelector('[name="itemPcs"]');
+  if (pcsInput && !pcsInput.checkValidity()) {
+    pcsInput.reportValidity();
+    pcsInput.focus();
+    return;
+  }
   const item = getOrderItemFromRow(entryRow);
   if (!hasOrderItemDetails(item)) {
     alert("Enter item details first.");
@@ -4302,6 +4342,7 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="cgSize"]').value = "";
   row.querySelector('[name="color"]').value = "";
   row.querySelector('[name="purity"]').value = "18K";
+  row.querySelector('[name="itemPcs"]').value = "1";
   row.querySelector('[name="remarks"]').value = "";
   updateOrderItemDesignOptions(row);
   updateOrderItemCategoryFields(row);
@@ -4329,11 +4370,28 @@ function getOrderFormItems(form) {
     .filter((row) => row.dataset.mode === "saved")
     .map(getOrderItemFromRow)
     .flatMap(expandOrderItemCombinations)
+    .flatMap(expandOrderItemPcs)
     .filter(hasOrderItemDetails);
 }
 
 function expandOrderItemCombinations(item) {
   return expandCmSetItem(item).flatMap(expandCbBothRingItem);
+}
+
+function orderItemPcs(value = 1) {
+  const pcs = Math.floor(Number(value));
+  return Number.isFinite(pcs) && pcs >= 1 ? Math.min(pcs, 500) : 1;
+}
+
+function expandOrderItemPcs(item) {
+  if (!item) return [];
+  const pcs = orderItemPcs(item.itemPcs);
+  return Array.from({ length: pcs }, (_, index) => ({
+    ...item,
+    itemPcs: 1,
+    orderedPcs: pcs,
+    pieceIndex: index + 1,
+  }));
 }
 
 function expandCbBothRingItem(item) {
@@ -4379,6 +4437,7 @@ function getOrderItemFromRow(row) {
     size: row.querySelector('[name="size"]')?.value || "",
     color: row.querySelector('[name="color"]').value,
     purity: row.querySelector('[name="purity"]').value,
+    itemPcs: orderItemPcs(row.querySelector('[name="itemPcs"]')?.value),
     targetWeight: Number(row.querySelector('[name="targetWeight"]')?.value || 0),
     remarks: row.querySelector('[name="remarks"]').value,
   };
@@ -4398,7 +4457,10 @@ function renderOrderEntrySummary() {
     summary.innerHTML = '<div class="empty">No item added yet. Fill New Item Entry and press Add Item.</div>';
     return;
   }
-  const items = itemRows.map(getOrderItemFromRow).flatMap(expandOrderItemCombinations);
+  const items = itemRows
+    .map(getOrderItemFromRow)
+    .flatMap(expandOrderItemCombinations)
+    .flatMap(expandOrderItemPcs);
   const stoneItems = items.flatMap((item) => buildProductionStoneItemsForOrder(item));
   const waxStone = productionStoneTotals(stoneItems, "wax");
   const handStone = productionStoneTotals(stoneItems, "hand");
@@ -7699,8 +7761,70 @@ function openProductionStoneEntry(orderId) {
   const itemItems = productionStoneItemsForOrder(order);
   const itemText = orderStoneItemKeys(order).map(stoneItemInputValue).join(" + ");
   document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || ""} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
+  renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
   document.getElementById("production-stone-dialog").showModal();
+}
+
+function matchingDesignJobOrders(order = {}) {
+  const designId = String(order.designId || "");
+  const designName = normalizeSearchText(order.designNumber || designLabel(order.designId));
+  return getJobOrders(order).filter((candidate) => {
+    if (designId && candidate.designId) return String(candidate.designId) === designId;
+    if (!designName) return candidate.id === order.id;
+    return normalizeSearchText(candidate.designNumber || designLabel(candidate.designId)) === designName;
+  });
+}
+
+function productionStoneTargetDetail(order = {}) {
+  const itemType = order.ringType || order.cmItemType || order.item || order.category || "Item";
+  const size = order.size || order.clSize || order.cgSize || "";
+  return [itemType, size ? `Size ${size}` : "", order.color || "", order.status || "Pending"].filter(Boolean).join(" / ");
+}
+
+function renderProductionStoneTargets(order = {}) {
+  const container = document.getElementById("production-stone-targets");
+  if (!container) return;
+  const candidates = matchingDesignJobOrders(order);
+  container.innerHTML = candidates.map((candidate) => {
+    const isCurrent = candidate.id === order.id;
+    return `
+      <label class="production-stone-target ${isCurrent ? "current" : ""}">
+        <input type="checkbox" data-production-stone-target value="${escapeHtml(candidate.id)}" ${isCurrent ? "checked disabled" : ""}>
+        <span>
+          <strong>${escapeHtml(candidate.productionNo || candidate.number || "-")}</strong>
+          <small>${escapeHtml(productionStoneTargetDetail(candidate))}</small>
+        </span>
+      </label>
+    `;
+  }).join("");
+  updateProductionStoneTargetSummary();
+}
+
+function selectedProductionStoneTargetOrders(order = {}) {
+  const allowedIds = new Set(matchingDesignJobOrders(order).map((candidate) => candidate.id));
+  const selectedIds = new Set(
+    [...document.querySelectorAll("#production-stone-targets [data-production-stone-target]:checked")]
+      .map((input) => input.value)
+      .filter((id) => allowedIds.has(id))
+  );
+  selectedIds.add(order.id);
+  return matchingDesignJobOrders(order).filter((candidate) => selectedIds.has(candidate.id));
+}
+
+function updateProductionStoneTargetSummary() {
+  const summary = document.getElementById("production-stone-target-summary");
+  if (!summary) return;
+  const selected = [...document.querySelectorAll("#production-stone-targets [data-production-stone-target]:checked")];
+  summary.textContent = `${selected.length} production number${selected.length === 1 ? "" : "s"} selected. Saving will update each selected item separately.`;
+}
+
+function cloneProductionStonePlan(items = []) {
+  return items.map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    date: today(),
+  }));
 }
 
 function renderProductionStoneItems(order, forcedItems = null) {
@@ -7819,19 +7943,35 @@ function handleProductionStoneRowChange(event) {
   if (!row) return;
   const field = event.target.dataset.productionStoneField;
   if (field === "settingType") syncProductionStoneStageForSettingType(row);
-  if (field === "stoneType") {
-    row.querySelector('[data-production-stone-field="shape"]').value = "";
-    row.querySelector('[data-production-stone-field="size"]').value = "";
+  if (["stoneType", "shape", "size"].includes(field)) {
     row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
+    refreshProductionStoneRowOptions(row);
   }
-  if (field === "shape") {
-    row.querySelector('[data-production-stone-field="size"]').value = "";
-    row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
-  }
-  if (field === "size") row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
-  if (["stoneType", "shape", "size"].includes(field)) refreshProductionStoneRowOptions(row);
+  if (field === "size") syncProductionStoneSettingFromSize(row);
   updateProductionStoneRowPreview(row);
   updateProductionStoneDialogSummary();
+}
+
+function syncProductionStoneSettingFromSize(row) {
+  const size = row?.querySelector('[data-production-stone-field="size"]')?.value || "";
+  if (!size) return;
+  const automatic = automaticProductionStoneSetting({ size });
+  const settingSelect = row.querySelector('[data-production-stone-field="settingType"]');
+  const stageSelect = row.querySelector('[data-production-stone-field="manufacturingStage"]');
+  if (settingSelect) settingSelect.value = automatic.settingType;
+  if (stageSelect) stageSelect.value = automatic.manufacturingStage;
+}
+
+function productionStoneLibraryMatch(stoneType = "", shape = "", size = "") {
+  const normalizedShape = normalizeOcrShape(shape);
+  const normalizedSize = normalizeSizeText(size);
+  const exact = findStoneByLibraryFields(stoneType, normalizedShape, normalizedSize);
+  if (exact) return exact;
+  return (state.stones || []).find((stone) =>
+    normalizeOcrShape(stone.shape) === normalizedShape
+    && normalizeSizeText(stone.size) === normalizedSize
+    && Number(stone.weightPerPc || 0) > 0
+  ) || null;
 }
 
 function updateProductionStoneRowPreview(row) {
@@ -7841,7 +7981,7 @@ function updateProductionStoneRowPreview(row) {
   const size = row.querySelector('[data-production-stone-field="size"]')?.value || "";
   const pcs = Number(row.querySelector('[data-production-stone-field="pcs"]')?.value || 0);
   const weightInput = row.querySelector('[data-production-stone-field="weightPerPc"]');
-  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const libraryStone = productionStoneLibraryMatch(stoneType, shape, size);
   const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
   const canUseOriginalWeight = stoneKey === row.dataset.originalStoneKey;
   const enteredWeight = formatStoneWeight(weightInput?.value || "");
@@ -7875,7 +8015,7 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   const enteredWeight = formatStoneWeight(row.querySelector('[data-production-stone-field="weightPerPc"]')?.value || "");
   const isBlank = !stoneType && !shape && !size && !pcs && !enteredWeight;
   if (isBlank) return null;
-  const libraryStone = findStoneByLibraryFields(stoneType, shape, size);
+  const libraryStone = productionStoneLibraryMatch(stoneType, shape, size);
   const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
   const canUseOriginalWeight = stoneKey === row.dataset.originalStoneKey;
   const weightPerPc = formatStoneWeight(enteredWeight || libraryStone?.weightPerPc || (canUseOriginalWeight ? row.dataset.originalWeightPerPc : ""));
@@ -7979,11 +8119,15 @@ function resetProductionStoneFromDesign() {
   const form = document.getElementById("production-stone-form");
   const order = findById("orders", form.orderId.value);
   if (!order) return;
-  const designItems = buildProductionStoneItemsForOrder(order);
-  if (!confirm(`Reset stone rows for ${order.productionNo || order.number} from Design Master?\n\nThis will not change Design Master.`)) return;
-  order.productionStoneItems = designItems;
-  order.productionStoneOverride = false;
-  order.productionStoneUpdatedAt = today();
+  const targetOrders = selectedProductionStoneTargetOrders(order);
+  const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
+  if (!confirm(`Reset stone rows for ${targetOrders.length} selected production number${targetOrders.length === 1 ? "" : "s"} from Design Master?\n\n${productionNumbers.join(", ")}\n\nThis will not change Design Master.`)) return;
+  targetOrders.forEach((targetOrder) => {
+    targetOrder.productionStoneItems = buildProductionStoneItemsForOrder(targetOrder);
+    targetOrder.productionStoneOverride = false;
+    targetOrder.productionStoneUpdatedAt = today();
+    targetOrder.productionStoneCopiedFrom = "";
+  });
   saveState();
   renderProductionStoneItems(order);
   renderJobItemsDetail(getJobOrders(order));
@@ -9002,6 +9146,9 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
   const currentDepartment = activeLot ? (activeLot.currentDepartment || activeLot.karigarName || "-") : "Gold Not Issued";
   const totalCurrentGw = lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0);
   const totalIssueGw = lots.reduce((total, lot) => total + Number(lot.grossIssuedWeight || lot.issuedWeight || 0), 0);
+  const waxStoneTotals = productionStoneTotalsForOrders(items, "wax");
+  const handStoneTotals = productionStoneTotalsForOrders(items, "hand");
+  const combinedStoneWeight = Number(weight3(waxStoneTotals.weight + handStoneTotals.weight));
   const itemRows = items.map((item, index) => transferBagItemRow(item, index)).join("");
   const lotRows = lots.length ? lots.map(transferBagLotRow).join("") : `
     <tr><td>-</td><td>Gold Not Issued</td><td>-</td><td>-</td><td>-</td></tr>
@@ -9027,6 +9174,9 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
           <span><b>Current Dept</b>${escapeHtml(currentDepartment)}</span>
           <span><b>Total Items</b>${items.length}</span>
           <span><b>Current GW</b>${gram(totalCurrentGw || totalIssueGw)}</span>
+          <span class="transfer-bag-stone-weight"><b>Wax Stone</b>${gram(waxStoneTotals.weight)}<small>${waxStoneTotals.pcs} pcs</small></span>
+          <span class="transfer-bag-stone-weight"><b>Hand Stone</b>${gram(handStoneTotals.weight)}<small>${handStoneTotals.pcs} pcs</small></span>
+          <span class="transfer-bag-stone-weight transfer-bag-total-stone"><b>Total Stone</b>${gram(combinedStoneWeight)}<small>${waxStoneTotals.pcs + handStoneTotals.pcs} pcs</small></span>
         </div>
         <section class="transfer-bag-section">
           <h3>Lot / Weight</h3>
