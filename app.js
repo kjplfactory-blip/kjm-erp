@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v368";
+const APP_VERSION = "v374";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -2063,6 +2063,10 @@ document.getElementById("print-bill").addEventListener("click", () => {
 
 document.getElementById("print-packing-list").addEventListener("click", () => {
   printPackingListFromDialog();
+});
+
+document.getElementById("print-bill-tags").addEventListener("click", () => {
+  printBillTagsFromDialog();
 });
 
 function saveBillFromForm(closeDialog = false, options = {}) {
@@ -9340,6 +9344,21 @@ function printPackingListFromDialog() {
   printPackingList(lot.id, bill);
 }
 
+function printBillTagsFromDialog() {
+  const form = document.getElementById("bill-form");
+  if (!form) return;
+  const lot = findById("lots", form.lotId.value);
+  if (!lot) return;
+  const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  let bill = existingBill;
+  if (!existingBill.id || canEditGeneratedBill()) {
+    const saved = saveBillFromForm(false);
+    if (!saved) return;
+    bill = saved.bill;
+  }
+  printBillTags(lot.id, bill);
+}
+
 function printBill(lotId, billOverride = null) {
   const lot = findById("lots", lotId);
   if (!lot) return;
@@ -9368,6 +9387,21 @@ function printPackingList(lotId, billOverride = null) {
     return;
   }
   startPackingListPrint(packingListPrintHtml(lot, bill));
+}
+
+function printBillTags(lotId, billOverride = null) {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const bill = billOverride || lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+  if (!bill?.id) {
+    alert("Generate bill first, then print tags.");
+    return;
+  }
+  if (!billHasFinalQcOkItems(bill)) {
+    alert("Only QC OK items transferred to Office can be printed as tags.");
+    return;
+  }
+  startHallmarkTagPrint(billTagsPrintHtml(lot, bill));
 }
 
 function printFactorySummary() {
@@ -9589,6 +9623,81 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
   `;
 }
 
+function billTagsPrintHtml(lot, bill) {
+  const orders = billPrintOrders(lot, bill);
+  const items = billPrintItems(lot, bill, orders);
+  const pages = chunkPrintItems(items, 40);
+  return `
+    <div class="bill-tags-document">
+      ${pages.map((pageItems) => `
+        <section class="bill-tags-sheet">
+          ${pageItems.map((item) => billTagHtml(lot, bill, item)).join("")}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function billTagHtml(lot, bill, item = {}) {
+  const order = item.order || {};
+  const productionNo = item.productionNo || order.productionNo || order.number || "";
+  const designName = item.design || order.designNo || designLabel(order.designId) || "-";
+  const itemDetail = billTagIndividualItemDetail(item, order);
+  const barcodeValue = productionNo || `${lot.number || "LOT"}-${item.index + 1}`;
+  return `
+    <article class="bill-tag-card">
+      <div class="bill-tag-content">
+        <div class="bill-tag-head">
+          <strong>KJ</strong>
+          <b>${escapeHtml(productionNo || "-")}</b>
+          <span>${escapeHtml(item.purity || order.purity || "-")}</span>
+        </div>
+        <div class="bill-tag-meta"><b>${escapeHtml(designName)}</b> / ${escapeHtml(item.category || order.category || "-")} / ${escapeHtml(itemDetail)} / ${escapeHtml(order.color || "-")}</div>
+        <div class="bill-tag-meta">${escapeHtml(item.customer || order.customer || "-")} / ${escapeHtml(billTagReference("JOB", lot.orderNumber))} / ${escapeHtml(billTagReference("BILL", bill.billNo))}</div>
+        <div class="bill-tag-weights">
+          ${billTagWeight("GW", item.finalGw)}
+          ${billTagWeight("STONE", item.stoneWeight)}
+          ${billTagWeight("BB", item.blackBeadsWeight)}
+          ${billTagWeight("MOTI", item.motiWeight)}
+          ${billTagWeight("SPRING", item.springWeight)}
+          ${billTagWeight("OTHER", item.otherNonGoldWeight)}
+          ${billTagWeight("NET", item.netWeight, "net")}
+        </div>
+        <div class="bill-tag-barcode">${code128BarcodeSvg(barcodeValue, { maxLength: 60 })}</div>
+      </div>
+    </article>
+  `;
+}
+
+function billTagWeight(label, value, extraClass = "") {
+  return `<span class="${escapeHtml(extraClass)}"><b>${escapeHtml(label)}</b><strong>${weight3(value)}</strong></span>`;
+}
+
+function billTagReference(label, value) {
+  const text = String(value || "-").trim() || "-";
+  return text.toUpperCase().startsWith(String(label || "").toUpperCase()) ? text : `${label} ${text}`;
+}
+
+function billTagIndividualItemDetail(item = {}, order = {}) {
+  const ringType = String(item.ringType || order.ringType || "").trim().toUpperCase();
+  const category = categoryCode(item.category || order.category || "");
+  if (isCbCategory(category)) {
+    if (["CL", "CLR"].includes(ringType)) {
+      const label = category === "CBR" ? "CLR" : "CL";
+      const size = item.clSize || order.clSize || item.size || order.size || "-";
+      return `${label} / SIZE ${size}`;
+    }
+    if (["CG", "CGR"].includes(ringType)) {
+      const label = category === "CBR" ? "CGR" : "CG";
+      const size = item.cgSize || order.cgSize || item.size || order.size || "-";
+      return `${label} / SIZE ${size}`;
+    }
+  }
+  const itemType = item.cmItemType || order.cmItemType || ringType;
+  const size = item.size || order.size || "";
+  return [itemType, size ? `SIZE ${size}` : ""].filter(Boolean).join(" / ") || "-";
+}
+
 function billPrintHtml(lot, bill) {
   const orders = billPrintOrders(lot, bill);
   const items = billPrintItems(lot, bill, orders);
@@ -9766,6 +9875,11 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     officeDestination: manufacturingOfficeDestinationLabel(order.customer || ""),
     design: order.designNo || designLabel(order.designId) || "",
     category: order.category || "Uncategorised",
+    ringType: item.ringType || order.ringType || "",
+    cmItemType: item.cmItemType || order.cmItemType || "",
+    size: item.size || order.size || "",
+    clSize: item.clSize || order.clSize || "",
+    cgSize: item.cgSize || order.cgSize || "",
     purity: item.purity || order.purity || "",
     finalGw,
     blackBeadsWeight: billNumber(item.blackBeadsWeight || item.bbWeight || nonGold.blackBeadsWeight),
@@ -16655,7 +16769,7 @@ function renderBills() {
           <td>
             <div class="row-actions">
               <button type="button" onclick="openBill('${lot.id}')">${actionLabel}</button>
-              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button>` : ""}
+              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}')">Tags A4-40</button>` : ""}
             </div>
           </td>
         </tr>

@@ -5647,6 +5647,171 @@ dialog::backdrop {
   letter-spacing: 0.2px;
 }
 
+.bill-tags-document {
+  width: 210mm;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #111111;
+  font-family: Arial, sans-serif;
+}
+
+.bill-tags-sheet {
+  display: grid;
+  grid-template-columns: repeat(4, 52.5mm);
+  grid-template-rows: repeat(10, 29.7mm);
+  width: 210mm;
+  height: 297mm;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  break-after: page;
+  page-break-after: always;
+}
+
+.bill-tags-sheet:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+.bill-tag-card {
+  display: block;
+  width: 52.5mm;
+  height: 29.7mm;
+  padding: 0;
+  border: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  background: #ffffff;
+  color: #111111;
+  font-size: 5.5pt;
+  line-height: 1.05;
+}
+
+.bill-tag-content {
+  display: grid;
+  grid-template-rows: auto auto auto auto 6.6mm;
+  gap: 0.25mm;
+  width: 100%;
+  height: 100%;
+  padding: 0.9mm 1mm;
+  border: 0.2mm solid #4b5563;
+  box-sizing: border-box;
+  overflow: hidden;
+  transform: scale(0.9);
+  transform-origin: center;
+}
+
+.bill-tag-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1mm;
+  min-width: 0;
+}
+
+.bill-tag-head strong {
+  font-size: 7pt;
+}
+
+.bill-tag-head b {
+  overflow: hidden;
+  color: #000000;
+  font-size: 6.6pt;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-tag-head span {
+  font-size: 6pt;
+  font-weight: 800;
+}
+
+.bill-tag-meta {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 5pt;
+  font-weight: 600;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-tag-weights {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35mm;
+}
+
+.bill-tag-weights span {
+  display: grid;
+  min-width: 0;
+  padding: 0.25mm 0.35mm;
+  border: 0.15mm solid #9ca3af;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.bill-tag-weights span.net {
+  grid-column: span 2;
+  border-color: #111111;
+  background: #eeeeee;
+}
+
+.bill-tag-weights b {
+  color: #4b5563;
+  font-size: 4pt;
+  line-height: 1;
+}
+
+.bill-tag-weights strong {
+  overflow: hidden;
+  color: #000000;
+  font-size: 5.3pt;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-tag-barcode {
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+}
+
+.bill-tag-barcode .detail-barcode-wrap {
+  display: grid;
+  grid-template-rows: minmax(4.1mm, 1fr) auto;
+  gap: 0.15mm;
+  width: 92%;
+  min-width: 0;
+  height: 100%;
+  justify-items: stretch;
+}
+
+.bill-tag-barcode .detail-barcode-wrap .code128-barcode {
+  width: 100%;
+  height: 100%;
+  min-height: 4.1mm;
+  fill: #000000;
+}
+
+.bill-tag-barcode .detail-barcode-wrap small {
+  overflow: hidden;
+  color: #000000;
+  font-size: 4pt;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bill-sample-header {
   display: grid;
   grid-template-columns: 1fr 44mm 1fr;
@@ -10001,6 +10166,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body.printing-hallmark-tags .hallmark-tags-document {
     width: 210mm;
     min-height: 297mm;
+  }
+
+  body.printing-hallmark-tags .bill-tags-document,
+  body.printing-hallmark-tags .bill-tags-sheet {
+    width: 210mm;
   }
 
   body.printing-barcode .order-print-area {
