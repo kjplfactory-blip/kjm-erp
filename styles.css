@@ -5731,14 +5731,14 @@ dialog::backdrop {
   width: 94%;
   min-width: 94%;
   max-width: 94%;
-  height: 90%;
-  min-height: 90%;
-  max-height: 90%;
+  height: 25.7mm;
+  min-height: 25.7mm;
+  max-height: 25.7mm;
   margin: 0;
   justify-self: center;
   align-self: center;
-  padding: 0.9mm 1mm;
-  border: 0.2mm solid #4b5563;
+  padding: 0.65mm 0.75mm;
+  border: 0.12mm solid #4b5563;
   box-sizing: border-box;
   overflow: hidden;
 }
