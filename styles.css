@@ -5689,18 +5689,17 @@ dialog::backdrop {
 
 .bill-tags-document.a6-tags-document .bill-tags-sheet {
   grid-template-columns: repeat(2, 52.5mm);
-  grid-template-rows: repeat(5, 25mm);
-  row-gap: 5.25mm;
+  grid-template-rows: repeat(5, 29.7mm);
+  row-gap: 0;
   width: 105mm;
   min-width: 105mm;
   max-width: 105mm;
-  height: 150mm;
-  min-height: 150mm;
-  max-height: 150mm;
-  padding: 2mm 0;
+  height: 148.5mm;
+  min-height: 148.5mm;
+  max-height: 148.5mm;
+  padding: 0;
 }
 
-.bill-tags-document.a6-tags-document .bill-tag-card,
 .bill-tags-document.a6-tags-document .bill-tag-content {
   height: 25mm;
   min-height: 25mm;
@@ -10255,15 +10254,14 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
     grid-template-columns: repeat(2, 52.5mm);
-    grid-template-rows: repeat(5, 25mm);
-    row-gap: 5.25mm;
-    height: 150mm;
-    min-height: 150mm;
-    max-height: 150mm;
-    padding: 2mm 0 !important;
+    grid-template-rows: repeat(5, 29.7mm);
+    row-gap: 0;
+    height: 148.5mm;
+    min-height: 148.5mm;
+    max-height: 148.5mm;
+    padding: 0 !important;
   }
 
-  body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tag-card,
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tag-content {
     height: 25mm;
     min-height: 25mm;
