@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v354";
+const APP_VERSION = "v368";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -201,6 +201,7 @@ const demoState = {
   bills: [],
   safeItems: [],
   safeDepartmentIssues: [],
+  safeDepartmentReturns: [],
   metalSafeMovements: [{
     id: "factory-default-metal-safe",
     date: today(),
@@ -1361,6 +1362,11 @@ document.getElementById("metal-safe-search").addEventListener("input", renderSaf
 
 document.getElementById("safe-issue-form").addEventListener("change", (event) => {
   if (event.target.name === "departmentId") renderSafeIssueProcessOptions(event.target.value);
+  if (event.target.name === "itemId") applySafeIssueItemDefaults(event.target.value);
+});
+
+document.getElementById("safe-issue-form").addEventListener("input", (event) => {
+  if (["grossWeight", "waxStoneWeight"].includes(event.target.name)) updateSafeIssueCalculation();
 });
 
 document.getElementById("safe-issue-form").addEventListener("submit", (event) => {
@@ -1377,20 +1383,54 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     alert("Select department.");
     return;
   }
-  const issue = createSafeDepartmentIssue(item, department, form.process.value, form.remarks.value);
+  const availableGrossWeight = Number(weight3(item.grossWeight || 0));
+  const availableWaxStoneWeight = Number(weight3(safeItemWaxStoneWeight(item)));
+  const availableNetWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(availableGrossWeight, availableWaxStoneWeight)));
+  const issuedGrossWeight = Number(weight3(form.grossWeight.value || 0));
+  const issuedWaxStoneWeight = Number(weight3(form.waxStoneWeight.value || 0));
+  const issuedNetWeight = Number(weight3(Math.max(issuedGrossWeight - issuedWaxStoneWeight, 0)));
+  if (issuedGrossWeight <= 0) {
+    alert("Enter issue weight greater than zero.");
+    return;
+  }
+  if (issuedWaxStoneWeight < 0 || issuedWaxStoneWeight > issuedGrossWeight) {
+    alert("Wax stone weight cannot be negative or greater than issue GW.");
+    return;
+  }
+  if (issuedGrossWeight > availableGrossWeight + 0.0005
+    || issuedWaxStoneWeight > availableWaxStoneWeight + 0.0005
+    || issuedNetWeight > availableNetWeight + 0.0005) {
+    alert(`Issue cannot exceed Safe Locker balance: GW ${gram(availableGrossWeight)} / Wax ${gram(availableWaxStoneWeight)} / NT ${gram(availableNetWeight)}.`);
+    return;
+  }
+  const issue = createSafeDepartmentIssue(item, department, form.process.value, form.remarks.value, {
+    grossWeight: issuedGrossWeight,
+    waxStoneWeight: issuedWaxStoneWeight,
+    netWeight: issuedNetWeight,
+  });
   state.safeDepartmentIssues = state.safeDepartmentIssues || [];
   state.safeDepartmentIssues.unshift(issue);
-  item.status = "Out";
-  item.outDate = today();
-  item.issueDepartmentId = department.id;
-  item.issueDepartmentName = department.name;
-  item.issueProcess = issue.process;
-  item.safeDepartmentIssueId = issue.id;
-  item.remarks = `Issued to ${department.name} / ${issue.process}${issue.remarks ? ` / ${issue.remarks}` : ""}`;
+  const remainingGrossWeight = Number(weight3(Math.max(availableGrossWeight - issuedGrossWeight, 0)));
+  const remainingWaxStoneWeight = Number(weight3(Math.max(availableWaxStoneWeight - issuedWaxStoneWeight, 0)));
+  const remainingNetWeight = Number(weight3(Math.max(availableNetWeight - issuedNetWeight, 0)));
+  if (remainingGrossWeight <= 0.0005 && remainingNetWeight <= 0.0005) {
+    item.status = "Out";
+    item.outDate = today();
+    item.issueDepartmentId = department.id;
+    item.issueDepartmentName = department.name;
+    item.issueProcess = issue.process;
+    item.safeDepartmentIssueId = issue.id;
+  } else {
+    item.grossWeight = remainingGrossWeight;
+    item.waxStoneWeight = remainingWaxStoneWeight;
+    item.netWeight = remainingNetWeight;
+  }
+  item.remarks = `${remainingGrossWeight > 0.0005 ? "Part issued" : "Issued"} to ${department.name} / ${issue.process}${issue.remarks ? ` / ${issue.remarks}` : ""}`;
   document.getElementById("safe-issue-dialog").close();
   form.reset();
   saveState();
   render();
+  refreshOpenDepartmentTransferHistory();
 });
 
 document.getElementById("cancel-safe-issue").addEventListener("click", () => {
@@ -1399,6 +1439,40 @@ document.getElementById("cancel-safe-issue").addEventListener("click", () => {
 
 document.getElementById("cancel-safe-issue-bottom").addEventListener("click", () => {
   document.getElementById("safe-issue-dialog").close();
+});
+
+document.getElementById("open-safe-department-receive")?.addEventListener("click", () => {
+  openSafeDepartmentReceive();
+});
+
+document.getElementById("safe-department-receive-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "departmentName") {
+    renderSafeDepartmentReceiveIssueOptions(event.target.value);
+    applySafeDepartmentReceiveIssueDefaults();
+  }
+  if (event.target.name === "issueId") applySafeDepartmentReceiveIssueDefaults();
+  if (event.target.name === "returnType" && event.target.value === "loss") {
+    event.currentTarget.grossWeight.value = "0";
+    event.currentTarget.waxStoneWeight.value = "0";
+  }
+  if (event.target.name === "purity" && !event.currentTarget.issueId.value) {
+    event.currentTarget.locker.value = safeLockerForPurity(event.target.value);
+  }
+  updateSafeDepartmentReceiveCalculation();
+});
+
+document.getElementById("safe-department-receive-form")?.addEventListener("input", (event) => {
+  if (["grossWeight", "waxStoneWeight", "lossWeight", "purity"].includes(event.target.name)) updateSafeDepartmentReceiveCalculation();
+});
+
+document.getElementById("safe-department-receive-form")?.addEventListener("submit", saveSafeDepartmentReceive);
+
+document.getElementById("cancel-safe-department-receive")?.addEventListener("click", () => {
+  document.getElementById("safe-department-receive-dialog").close();
+});
+
+document.getElementById("cancel-safe-department-receive-bottom")?.addEventListener("click", () => {
+  document.getElementById("safe-department-receive-dialog").close();
 });
 
 document.getElementById("vendor-form").addEventListener("submit", (event) => {
@@ -5089,7 +5163,7 @@ function safeItemMatchesKind(item, safeKind = "all") {
 
 function normalizeSafeKind(value = "") {
   const text = String(value || "").toLowerCase().trim();
-  if (["rod", "wastage"].includes(text)) return text;
+  if (["rod", "wastage", "accessory"].includes(text)) return text;
   return "all";
 }
 
@@ -5116,7 +5190,9 @@ function safeItemKind(item = {}) {
 
 function safeKindLabel(kindOrItem = "") {
   const kind = typeof kindOrItem === "string" ? normalizeSafeKind(kindOrItem) : safeItemKind(kindOrItem);
-  return kind === "wastage" ? "Wastage / Scrap" : "Rod / Casting";
+  if (kind === "wastage") return "Wastage / Scrap";
+  if (kind === "accessory") return "Accessory / Other";
+  return "Rod / Casting";
 }
 
 function safeTextKey(value = "") {
@@ -5463,14 +5539,26 @@ function moveSafeItemOut(itemId) {
 }
 
 function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = state) {
-  const grossWeight = Number(weight3(issue.grossWeight ?? item.grossWeight ?? 0));
-  const waxStoneWeight = Number(weight3(issue.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
-  const netWeight = Number(weight3(issue.netWeight ?? item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight)));
+  const issuedGrossWeight = Number(weight3(issue.issuedGrossWeight ?? issue.grossWeight ?? item.grossWeight ?? 0));
+  const issuedWaxStoneWeight = Number(weight3(issue.issuedWaxStoneWeight ?? issue.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
+  const issuedNetWeight = Number(weight3(issue.issuedNetWeight ?? issue.netWeight ?? item.netWeight ?? safeItemNetFromGross(issuedGrossWeight, issuedWaxStoneWeight)));
+  const returnTotals = (currentState.safeDepartmentReturns || [])
+    .filter((entry) => entry.issueId === issue.id)
+    .reduce((totals, entry) => ({
+      grossWeight: Number(weight3(totals.grossWeight + Math.abs(Number(entry.grossWeight || 0)) + Math.abs(Number(entry.lossWeight || 0)))),
+      waxStoneWeight: Number(weight3(totals.waxStoneWeight + Math.abs(Number(entry.waxStoneWeight || 0)))),
+      netWeight: Number(weight3(totals.netWeight + Math.abs(Number(entry.netWeight || 0)) + Math.abs(Number(entry.lossWeight || 0)))),
+    }), { grossWeight: 0, waxStoneWeight: 0, netWeight: 0 });
+  const grossWeight = Number(weight3(Math.max(issuedGrossWeight - returnTotals.grossWeight, 0)));
+  const waxStoneWeight = Number(weight3(Math.max(issuedWaxStoneWeight - returnTotals.waxStoneWeight, 0)));
+  const netWeight = Number(weight3(Math.max(issuedNetWeight - returnTotals.netWeight, 0)));
   const department = issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null;
   const purity = issue.purity || item.purity || item.locker || "";
+  const fullyReturned = grossWeight <= 0.0005 && netWeight <= 0.0005;
   return {
     id: issue.id || crypto.randomUUID(),
     date: issue.date || today(),
+    createdAt: issue.createdAt || "",
     safeItemId: issue.safeItemId || item.id || "",
     itemDescription: issue.itemDescription || item.description || "",
     itemKind: issue.itemKind || safeKindLabel(item),
@@ -5481,15 +5569,24 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     departmentId: issue.departmentId || "",
     departmentName: issue.departmentName || department?.name || "",
     process: mergedProductionDepartmentName(issue.process || primaryDepartmentProcess(department || {})),
+    issuedGrossWeight,
+    issuedWaxStoneWeight,
+    issuedNetWeight,
+    returnedGrossWeight: returnTotals.grossWeight,
+    returnedWaxStoneWeight: returnTotals.waxStoneWeight,
+    returnedNetWeight: returnTotals.netWeight,
     grossWeight,
     waxStoneWeight,
     netWeight,
-    status: issue.status || "In Department",
+    status: fullyReturned ? "Returned" : (issue.status === "Closed" ? "Closed" : "In Department"),
     remarks: issue.remarks || "",
   };
 }
 
-function createSafeDepartmentIssue(item, department, process = "", remarks = "") {
+function createSafeDepartmentIssue(item, department, process = "", remarks = "", issueWeights = {}) {
+  const issuedGrossWeight = Number(weight3(issueWeights.grossWeight ?? item.grossWeight ?? 0));
+  const issuedWaxStoneWeight = Number(weight3(issueWeights.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
+  const issuedNetWeight = Number(weight3(issueWeights.netWeight ?? safeItemNetFromGross(issuedGrossWeight, issuedWaxStoneWeight)));
   return normalizeSafeDepartmentIssue({
     id: crypto.randomUUID(),
     date: today(),
@@ -5503,26 +5600,90 @@ function createSafeDepartmentIssue(item, department, process = "", remarks = "")
     departmentId: department.id,
     departmentName: department.name,
     process: process || primaryDepartmentProcess(department),
-    grossWeight: item.grossWeight || 0,
-    waxStoneWeight: safeItemWaxStoneWeight(item),
-    netWeight: item.netWeight ?? safeItemNetFromGross(item.grossWeight, safeItemWaxStoneWeight(item)),
+    issuedGrossWeight,
+    issuedWaxStoneWeight,
+    issuedNetWeight,
+    grossWeight: issuedGrossWeight,
+    waxStoneWeight: issuedWaxStoneWeight,
+    netWeight: issuedNetWeight,
+    createdAt: new Date().toISOString(),
     remarks,
   }, item);
 }
 
-function openSafeIssueToDepartment(itemId) {
-  const item = findById("safeItems", itemId);
-  if (!item || item.status === "Out") return;
+function safeIssueAvailableItems() {
+  return (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && Number(item.grossWeight || 0) > 0.0005)
+    .sort((a, b) => `${safeLockerForPurity(a.locker || a.purity)} ${a.description || ""}`.localeCompare(
+      `${safeLockerForPurity(b.locker || b.purity)} ${b.description || ""}`,
+      undefined,
+      { sensitivity: "base" },
+    ));
+}
+
+function safeIssueItemOptionLabel(item = {}) {
+  return `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)} / GW ${gram(item.grossWeight)} / NT ${gram(item.netWeight ?? item.grossWeight)}`;
+}
+
+function renderSafeIssueItemOptions(selectedItemId = "") {
   const form = document.getElementById("safe-issue-form");
-  form.itemId.value = item.id;
+  if (!form) return [];
+  const items = safeIssueAvailableItems();
+  form.itemId.innerHTML = items.length
+    ? items.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(safeIssueItemOptionLabel(item))}</option>`).join("")
+    : '<option value="">No Safe Locker stock available</option>';
+  form.itemId.value = items.some((item) => item.id === selectedItemId) ? selectedItemId : (items[0]?.id || "");
+  return items;
+}
+
+function applySafeIssueItemDefaults(itemId = "") {
+  const form = document.getElementById("safe-issue-form");
+  const item = findById("safeItems", itemId || form?.itemId?.value);
+  if (!form || !item || item.status === "Out") return;
   form.grossWeight.value = weight3(item.grossWeight || 0);
   form.waxStoneWeight.value = weight3(safeItemWaxStoneWeight(item));
   form.netWeight.value = weight3(item.netWeight ?? item.grossWeight ?? 0);
   form.purity.value = item.purity || item.locker || safeLockerForPurity(item.locker || item.purity);
-  form.remarks.value = "";
-  if (state.karigars[0]) form.departmentId.value = state.karigars[0].id;
+  updateSafeIssueCalculation();
+}
+
+function updateSafeIssueCalculation() {
+  const form = document.getElementById("safe-issue-form");
+  const summary = document.getElementById("safe-issue-summary");
+  const item = findById("safeItems", form?.itemId?.value);
+  if (!form || !summary || !item || item.status === "Out") return;
+  const issueGrossWeight = Math.max(Number(form.grossWeight.value || 0), 0);
+  const issueWaxStoneWeight = Math.max(Number(form.waxStoneWeight.value || 0), 0);
+  const issueNetWeight = Number(weight3(Math.max(issueGrossWeight - issueWaxStoneWeight, 0)));
+  const availableGrossWeight = Number(item.grossWeight || 0);
+  const availableNetWeight = Number(item.netWeight ?? safeItemNetFromGross(item.grossWeight, safeItemWaxStoneWeight(item)));
+  form.netWeight.value = weight3(issueNetWeight);
+  summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)}. Available GW ${gram(availableGrossWeight)} / NT ${gram(availableNetWeight)}. After issue GW ${gram(Math.max(availableGrossWeight - issueGrossWeight, 0))} / NT ${gram(Math.max(availableNetWeight - issueNetWeight, 0))}.`;
+}
+
+function safeIssueDepartmentForHistory(departmentName = "") {
+  const targetGroup = departmentTransferGroupName(departmentName, departmentName);
+  const targetHeader = departmentDashboardHeader(departmentName);
+  return (state.karigars || []).find((department) => {
+    const process = primaryDepartmentProcess(department);
+    return departmentTransferGroupName(department.name, process) === targetGroup
+      || departmentDashboardHeader(department.name || process) === targetHeader;
+  }) || null;
+}
+
+function openSafeIssueToDepartment(itemId = "", departmentName = "") {
+  const form = document.getElementById("safe-issue-form");
+  if (!form) return;
+  const items = renderSafeIssueItemOptions(itemId);
+  if (!items.length) {
+    alert("No item or accessory is available in Safe Locker for issue.");
+    return;
+  }
+  const department = safeIssueDepartmentForHistory(departmentName) || state.karigars[0] || null;
+  form.departmentId.value = department?.id || "";
   renderSafeIssueProcessOptions(form.departmentId.value);
-  document.getElementById("safe-issue-summary").textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)} / GW ${gram(item.grossWeight)} / NT ${gram(item.netWeight ?? item.grossWeight)}`;
+  form.remarks.value = "";
+  applySafeIssueItemDefaults(form.itemId.value);
   document.getElementById("safe-issue-dialog").showModal();
 }
 
@@ -5546,6 +5707,300 @@ function safeDepartmentIssuesInHand() {
   return (state.safeDepartmentIssues || [])
     .map((issue) => normalizeSafeDepartmentIssue(issue, findById("safeItems", issue.safeItemId) || {}))
     .filter((issue) => issue.status !== "Returned" && issue.status !== "Closed");
+}
+
+function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
+  const issue = (currentState.safeDepartmentIssues || []).find((item) => item.id === entry.issueId) || {};
+  const department = issue.departmentId ? (currentState.karigars || []).find((item) => item.id === issue.departmentId) : null;
+  const grossWeight = Math.abs(Number(weight3(entry.grossWeight || 0)));
+  const waxStoneWeight = Math.abs(Number(weight3(entry.waxStoneWeight || 0)));
+  const netWeight = Math.abs(Number(weight3(entry.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight))));
+  const lossWeight = Math.abs(Number(weight3(entry.lossWeight || 0)));
+  const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "rod", "chain", "gold-ball", "spring", "other"];
+  const returnType = allowedReturnTypes.includes(entry.returnType) ? entry.returnType : "other";
+  const purity = entry.purity || issue.purity || issue.locker || "";
+  return {
+    id: entry.id || crypto.randomUUID(),
+    issueId: entry.issueId || "",
+    safeItemId: entry.safeItemId || "",
+    date: entry.date || today(),
+    createdAt: entry.createdAt || "",
+    departmentId: entry.departmentId || issue.departmentId || "",
+    departmentName: entry.departmentName || issue.departmentName || department?.name || "",
+    process: mergedProductionDepartmentName(entry.process || issue.process || primaryDepartmentProcess(department || {})),
+    sourceItemDescription: entry.sourceItemDescription || issue.itemDescription || "",
+    returnType,
+    locker: safeLockerForPurity(entry.locker || purity),
+    purity,
+    grossWeight,
+    waxStoneWeight,
+    netWeight,
+    lossWeight,
+    lossFineGold: Number(weight3(entry.lossFineGold ?? fineGoldWeight(lossWeight, purity))),
+    remarks: entry.remarks || "",
+  };
+}
+
+function safeDepartmentReturnLabel(value = "") {
+  return ({
+    loss: "Loss Only",
+    wastage: "Wastage / Scrap",
+    rava: "Rava",
+    "laser-wire": "Laser Wire",
+    tar: "Tar",
+    patta: "Patta",
+    accessory: "Manufactured Accessory",
+    rod: "Rod / Metal",
+    chain: "Chain",
+    "gold-ball": "Gold Ball",
+    spring: "Spring",
+    other: "Other Material",
+  })[value] || "Other Material";
+}
+
+function safeDepartmentReturnSafeKind(value = "") {
+  if (["wastage", "rava"].includes(value)) return "wastage";
+  if (value === "rod") return "rod";
+  return "accessory";
+}
+
+function safeDepartmentMovementLabel(isReturn = false, data = {}) {
+  if (!isReturn) return "ISSUE TO DEPT";
+  const receivedWeight = Number(data.grossWeight || 0);
+  const lossWeight = Number(data.lossWeight || 0);
+  if (receivedWeight <= 0.0005 && lossWeight > 0.0005) return "LOSS BOOKED";
+  if (receivedWeight > 0.0005 && lossWeight > 0.0005) return "RECEIVE + LOSS";
+  return "RECEIVE FROM DEPT";
+}
+
+function safeDepartmentIssuesForDepartment(departmentName = "") {
+  const source = String(departmentName || "").trim();
+  const target = source ? departmentTransferHistoryGroupName(source) : "";
+  return safeDepartmentIssuesInHand().filter((issue) =>
+    !target || departmentTransferGroupName(issue.departmentName || issue.process, issue.process || issue.departmentName) === target
+  );
+}
+
+function safeDepartmentIssueOptionLabel(issue = {}) {
+  return `${issue.itemDescription || "Shelf item"} / ${issue.process || issue.departmentName || "-"} / GW ${gram(issue.grossWeight)} / NT ${gram(issue.netWeight)} / ${displayPurity(issue.purity || issue.locker)}`;
+}
+
+function safeDepartmentReceiveDepartmentNames() {
+  const names = new Set((state.karigars || []).map((department) => department.name || primaryDepartmentProcess(department)).filter(Boolean));
+  Object.keys(departmentMetalInHand()).forEach((name) => names.add(name));
+  return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+function renderSafeDepartmentReceiveDepartmentOptions(selectedDepartment = "") {
+  const form = document.getElementById("safe-department-receive-form");
+  if (!form) return "";
+  const names = safeDepartmentReceiveDepartmentNames();
+  const selectedHeader = selectedDepartment ? departmentDashboardHeader(selectedDepartment) : "";
+  const selectedHistoryGroup = selectedDepartment ? departmentTransferHistoryGroupName(selectedDepartment) : "";
+  const selectedMasterDepartment = (state.karigars || []).find((department) =>
+    departmentTransferGroupName(department.name, primaryDepartmentProcess(department)) === selectedHistoryGroup
+  );
+  form.departmentName.innerHTML = names.length
+    ? names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")
+    : '<option value="">No department available</option>';
+  const selected = names.find((name) => departmentTextKey(name) === departmentTextKey(selectedMasterDepartment?.name || ""))
+    || names.find((name) => departmentTransferHistoryGroupName(name) === selectedHistoryGroup)
+    || names.find((name) => departmentDashboardHeader(name) === selectedHeader)
+    || names[0]
+    || "";
+  form.departmentName.value = selected;
+  return selected;
+}
+
+function renderSafeDepartmentReceiveIssueOptions(departmentName = "", selectedIssueId = "") {
+  const form = document.getElementById("safe-department-receive-form");
+  if (!form) return [];
+  const issues = safeDepartmentIssuesForDepartment(departmentName);
+  form.issueId.innerHTML = `<option value="">General ${escapeHtml(departmentDashboardHeader(departmentName))} holding</option>${issues
+    .map((issue) => `<option value="${escapeHtml(issue.id)}">${escapeHtml(safeDepartmentIssueOptionLabel(issue))}</option>`)
+    .join("")}`;
+  form.issueId.value = issues.some((issue) => issue.id === selectedIssueId) ? selectedIssueId : "";
+  return issues;
+}
+
+function openSafeDepartmentReceive(issueId = "", departmentName = "") {
+  const selectedIssue = issueId
+    ? safeDepartmentIssuesInHand().find((issue) => issue.id === issueId)
+    : null;
+  const form = document.getElementById("safe-department-receive-form");
+  if (!form) return;
+  const targetDepartment = departmentName || selectedIssue?.departmentName || selectedIssue?.process || "";
+  const selectedDepartment = renderSafeDepartmentReceiveDepartmentOptions(targetDepartment);
+  if (!selectedDepartment) {
+    alert("No department is available.");
+    return;
+  }
+  renderSafeDepartmentReceiveIssueOptions(selectedDepartment, issueId);
+  form.returnType.value = "wastage";
+  form.grossWeight.value = "0";
+  form.waxStoneWeight.value = "0";
+  form.netWeight.value = "0.000";
+  form.lossWeight.value = "0";
+  form.remarks.value = "";
+  applySafeDepartmentReceiveIssueDefaults();
+  document.getElementById("safe-department-receive-dialog").showModal();
+}
+
+function openSafeDepartmentReceiveByName(encodedDepartmentName = "") {
+  openSafeDepartmentReceive("", decodeURIComponent(encodedDepartmentName));
+}
+
+function applySafeDepartmentReceiveIssueDefaults() {
+  const form = document.getElementById("safe-department-receive-form");
+  if (!form) return;
+  const issue = safeDepartmentIssuesInHand().find((item) => item.id === form.issueId.value);
+  if (issue) {
+    form.locker.value = safeLockerForPurity(issue.locker || issue.purity);
+    form.purity.value = issue.purity || issue.locker || "18K";
+  } else {
+    const currentAvailability = safeDepartmentReceiveAvailability(form.departmentName.value, form.purity.value);
+    form.purity.value = (Number(currentAvailability.gross || 0) || Number(currentAvailability.gold || 0))
+      ? form.purity.value
+      : safeDepartmentReceiveDefaultPurity(form.departmentName.value) || form.purity.value || "18K";
+    form.locker.value = safeLockerForPurity(form.purity.value);
+  }
+  updateSafeDepartmentReceiveCalculation();
+}
+
+function safeDepartmentReceiveAvailability(departmentName = "", purity = "") {
+  const totals = departmentMetalInHand()[departmentDashboardHeader(departmentName)] || null;
+  if (!totals) return { gross: 0, gold: 0, waxStone: 0, loss: 0 };
+  const purityKey = dashboardPurityLabel(purity);
+  const purityTotals = totals.purities?.[purityKey];
+  return purityTotals || totals;
+}
+
+function safeDepartmentReceiveDefaultPurity(departmentName = "") {
+  const totals = departmentMetalInHand()[departmentDashboardHeader(departmentName)] || {};
+  return Object.entries(totals.purities || {})
+    .filter(([, item]) => Number(item.gross || 0) > 0 || Number(item.gold || 0) > 0)
+    .sort((a, b) => puritySortValue(b[0]) - puritySortValue(a[0]))[0]?.[0] || "";
+}
+
+function updateSafeDepartmentReceiveCalculation() {
+  const form = document.getElementById("safe-department-receive-form");
+  const summary = document.getElementById("safe-department-receive-summary");
+  if (!form || !summary) return;
+  const issue = safeDepartmentIssuesInHand().find((item) => item.id === form.issueId.value);
+  const grossWeight = Math.max(Number(form.grossWeight.value || 0), 0);
+  const waxStoneWeight = Math.max(Number(form.waxStoneWeight.value || 0), 0);
+  const lossWeight = Math.max(Number(form.lossWeight.value || 0), 0);
+  const netWeight = Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
+  form.netWeight.value = weight3(netWeight);
+  const available = issue || safeDepartmentReceiveAvailability(form.departmentName.value, form.purity.value);
+  const afterGross = Number(weight3(Math.max(Number(available.grossWeight ?? available.gross ?? 0) - grossWeight - lossWeight, 0)));
+  const afterNet = Number(weight3(Math.max(Number(available.netWeight ?? available.gold ?? 0) - netWeight - lossWeight, 0)));
+  const sourceText = issue ? issue.itemDescription || "shelf item" : "general department holding";
+  const availableGross = Number(available.grossWeight ?? available.gross ?? 0);
+  const availableNet = Number(available.netWeight ?? available.gold ?? 0);
+  summary.textContent = `${form.departmentName.value || "Department"} / ${sourceText}: GW ${gram(availableGross)}, NT ${gram(availableNet)}. Receive NT ${gram(netWeight)} + Loss ${gram(lossWeight)}. Balance after save: GW ${gram(afterGross)}, NT ${gram(afterNet)}.`;
+}
+
+function saveSafeDepartmentReceive(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const issue = safeDepartmentIssuesInHand().find((item) => item.id === form.issueId.value);
+  const departmentName = departmentDashboardHeader(form.departmentName.value);
+  const department = (state.karigars || []).find((item) => departmentDashboardHeader(item.name || primaryDepartmentProcess(item)) === departmentName);
+  const grossWeight = Number(weight3(form.grossWeight.value || 0));
+  const waxStoneWeight = Number(weight3(form.waxStoneWeight.value || 0));
+  const netWeight = Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
+  const lossWeight = Number(weight3(form.lossWeight.value || 0));
+  if (!departmentName) {
+    alert("Select department.");
+    return;
+  }
+  if (grossWeight <= 0 && lossWeight <= 0) {
+    alert("Enter received weight or department loss greater than zero.");
+    return;
+  }
+  if (waxStoneWeight < 0 || waxStoneWeight > grossWeight) {
+    alert("Wax stone weight cannot be negative or greater than received gross weight.");
+    return;
+  }
+  if (lossWeight < 0) {
+    alert("Department loss cannot be negative.");
+    return;
+  }
+  const available = issue || safeDepartmentReceiveAvailability(departmentName, form.purity.value);
+  const availableGross = Number(available.grossWeight ?? available.gross ?? 0);
+  const availableNet = Number(available.netWeight ?? available.gold ?? 0);
+  const availableWax = Number(available.waxStoneWeight ?? available.waxStone ?? 0);
+  if (grossWeight + lossWeight > availableGross + 0.0005 || netWeight + lossWeight > availableNet + 0.0005) {
+    alert(`Cannot account more than the current holding: GW ${gram(availableGross)} / NT ${gram(availableNet)}.`);
+    return;
+  }
+  if (waxStoneWeight > availableWax + 0.0005) {
+    alert(`Wax stone received cannot exceed the department wax-stone balance of ${gram(availableWax)}.`);
+    return;
+  }
+  const remarks = form.remarks.value.trim();
+  if (!remarks) {
+    alert("Enter remarks for this department receipt or loss.");
+    return;
+  }
+  const returnType = form.returnType.value || "other";
+  if (returnType === "loss" && (grossWeight > 0 || waxStoneWeight > 0)) {
+    alert("Loss Only cannot include received material. Keep received GW and wax stone at zero.");
+    return;
+  }
+  if (returnType === "loss" && lossWeight <= 0) {
+    alert("Enter Department Loss Booked weight for Loss Only.");
+    return;
+  }
+  const label = safeDepartmentReturnLabel(returnType);
+  const safeItemId = grossWeight > 0 ? crypto.randomUUID() : "";
+  const entry = normalizeSafeDepartmentReturn({
+    id: crypto.randomUUID(),
+    issueId: issue.id,
+    safeItemId,
+    date: today(),
+    createdAt: new Date().toISOString(),
+    departmentId: issue?.departmentId || department?.id || "",
+    departmentName,
+    process: issue?.process || primaryDepartmentProcess(department || {}) || departmentName,
+    sourceItemDescription: issue?.itemDescription || `${departmentName} general holding`,
+    returnType,
+    locker: form.locker.value,
+    purity: form.purity.value,
+    grossWeight,
+    waxStoneWeight,
+    netWeight,
+    lossWeight,
+    lossFineGold: fineGoldWeight(lossWeight, form.purity.value),
+    remarks,
+  });
+  state.safeDepartmentReturns = state.safeDepartmentReturns || [];
+  state.safeDepartmentReturns.unshift(entry);
+  if (grossWeight > 0) {
+    addSafeItem({
+      id: safeItemId,
+      date: entry.date,
+      locker: entry.locker,
+      purity: entry.purity,
+      description: `${label} returned from ${entry.departmentName || entry.process || "department"}`,
+      source: entry.sourceItemDescription || "Department return",
+      sourceType: "safe-department-return",
+      sourceId: entry.id,
+      sourceLine: returnType,
+      safeKind: safeDepartmentReturnSafeKind(returnType),
+      grossWeight,
+      waxStoneWeight,
+      netWeight,
+      status: "In Safe",
+      remarks: entry.remarks,
+    });
+  }
+  document.getElementById("safe-department-receive-dialog").close();
+  form.reset();
+  saveState();
+  render();
+  refreshOpenDepartmentTransferHistory();
 }
 
 function safeLockerForPurity(value) {
@@ -6192,6 +6647,7 @@ function factoryPhysicalStock() {
     production: blankFactoryStockPart("Production Lots"),
     billPending: blankFactoryStockPart("Completed / Bill Pending"),
     departmentIssues: blankFactoryStockPart("Safe Items In Departments"),
+    departmentReturns: blankFactoryStockPart("Department Receipts / Loss Adjustment"),
     meltingCasting: blankFactoryStockPart("Melting / Casting In Hand"),
     xrf: blankFactoryStockPart("XRF Sample Pending"),
     nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Departments"),
@@ -6224,6 +6680,23 @@ function factoryPhysicalStock() {
     const gold = Number(issue.netWeight || gross);
     addFactoryStockPart(parts, "departmentIssues", "Safe Items In Departments", gross, gold, issue.purity || issue.locker || "");
   });
+
+  (state.safeDepartmentReturns || [])
+    .map((entry) => normalizeSafeDepartmentReturn(entry))
+    .filter((entry) => !entry.issueId)
+    .forEach((entry) => {
+      const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
+      const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
+      addFactoryStockPart(
+        parts,
+        "departmentReturns",
+        "Department Receipts / Loss Adjustment",
+        -grossReduction,
+        -goldReduction,
+        entry.purity || entry.locker || "",
+        -fineGoldWeight(goldReduction, entry.purity || entry.locker || "")
+      );
+    });
 
   (state.melting || [])
     .filter((item) => (item.status || "Issued") !== "Received")
@@ -6258,9 +6731,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold)),
     nonGoldWeight: parts.nonGoldDirect.grossWeight,
     totalFine,
   };
@@ -6712,6 +7185,7 @@ function clearJobCards(resetAt = new Date().toISOString()) {
   state.xrfTests = [];
   state.safeItems = [];
   state.safeDepartmentIssues = [];
+  state.safeDepartmentReturns = [];
   state.productionNonGoldIssues = [];
   state.settingManagerEntries = [];
   state.nextOrder = 1001;
@@ -6771,6 +7245,7 @@ function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
   state.xrfTests = [];
   state.safeItems = [];
   state.safeDepartmentIssues = [];
+  state.safeDepartmentReturns = [];
   state.productionNonGoldIssues = [];
   state.settingManagerEntries = [];
   state.ledger = [];
@@ -8787,13 +9262,15 @@ function getGlobalPrintArea() {
   return printArea;
 }
 
-function startBillPrint(html) {
+function startBillPrint(html, options = {}) {
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = html;
   setPrintPageSize("bill");
   document.body.classList.add("printing-bill");
+  document.body.classList.toggle("printing-one-page-bill", Boolean(options.onePage));
   const cleanup = () => {
     document.body.classList.remove("printing-bill");
+    document.body.classList.remove("printing-one-page-bill");
     printArea.innerHTML = "";
     setPrintPageSize("job");
     window.removeEventListener("afterprint", cleanup);
@@ -8875,7 +9352,7 @@ function printBill(lotId, billOverride = null) {
     alert("Only QC OK items transferred to Office can be printed in the final bill.");
     return;
   }
-  startBillPrint(billPrintHtml(lot, bill));
+  startBillPrint(billPrintHtml(lot, bill), { onePage: true });
 }
 
 function printPackingList(lotId, billOverride = null) {
@@ -8998,6 +9475,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("production", "Production Lots", "Open job cards in departments"),
     partRow("billPending", "Completed / Bill Pending", "Completed factory stock not yet out"),
     partRow("departmentIssues", "Dept Issued Safe Items", "Safe item issued directly to department"),
+    partRow("departmentReturns", "Dept Receipt / Loss Adjustment", "Returned material and department loss adjustment"),
     partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
     partRow("nonGoldDirect", "Direct Non-Gold In Departments", "Physical only, no fine gold"),
@@ -9119,7 +9597,7 @@ function billPrintHtml(lot, bill) {
   const purityText = [...new Set(items.map((item) => item.purity).filter(Boolean))].join(", ") || "-";
   const fineWeight = items.reduce((sum, item) => sum + fineGoldWeight(item.netWeight, item.purity || item.order?.purity || 0), 0);
   return `
-    <section class="bill-print-document small-bill-document">
+    <section class="bill-print-document small-bill-document one-page-bill-document">
       <header class="bill-sample-header">
         <div>
           <p><b>Name</b> : ${escapeHtml(customer.name || "-")}</p>
@@ -13544,13 +14022,40 @@ function dashboardPendingOrderItem(job) {
 }
 
 function recentDashboardTransfers(limit = 30) {
-  return state.lots
-    .flatMap((lot) => (lot.transfers || []).map((transfer) => ({ lot, transfer })))
-    .sort((a, b) => String(b.transfer.date || "").localeCompare(String(a.transfer.date || "")))
+  const lotTransfers = state.lots
+    .flatMap((lot) => (lot.transfers || []).map((transfer) => ({ type: "lot-transfer", lot, transfer })));
+  return [...safeDepartmentTransferHistoryEntries(), ...lotTransfers]
+    .sort((a, b) => {
+      const aData = a.transfer || a.issue || a.departmentReturn || {};
+      const bData = b.transfer || b.issue || b.departmentReturn || {};
+      return String(bData.createdAt || bData.date || "").localeCompare(String(aData.createdAt || aData.date || ""));
+    })
     .slice(0, limit);
 }
 
-function dashboardTransferItem({ lot, transfer }) {
+function dashboardTransferItem(entry) {
+  if (entry.type === "safe-department-issue" || entry.type === "safe-department-return") {
+    const isReturn = entry.type === "safe-department-return";
+    const data = isReturn ? entry.departmentReturn || {} : entry.issue || {};
+    const department = departmentDashboardHeader(data.departmentName || data.process || "Unassigned");
+    const shelf = `${safeLockerForPurity(data.locker || data.purity)} Safe`;
+    const gross = Number(isReturn ? data.grossWeight : data.issuedGrossWeight || data.grossWeight || 0);
+    const net = Number(isReturn ? data.netWeight : data.issuedNetWeight || data.netWeight || 0);
+    const loss = Number(isReturn ? data.lossWeight || 0 : 0);
+    const movementLabel = safeDepartmentMovementLabel(isReturn, data);
+    const title = `${movementLabel}: ${isReturn ? `${department} -> ${shelf}` : `${shelf} -> ${department}`}`;
+    const detail = `${data.date || "-"} / GW ${gram(gross)} / Net ${gram(net)}${loss ? ` / Loss ${gram(loss)}` : ""} / ${data.sourceItemDescription || data.itemDescription || "Shelf item"}`;
+    const remarks = isReturn ? `${safeDepartmentReturnLabel(data.returnType)} / ${data.remarks || "-"}` : data.remarks || "Direct shelf issue";
+    return `
+      <div class="stack-item dashboard-transfer-item" tabindex="0">
+        <span class="dashboard-transfer-title">${transferOneLinePopupCell(title)}</span>
+        <strong>${transferOneLinePopupCell(detail)}</strong>
+        <span class="dashboard-transfer-remark">${transferRemarkCell(remarks)}</span>
+        <button class="dashboard-open-button" type="button" onclick="switchView('safe')">Open Safe</button>
+      </div>
+    `;
+  }
+  const { lot, transfer } = entry;
   const from = transfer.fromDepartment || transfer.fromKarigarName || "-";
   const to = transfer.toDepartment || transfer.toKarigarName || "-";
   const title = `${lot.orderNumber || lot.number || "-"} / ${from} -> ${to}`;
@@ -13590,7 +14095,11 @@ function renderDepartmentMetal() {
           </div>
           ${renderDepartmentHoldingDetail(totals)}
         </div>
-        <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
+        <div class="department-card-actions">
+          <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
+          <button class="dashboard-open-button department-issue-button" type="button" onclick="openSafeIssueToDepartment('', decodeURIComponent('${encodeURIComponent(department)}'))">Issue Accessory</button>
+          <button class="dashboard-open-button department-receive-button" type="button" onclick="openSafeDepartmentReceiveByName('${encodeURIComponent(department)}')">Receive / Book Loss</button>
+        </div>
       </article>
     `)
     .join("");
@@ -13697,6 +14206,27 @@ function departmentMetalInHand() {
       waxStone: Number(issue.waxStoneWeight || 0),
       purity: issue.purity || issue.locker || "",
     });
+  });
+  (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry)).forEach((entry) => {
+    const departmentName = entry.departmentName || entry.process || "Unassigned";
+    if (!entry.issueId) {
+      const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
+      const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
+      addDepartmentWeight(departments, departmentName, {
+        gross: -grossReduction,
+        gold: -goldReduction,
+        waxStone: -Number(entry.waxStoneWeight || 0),
+        fineGold: -fineGoldWeight(goldReduction, entry.purity),
+        purity: entry.purity || entry.locker || "",
+      });
+    }
+    if (entry.lossWeight > 0) {
+      addDepartmentWeight(departments, departmentName, {
+        loss: entry.lossWeight,
+        lossFineGold: entry.lossFineGold,
+        purity: entry.purity || entry.locker || "",
+      });
+    }
   });
   addMeltingCastingDashboardWeights(departments);
   addXrfDashboardWeights(departments);
@@ -14132,6 +14662,7 @@ function dailyTallyStockTargets() {
     [departmentDashboardHeader("Production Lots")]: { source: "Production Lots", ...(parts.production || {}) },
     [departmentDashboardHeader("Completed / Bill Pending")]: { source: "Bill Pending", ...(parts.billPending || {}) },
     [departmentDashboardHeader("Dept Issued Items")]: { source: "Safe Items In Departments", ...(parts.departmentIssues || {}) },
+    [departmentDashboardHeader("Dept Receipt Adjustment")]: { source: "Department Receipts / Loss", ...(parts.departmentReturns || {}) },
     [departmentDashboardHeader("Melting / Casting")]: { source: "Melting / Casting", ...(parts.meltingCasting || {}) },
     [departmentDashboardHeader("XRF Pending")]: { source: "XRF Pending", ...(parts.xrf || {}) },
     [departmentDashboardHeader("Direct Non-Gold")]: { source: "Direct Non-Gold", ...(parts.nonGoldDirect || {}) },
@@ -18188,8 +18719,11 @@ function renderSafeLockers() {
       const outDetail = item.issueDepartmentName
         ? `${item.outDate || "-"}<br><small>${escapeHtml(item.issueDepartmentName)} / ${escapeHtml(item.issueProcess || "-")}</small>`
         : escapeHtml(item.outDate || "-");
+      const departmentIssue = item.safeDepartmentIssueId
+        ? safeDepartmentIssuesInHand().find((issue) => issue.id === item.safeDepartmentIssueId)
+        : null;
       const actions = item.status === "Out"
-        ? outDetail
+        ? `<div class="safe-out-actions">${outDetail}${departmentIssue ? `<button class="ghost-button" type="button" onclick="openSafeDepartmentReceive('${departmentIssue.id}')">Receive</button>` : ""}</div>`
         : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue To Dept</button><button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button></div>`;
       return `
         <tr>
@@ -18288,6 +18822,7 @@ function renderFactorySummary() {
     factorySummaryCard("Production Lots", gram(parts.production?.grossWeight || 0), factoryStockPartNote(parts.production)),
     factorySummaryCard("Bill Pending", gram(parts.billPending?.grossWeight || 0), factoryStockPartNote(parts.billPending)),
     factorySummaryCard("Dept Issued Items", gram(parts.departmentIssues?.grossWeight || 0), factoryStockPartNote(parts.departmentIssues)),
+    factorySummaryCard("Dept Receipt / Loss Adj.", gram(parts.departmentReturns?.grossWeight || 0), factoryStockPartNote(parts.departmentReturns)),
     factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
     factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
@@ -19513,11 +20048,14 @@ function updateDepartmentReferences(department) {
 }
 
 function renderReports() {
-  const wastage = state.lots.reduce((total, lot) => total + Number(lot.actualWastage || 0), 0);
-  const wastageFineGold = state.lots.reduce((total, lot) => total + Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage, lot.wastagePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || 0)), 0);
-  const departmentBalance = state.lots.reduce((total, lot) => {
+  const departmentReceiptLosses = (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry));
+  const receiptLoss = departmentReceiptLosses.reduce((total, entry) => Number(weight3(total + entry.lossWeight)), 0);
+  const receiptLossFine = departmentReceiptLosses.reduce((total, entry) => Number(weight3(total + entry.lossFineGold)), 0);
+  const wastage = Number(weight3(state.lots.reduce((total, lot) => total + Number(lot.actualWastage || 0), 0) + receiptLoss));
+  const wastageFineGold = Number(weight3(state.lots.reduce((total, lot) => total + Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage, lot.wastagePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || 0)), 0) + receiptLossFine));
+  const departmentBalance = Number(weight3(state.lots.reduce((total, lot) => {
     return total + (lot.transfers || []).reduce((sum, transfer) => sum + Number(transfer.departmentBalance || 0), 0);
-  }, 0);
+  }, 0) + receiptLoss));
   const making = state.lots.reduce((total, lot) => {
     const karigar = findById("karigars", lot.karigarId);
     return total + Number(lot.finishedWeight || 0) * Number(karigar?.rate || 0);
@@ -19533,15 +20071,11 @@ function renderOnlineTransferHistory() {
   const query = (productionViewActive
     ? document.getElementById("production-transfer-search")?.value || ""
     : document.getElementById("transfer-history-search")?.value || "").toLowerCase();
-  const rows = state.lots.flatMap((lot) => {
-    return [goldIssueHistoryEntry(lot), ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer }))];
-  })
-    .filter(({ lot, transfer, type }) => {
-      const text = type === "issue"
-        ? `${lot.number} gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
-        : `${lot.number} ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
-      return text.includes(query);
-  })
+  const lotEntries = state.lots.flatMap((lot) =>
+    [goldIssueHistoryEntry(lot), ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer }))]
+  );
+  const rows = [...safeDepartmentTransferHistoryEntries(), ...lotEntries]
+    .filter((entry) => transferHistorySearchText(entry).includes(query))
     .map(renderTransferHistoryRow)
     .join("");
   const content = rows || tableEmpty(14, "No transfer history recorded.");
@@ -19549,6 +20083,37 @@ function renderOnlineTransferHistory() {
   const productionTable = document.getElementById("production-transfer-table");
   if (historyTable) historyTable.innerHTML = content;
   if (productionTable) productionTable.innerHTML = content;
+}
+
+function safeDepartmentTransferHistoryEntries() {
+  const issues = (state.safeDepartmentIssues || []).map((rawIssue) => {
+    const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
+    return { type: "safe-department-issue", issue: normalizeSafeDepartmentIssue(rawIssue, item) };
+  });
+  const returns = (state.safeDepartmentReturns || []).map((entry) => ({
+    type: "safe-department-return",
+    departmentReturn: normalizeSafeDepartmentReturn(entry),
+  }));
+  return [...returns, ...issues].sort((a, b) => {
+    const aEntry = a.issue || a.departmentReturn || {};
+    const bEntry = b.issue || b.departmentReturn || {};
+    return String(bEntry.createdAt || bEntry.date || "").localeCompare(String(aEntry.createdAt || aEntry.date || ""));
+  });
+}
+
+function transferHistorySearchText(entry = {}) {
+  if (entry.type === "safe-department-issue") {
+    const issue = entry.issue || {};
+    return `issue to dept direct shelf issue ${issue.itemDescription || ""} ${issue.source || ""} ${issue.locker || ""} ${issue.departmentName || ""} ${issue.process || ""} ${issue.remarks || ""}`.toLowerCase();
+  }
+  if (entry.type === "safe-department-return") {
+    const departmentReturn = entry.departmentReturn || {};
+    return `${safeDepartmentMovementLabel(true, departmentReturn)} department return ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
+  }
+  const { lot = {}, transfer = {}, type } = entry;
+  return type === "issue"
+    ? `${lot.number || ""} gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
+    : `${lot.number || ""} ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
 }
 
 function renderDepartmentTransferHistoryBoard() {
@@ -19581,11 +20146,13 @@ function renderDepartmentTransferTile(department) {
 function openDepartmentTransferHistory(departmentName) {
   const dialog = document.getElementById("department-transfer-dialog");
   if (!dialog) return;
-  const events = departmentTransferEvents().filter((event) => event.department === departmentName);
+  const historyDepartmentName = departmentTransferHistoryGroupName(departmentName);
+  dialog.dataset.departmentName = historyDepartmentName;
+  const events = departmentTransferEvents().filter((event) => event.department === historyDepartmentName);
   const inRows = events.filter((event) => event.direction === "in");
   const outRows = events.filter((event) => event.direction === "out");
-  const summary = departmentTransferSummaryFromEvents(departmentName, events);
-  document.getElementById("department-transfer-title").textContent = `${departmentName} Transfer History`;
+  const summary = departmentTransferSummaryFromEvents(historyDepartmentName, events);
+  document.getElementById("department-transfer-title").textContent = `${historyDepartmentName} Transfer History`;
   document.getElementById("department-transfer-summary").textContent =
     `${summary.inCount} inward entries and ${summary.outCount} outward entries. Difference and fine are counted when item goes out from this department.`;
   document.getElementById("department-transfer-total-cards").innerHTML = renderDepartmentTransferTotals(summary);
@@ -19593,10 +20160,20 @@ function openDepartmentTransferHistory(departmentName) {
   document.getElementById("department-transfer-in-title").textContent = `IN To Department (${inRows.length})`;
   document.getElementById("department-transfer-out-title").textContent = `OUT From Department (${outRows.length})`;
   document.getElementById("department-transfer-in-table").innerHTML =
-    inRows.length ? inRows.map((event) => renderDepartmentTransferRow(event, "in")).join("") : tableEmpty(8, "No inward entries for this department.");
+    inRows.length ? inRows.map((event) => renderDepartmentTransferRow(event, "in")).join("") : tableEmpty(9, "No inward entries for this department.");
   document.getElementById("department-transfer-out-table").innerHTML =
-    outRows.length ? outRows.map((event) => renderDepartmentTransferRow(event, "out")).join("") : tableEmpty(8, "No outward entries for this department.");
+    outRows.length ? outRows.map((event) => renderDepartmentTransferRow(event, "out")).join("") : tableEmpty(9, "No outward entries for this department.");
+  const issueButton = document.getElementById("department-history-issue");
+  const receiveButton = document.getElementById("department-history-receive");
+  if (issueButton) issueButton.onclick = () => openSafeIssueToDepartment("", historyDepartmentName);
+  if (receiveButton) receiveButton.onclick = () => openSafeDepartmentReceive("", historyDepartmentName);
   if (!dialog.open) dialog.showModal();
+}
+
+function refreshOpenDepartmentTransferHistory() {
+  const dialog = document.getElementById("department-transfer-dialog");
+  const departmentName = dialog?.dataset?.departmentName || "";
+  if (dialog?.open && departmentName) openDepartmentTransferHistory(departmentName);
 }
 
 function renderDepartmentTransferTotals(summary) {
@@ -19792,6 +20369,48 @@ function departmentTransferEvents() {
       });
     });
   });
+  const directShelfEvents = [
+    ...(state.safeDepartmentIssues || []).map((rawIssue) => {
+      const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
+      return { kind: "issue", data: normalizeSafeDepartmentIssue(rawIssue, item) };
+    }),
+    ...(state.safeDepartmentReturns || []).map((entry) => ({ kind: "return", data: normalizeSafeDepartmentReturn(entry) })),
+  ].sort((a, b) => String(a.data.createdAt || a.data.date || "").localeCompare(String(b.data.createdAt || b.data.date || "")));
+  directShelfEvents.forEach(({ kind, data }) => {
+    const isReturn = kind === "return";
+    const movementLabel = safeDepartmentMovementLabel(isReturn, data);
+    const departmentName = data.departmentName || data.process || "Unassigned";
+    const processName = data.process || departmentName;
+    const receivedGrossWeight = Number(isReturn ? data.grossWeight : data.issuedGrossWeight || data.grossWeight || 0);
+    const netWeight = Number(isReturn ? data.netWeight : data.issuedNetWeight || data.netWeight || 0);
+    const lossWeight = Number(isReturn ? data.lossWeight || 0 : 0);
+    const accountedGrossWeight = Number(weight3(receivedGrossWeight + lossWeight));
+    const shelfName = `${safeLockerForPurity(data.locker || data.purity)} Safe`;
+    const destinationName = movementLabel === "LOSS BOOKED" ? "Department Loss" : shelfName;
+    events.push({
+      id: `${isReturn ? "safe-return" : "safe-issue"}-${data.id}`,
+      sortIndex: sortIndex++,
+      direction: isReturn ? "out" : "in",
+      type: movementLabel,
+      department: departmentTransferGroupName(departmentName, processName),
+      departmentDetail: departmentTransferDetail(departmentName, processName),
+      date: data.date || "-",
+      lotNumber: movementLabel,
+      jobNumber: data.sourceItemDescription || data.itemDescription || "Shelf item",
+      counterparty: destinationName,
+      process: processName,
+      issueGw: accountedGrossWeight,
+      receiveGw: receivedGrossWeight,
+      netWeight,
+      difference: lossWeight,
+      fineGold: Number(isReturn ? data.lossFineGold || fineGoldWeight(lossWeight, data.purity || data.locker) : 0),
+      purity: data.purity || data.locker || "",
+      remarks: isReturn
+        ? `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+        : `Direct issue from ${shelfName}${data.remarks ? `; ${data.remarks}` : ""}`,
+      hasLot: false,
+    });
+  });
   return events.sort((a, b) => b.sortIndex - a.sortIndex);
 }
 
@@ -19800,6 +20419,19 @@ function departmentTransferGroupName(departmentName = "", processName = "") {
   if (textMatchesAny(combined, ["filer", "filing", "fitting", "back to filer", "vinod"])) return "Filing / Fitting";
   if (isPrePolishDepartment(combined) || isPolishDepartment(combined)) return "Pre Polish / Polish";
   return departmentDashboardHeader(processName || departmentName || "Unassigned");
+}
+
+function departmentTransferHistoryGroupName(departmentName = "") {
+  const source = String(departmentName || "").trim();
+  if (!source) return "Unassigned";
+  const sourceKey = departmentTextKey(source);
+  const masterDepartment = (state.karigars || []).find((department) =>
+    departmentTextKey(department.name) === sourceKey
+      || departmentProcesses(department).some((process) => departmentTextKey(process) === sourceKey)
+  );
+  return masterDepartment
+    ? departmentTransferGroupName(masterDepartment.name, primaryDepartmentProcess(masterDepartment))
+    : departmentTransferGroupName(source, source);
 }
 
 function departmentTransferDetail(departmentName = "", processName = "") {
@@ -19828,6 +20460,17 @@ function transferOneLineCell(value = "") {
   return `<span class="transfer-inline">${escapeHtml(oneLine)}</span>`;
 }
 
+function transferDirectionCell(value = "", direction = "from") {
+  const fullText = String(value || "-").trim().replace(/\s+/g, " ") || "-";
+  const label = direction === "to" ? "TO" : "FROM";
+  return `
+    <span class="transfer-direction-cell ${direction === "to" ? "to-cell" : "from-cell"}" title="${escapeHtml(fullText)}">
+      <b>${label}</b>
+      <span>${escapeHtml(fullText)}</span>
+    </span>
+  `;
+}
+
 function transferOneLinePopupCell(value = "") {
   const fullText = String(value || "-").trim() || "-";
   const oneLine = fullText.replace(/\s+/g, " ");
@@ -19843,14 +20486,22 @@ function renderDepartmentTransferRow(event, direction) {
   const gw = direction === "in" ? event.receiveGw : event.issueGw;
   const difference = direction === "out" ? gram(event.difference) : "-";
   const fineGold = direction === "out" ? gram(event.fineGold) : "-";
+  const ownDepartment = event.departmentDetail || event.department || "-";
+  const otherDepartment = event.counterparty || "-";
+  const fromDepartment = direction === "in" ? otherDepartment : ownDepartment;
+  const toDepartment = direction === "in" ? ownDepartment : otherDepartment;
+  const referenceHtml = event.hasLot === false
+    ? `<strong>${escapeHtml(event.lotNumber || "DIRECT SHELF")}</strong>`
+    : `<button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button>`;
   return `
     <tr>
       <td>${escapeHtml(event.date || "-")}</td>
       <td class="transfer-lot-job-cell">
-        <button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button>
+        ${referenceHtml}
         <small>${escapeHtml(event.jobNumber || "-")}</small>
       </td>
-      <td class="department-oneline-cell">${transferDepartmentCell(event.counterparty, event.process)}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(gw)}</td>
       <td>${gram(event.netWeight)}</td>
       <td>${difference}</td>
@@ -19878,18 +20529,20 @@ function transferFineGold(transfer, lot = null) {
 }
 
 function renderTransferHistoryRow(entry) {
+  if (entry.type === "safe-department-issue" || entry.type === "safe-department-return") {
+    return renderSafeDepartmentTransferHistoryRow(entry);
+  }
   const { lot, transfer, type } = entry;
   if (type === "issue") {
     const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
     const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
-    const departmentText = `${sourceName} to ${firstDepartment}`;
-    const movedText = `${sourceName} to ${transfer.toKarigarName || firstDepartment}`;
+    const destination = departmentTransferDetail(lot.issueKarigarName || lot.karigarName || transfer.toKarigarName || firstDepartment, firstDepartment);
     return `
       <tr class="online-transfer-row" tabindex="0">
         <td>${escapeHtml(transfer.date || "-")}</td>
         <td>${escapeHtml(lot.number)}</td>
-        <td class="department-oneline-cell">${transferOneLineCell(departmentText)}</td>
-        <td class="department-oneline-cell">${transferOneLineCell(movedText)}</td>
+        <td class="department-oneline-cell">${transferDirectionCell(sourceName, "from")}</td>
+        <td class="department-oneline-cell">${transferDirectionCell(destination, "to")}</td>
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
@@ -19903,14 +20556,14 @@ function renderTransferHistoryRow(entry) {
       </tr>
     `;
   }
-  const departmentText = `${transfer.fromDepartment || "-"} to ${transfer.toDepartment || "-"}`;
-  const movedText = `${transfer.fromKarigarName || "-"} to ${transfer.toKarigarName || "-"}`;
+  const fromDepartment = departmentTransferDetail(transfer.fromKarigarName || transfer.fromDepartment || "-", transfer.fromDepartment || transfer.fromKarigarName || "");
+  const toDepartment = departmentTransferDetail(transfer.toKarigarName || transfer.toDepartment || "-", transfer.toDepartment || transfer.toKarigarName || "");
   return `
     <tr class="online-transfer-row" tabindex="0">
       <td>${escapeHtml(transfer.date || "-")}</td>
       <td>${escapeHtml(lot.number)}</td>
-      <td class="department-oneline-cell">${transferOneLineCell(departmentText)}</td>
-      <td class="department-oneline-cell">${transferOneLineCell(movedText)}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
@@ -19926,6 +20579,44 @@ function renderTransferHistoryRow(entry) {
           <div class="row-actions transfer-history-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lot.id}', '${transfer.id}')">Delete</button></div>
         </div>
       </td>
+    </tr>
+  `;
+}
+
+function renderSafeDepartmentTransferHistoryRow(entry = {}) {
+  const isReturn = entry.type === "safe-department-return";
+  const data = isReturn ? entry.departmentReturn || {} : entry.issue || {};
+  const department = departmentTransferDetail(data.departmentName || "Unassigned", data.process || data.departmentName || "");
+  const shelf = `${safeLockerForPurity(data.locker || data.purity)} Safe`;
+  const movementLabel = safeDepartmentMovementLabel(isReturn, data);
+  const movedFrom = isReturn ? department : shelf;
+  const movedTo = isReturn ? (movementLabel === "LOSS BOOKED" ? "Department Loss" : shelf) : department;
+  const grossWeight = Number(isReturn ? data.grossWeight : data.issuedGrossWeight || data.grossWeight || 0);
+  const waxStoneWeight = Number(isReturn ? data.waxStoneWeight : data.issuedWaxStoneWeight || data.waxStoneWeight || 0);
+  const netWeight = Number(isReturn ? data.netWeight : data.issuedNetWeight || data.netWeight || 0);
+  const lossWeight = Number(isReturn ? data.lossWeight || 0 : 0);
+  const accountedGrossWeight = Number(weight3(grossWeight + lossWeight));
+  const lossFineGold = Number(isReturn ? data.lossFineGold || fineGoldWeight(lossWeight, data.purity || data.locker) : 0);
+  const itemDescription = data.sourceItemDescription || data.itemDescription || "Shelf item";
+  const remarks = isReturn
+    ? `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+    : `Direct shelf issue to ${department}${data.remarks ? `; ${data.remarks}` : ""}`;
+  return `
+    <tr class="online-transfer-row" tabindex="0">
+      <td>${escapeHtml(data.date || "-")}</td>
+      <td><strong>${escapeHtml(movementLabel)}</strong><br><small>${escapeHtml(itemDescription)}</small></td>
+      <td class="department-oneline-cell">${transferDirectionCell(movedFrom, "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(movedTo, "to")}</td>
+      <td>${gram(accountedGrossWeight)}</td>
+      <td>${gram(grossWeight)}</td>
+      <td>${gram(waxStoneWeight)}</td>
+      <td>0.000 g</td>
+      <td>${gram(waxStoneWeight)}</td>
+      <td>${gram(netWeight)}</td>
+      <td>${isReturn ? gram(lossWeight) : "-"}</td>
+      <td>${escapeHtml(displayPurity(data.purity || data.locker || "-"))}</td>
+      <td>${gram(lossFineGold)}</td>
+      <td class="remark-cell">${transferRemarkCell(remarks)}</td>
     </tr>
   `;
 }
@@ -19998,7 +20689,7 @@ function renderLotHistoryTable(lot) {
   return `
     <div class="table-wrap lot-history-table">
       <table>
-        <thead><tr><th>Step</th><th>Date</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th><th>Action</th></tr></thead>
+        <thead><tr><th>Step</th><th>Date</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th><th>Action</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -20010,12 +20701,13 @@ function renderGoldIssueHistoryRow(lot) {
   const waxStone = Number(lot.waxStoneWeight || 0);
   const sourceName = lotIssueSourceName(lot);
   const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
+  const destination = departmentTransferDetail(lot.issueKarigarName || lot.karigarName || firstDepartment, firstDepartment);
   return `
-    <tr>
+    <tr class="lot-transfer-history-row">
       <td>1</td>
       <td>${escapeHtml(lot.issueDate || "-")}</td>
-      <td>${escapeHtml(sourceName)} to ${escapeHtml(firstDepartment)}</td>
-      <td>${escapeHtml(sourceName)} to ${escapeHtml(lot.karigarName || firstDepartment)}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(sourceName, "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(destination, "to")}</td>
       <td>${gram(issueGw)}</td>
       <td>${gram(issueGw)}</td>
       <td>${gram(waxStone)}</td>
@@ -20025,19 +20717,21 @@ function renderGoldIssueHistoryRow(lot) {
       <td>-</td>
       <td>${escapeHtml(displayPurity(lot.metalPurity || "-"))}</td>
       <td>${gram(0)}</td>
-      <td>${escapeHtml(`${sourceName}; Purity ${lot.metalPurity || "-"}; Gold Issue - Wax Stone = Net Wt`)}</td>
+      <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${lot.metalPurity || "-"}; Gold Issue - Wax Stone = Net Wt`)}</td>
       <td>-</td>
     </tr>
   `;
 }
 
 function renderHistoryTableRow(transfer, step, lotId) {
+  const fromDepartment = departmentTransferDetail(transfer.fromKarigarName || transfer.fromDepartment || "-", transfer.fromDepartment || transfer.fromKarigarName || "");
+  const toDepartment = departmentTransferDetail(transfer.toKarigarName || transfer.toDepartment || "-", transfer.toDepartment || transfer.toKarigarName || "");
   return `
-    <tr>
+    <tr class="lot-transfer-history-row">
       <td>${step}</td>
       <td>${escapeHtml(transfer.date || "-")}</td>
-      <td>${escapeHtml(transfer.fromDepartment || "-")} to ${escapeHtml(transfer.toDepartment || "-")}</td>
-      <td>${escapeHtml(transfer.fromKarigarName || "-")} to ${escapeHtml(transfer.toKarigarName || "-")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
@@ -20047,7 +20741,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${gram(transfer.departmentBalance)}</td>
       <td>${escapeHtml(displayPurity(transfer.differencePurity || findById("lots", lotId)?.metalPurity || ""))}</td>
       <td>${gram(transferFineGold(transfer, findById("lots", lotId)))}</td>
-      <td>${escapeHtml(transfer.reason || "-")}</td>
+      <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
       <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lotId}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lotId}', '${transfer.id}')">Delete</button></div></td>
     </tr>
   `;
@@ -20664,6 +21358,9 @@ function normalizeState(currentState) {
       remarks: item.remarks || "",
     };
   });
+  currentState.safeDepartmentReturns = (currentState.safeDepartmentReturns || []).map((entry) =>
+    normalizeSafeDepartmentReturn(entry, currentState)
+  );
   currentState.safeDepartmentIssues = (currentState.safeDepartmentIssues || []).map((issue) => {
     const item = issue.safeItemId ? currentState.safeItems.find((entry) => entry.id === issue.safeItemId) || {} : {};
     return normalizeSafeDepartmentIssue(issue, item, currentState);

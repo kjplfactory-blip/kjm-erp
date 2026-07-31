@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=354">
+    <link rel="stylesheet" href="styles.css?v=368">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v354</small>
+            <small class="app-version-badge">App v368</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v354</span>
+            <span class="app-version-badge">App v368</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -665,7 +665,7 @@
             </div>
           <div class="table-wrap online-transfer-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+              <thead><tr><th>Date</th><th>Lot / Reference</th><th>From Department / Source</th><th>To Department / Destination</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
               <tbody id="production-transfer-table"></tbody>
               </table>
             </div>
@@ -678,13 +678,16 @@
           <section class="panel safe-locker-panel">
             <div class="panel-heading">
               <h2>Item Safe Lockers</h2>
-              <select id="safe-locker-filter" class="search compact-search" aria-label="Filter safe locker">
-                <option value="">All Lockers</option>
-                <option value="9K">9K Safe</option>
-                <option value="14K">14K Safe</option>
-                <option value="18K">18K Safe</option>
-                <option value="22K">22K Safe</option>
-              </select>
+              <div class="safe-panel-heading-actions">
+                <select id="safe-locker-filter" class="search compact-search" aria-label="Filter safe locker">
+                  <option value="">All Lockers</option>
+                  <option value="9K">9K Safe</option>
+                  <option value="14K">14K Safe</option>
+                  <option value="18K">18K Safe</option>
+                  <option value="22K">22K Safe</option>
+                </select>
+                <button id="open-safe-department-receive" class="ghost-button" type="button">Receive From Dept</button>
+              </div>
             </div>
             <div id="safe-locker-tiles" class="safe-locker-grid"></div>
             <form id="safe-item-form" class="inline-form safe-inline-form">
@@ -1251,7 +1254,7 @@
             </div>
             <div class="table-wrap online-transfer-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot</th><th>Department</th><th>Moved From / To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Date</th><th>Lot / Reference</th><th>From Department / Source</th><th>To Department / Destination</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th></tr></thead>
                 <tbody id="transfer-history-table"></tbody>
               </table>
             </div>
@@ -1307,7 +1310,11 @@
             <h2 id="department-transfer-title">Department Transfer History</h2>
             <p id="department-transfer-summary" class="dialog-note"></p>
           </div>
-          <button class="ghost-button" type="button" id="close-department-transfer">Close</button>
+          <div class="department-history-actions">
+            <button type="button" id="department-history-issue">Issue Accessory</button>
+            <button class="ghost-button department-receive-button" type="button" id="department-history-receive">Receive / Book Loss</button>
+            <button class="ghost-button" type="button" id="close-department-transfer">Close</button>
+          </div>
         </div>
         <div id="department-transfer-total-cards" class="department-transfer-total-cards"></div>
         <section id="department-transfer-purity-panel" class="department-transfer-purity-panel"></section>
@@ -1316,7 +1323,7 @@
             <div class="panel-heading"><h2 id="department-transfer-in-title">IN To Department</h2></div>
             <div class="table-wrap compact-transfer-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>From</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>From</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
                 <tbody id="department-transfer-in-table"></tbody>
               </table>
             </div>
@@ -1325,7 +1332,7 @@
             <div class="panel-heading"><h2 id="department-transfer-out-title">OUT From Department</h2></div>
             <div class="table-wrap compact-transfer-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Date</th><th>Lot / Job Card</th><th>From</th><th>To</th><th>GW</th><th>Net Wt</th><th>Diff</th><th>Fine</th><th>Remarks</th></tr></thead>
                 <tbody id="department-transfer-out-table"></tbody>
               </table>
             </div>
@@ -1391,6 +1398,14 @@
             <button class="ghost-button" type="button" id="close-order">Close</button>
           </div>
         </div>
+        <section class="order-work-panel hidden" id="order-production-panel">
+          <div class="panel-heading">
+            <h2>Job Lot Current Status</h2>
+            <button type="button" id="issue-from-order">Issue Gold</button>
+          </div>
+          <div id="order-current-status" class="order-current-status"></div>
+          <div id="order-lots-list" class="order-lots-list"></div>
+        </section>
         <form id="update-order-form" class="inline-form hidden">
           <input type="hidden" name="orderId">
           <label>Customer / Retailer <select name="customerId" required></select></label>
@@ -1417,14 +1432,6 @@
             <button class="ghost-button" type="button" id="close-job-item-detail">Close Item Details</button>
           </div>
           <div id="job-item-open-detail" class="job-item-open-detail"></div>
-        </section>
-        <section class="order-work-panel hidden" id="order-production-panel">
-          <div class="panel-heading">
-            <h2>Job Lot Current Status</h2>
-            <button type="button" id="issue-from-order">Issue Gold</button>
-          </div>
-          <div id="order-current-status" class="order-current-status"></div>
-          <div id="order-lots-list" class="order-lots-list"></div>
         </section>
         <section id="order-print-area" class="order-print-area"></section>
       </div>
@@ -1621,28 +1628,73 @@
     </dialog>
 
     <dialog id="safe-issue-dialog">
-      <form id="safe-issue-form" class="dialog-card history-dialog">
+      <form id="safe-issue-form" class="dialog-card history-dialog safe-department-issue-form">
         <div class="dialog-header">
           <div>
-            <h2>Issue Shelf Item To Department</h2>
+            <h2>Issue Accessory / Shelf Item To Department</h2>
             <p id="safe-issue-summary" class="dialog-note"></p>
           </div>
           <button class="ghost-button" type="button" id="cancel-safe-issue">Close</button>
         </div>
-        <input type="hidden" name="itemId">
         <div class="inline-form">
+          <label class="full-row">Safe Item / Accessory <select name="itemId" required></select></label>
           <label>Department <select name="departmentId" required></select></label>
           <label>Process <select name="process" required></select></label>
-          <label>Item GW (g) <input name="grossWeight" type="number" readonly></label>
-          <label>Wax Stone (g) <input name="waxStoneWeight" type="number" readonly></label>
+          <label>Issue GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
+          <label>Wax Stone In Issue (g) <input name="waxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
           <label>Net / Gold Weight (g) <input name="netWeight" type="number" readonly></label>
           <label>Purity / Karat <input name="purity" readonly></label>
           <label class="full-row">Remarks <input name="remarks" placeholder="Casting issue, fitting chain, gold ball issue"></label>
         </div>
-        <p class="dialog-note">This removes the item from Safe Locker and shows it in the selected department dashboard GW.</p>
+        <p class="dialog-note">Select any available accessory or shelf item. Full or partial issue is removed from Safe Locker and added to the selected department holding and IN history.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-safe-issue-bottom">Cancel</button>
           <button type="submit">Issue To Department</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="safe-department-receive-dialog">
+      <form id="safe-department-receive-form" class="dialog-card history-dialog safe-department-receive-form">
+        <div class="dialog-header">
+          <div>
+            <h2>Receive Wastage / Accessories From Department</h2>
+            <p id="safe-department-receive-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="cancel-safe-department-receive">Close</button>
+        </div>
+        <label>Department <select name="departmentName" required></select></label>
+        <label class="full-row">Related Holding / Item <select name="issueId"></select></label>
+        <label>Return Type <select name="returnType" required>
+          <option value="loss">Loss Only</option>
+          <option value="wastage">Wastage / Scrap</option>
+          <option value="rava">Rava</option>
+          <option value="laser-wire">Laser Wire</option>
+          <option value="tar">Tar</option>
+          <option value="patta">Patta</option>
+          <option value="accessory">Manufactured Accessory</option>
+          <option value="rod">Rod / Metal</option>
+          <option value="chain">Chain</option>
+          <option value="gold-ball">Gold Ball</option>
+          <option value="spring">Spring</option>
+          <option value="other">Other Material</option>
+        </select></label>
+        <label>Receive Into Locker <select name="locker" required>
+          <option value="9K">9K Safe</option>
+          <option value="14K">14K Safe</option>
+          <option value="18K">18K Safe</option>
+          <option value="22K">22K Safe</option>
+        </select></label>
+        <label>Purity / Karat <input name="purity" list="metal-purity-options" required></label>
+        <label>Gross Weight Received (g) <input name="grossWeight" type="number" min="0" step="0.001" value="0" required></label>
+        <label>Wax Stone Included (g) <input name="waxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label>Net / Gold Weight (g) <input name="netWeight" type="number" readonly></label>
+        <label>Department Loss Booked (g) <input name="lossWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="full-row">Description / Remarks <input name="remarks" placeholder="Wastage, tar/pata accessory, unused material, or other return detail" required></label>
+        <p class="dialog-note">Department reduction = received net weight + booked loss. Only received material goes into Safe Locker; loss is booked against the selected department.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-safe-department-receive-bottom">Cancel</button>
+          <button type="submit">Receive Into Safe</button>
         </div>
       </form>
     </dialog>
@@ -1920,6 +1972,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <script src="app.js?v=354"></script>
+  <script src="app.js?v=368"></script>
 </body>
 </html>

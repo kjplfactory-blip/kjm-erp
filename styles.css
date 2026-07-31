@@ -1509,23 +1509,45 @@ form.active-operation-page,
 
 .compact-transfer-wrap th:nth-child(1),
 .compact-transfer-wrap td:nth-child(1) {
-  width: 78px;
+  width: 64px;
 }
 
 .compact-transfer-wrap th:nth-child(2),
 .compact-transfer-wrap td:nth-child(2) {
-  width: 118px;
+  width: 100px;
 }
 
+.compact-transfer-wrap th:nth-child(3),
+.compact-transfer-wrap td:nth-child(3),
 .compact-transfer-wrap th:nth-child(4),
-.compact-transfer-wrap td:nth-child(4),
+.compact-transfer-wrap td:nth-child(4) {
+  width: 105px;
+}
+
 .compact-transfer-wrap th:nth-child(5),
 .compact-transfer-wrap td:nth-child(5),
 .compact-transfer-wrap th:nth-child(6),
 .compact-transfer-wrap td:nth-child(6),
 .compact-transfer-wrap th:nth-child(7),
-.compact-transfer-wrap td:nth-child(7) {
-  width: 82px;
+.compact-transfer-wrap td:nth-child(7),
+.compact-transfer-wrap th:nth-child(8),
+.compact-transfer-wrap td:nth-child(8) {
+  width: 66px;
+}
+
+.compact-transfer-wrap th:nth-child(9),
+.compact-transfer-wrap td:nth-child(9) {
+  width: 105px;
+}
+
+.compact-transfer-wrap .transfer-direction-cell {
+  padding: 3px 4px;
+  gap: 3px;
+}
+
+.compact-transfer-wrap .transfer-direction-cell b {
+  padding: 2px 3px;
+  font-size: 7px;
 }
 
 .online-transfer-wrap {
@@ -1607,6 +1629,82 @@ form.active-operation-page,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.online-transfer-wrap th:nth-child(1),
+.online-transfer-wrap td:nth-child(1) {
+  width: 76px;
+}
+
+.online-transfer-wrap th:nth-child(2),
+.online-transfer-wrap td:nth-child(2) {
+  width: 122px;
+}
+
+.online-transfer-wrap th:nth-child(3),
+.online-transfer-wrap td:nth-child(3),
+.online-transfer-wrap th:nth-child(4),
+.online-transfer-wrap td:nth-child(4) {
+  width: 145px;
+}
+
+.online-transfer-wrap th:nth-child(n+5):nth-child(-n+13),
+.online-transfer-wrap td:nth-child(n+5):nth-child(-n+13) {
+  width: 72px;
+  text-align: right;
+}
+
+.online-transfer-wrap th:nth-child(14),
+.online-transfer-wrap td:nth-child(14) {
+  width: 150px;
+}
+
+.transfer-direction-cell {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 900;
+}
+
+.transfer-direction-cell b {
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.transfer-direction-cell span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-direction-cell.from-cell {
+  border-color: #f1c9c3;
+  background: #fff6f4;
+  color: #8d2f25;
+}
+
+.transfer-direction-cell.from-cell b {
+  background: #f7d8d3;
+  color: #7f1d1d;
+}
+
+.transfer-direction-cell.to-cell {
+  border-color: #b9ddce;
+  background: #f0faf6;
+  color: #075f4d;
+}
+
+.transfer-direction-cell.to-cell b {
+  background: #ccebdd;
+  color: #065f46;
 }
 
 .online-transfer-wrap thead th {
@@ -3733,7 +3831,7 @@ dialog::backdrop {
 
 .bill-dialog-card {
   align-content: start;
-  gap: 16px;
+  gap: 8px;
   background: linear-gradient(180deg, #f7fbfa 0%, #eef7f4 100%);
 }
 
@@ -3915,30 +4013,35 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-dialog-card {
-  padding: 18px;
+  gap: 4px;
+  padding: 8px;
 }
 
 #bill-dialog .bill-dialog-card h2 {
   margin: 0;
-  padding: 13px 16px;
+  padding: 6px 10px;
   border-radius: 8px;
   background: linear-gradient(135deg, #0b514c, #0b7a75);
   color: #fff;
+  font-size: 16px;
   box-shadow: 0 12px 26px rgba(11, 81, 76, 0.16);
 }
 
 #bill-dialog .bill-dialog-card > .dialog-note {
   margin: 0;
-  padding: 10px 12px;
+  padding: 4px 8px;
   border: 1px solid #cfe0dc;
   border-radius: 8px;
   background: #fff;
   color: #47615d;
+  font-size: 10px;
+  line-height: 1.15;
   font-weight: 800;
 }
 
 #bill-dialog .bill-fields {
-  padding: 12px;
+  gap: 5px;
+  padding: 5px;
   border: 1px solid #d6e4e0;
   border-radius: 8px;
   background: #fff;
@@ -3948,25 +4051,38 @@ dialog::backdrop {
 #bill-dialog .bill-fields label,
 #bill-dialog .bill-non-gold-grid label {
   color: #52706b;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 #bill-dialog .bill-totals {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 3px !important;
   top: 0;
-  padding: 6px 0 8px;
+  padding: 2px 0 3px;
   background: linear-gradient(180deg, #f7fbfa 0%, rgba(247, 251, 250, 0.94) 100%);
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
 }
 
 #bill-dialog .bill-total-card {
-  padding: 9px 10px;
+  gap: 1px;
+  padding: 4px 5px;
   border-color: #d6e4e0;
   border-left: 3px solid #9fd5cc;
   background: #fff;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+#bill-dialog .bill-total-card span {
+  font-size: 8px;
+  line-height: 1.05;
+}
+
+#bill-dialog .bill-total-card strong {
+  font-size: 12px;
+  line-height: 1.05;
 }
 
 #bill-dialog .bill-total-card.highlight {
@@ -3982,7 +4098,7 @@ dialog::backdrop {
 
 #bill-dialog .bill-item-table table {
   border-collapse: separate;
-  border-spacing: 0 8px;
+  border-spacing: 0 2px;
   min-width: 0;
   table-layout: fixed;
 }
@@ -3991,11 +4107,12 @@ dialog::backdrop {
   position: sticky;
   top: 0;
   z-index: 4;
-  padding: 10px 8px;
+  padding: 4px;
   border: 0;
   background: #123f3c;
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.05;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
@@ -4011,6 +4128,7 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-item-table tbody td {
+  padding: 3px;
   border-top: 1px solid #dbe8e5;
   border-bottom: 1px solid #dbe8e5;
   background: #fff;
@@ -4036,22 +4154,25 @@ dialog::backdrop {
 #bill-dialog .bill-item-table td:first-child strong {
   display: block;
   color: #0b514c;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.1;
 }
 
 #bill-dialog .bill-item-table small {
   color: #6b7d7a;
-  font-size: 10px;
-  line-height: 1.35;
+  margin-top: 1px;
+  font-size: 8px;
+  line-height: 1.1;
 }
 
 #bill-dialog .bill-item-table input,
 #bill-dialog .bill-item-table select,
 #bill-dialog .bill-fields input {
-  min-height: 38px;
+  min-height: 28px;
+  padding: 4px 5px;
   border-color: #c8d9d5;
   background: #fff;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -4067,7 +4188,7 @@ dialog::backdrop {
   border-color: #dfb52e;
   background: #fff9db;
   color: #5c4200;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
 }
 
@@ -4078,14 +4199,22 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-non-gold-grid {
-  gap: 7px;
-  padding: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
   border: 1px solid #e2eeeb;
   border-radius: 8px;
   background: #f7fbfa;
 }
 
+#bill-dialog .bill-non-gold-grid label {
+  gap: 1px;
+  font-size: 8px;
+  line-height: 1;
+}
+
 #bill-dialog .bill-item-table .dialog-note {
+  padding: 4px 6px;
   border: 1px solid #d6e4e0;
   border-radius: 0 0 8px 8px;
   background: #fff;
@@ -4098,11 +4227,19 @@ dialog::backdrop {
   bottom: 0;
   z-index: 8;
   align-items: center;
-  padding: 12px;
+  gap: 4px;
+  margin: 0 -8px -8px;
+  padding: 6px 8px;
   border: 1px solid #d6e4e0;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 -10px 22px rgba(15, 23, 42, 0.07);
+}
+
+#bill-dialog .dialog-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 10px;
 }
 
 .transfer-entry-table .dialog-note,
@@ -4117,11 +4254,36 @@ dialog::backdrop {
   .bill-fields {
     grid-template-columns: repeat(3, minmax(160px, 1fr));
   }
+
+  #bill-dialog .bill-totals {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  #bill-dialog .bill-non-gold-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
   .bill-fields {
     grid-template-columns: 1fr;
+  }
+
+  #bill-dialog .bill-dialog-card {
+    padding: 6px;
+  }
+
+  #bill-dialog .bill-totals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #bill-dialog .dialog-actions {
+    margin: 0 -6px -6px;
+    padding: 6px;
+  }
+
+  #bill-dialog .bill-non-gold-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -5630,6 +5792,100 @@ dialog::backdrop {
   text-transform: uppercase;
 }
 
+.one-page-bill-document {
+  grid-template-rows: auto auto auto auto auto;
+  width: 148.5mm;
+  height: 105mm;
+  min-height: 105mm;
+  max-height: 105mm;
+  gap: 1mm;
+  padding: 3mm;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.one-page-bill-document .bill-sample-header {
+  grid-template-columns: 1fr 36mm 1fr;
+  gap: 3px;
+  min-height: 12mm;
+}
+
+.one-page-bill-document .bill-sample-header p {
+  margin: 0;
+  font-size: 6.5px;
+  line-height: 1.15;
+}
+
+.one-page-bill-document .bill-sample-title {
+  gap: 0;
+  padding-top: 0;
+}
+
+.one-page-bill-document .bill-sample-title span,
+.one-page-bill-document .bill-sample-title small {
+  font-size: 6px;
+}
+
+.one-page-bill-document .bill-sample-title strong {
+  font-size: 14px;
+}
+
+.one-page-bill-document .bill-sample-info {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+
+.one-page-bill-document .bill-sample-info span {
+  gap: 0;
+  min-height: 7mm;
+  padding: 1.5px;
+  font-size: 6.2px;
+  line-height: 1.1;
+}
+
+.one-page-bill-document .bill-sample-info b {
+  font-size: 5.4px;
+}
+
+.one-page-bill-document .bill-sample-table {
+  align-self: start;
+  font-size: 6.2px;
+  line-height: 1.05;
+}
+
+.one-page-bill-document .bill-sample-table th,
+.one-page-bill-document .bill-sample-table td {
+  padding: 1.5px 2px;
+}
+
+.one-page-bill-document .bill-sample-table th {
+  font-size: 5.6px;
+}
+
+.one-page-bill-document .bill-weight-summary-line span {
+  gap: 0;
+  min-height: 6mm;
+  padding: 2px;
+  font-size: 6.2px;
+  line-height: 1.05;
+}
+
+.one-page-bill-document .bill-weight-summary-line b {
+  font-size: 5.4px;
+}
+
+.one-page-bill-document .bill-sign-row {
+  gap: 5mm;
+  margin-top: 1.5mm;
+}
+
+.one-page-bill-document .bill-sign-row span {
+  padding-top: 1px;
+  font-size: 5.8px;
+}
+
 .order-lot-card {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.3fr) auto;
@@ -5791,8 +6047,111 @@ dialog::backdrop {
   gap: 12px;
 }
 
+#history-dialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  height: calc(100vh - 12px);
+  max-height: calc(100vh - 12px);
+}
+
+#history-dialog .history-dialog {
+  max-height: calc(100vh - 12px);
+}
+
+.lot-history-table {
+  width: 100%;
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+}
+
 .lot-history-table table {
-  min-width: 1340px;
+  width: 100%;
+  min-width: 1500px;
+  table-layout: fixed;
+}
+
+.lot-history-table th,
+.lot-history-table td {
+  padding: 7px 6px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.lot-history-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.lot-history-table th:nth-child(1),
+.lot-history-table td:nth-child(1) {
+  width: 44px;
+  text-align: center;
+}
+
+.lot-history-table th:nth-child(2),
+.lot-history-table td:nth-child(2) {
+  width: 88px;
+}
+
+.lot-history-table th:nth-child(3),
+.lot-history-table td:nth-child(3),
+.lot-history-table th:nth-child(4),
+.lot-history-table td:nth-child(4) {
+  width: 205px;
+}
+
+.lot-history-table th:nth-child(n+5):nth-child(-n+13),
+.lot-history-table td:nth-child(n+5):nth-child(-n+13) {
+  width: 70px;
+  text-align: right;
+}
+
+.lot-history-table th:nth-child(14),
+.lot-history-table td:nth-child(14) {
+  width: 160px;
+}
+
+.lot-history-table th:nth-child(15),
+.lot-history-table td:nth-child(15) {
+  width: 140px;
+}
+
+.lot-history-table .department-oneline-cell {
+  min-width: 205px;
+  max-width: none;
+  overflow: visible;
+}
+
+.lot-history-table .transfer-direction-cell {
+  min-width: 0;
+  width: 100%;
+  min-height: 38px;
+  align-items: start;
+}
+
+.lot-history-table .transfer-direction-cell span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.lot-history-table .remark-cell {
+  min-width: 160px;
+  max-width: 160px;
+}
+
+.lot-history-table .row-actions {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.lot-history-table .row-actions button {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 10px;
 }
 
 .history-item {
@@ -7433,6 +7792,268 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .topbar {
     padding-right: 50px;
+  }
+}
+
+/* V359: compact Safe Locker so inventory remains the primary view. */
+.safe-panel-heading-actions,
+.department-card-actions,
+.safe-out-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.safe-panel-heading-actions {
+  justify-content: flex-end;
+}
+
+.safe-panel-heading-actions button,
+.safe-out-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 10px;
+}
+
+.safe-out-actions {
+  align-items: flex-start;
+}
+
+.department-card-actions {
+  align-items: stretch;
+}
+
+.department-card-actions .dashboard-open-button {
+  margin: 0;
+}
+
+.department-receive-button {
+  border-color: rgba(180, 83, 9, 0.28);
+  color: #92400e;
+}
+
+.department-issue-button {
+  border-color: rgba(5, 150, 105, 0.34);
+  color: #047857;
+}
+
+.department-history-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.department-history-actions button {
+  min-height: 34px;
+  padding: 7px 11px;
+}
+
+#safe-issue-dialog {
+  width: calc(100vw - 20px);
+  max-width: none;
+  height: calc(100vh - 20px);
+  max-height: calc(100vh - 20px);
+}
+
+.safe-department-issue-form {
+  width: 100%;
+  align-content: start;
+}
+
+.safe-department-issue-form .inline-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#safe-department-receive-dialog {
+  width: calc(100vw - 20px);
+  max-width: none;
+  height: calc(100vh - 20px);
+  max-height: calc(100vh - 20px);
+}
+
+.safe-department-receive-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+}
+
+.safe-department-receive-form .dialog-header,
+.safe-department-receive-form .dialog-actions,
+.safe-department-receive-form .full-row,
+.safe-department-receive-form > .dialog-note {
+  grid-column: 1 / -1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel {
+  height: calc(100vh - 72px);
+  min-height: 680px;
+  padding: 12px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .panel-heading {
+  min-height: 36px;
+  margin-bottom: 7px;
+  padding-bottom: 7px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .panel-heading h2 {
+  font-size: 18px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .compact-search {
+  min-height: 32px;
+  padding-block: 5px;
+  font-size: 11px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-grid {
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-card {
+  align-content: center;
+  gap: 2px;
+  min-height: 66px;
+  padding: 7px 9px;
+  box-shadow: 0 4px 12px rgba(17, 32, 51, 0.06);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-card span {
+  font-size: 9px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-card strong {
+  font-size: 17px;
+  line-height: 1.05;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-card small {
+  font-size: 9px;
+  line-height: 1.15;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form {
+  grid-template-columns: 0.65fr 1.55fr 0.75fr 0.85fr 1.3fr auto;
+  gap: 7px;
+  margin-bottom: 7px;
+  padding: 7px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form label {
+  gap: 2px;
+  font-size: 9px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form input,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form select,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form button {
+  min-height: 30px;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(175px, 100%), 1fr));
+  gap: 6px;
+  max-height: 136px;
+  margin-bottom: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card {
+  gap: 2px;
+  min-height: 64px;
+  padding: 7px 9px;
+  box-shadow: none;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card span,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card small,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card b {
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card strong {
+  font-size: 15px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card div {
+  gap: 3px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-card b {
+  padding: 2px 5px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .table-wrap {
+  min-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel table {
+  min-width: 0;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel th,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel td {
+  padding: 4px 5px;
+  font-size: 9.5px;
+  line-height: 1.15;
+  vertical-align: middle;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  font-size: 9px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel td small {
+  font-size: 8.5px;
+  line-height: 1.1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .row-actions {
+  gap: 3px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .row-actions button {
+  padding: 4px 5px;
+  font-size: 8.5px;
+}
+
+@media (max-width: 900px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel {
+    height: auto;
+    min-height: 0;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel .safe-inline-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-casting-shelf-grid {
+    max-height: none;
+  }
+
+  .safe-department-receive-form {
+    grid-template-columns: 1fr;
+  }
+
+  .safe-department-issue-form .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .department-history-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
@@ -9335,6 +9956,19 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     min-height: 105mm;
     break-after: auto;
     page-break-after: auto;
+  }
+
+  body.printing-one-page-bill .order-print-area,
+  body.printing-one-page-bill .one-page-bill-document {
+    width: 148.5mm !important;
+    height: 105mm !important;
+    min-height: 105mm !important;
+    max-height: 105mm !important;
+    overflow: hidden !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
   }
 
   body.printing-packing-list .order-print-area {
