@@ -10173,6 +10173,18 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     width: 210mm;
   }
 
+  body.printing-hallmark-tags.printing-bill-tags-a6 .order-print-area,
+  body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-document,
+  body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
+    width: 105mm;
+  }
+
+  body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
+    grid-template-columns: repeat(2, 52.5mm);
+    grid-template-rows: repeat(5, 29.7mm);
+    height: 148.5mm;
+  }
+
   body.printing-barcode .order-print-area {
     display: block !important;
     position: static;

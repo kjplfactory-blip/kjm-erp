@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v374";
+const APP_VERSION = "v375";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -2066,7 +2066,11 @@ document.getElementById("print-packing-list").addEventListener("click", () => {
 });
 
 document.getElementById("print-bill-tags").addEventListener("click", () => {
-  printBillTagsFromDialog();
+  printBillTagsFromDialog("a4");
+});
+
+document.getElementById("print-bill-tags-a6").addEventListener("click", () => {
+  printBillTagsFromDialog("a6");
 });
 
 function saveBillFromForm(closeDialog = false, options = {}) {
@@ -9244,6 +9248,8 @@ function setPrintPageSize(mode = "job") {
     style.textContent = "@media print { @page { size: 297mm 210mm; margin: 0; } }";
   } else if (mode === "hallmark-tags") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 0; } }";
+  } else if (mode === "bill-tags-a6") {
+    style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } }";
   } else if (mode === "barcode") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 10mm; } }";
   } else if (mode === "catalogue") {
@@ -9298,13 +9304,16 @@ function startPackingListPrint(html) {
   setTimeout(() => window.print(), 100);
 }
 
-function startHallmarkTagPrint(html, afterPrint = null) {
+function startHallmarkTagPrint(html, afterPrint = null, options = {}) {
   const printArea = getGlobalPrintArea();
+  const isA6 = options.pageSize === "a6";
   printArea.innerHTML = html;
-  setPrintPageSize("hallmark-tags");
+  setPrintPageSize(isA6 ? "bill-tags-a6" : "hallmark-tags");
   document.body.classList.add("printing-hallmark-tags");
+  document.body.classList.toggle("printing-bill-tags-a6", isA6);
   const cleanup = () => {
     document.body.classList.remove("printing-hallmark-tags");
+    document.body.classList.remove("printing-bill-tags-a6");
     printArea.innerHTML = "";
     setPrintPageSize("job");
     window.removeEventListener("afterprint", cleanup);
@@ -9344,7 +9353,7 @@ function printPackingListFromDialog() {
   printPackingList(lot.id, bill);
 }
 
-function printBillTagsFromDialog() {
+function printBillTagsFromDialog(pageSize = "a4") {
   const form = document.getElementById("bill-form");
   if (!form) return;
   const lot = findById("lots", form.lotId.value);
@@ -9356,7 +9365,7 @@ function printBillTagsFromDialog() {
     if (!saved) return;
     bill = saved.bill;
   }
-  printBillTags(lot.id, bill);
+  printBillTags(lot.id, bill, pageSize);
 }
 
 function printBill(lotId, billOverride = null) {
@@ -9389,7 +9398,7 @@ function printPackingList(lotId, billOverride = null) {
   startPackingListPrint(packingListPrintHtml(lot, bill));
 }
 
-function printBillTags(lotId, billOverride = null) {
+function printBillTags(lotId, billOverride = null, pageSize = "a4") {
   const lot = findById("lots", lotId);
   if (!lot) return;
   const bill = billOverride || lot.bill || state.bills?.find((item) => item.lotId === lot.id);
@@ -9401,7 +9410,8 @@ function printBillTags(lotId, billOverride = null) {
     alert("Only QC OK items transferred to Office can be printed as tags.");
     return;
   }
-  startHallmarkTagPrint(billTagsPrintHtml(lot, bill));
+  const normalizedPageSize = pageSize === "a6" ? "a6" : "a4";
+  startHallmarkTagPrint(billTagsPrintHtml(lot, bill, normalizedPageSize), null, { pageSize: normalizedPageSize });
 }
 
 function printFactorySummary() {
@@ -9623,12 +9633,13 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
   `;
 }
 
-function billTagsPrintHtml(lot, bill) {
+function billTagsPrintHtml(lot, bill, pageSize = "a4") {
   const orders = billPrintOrders(lot, bill);
   const items = billPrintItems(lot, bill, orders);
-  const pages = chunkPrintItems(items, 40);
+  const isA6 = pageSize === "a6";
+  const pages = chunkPrintItems(items, isA6 ? 10 : 40);
   return `
-    <div class="bill-tags-document">
+    <div class="bill-tags-document ${isA6 ? "a6-tags-document" : "a4-tags-document"}">
       ${pages.map((pageItems) => `
         <section class="bill-tags-sheet">
           ${pageItems.map((item) => billTagHtml(lot, bill, item)).join("")}
@@ -16769,7 +16780,7 @@ function renderBills() {
           <td>
             <div class="row-actions">
               <button type="button" onclick="openBill('${lot.id}')">${actionLabel}</button>
-              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}')">Tags A4-40</button>` : ""}
+              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a4')">Tags A4-40</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a6')">Tags A6-10</button>` : ""}
             </div>
           </td>
         </tr>
