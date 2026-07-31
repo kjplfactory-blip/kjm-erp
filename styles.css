@@ -5649,6 +5649,8 @@ dialog::backdrop {
 
 .bill-tags-document {
   width: 210mm;
+  min-width: 210mm;
+  max-width: 210mm;
   margin: 0;
   padding: 0;
   background: #ffffff;
@@ -5660,10 +5662,15 @@ dialog::backdrop {
   display: grid;
   grid-template-columns: repeat(4, 52.5mm);
   grid-template-rows: repeat(10, 29.7mm);
+  grid-auto-flow: row;
   align-content: start;
   justify-content: start;
   width: 210mm;
+  min-width: 210mm;
+  max-width: 210mm;
   height: 297mm;
+  min-height: 297mm;
+  max-height: 297mm;
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -5672,6 +5679,23 @@ dialog::backdrop {
   page-break-inside: avoid;
   break-after: page;
   page-break-after: always;
+}
+
+.bill-tags-document.a6-tags-document {
+  width: 105mm;
+  min-width: 105mm;
+  max-width: 105mm;
+}
+
+.bill-tags-document.a6-tags-document .bill-tags-sheet {
+  grid-template-columns: repeat(2, 52.5mm);
+  grid-template-rows: repeat(5, 29.7mm);
+  width: 105mm;
+  min-width: 105mm;
+  max-width: 105mm;
+  height: 148.5mm;
+  min-height: 148.5mm;
+  max-height: 148.5mm;
 }
 
 .bill-tags-sheet:last-child {
@@ -5683,7 +5707,11 @@ dialog::backdrop {
   display: grid;
   place-items: center;
   width: 52.5mm;
+  min-width: 52.5mm;
+  max-width: 52.5mm;
   height: 29.7mm;
+  min-height: 29.7mm;
+  max-height: 29.7mm;
   padding: 0;
   border: 0;
   box-sizing: border-box;
@@ -5701,7 +5729,11 @@ dialog::backdrop {
   grid-template-rows: auto auto auto auto 6.6mm;
   gap: 0.25mm;
   width: 95%;
+  min-width: 95%;
+  max-width: 95%;
   height: 95%;
+  min-height: 95%;
+  max-height: 95%;
   padding: 0.9mm 1mm;
   border: 0.2mm solid #4b5563;
   box-sizing: border-box;
@@ -10161,6 +10193,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     display: block !important;
     position: static;
     width: 210mm;
+    min-width: 210mm;
+    max-width: 210mm;
     min-height: auto;
     margin: 0 !important;
     padding: 0 !important;
@@ -10183,12 +10217,16 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-document,
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
     width: 105mm;
+    min-width: 105mm;
+    max-width: 105mm;
   }
 
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
     grid-template-columns: repeat(2, 52.5mm);
     grid-template-rows: repeat(5, 29.7mm);
     height: 148.5mm;
+    min-height: 148.5mm;
+    max-height: 148.5mm;
   }
 
   body.printing-barcode .order-print-area {
