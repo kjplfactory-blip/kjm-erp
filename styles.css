@@ -5689,15 +5689,40 @@ dialog::backdrop {
 
 .bill-tags-document.a6-tags-document .bill-tags-sheet {
   grid-template-columns: repeat(2, 52.5mm);
-  grid-template-rows: repeat(5, 25mm);
-  row-gap: 5.25mm;
+  grid-template-rows: 25mm 4.25mm 25mm 5.25mm 25mm 5.25mm 25mm 7.25mm 25mm;
+  row-gap: 0;
   width: 105mm;
   min-width: 105mm;
   max-width: 105mm;
   height: 148.5mm;
   min-height: 148.5mm;
   max-height: 148.5mm;
-  padding: 1.25mm 0;
+  padding: 0.75mm 0;
+}
+
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(1),
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(2) {
+  grid-row: 1;
+}
+
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(3),
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(4) {
+  grid-row: 3;
+}
+
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(5),
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(6) {
+  grid-row: 5;
+}
+
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(7),
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(8) {
+  grid-row: 7;
+}
+
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(9),
+.bill-tags-document.a6-tags-document .bill-tag-card:nth-child(10) {
+  grid-row: 9;
 }
 
 .bill-tags-document.a6-tags-document .bill-tag-card,
@@ -10255,12 +10280,12 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tags-sheet {
     grid-template-columns: repeat(2, 52.5mm);
-    grid-template-rows: repeat(5, 25mm);
-    row-gap: 5.25mm;
+    grid-template-rows: 25mm 4.25mm 25mm 5.25mm 25mm 5.25mm 25mm 7.25mm 25mm;
+    row-gap: 0;
     height: 148.5mm;
     min-height: 148.5mm;
     max-height: 148.5mm;
-    padding: 1.25mm 0 !important;
+    padding: 0.75mm 0 !important;
   }
 
   body.printing-hallmark-tags.printing-bill-tags-a6 .bill-tag-card,
