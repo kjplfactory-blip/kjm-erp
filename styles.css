@@ -5700,7 +5700,7 @@ dialog::backdrop {
   border: 0.2mm solid #4b5563;
   box-sizing: border-box;
   overflow: hidden;
-  transform: scale(0.9);
+  transform: scale(0.95);
   transform-origin: center;
 }
 
