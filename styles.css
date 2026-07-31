@@ -5660,11 +5660,16 @@ dialog::backdrop {
   display: grid;
   grid-template-columns: repeat(4, 52.5mm);
   grid-template-rows: repeat(10, 29.7mm);
+  align-content: start;
+  justify-content: start;
   width: 210mm;
   height: 297mm;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
   overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
   break-after: page;
   page-break-after: always;
 }
@@ -5675,7 +5680,8 @@ dialog::backdrop {
 }
 
 .bill-tag-card {
-  display: block;
+  display: grid;
+  place-items: center;
   width: 52.5mm;
   height: 29.7mm;
   padding: 0;
@@ -5694,14 +5700,12 @@ dialog::backdrop {
   display: grid;
   grid-template-rows: auto auto auto auto 6.6mm;
   gap: 0.25mm;
-  width: 100%;
-  height: 100%;
+  width: 95%;
+  height: 95%;
   padding: 0.9mm 1mm;
   border: 0.2mm solid #4b5563;
   box-sizing: border-box;
   overflow: hidden;
-  transform: scale(0.95);
-  transform-origin: center;
 }
 
 .bill-tag-head {
@@ -10158,6 +10162,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     position: static;
     width: 210mm;
     min-height: auto;
+    margin: 0 !important;
+    padding: 0 !important;
     overflow: visible;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
