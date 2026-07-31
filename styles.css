@@ -5728,12 +5728,15 @@ dialog::backdrop {
   display: grid;
   grid-template-rows: auto auto auto auto 6.6mm;
   gap: 0.25mm;
-  width: 95%;
-  min-width: 95%;
-  max-width: 95%;
-  height: 95%;
-  min-height: 95%;
-  max-height: 95%;
+  width: 94%;
+  min-width: 94%;
+  max-width: 94%;
+  height: 90%;
+  min-height: 90%;
+  max-height: 90%;
+  margin: 0;
+  justify-self: center;
+  align-self: center;
   padding: 0.9mm 1mm;
   border: 0.2mm solid #4b5563;
   box-sizing: border-box;
@@ -10131,6 +10134,20 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     overflow: visible;
   }
 
+  body.printing-hallmark-tags {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body.printing-hallmark-tags.printing-bill-tags-a6 {
+    width: 105mm !important;
+    min-width: 105mm !important;
+    max-width: 105mm !important;
+  }
+
   body.printing-bill > *:not(.global-print-area),
   body.printing-packing-list > *:not(.global-print-area),
   body.printing-hallmark-tags > *:not(.global-print-area),
@@ -10211,6 +10228,12 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body.printing-hallmark-tags .bill-tags-document,
   body.printing-hallmark-tags .bill-tags-sheet {
     width: 210mm;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body.printing-hallmark-tags .bill-tag-card {
+    margin: 0 !important;
   }
 
   body.printing-hallmark-tags.printing-bill-tags-a6 .order-print-area,
