@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v381";
+const APP_VERSION = "v382";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -9249,7 +9249,7 @@ function setPrintPageSize(mode = "job") {
   } else if (mode === "hallmark-tags") {
     style.textContent = "@media print { @page { size: 210mm 297mm; margin: 0; } html, body { margin: 0 !important; padding: 0 !important; } }";
   } else if (mode === "bill-tags-a6") {
-    style.textContent = "@media print { @page { size: 105mm 148.5mm; margin: 0; } html, body { margin: 0 !important; padding: 0 !important; } }";
+    style.textContent = "@media print { @page { size: 105mm 150mm; margin: 0; } html, body { margin: 0 !important; padding: 0 !important; } }";
   } else if (mode === "barcode") {
     style.textContent = "@media print { @page { size: A4 portrait; margin: 10mm; } }";
   } else if (mode === "catalogue") {
