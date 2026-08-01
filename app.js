@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v387";
+const APP_VERSION = "v397";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -311,14 +311,14 @@ const operationTileConfigs = {
     { id: "bill", title: "Bill / Packing", description: "Open completed job cards for bill, QC, and packing list", selector: "#billing .table-panel" },
   ],
   "transfer-history": [
-    { id: "history", title: "Online Transfer History", description: "Show every lot movement in one compact online table", selector: "#online-transfer-history-dialog .table-panel" },
-    { id: "department", title: "Department Transfer History", description: "Open department tiles with separate IN and OUT entries", selector: "#department-transfer-history-dialog .department-transfer-panel" },
+    { id: "history", title: "Online Transfer History", description: "Show every job-card and direct department movement in one table", selector: "#online-transfer-history-dialog .table-panel" },
+    { id: "department", title: "Department Transfer History", description: "Open separate department tiles with job-card IN and OUT entries", selector: "#department-transfer-history-dialog .department-transfer-panel" },
   ],
 };
 
 const productionFlow = [
   { label: "Filing / Fitting", matches: ["filer", "filing", "fitting", "back to filer"], departmentMatches: ["filer", "filing", "fitting", "vinod"] },
-  { label: "Paper", matches: ["paper"], departmentMatches: ["paper"] },
+  { label: "Paper Filing", matches: ["paper filing", "paper"], departmentMatches: ["paper filing", "paper"] },
   { label: "EP", matches: ["ep", "electro", "electro polishing"], departmentMatches: ["ep", "electro", "electro polish", "electro polishing"] },
   { label: "PP", matches: ["pp", "pre polish", "pre polishing"], departmentMatches: ["pp", "pre polish", "pre polishing"] },
   { label: "Setting", matches: ["setting"], departmentMatches: ["setting"] },
@@ -1165,7 +1165,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const selectedOrders = state.orders.filter((order) =>
     (order.jobNumber || order.productionNo || order.number) === data.jobNumber && order.status === "Pending"
   );
-  const metalPurity = data.metalPurity || selectedOrders[0]?.purity || "18K";
+  const metalPurity = karatLogicPurity(data.metalPurity || selectedOrders[0]?.purity || "18K");
   const issuedWeight = Number(data.issuedWeight);
   const waxStoneWeight = productionStoneTotalsForOrders(selectedOrders, "wax").weight;
   const netMetalIssuedWeight = Number(weight3(issuedWeight - waxStoneWeight));
@@ -1207,6 +1207,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     id: crypto.randomUUID(),
     number: lotNumber,
     issueDate: today(),
+    createdAt: new Date().toISOString(),
     orderId: selectedOrders[0].id,
     orderIds: selectedOrders.map((order) => order.id),
     orderNumber: data.jobNumber,
@@ -1226,7 +1227,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     issueSourceDetail,
     issueSourceLocker: issueLocker,
     rodColour: safeItemColour(castingSafeItem),
-    rodDesiredPurity: displayPurity(safeItemDesiredPurity(castingSafeItem)),
+    rodDesiredPurity: transferPurityLabel(safeItemDesiredPurity(castingSafeItem)),
     expectedWastage: Number(data.wastagePercent || 0),
     finishedWeight: 0,
     actualWastage: 0,
@@ -1451,18 +1452,36 @@ document.getElementById("safe-department-receive-form")?.addEventListener("chang
     applySafeDepartmentReceiveIssueDefaults();
   }
   if (event.target.name === "issueId") applySafeDepartmentReceiveIssueDefaults();
-  if (event.target.name === "returnType" && event.target.value === "loss") {
-    event.currentTarget.grossWeight.value = "0";
-    event.currentTarget.waxStoneWeight.value = "0";
-  }
   if (event.target.name === "purity" && !event.currentTarget.issueId.value) {
     event.currentTarget.locker.value = safeLockerForPurity(event.target.value);
   }
+  if (event.target.closest(".department-receive-line")) updateSafeDepartmentReceiveLine(event.target.closest(".department-receive-line"));
   updateSafeDepartmentReceiveCalculation();
 });
 
 document.getElementById("safe-department-receive-form")?.addEventListener("input", (event) => {
-  if (["grossWeight", "waxStoneWeight", "lossWeight", "purity"].includes(event.target.name)) updateSafeDepartmentReceiveCalculation();
+  if (event.target.closest(".department-receive-line")) updateSafeDepartmentReceiveLine(event.target.closest(".department-receive-line"));
+  if (["returnLineGrossWeight", "returnLineWaxStoneWeight", "lossWeight", "purity"].includes(event.target.name)) updateSafeDepartmentReceiveCalculation();
+});
+
+document.getElementById("add-safe-department-return-item")?.addEventListener("click", () => {
+  addSafeDepartmentReceiveLine({ returnType: "accessory" });
+});
+
+document.getElementById("add-safe-department-return-wastage")?.addEventListener("click", () => {
+  addSafeDepartmentReceiveLine({ returnType: "wastage", description: "Wastage for remelting" });
+});
+
+document.getElementById("add-safe-department-return-loss")?.addEventListener("click", () => {
+  addSafeDepartmentReceiveLine({ returnType: "loss", description: "Manufacturing loss" });
+});
+
+document.getElementById("safe-department-receive-lines")?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest(".remove-department-receive-line");
+  if (!removeButton) return;
+  removeButton.closest(".department-receive-line")?.remove();
+  if (!document.querySelector("#safe-department-receive-lines .department-receive-line")) addSafeDepartmentReceiveLine();
+  updateSafeDepartmentReceiveCalculation();
 });
 
 document.getElementById("safe-department-receive-form")?.addEventListener("submit", saveSafeDepartmentReceive);
@@ -1628,10 +1647,13 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
   const data = getFormData(event.target);
   const sourceMetals = getMeltingSourceMetals();
   const sourceWeight = Number(data.sourceWeight);
-  const targetPurity = Number(data.targetPurity);
+  const enteredTargetPurity = Number(data.targetPurity);
   const finalWeight = Number(data.finalWeight);
   const department = meltingDepartment(data.meltingDepartmentId);
-  if (!targetPurity) {
+  const targetPurity = meltingDepartmentOptionValue({ departmentId: department?.id, departmentName: department?.name }) === "Casting Department"
+    ? karatLogicPercent(enteredTargetPurity)
+    : enteredTargetPurity;
+  if (!enteredTargetPurity) {
     alert("Enter desired purity manually.");
     event.target.targetPurity.focus();
     return;
@@ -1686,6 +1708,9 @@ document.getElementById("melting-form").addEventListener("submit", (event) => {
   updateMeltingCalculation();
   saveState();
   render();
+  const batchType = meltingBatchType(melting);
+  const actionText = existingMelting ? "UPDATED" : "SAVED AND ISSUED";
+  alert(`${batchType} ${actionText} SUCCESSFULLY.\n${batchType} ID: ${melting.batchName || melting.id}`);
 });
 
 document.getElementById("melting-receive-form").addEventListener("input", (event) => {
@@ -2049,6 +2074,14 @@ document.getElementById("bill-qc-ok").addEventListener("click", () => {
   transferQcOkItemsToOffice();
 });
 
+document.getElementById("bill-qc-all-ok").addEventListener("click", () => {
+  if (!canEditQcStatus()) {
+    alert("Only QC, Office Main, or Owner can apply QC OK to all items.");
+    return;
+  }
+  applyQcOkToAllBillItems();
+});
+
 document.getElementById("bill-qc-failed").addEventListener("click", () => {
   if (!canEditQcStatus()) {
     alert("Only QC, Office Main, or Owner can send QC failed items back to Production.");
@@ -2386,12 +2419,13 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   }
 
   const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
-  const differencePurity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "";
+  const differencePurity = karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "");
   const differenceFineGold = fineGoldWeight(departmentBalance, differencePurity);
   lot.transfers = lot.transfers || [];
   const transferData = {
     id: data.transferId || crypto.randomUUID(),
     date: today(),
+    createdAt: editingTransfer ? (editingTransfer.createdAt || "") : new Date().toISOString(),
     fromKarigarId: lot.karigarId,
     fromKarigarName: lot.karigarName,
     toKarigarId: newKarigar.id,
@@ -2427,7 +2461,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: receivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${displayPurity(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
   });
   document.getElementById("transfer-dialog").close();
   event.target.reset();
@@ -5561,12 +5595,14 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
   const waxStoneWeight = Number(weight3(Math.max(issuedWaxStoneWeight - returnTotals.waxStoneWeight, 0)));
   const netWeight = Number(weight3(Math.max(issuedNetWeight - returnTotals.netWeight, 0)));
   const department = issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null;
-  const purity = issue.purity || item.purity || item.locker || "";
+  const savedPurity = issue.purity || item.purity || item.locker || "";
+  const purity = karatLogicPurity(savedPurity);
   const fullyReturned = grossWeight <= 0.0005 && netWeight <= 0.0005;
   return {
     id: issue.id || crypto.randomUUID(),
     date: issue.date || today(),
     createdAt: issue.createdAt || "",
+    createdAtInferred: Boolean(issue.createdAtInferred),
     safeItemId: issue.safeItemId || item.id || "",
     itemDescription: issue.itemDescription || item.description || "",
     itemKind: issue.itemKind || safeKindLabel(item),
@@ -5630,7 +5666,7 @@ function safeIssueAvailableItems() {
 }
 
 function safeIssueItemOptionLabel(item = {}) {
-  return `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)} / GW ${gram(item.grossWeight)} / NT ${gram(item.netWeight ?? item.grossWeight)}`;
+  return `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.purity || item.locker)} / GW ${gram(item.grossWeight)} / NT ${gram(item.netWeight ?? item.grossWeight)}`;
 }
 
 function renderSafeIssueItemOptions(selectedItemId = "") {
@@ -5666,7 +5702,7 @@ function updateSafeIssueCalculation() {
   const availableGrossWeight = Number(item.grossWeight || 0);
   const availableNetWeight = Number(item.netWeight ?? safeItemNetFromGross(item.grossWeight, safeItemWaxStoneWeight(item)));
   form.netWeight.value = weight3(issueNetWeight);
-  summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${safeLockerForPurity(item.locker || item.purity)}. Available GW ${gram(availableGrossWeight)} / NT ${gram(availableNetWeight)}. After issue GW ${gram(Math.max(availableGrossWeight - issueGrossWeight, 0))} / NT ${gram(Math.max(availableNetWeight - issueNetWeight, 0))}.`;
+  summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.purity || item.locker)}. Available GW ${gram(availableGrossWeight)} / NT ${gram(availableNetWeight)}. After issue GW ${gram(Math.max(availableGrossWeight - issueGrossWeight, 0))} / NT ${gram(Math.max(availableNetWeight - issueNetWeight, 0))}.`;
 }
 
 function safeIssueDepartmentForHistory(departmentName = "") {
@@ -5726,17 +5762,20 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
   const lossWeight = Math.abs(Number(weight3(entry.lossWeight || 0)));
   const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "rod", "chain", "gold-ball", "spring", "other"];
   const returnType = allowedReturnTypes.includes(entry.returnType) ? entry.returnType : "other";
-  const purity = entry.purity || issue.purity || issue.locker || "";
+  const purity = karatLogicPurity(entry.purity || issue.purity || issue.locker || "");
   return {
     id: entry.id || crypto.randomUUID(),
     issueId: entry.issueId || "",
     safeItemId: entry.safeItemId || "",
+    receiptGroupId: entry.receiptGroupId || "",
     date: entry.date || today(),
     createdAt: entry.createdAt || "",
+    createdAtInferred: Boolean(entry.createdAtInferred),
     departmentId: entry.departmentId || issue.departmentId || "",
     departmentName: entry.departmentName || issue.departmentName || department?.name || "",
     process: mergedProductionDepartmentName(entry.process || issue.process || primaryDepartmentProcess(department || {})),
     sourceItemDescription: entry.sourceItemDescription || issue.itemDescription || "",
+    returnedItemDescription: entry.returnedItemDescription || "",
     returnType,
     locker: safeLockerForPurity(entry.locker || purity),
     purity,
@@ -5744,14 +5783,14 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
     waxStoneWeight,
     netWeight,
     lossWeight,
-    lossFineGold: Number(weight3(entry.lossFineGold ?? fineGoldWeight(lossWeight, purity))),
+    lossFineGold: fineGoldWeight(lossWeight, purity),
     remarks: entry.remarks || "",
   };
 }
 
 function safeDepartmentReturnLabel(value = "") {
   return ({
-    loss: "Loss Only",
+    loss: "Manufacturing Loss",
     wastage: "Wastage / Scrap",
     rava: "Rava",
     "laser-wire": "Laser Wire",
@@ -5772,6 +5811,108 @@ function safeDepartmentReturnSafeKind(value = "") {
   return "accessory";
 }
 
+function safeDepartmentReceiveReturnTypes() {
+  return ["accessory", "patta", "tar", "chain", "gold-ball", "spring", "rod", "rava", "laser-wire", "wastage", "loss", "other"];
+}
+
+function isTarPattaManufacturingDepartment(value = "") {
+  const text = departmentTextKey(value);
+  const hasTar = textMatchesAny(text, ["tar", "tara"]);
+  const hasPatta = textMatchesAny(text, ["pata", "patta"]);
+  const hasManufacturing = textMatchesAny(text, ["mfg", "manufacturing", "manufacture"]);
+  return hasTar && hasPatta && hasManufacturing;
+}
+
+function safeDepartmentReceiveLineHtml(values = {}) {
+  const selectedType = safeDepartmentReceiveReturnTypes().includes(values.returnType) ? values.returnType : "accessory";
+  const options = safeDepartmentReceiveReturnTypes().map((value) =>
+    `<option value="${escapeHtml(value)}" ${value === selectedType ? "selected" : ""}>${escapeHtml(safeDepartmentReturnLabel(value))}</option>`
+  ).join("");
+  const grossWeight = Number(weight3(values.grossWeight || 0));
+  const waxStoneWeight = Number(weight3(values.waxStoneWeight || 0));
+  const netWeight = Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
+  return `
+    <div class="department-receive-line">
+      <label><span>Type</span><select name="returnLineType">${options}</select></label>
+      <label><span>Item Description</span><input name="returnLineDescription" value="${escapeHtml(values.description || "")}" placeholder="Item name / purpose"></label>
+      <label><span>GW (g)</span><input name="returnLineGrossWeight" type="number" min="0" step="0.001" value="${weight3(grossWeight)}"></label>
+      <label><span>Wax Stone (g)</span><input name="returnLineWaxStoneWeight" type="number" min="0" step="0.001" value="${weight3(waxStoneWeight)}"></label>
+      <label><span>Net Wt (g)</span><input name="returnLineNetWeight" type="number" value="${weight3(netWeight)}" readonly></label>
+      <button class="ghost-button remove-department-receive-line" type="button" title="Remove returned item" aria-label="Remove returned item">&times;</button>
+    </div>
+  `;
+}
+
+function addSafeDepartmentReceiveLine(values = {}) {
+  const container = document.getElementById("safe-department-receive-lines");
+  if (!container) return null;
+  container.insertAdjacentHTML("beforeend", safeDepartmentReceiveLineHtml(values));
+  const row = container.lastElementChild;
+  updateSafeDepartmentReceiveLine(row);
+  updateSafeDepartmentReceiveCalculation();
+  return row;
+}
+
+function resetSafeDepartmentReceiveLines() {
+  const container = document.getElementById("safe-department-receive-lines");
+  if (!container) return;
+  container.innerHTML = "";
+  addSafeDepartmentReceiveLine({ returnType: "accessory" });
+}
+
+function updateSafeDepartmentReceiveLine(row) {
+  if (!row) return;
+  const isLoss = row.querySelector('[name="returnLineType"]')?.value === "loss";
+  const waxInput = row.querySelector('[name="returnLineWaxStoneWeight"]');
+  if (waxInput) {
+    waxInput.disabled = isLoss;
+    if (isLoss) waxInput.value = "0.000";
+  }
+  row.classList.toggle("is-loss-line", isLoss);
+  const grossWeight = Math.max(Number(row.querySelector('[name="returnLineGrossWeight"]')?.value || 0), 0);
+  const waxStoneWeight = isLoss ? 0 : Math.max(Number(waxInput?.value || 0), 0);
+  const netWeight = isLoss ? 0 : Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
+  const netInput = row.querySelector('[name="returnLineNetWeight"]');
+  if (netInput) netInput.value = weight3(netWeight);
+}
+
+function safeDepartmentReceiveLines() {
+  return [...document.querySelectorAll("#safe-department-receive-lines .department-receive-line")].map((row, index) => {
+    updateSafeDepartmentReceiveLine(row);
+    const returnType = row.querySelector('[name="returnLineType"]')?.value || "other";
+    const grossWeight = Number(weight3(row.querySelector('[name="returnLineGrossWeight"]')?.value || 0));
+    const waxStoneWeight = returnType === "loss" ? 0 : Number(weight3(row.querySelector('[name="returnLineWaxStoneWeight"]')?.value || 0));
+    return {
+      row,
+      lineNumber: index + 1,
+      returnType,
+      description: String(row.querySelector('[name="returnLineDescription"]')?.value || "").trim(),
+      grossWeight,
+      waxStoneWeight,
+      netWeight: returnType === "loss" ? 0 : Number(weight3(Math.max(grossWeight - waxStoneWeight, 0))),
+    };
+  });
+}
+
+function safeDepartmentReceiveLineTotals(lines = safeDepartmentReceiveLines()) {
+  return lines.reduce((totals, line) => ({
+    grossWeight: Number(weight3(totals.grossWeight + Math.max(Number(line.grossWeight || 0), 0))),
+    waxStoneWeight: Number(weight3(totals.waxStoneWeight + Math.max(Number(line.waxStoneWeight || 0), 0))),
+    netWeight: Number(weight3(totals.netWeight + Math.max(Number(line.netWeight || 0), 0))),
+  }), { grossWeight: 0, waxStoneWeight: 0, netWeight: 0 });
+}
+
+function safeDepartmentReceiveAccounting(lines = safeDepartmentReceiveLines()) {
+  const returnedLines = lines.filter((line) => line.returnType !== "loss");
+  const lossLines = lines.filter((line) => line.returnType === "loss");
+  return {
+    returnedLines,
+    lossLines,
+    returnedTotals: safeDepartmentReceiveLineTotals(returnedLines),
+    lineLossWeight: Number(weight3(lossLines.reduce((total, line) => total + Math.max(Number(line.grossWeight || 0), 0), 0))),
+  };
+}
+
 function safeDepartmentMovementLabel(isReturn = false, data = {}) {
   if (!isReturn) return "ISSUE TO DEPT";
   const receivedWeight = Number(data.grossWeight || 0);
@@ -5790,7 +5931,7 @@ function safeDepartmentIssuesForDepartment(departmentName = "") {
 }
 
 function safeDepartmentIssueOptionLabel(issue = {}) {
-  return `${issue.itemDescription || "Shelf item"} / ${issue.process || issue.departmentName || "-"} / GW ${gram(issue.grossWeight)} / NT ${gram(issue.netWeight)} / ${displayPurity(issue.purity || issue.locker)}`;
+  return `${issue.itemDescription || "Shelf item"} / ${issue.process || issue.departmentName || "-"} / GW ${gram(issue.grossWeight)} / NT ${gram(issue.netWeight)} / ${transferPurityLabel(issue.purity || issue.locker)}`;
 }
 
 function safeDepartmentReceiveDepartmentNames() {
@@ -5844,10 +5985,7 @@ function openSafeDepartmentReceive(issueId = "", departmentName = "") {
     return;
   }
   renderSafeDepartmentReceiveIssueOptions(selectedDepartment, issueId);
-  form.returnType.value = "wastage";
-  form.grossWeight.value = "0";
-  form.waxStoneWeight.value = "0";
-  form.netWeight.value = "0.000";
+  resetSafeDepartmentReceiveLines();
   form.lossWeight.value = "0";
   form.remarks.value = "";
   applySafeDepartmentReceiveIssueDefaults();
@@ -5895,55 +6033,98 @@ function updateSafeDepartmentReceiveCalculation() {
   const summary = document.getElementById("safe-department-receive-summary");
   if (!form || !summary) return;
   const issue = safeDepartmentIssuesInHand().find((item) => item.id === form.issueId.value);
-  const grossWeight = Math.max(Number(form.grossWeight.value || 0), 0);
-  const waxStoneWeight = Math.max(Number(form.waxStoneWeight.value || 0), 0);
-  const lossWeight = Math.max(Number(form.lossWeight.value || 0), 0);
-  const netWeight = Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
-  form.netWeight.value = weight3(netWeight);
+  const lines = safeDepartmentReceiveLines();
+  const accounting = safeDepartmentReceiveAccounting(lines);
+  const totals = accounting.returnedTotals;
   const available = issue || safeDepartmentReceiveAvailability(form.departmentName.value, form.purity.value);
-  const afterGross = Number(weight3(Math.max(Number(available.grossWeight ?? available.gross ?? 0) - grossWeight - lossWeight, 0)));
-  const afterNet = Number(weight3(Math.max(Number(available.netWeight ?? available.gold ?? 0) - netWeight - lossWeight, 0)));
+  const tarPattaDepartment = isTarPattaManufacturingDepartment(`${form.departmentName.value} ${issue?.departmentName || ""} ${issue?.process || ""}`);
+  const automaticLoss = Boolean(issue && tarPattaDepartment);
+  const autoLossField = document.getElementById("safe-department-auto-loss-field");
+  const lossMode = document.getElementById("safe-department-loss-mode");
+  form.lossWeight.readOnly = true;
+  if (automaticLoss) {
+    form.lossWeight.value = weight3(Math.max(Number(available.grossWeight ?? available.gross ?? 0) - totals.grossWeight - accounting.lineLossWeight, 0));
+  } else {
+    form.lossWeight.value = "0";
+  }
+  form.lossWeight.dataset.automatic = automaticLoss ? "true" : "false";
+  autoLossField?.classList.toggle("hidden", !tarPattaDepartment);
+  if (lossMode) {
+    lossMode.textContent = automaticLoss
+      ? "Automatic for Tar/Pata Manufacturing: issued GW minus returned GW and entered loss lines."
+      : tarPattaDepartment
+        ? "Select the related issued holding to calculate manufacturing loss automatically."
+        : "Use Manufacturing Loss in the returned-item Type dropdown.";
+  }
+  const fieldLossWeight = Math.max(Number(form.lossWeight.value || 0), 0);
+  const lossWeight = Number(weight3(accounting.lineLossWeight + fieldLossWeight));
+  const afterGross = Number(weight3(Math.max(Number(available.grossWeight ?? available.gross ?? 0) - totals.grossWeight - lossWeight, 0)));
+  const afterNet = Number(weight3(Math.max(Number(available.netWeight ?? available.gold ?? 0) - totals.netWeight - lossWeight, 0)));
   const sourceText = issue ? issue.itemDescription || "shelf item" : "general department holding";
   const availableGross = Number(available.grossWeight ?? available.gross ?? 0);
   const availableNet = Number(available.netWeight ?? available.gold ?? 0);
-  summary.textContent = `${form.departmentName.value || "Department"} / ${sourceText}: GW ${gram(availableGross)}, NT ${gram(availableNet)}. Receive NT ${gram(netWeight)} + Loss ${gram(lossWeight)}. Balance after save: GW ${gram(afterGross)}, NT ${gram(afterNet)}.`;
+  const activeLineCount = accounting.returnedLines.filter((line) => line.grossWeight > 0).length;
+  const activeLossLineCount = accounting.lossLines.filter((line) => line.grossWeight > 0).length;
+  const accountedWeight = Number(weight3(totals.grossWeight + lossWeight));
+  const totalGw = document.getElementById("safe-department-return-total-gw");
+  const totalNet = document.getElementById("safe-department-return-total-net");
+  const totalLoss = document.getElementById("safe-department-return-total-loss");
+  const totalAccounted = document.getElementById("safe-department-return-total-accounted");
+  if (totalGw) totalGw.textContent = gram(totals.grossWeight);
+  if (totalNet) totalNet.textContent = gram(totals.netWeight);
+  if (totalLoss) totalLoss.textContent = gram(lossWeight);
+  if (totalAccounted) totalAccounted.textContent = gram(accountedWeight);
+  summary.textContent = `${form.departmentName.value || "Department"} / ${sourceText}: Available GW ${gram(availableGross)}, NT ${gram(availableNet)}. ${activeLineCount} return line${activeLineCount === 1 ? "" : "s"}, ${activeLossLineCount} loss line${activeLossLineCount === 1 ? "" : "s"}, returned GW ${gram(totals.grossWeight)}, loss ${gram(lossWeight)}. Balance after save: GW ${gram(afterGross)}, NT ${gram(afterNet)}.`;
 }
 
 function saveSafeDepartmentReceive(event) {
   event.preventDefault();
   const form = event.currentTarget;
+  updateSafeDepartmentReceiveCalculation();
   const issue = safeDepartmentIssuesInHand().find((item) => item.id === form.issueId.value);
   const departmentName = departmentDashboardHeader(form.departmentName.value);
   const department = (state.karigars || []).find((item) => departmentDashboardHeader(item.name || primaryDepartmentProcess(item)) === departmentName);
-  const grossWeight = Number(weight3(form.grossWeight.value || 0));
-  const waxStoneWeight = Number(weight3(form.waxStoneWeight.value || 0));
-  const netWeight = Number(weight3(Math.max(grossWeight - waxStoneWeight, 0)));
-  const lossWeight = Number(weight3(form.lossWeight.value || 0));
+  const enteredLines = safeDepartmentReceiveLines();
+  const lines = enteredLines.filter((line) => line.grossWeight > 0 || line.waxStoneWeight > 0 || line.description);
+  const accounting = safeDepartmentReceiveAccounting(lines);
+  const receivedLines = accounting.returnedLines.filter((line) => line.grossWeight > 0);
+  const lossLines = accounting.lossLines.filter((line) => line.grossWeight > 0);
+  const totals = safeDepartmentReceiveLineTotals(receivedLines);
+  const fieldLossWeight = Number(weight3(form.lossWeight.value || 0));
+  const lossWeight = Number(weight3(accounting.lineLossWeight + fieldLossWeight));
   if (!departmentName) {
     alert("Select department.");
     return;
   }
-  if (grossWeight <= 0 && lossWeight <= 0) {
-    alert("Enter received weight or department loss greater than zero.");
-    return;
-  }
-  if (waxStoneWeight < 0 || waxStoneWeight > grossWeight) {
-    alert("Wax stone weight cannot be negative or greater than received gross weight.");
+  if (!receivedLines.length && !lossLines.length && fieldLossWeight <= 0) {
+    alert("Add at least one returned item or enter manufacturing loss greater than zero.");
     return;
   }
   if (lossWeight < 0) {
     alert("Department loss cannot be negative.");
     return;
   }
+  const invalidWeightLine = lines.find((line) => line.grossWeight <= 0 || line.waxStoneWeight < 0 || line.waxStoneWeight > line.grossWeight);
+  if (invalidWeightLine) {
+    alert(`Return line ${invalidWeightLine.lineNumber}: gross weight must be greater than zero and wax stone cannot exceed gross weight.`);
+    invalidWeightLine.row.querySelector('[name="returnLineGrossWeight"]')?.focus();
+    return;
+  }
+  const missingDescriptionLine = [...receivedLines, ...lossLines].find((line) => !line.description);
+  if (missingDescriptionLine) {
+    alert(`Return line ${missingDescriptionLine.lineNumber}: enter the item description.`);
+    missingDescriptionLine.row.querySelector('[name="returnLineDescription"]')?.focus();
+    return;
+  }
   const available = issue || safeDepartmentReceiveAvailability(departmentName, form.purity.value);
   const availableGross = Number(available.grossWeight ?? available.gross ?? 0);
   const availableNet = Number(available.netWeight ?? available.gold ?? 0);
   const availableWax = Number(available.waxStoneWeight ?? available.waxStone ?? 0);
-  if (grossWeight + lossWeight > availableGross + 0.0005 || netWeight + lossWeight > availableNet + 0.0005) {
+  if (totals.grossWeight + lossWeight > availableGross + 0.0005 || totals.netWeight + lossWeight > availableNet + 0.0005) {
     alert(`Cannot account more than the current holding: GW ${gram(availableGross)} / NT ${gram(availableNet)}.`);
     return;
   }
-  if (waxStoneWeight > availableWax + 0.0005) {
+  if (totals.waxStoneWeight > availableWax + 0.0005) {
     alert(`Wax stone received cannot exceed the department wax-stone balance of ${gram(availableWax)}.`);
     return;
   }
@@ -5952,63 +6133,108 @@ function saveSafeDepartmentReceive(event) {
     alert("Enter remarks for this department receipt or loss.");
     return;
   }
-  const returnType = form.returnType.value || "other";
-  if (returnType === "loss" && (grossWeight > 0 || waxStoneWeight > 0)) {
-    alert("Loss Only cannot include received material. Keep received GW and wax stone at zero.");
-    return;
-  }
-  if (returnType === "loss" && lossWeight <= 0) {
-    alert("Enter Department Loss Booked weight for Loss Only.");
-    return;
-  }
-  const label = safeDepartmentReturnLabel(returnType);
-  const safeItemId = grossWeight > 0 ? crypto.randomUUID() : "";
-  const entry = normalizeSafeDepartmentReturn({
-    id: crypto.randomUUID(),
-    issueId: issue.id,
-    safeItemId,
-    date: today(),
-    createdAt: new Date().toISOString(),
-    departmentId: issue?.departmentId || department?.id || "",
-    departmentName,
-    process: issue?.process || primaryDepartmentProcess(department || {}) || departmentName,
-    sourceItemDescription: issue?.itemDescription || `${departmentName} general holding`,
-    returnType,
-    locker: form.locker.value,
-    purity: form.purity.value,
-    grossWeight,
-    waxStoneWeight,
-    netWeight,
-    lossWeight,
-    lossFineGold: fineGoldWeight(lossWeight, form.purity.value),
-    remarks,
-  });
-  state.safeDepartmentReturns = state.safeDepartmentReturns || [];
-  state.safeDepartmentReturns.unshift(entry);
-  if (grossWeight > 0) {
+  const receiptGroupId = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const process = issue?.process || primaryDepartmentProcess(department || {}) || departmentName;
+  const sourceItemDescription = issue?.itemDescription || `${departmentName} general holding`;
+  const entries = receivedLines.map((line) => {
+    const safeItemId = crypto.randomUUID();
+    const label = safeDepartmentReturnLabel(line.returnType);
+    const entry = normalizeSafeDepartmentReturn({
+      id: crypto.randomUUID(),
+      issueId: issue?.id || "",
+      safeItemId,
+      receiptGroupId,
+      date: today(),
+      createdAt,
+      departmentId: issue?.departmentId || department?.id || "",
+      departmentName,
+      process,
+      sourceItemDescription,
+      returnedItemDescription: line.description,
+      returnType: line.returnType,
+      locker: form.locker.value,
+      purity: form.purity.value,
+      grossWeight: line.grossWeight,
+      waxStoneWeight: line.waxStoneWeight,
+      netWeight: line.netWeight,
+      lossWeight: 0,
+      lossFineGold: 0,
+      remarks: `${line.description}; ${remarks}`,
+    });
     addSafeItem({
       id: safeItemId,
       date: entry.date,
       locker: entry.locker,
       purity: entry.purity,
-      description: `${label} returned from ${entry.departmentName || entry.process || "department"}`,
-      source: entry.sourceItemDescription || "Department return",
+      description: line.description,
+      source: `${label} returned from ${entry.departmentName || entry.process || "department"} / ${sourceItemDescription}`,
       sourceType: "safe-department-return",
       sourceId: entry.id,
-      sourceLine: returnType,
-      safeKind: safeDepartmentReturnSafeKind(returnType),
-      grossWeight,
-      waxStoneWeight,
-      netWeight,
+      sourceLine: line.returnType,
+      safeKind: safeDepartmentReturnSafeKind(line.returnType),
+      grossWeight: line.grossWeight,
+      waxStoneWeight: line.waxStoneWeight,
+      netWeight: line.netWeight,
       status: "In Safe",
       remarks: entry.remarks,
     });
+    return entry;
+  });
+  lossLines.forEach((line) => {
+    entries.push(normalizeSafeDepartmentReturn({
+      id: crypto.randomUUID(),
+      issueId: issue?.id || "",
+      receiptGroupId,
+      date: today(),
+      createdAt,
+      departmentId: issue?.departmentId || department?.id || "",
+      departmentName,
+      process,
+      sourceItemDescription,
+      returnedItemDescription: line.description,
+      returnType: "loss",
+      locker: form.locker.value,
+      purity: form.purity.value,
+      grossWeight: 0,
+      waxStoneWeight: 0,
+      netWeight: 0,
+      lossWeight: line.grossWeight,
+      lossFineGold: fineGoldWeight(line.grossWeight, form.purity.value),
+      remarks: `Manufacturing loss: ${line.description}; ${remarks}`,
+    }));
+  });
+  if (fieldLossWeight > 0) {
+    entries.push(normalizeSafeDepartmentReturn({
+      id: crypto.randomUUID(),
+      issueId: issue?.id || "",
+      receiptGroupId,
+      date: today(),
+      createdAt,
+      departmentId: issue?.departmentId || department?.id || "",
+      departmentName,
+      process,
+      sourceItemDescription,
+      returnedItemDescription: "Manufacturing Loss",
+      returnType: "loss",
+      locker: form.locker.value,
+      purity: form.purity.value,
+      grossWeight: 0,
+      waxStoneWeight: 0,
+      netWeight: 0,
+      lossWeight: fieldLossWeight,
+      lossFineGold: fineGoldWeight(fieldLossWeight, form.purity.value),
+      remarks: `Manufacturing loss; ${remarks}`,
+    }));
   }
+  state.safeDepartmentReturns = state.safeDepartmentReturns || [];
+  state.safeDepartmentReturns.unshift(...entries);
   document.getElementById("safe-department-receive-dialog").close();
   form.reset();
   saveState();
   render();
   refreshOpenDepartmentTransferHistory();
+  alert(`DEPARTMENT RECEIPT SAVED.\nRETURN ITEMS: ${receivedLines.length}\nLOSS LINES: ${lossLines.length}\nRETURNED GW: ${gram(totals.grossWeight)}\nREMELTING WASTAGE: ${gram(receivedLines.filter((line) => line.returnType === "wastage").reduce((total, line) => total + line.grossWeight, 0))}\nMANUFACTURING LOSS: ${gram(lossWeight)}\nTOTAL ACCOUNTED: ${gram(totals.grossWeight + lossWeight)}`);
 }
 
 function safeLockerForPurity(value) {
@@ -6029,6 +6255,7 @@ function syncMeltingReceiveSafeItems(melting) {
   state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === sourceId));
   const breakup = melting.receiveBreakup || {};
   const locker = safeLockerForPurity(melting.targetPurity);
+  const issuePurity = karatLogicPurity(melting.targetPurity);
   const batchName = melting.batchName || assignMeltingBatchName(melting);
   const source = `${batchName} / ${melting.departmentName || "department"}`.trim();
   const lines = [
@@ -6049,14 +6276,14 @@ function syncMeltingReceiveSafeItems(melting) {
     addSafeItem({
       date: melting.receivedDate || today(),
       locker,
-      purity: formatPurity(melting.targetPurity),
+      purity: issuePurity,
       description: `${label} - ${melting.colour || "Melting"}`,
       source,
       sourceType: "melting-receive",
       sourceId,
       sourceLine: field,
       colour: melting.colour || "",
-      desiredPurity: formatPurity(melting.targetPurity),
+      desiredPurity: issuePurity,
       grossWeight: weight,
       waxStoneWeight,
       netWeight: safeItemNetFromGross(weight, waxStoneWeight),
@@ -7076,9 +7303,9 @@ function syncMeltingIssueRecords(melting) {
     meltingId: melting.id,
     date: melting.date || today(),
     type: "Melt Issue",
-    purity: `${formatPurity(melting.targetPurity)}`,
+    purity: meltingBatchPurityLabel(melting),
     weight: Number(melting.finalWeight || 0),
-    reference: `${batchName}: ${melting.sourceMetals?.length || 1} source metals ${gram(melting.sourceWeight)} to ${formatPurity(melting.targetPurity)} ${melting.colour}, issued to ${melting.departmentName || "department"}`,
+    reference: `${batchName}: ${melting.sourceMetals?.length || 1} source metals ${gram(melting.sourceWeight)} to ${meltingBatchPurityLabel(melting)} ${melting.colour}, issued to ${melting.departmentName || "department"}`,
   });
   recordMeltingMetalSafeIssues(melting.sourceMetals, melting.id, melting.departmentName, batchName);
   recordMeltingSafeLockerRodIssues(melting.sourceMetals, melting.id, melting.departmentName, batchName);
@@ -7096,7 +7323,7 @@ function syncMeltingReceiveRecords(melting) {
     meltingId: melting.id,
     date: melting.receivedDate || today(),
     type: "Melt Received",
-    purity: `${formatPurity(melting.targetPurity)}`,
+    purity: meltingBatchPurityLabel(melting),
     weight: Number(melting.receivedWeight || 0),
     reference: `${batchName}: ${melting.colour} received from ${melting.departmentName || "department"} (${meltingReceiveBreakupText(receiveBreakup)}), GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, NT ${gram(melting.receivedWeight)}, loss ${gram(melting.meltingLoss)}`,
   });
@@ -7106,7 +7333,7 @@ function syncMeltingReceiveRecords(melting) {
       meltingId: melting.id,
       date: melting.receivedDate || today(),
       type: "Melt Loss",
-      purity: `${formatPurity(melting.targetPurity)}`,
+      purity: meltingBatchPurityLabel(melting),
       weight: Number(melting.meltingLoss || 0),
       reference: `${batchName}: ${melting.colour} loss booked for ${melting.departmentName || "department"}`,
     });
@@ -7390,6 +7617,7 @@ function splitLotAdjustmentTransfer(lot, transferWeight, grossReceivedWeight, wa
   return {
     id: crypto.randomUUID(),
     date: today(),
+    createdAt: new Date().toISOString(),
     fromKarigarId: lot.karigarId || "",
     fromKarigarName: lot.karigarName || department || "",
     toKarigarId: lot.karigarId || "",
@@ -7402,7 +7630,7 @@ function splitLotAdjustmentTransfer(lot, transferWeight, grossReceivedWeight, wa
     reducedWeight,
     receivedWeight: splitLotNetWeight(grossReceivedWeight, waxStoneWeight, handStoneWeight),
     departmentBalance: 0,
-    differencePurity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
+    differencePurity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || ""),
     differenceFineGold: 0,
     balanceDepartment: department,
     fromDepartment: department,
@@ -7447,6 +7675,7 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
     id: crypto.randomUUID(),
     number: splitLotNumber,
     issueDate: today(),
+    createdAt: new Date().toISOString(),
     orderId: selectedLotIds[0] || "",
     orderIds: selectedLotIds,
     orderNumber: splitJobNumber,
@@ -10119,7 +10348,7 @@ function transferBagLotRow(lot) {
     <tr>
       <td>${escapeHtml(lot.number || "-")}</td>
       <td>${escapeHtml(lot.currentDepartment || lot.karigarName || "-")}</td>
-      <td>${escapeHtml(displayPurity(lot.metalPurity || "-"))}</td>
+      <td>${escapeHtml(transferPurityLabel(lot.metalPurity || "-"))}</td>
       <td>${gram(lot.grossIssuedWeight || lot.issuedWeight || 0)}</td>
       <td>${gram(currentTransferIssueWeight(lot))}</td>
     </tr>
@@ -10666,7 +10895,7 @@ function castingSafeItemsForPurity(purity = "") {
 
 function safeItemOptionLabel(item = {}) {
   const colour = safeItemColour(item) || "-";
-  const desiredPurity = displayPurity(safeItemDesiredPurity(item));
+  const desiredPurity = transferPurityLabel(safeItemDesiredPurity(item));
   const source = item.virtualSafeGroup ? safeIssueSourceName(item) : item.description || "Casting item";
   const itemCount = item.virtualSafeGroup ? ` / ${item.items?.length || 0} entries` : "";
   return `${source} / ${colour} / ${desiredPurity} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
@@ -10711,7 +10940,7 @@ function applyCastingSafeItemToIssueForm() {
   if (!form) return;
   const item = findSafeItemOrGroup(form.castingSafeItemId?.value, form.metalPurity.value);
   form.rodColour.value = item ? safeItemColour(item) || "-" : "";
-  form.rodDesiredPurity.value = item ? displayPurity(safeItemDesiredPurity(item)) : "";
+  form.rodDesiredPurity.value = item ? transferPurityLabel(safeItemDesiredPurity(item)) : "";
 }
 
 function normalizeProductionNonGoldMaterial(value = "") {
@@ -11298,7 +11527,13 @@ function findFlowDepartment(step, currentDepartmentId = "") {
 
 function mergedProductionDepartmentName(value = "") {
   const text = String(value || "").trim();
+  if (isPaperFilingDepartment(text)) return "Paper Filing";
   return textMatchesAny(text, ["filer", "filing", "fitting", "back to filer"]) ? "Filing / Fitting" : text;
+}
+
+function isPaperFilingDepartment(value = "") {
+  const text = departmentTextKey(value);
+  return textMatchesAny(text, ["paper"]) && textMatchesAny(text, ["filer", "filing"]);
 }
 
 function departmentDashboardHeader(value = "") {
@@ -14169,7 +14404,7 @@ function dashboardTransferItem(entry) {
     const loss = Number(isReturn ? data.lossWeight || 0 : 0);
     const movementLabel = safeDepartmentMovementLabel(isReturn, data);
     const title = `${movementLabel}: ${isReturn ? `${department} -> ${shelf}` : `${shelf} -> ${department}`}`;
-    const detail = `${data.date || "-"} / GW ${gram(gross)} / Net ${gram(net)}${loss ? ` / Loss ${gram(loss)}` : ""} / ${data.sourceItemDescription || data.itemDescription || "Shelf item"}`;
+    const detail = `${data.date || "-"} / GW ${gram(gross)} / Net ${gram(net)}${loss ? ` / Loss ${gram(loss)}` : ""} / ${data.returnedItemDescription || data.sourceItemDescription || data.itemDescription || "Shelf item"}`;
     const remarks = isReturn ? `${safeDepartmentReturnLabel(data.returnType)} / ${data.remarks || "-"}` : data.remarks || "Direct shelf issue";
     return `
       <div class="stack-item dashboard-transfer-item" tabindex="0">
@@ -18078,9 +18313,13 @@ function applyBillAccessMode() {
   });
   const transferOk = document.getElementById("bill-qc-ok");
   const transferFailed = document.getElementById("bill-qc-failed");
+  const bulkQcToolbar = document.getElementById("bill-qc-bulk-toolbar");
+  const bulkQcOk = document.getElementById("bill-qc-all-ok");
   const submitButton = form.querySelector('button[type="submit"]');
   if (transferOk) transferOk.classList.toggle("hidden", !canChangeQc);
   if (transferFailed) transferFailed.classList.toggle("hidden", !canChangeQc);
+  if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", !canChangeQc);
+  if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
   if (submitButton) {
     submitButton.classList.toggle("hidden", lockedForUser);
     submitButton.disabled = lockedForUser;
@@ -18362,6 +18601,21 @@ function billItemRows(existingItems = []) {
       reworkLotNumber: row.dataset.reworkLotNumber || "",
     };
   });
+}
+
+function applyQcOkToAllBillItems() {
+  const form = document.getElementById("bill-form");
+  const selects = Array.from(form?.querySelectorAll('[name="billItemQcStatus"]') || []);
+  if (!selects.length) {
+    alert("No bill item is available for QC.");
+    return;
+  }
+  selects.forEach((select) => {
+    select.value = "QC OK";
+  });
+  const saved = saveBillFromForm(false, { allowLockedBillFlow: true });
+  if (!saved) return;
+  alert(`QC OK APPLIED TO ALL ${selects.length} ITEM${selects.length === 1 ? "" : "S"}.\nReview the items, then use Transfer QC OK To Office when ready.`);
 }
 
 function transferQcOkItemsToOffice() {
@@ -18712,6 +18966,7 @@ function createQcFailedReworkLot(sourceLot, orders, failedItems) {
     id: crypto.randomUUID(),
     number: lotNumber,
     issueDate: today(),
+    createdAt: new Date().toISOString(),
     orderId: orders[0]?.id || "",
     orderIds: orders.map((order) => order.id),
     billOrderIds: orders.map((order) => order.id),
@@ -18828,7 +19083,7 @@ function renderSafeLockers() {
         <article class="safe-casting-shelf-card">
           <span>${escapeHtml(safeIssueSourceName(group))}</span>
           <strong>${escapeHtml(safeItemColour(group) || "-")}</strong>
-          <small>${escapeHtml(displayPurity(safeItemDesiredPurity(group)))} / ${group.items.length} casting entr${group.items.length === 1 ? "y" : "ies"}</small>
+          <small>${escapeHtml(transferPurityLabel(safeItemDesiredPurity(group)))} / ${group.items.length} casting entr${group.items.length === 1 ? "y" : "ies"}</small>
           <div>
             <b>GW ${gram(group.grossWeight)}</b>
             <b>Wax ${gram(safeItemWaxStoneWeight(group))}</b>
@@ -19998,7 +20253,7 @@ function renderMeltingHistoryTile(item) {
         <span>${escapeHtml(department)}</span>
         <strong>${escapeHtml(item.batchName || assignMeltingBatchName(item))}</strong>
       </div>
-      <small>${escapeHtml(item.date || "-")} / ${escapeHtml(formatPurity(item.targetPurity))} / ${escapeHtml(item.colour || "-")}</small>
+      <small>${escapeHtml(item.date || "-")} / ${escapeHtml(meltingBatchPurityLabel(item))} / ${escapeHtml(item.colour || "-")}</small>
       <small>${escapeHtml(receivedText)}</small>
       ${xrfText ? `<small>XRF ${escapeHtml(xrfText)}</small>` : ""}
       <div class="melting-history-card-footer">
@@ -20075,6 +20330,27 @@ function dashboardPurityLabel(value) {
   const percent = purityPercent(value);
   if (karat && Number.isFinite(percent) && percent > 0) return `${karat} / ${percent.toFixed(2)}%`;
   return Number.isFinite(percent) && percent > 0 ? `${percent.toFixed(2)}%` : "-";
+}
+
+function transferPurityLabel(value) {
+  return karatLogicPurity(value) || "-";
+}
+
+function karatLogicPurity(value) {
+  const percent = purityPercent(value);
+  if (!Number.isFinite(percent) || percent <= 0) return "";
+  const explicitKarat = karatPurityKey(value);
+  if (explicitKarat) return `${explicitKarat} / ${Number(KARAT_PURITY_PERCENT[explicitKarat]).toFixed(2)}%`;
+  if (percent < 30 || percent > 95) return `${percent.toFixed(2)}%`;
+  const match = Object.entries(KARAT_PURITY_PERCENT)
+    .map(([karat, standard]) => ({ karat, standard: Number(standard), difference: Math.abs(Number(standard) - percent) }))
+    .sort((a, b) => a.difference - b.difference)[0];
+  if (!match) return `${percent.toFixed(2)}%`;
+  return `${match.karat} / ${match.standard.toFixed(2)}%`;
+}
+
+function karatLogicPercent(value) {
+  return purityPercent(karatLogicPurity(value));
 }
 
 function fineGoldWeight(weight, purity) {
@@ -20196,10 +20472,11 @@ function renderOnlineTransferHistory() {
   const query = (productionViewActive
     ? document.getElementById("production-transfer-search")?.value || ""
     : document.getElementById("transfer-history-search")?.value || "").toLowerCase();
-  const lotEntries = state.lots.flatMap((lot) =>
-    [goldIssueHistoryEntry(lot), ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer }))]
-  );
-  const rows = [...safeDepartmentTransferHistoryEntries(), ...lotEntries]
+  const lotEntries = state.lots.flatMap((lot) => [
+    ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
+    goldIssueHistoryEntry(lot),
+  ]);
+  const rows = sortTransferHistoryEntries([...safeDepartmentTransferHistoryEntries(), ...lotEntries])
     .filter((entry) => transferHistorySearchText(entry).includes(query))
     .map(renderTransferHistoryRow)
     .join("");
@@ -20208,6 +20485,78 @@ function renderOnlineTransferHistory() {
   const productionTable = document.getElementById("production-transfer-table");
   if (historyTable) historyTable.innerHTML = content;
   if (productionTable) productionTable.innerHTML = content;
+}
+
+function transferHistoryTime(createdAt = "", date = "") {
+  const exactTime = Date.parse(createdAt || "");
+  if (Number.isFinite(exactTime)) return exactTime;
+  const parts = transferHistoryDateParts(date);
+  if (parts) return new Date(parts.year, parts.month - 1, parts.day).getTime();
+  const dateTime = Date.parse(date || "");
+  return Number.isFinite(dateTime) ? dateTime : 0;
+}
+
+function transferHistoryDateParts(value = "") {
+  const parts = String(value || "").trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (!parts) return null;
+  return { day: Number(parts[1]), month: Number(parts[2]), year: Number(parts[3]) };
+}
+
+function inferredTransferHistoryTimestamp(date = "", sequence = 0) {
+  const parts = transferHistoryDateParts(date);
+  if (parts) return new Date(parts.year, parts.month - 1, parts.day, 8, 0, sequence).toISOString();
+  const parsed = new Date(date || "");
+  if (!Number.isFinite(parsed.getTime())) return "";
+  parsed.setHours(8, 0, sequence, 0);
+  return parsed.toISOString();
+}
+
+function migrateTransferHistoryTimestamps(currentState = {}) {
+  const chronologicalRecords = [];
+  [...(currentState.lots || [])].reverse().forEach((lot) => {
+    chronologicalRecords.push({ record: lot, date: lot.issueDate || "" });
+    (lot.transfers || []).forEach((transfer) => chronologicalRecords.push({ record: transfer, date: transfer.date || lot.issueDate || "" }));
+  });
+  [...(currentState.safeDepartmentIssues || [])].reverse().forEach((issue) =>
+    chronologicalRecords.push({ record: issue, date: issue.date || "" })
+  );
+  [...(currentState.safeDepartmentReturns || [])].reverse().forEach((entry) =>
+    chronologicalRecords.push({ record: entry, date: entry.date || "" })
+  );
+  const dateSequences = new Map();
+  chronologicalRecords.forEach(({ record, date }) => {
+    if (!record || record.createdAt || !date) return;
+    const dateParts = transferHistoryDateParts(date);
+    const dateKey = dateParts
+      ? `${dateParts.year}-${String(dateParts.month).padStart(2, "0")}-${String(dateParts.day).padStart(2, "0")}`
+      : String(date).trim();
+    const sequence = (dateSequences.get(dateKey) || 0) + 1;
+    dateSequences.set(dateKey, sequence);
+    const createdAt = inferredTransferHistoryTimestamp(date, sequence);
+    if (!createdAt) return;
+    record.createdAt = createdAt;
+    record.createdAtInferred = true;
+  });
+}
+
+function transferHistoryDateTime(date = "", createdAt = "") {
+  const savedDate = String(date || "-").trim() || "-";
+  const timestamp = Date.parse(createdAt || "");
+  if (!Number.isFinite(timestamp)) return savedDate;
+  const time = new Date(timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return `${savedDate} ${time}`;
+}
+
+function transferHistoryEntryTime(entry = {}) {
+  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.lot || {};
+  return transferHistoryTime(record.createdAt || entry.lot?.createdAt || "", record.date || entry.lot?.issueDate || "");
+}
+
+function sortTransferHistoryEntries(entries = []) {
+  return entries
+    .map((entry, index) => ({ entry, index, time: transferHistoryEntryTime(entry) }))
+    .sort((a, b) => b.time - a.time || a.index - b.index)
+    .map(({ entry }) => entry);
 }
 
 function safeDepartmentTransferHistoryEntries() {
@@ -20219,11 +20568,7 @@ function safeDepartmentTransferHistoryEntries() {
     type: "safe-department-return",
     departmentReturn: normalizeSafeDepartmentReturn(entry),
   }));
-  return [...returns, ...issues].sort((a, b) => {
-    const aEntry = a.issue || a.departmentReturn || {};
-    const bEntry = b.issue || b.departmentReturn || {};
-    return String(bEntry.createdAt || bEntry.date || "").localeCompare(String(aEntry.createdAt || aEntry.date || ""));
-  });
+  return sortTransferHistoryEntries([...returns, ...issues]);
 }
 
 function transferHistorySearchText(entry = {}) {
@@ -20233,12 +20578,12 @@ function transferHistorySearchText(entry = {}) {
   }
   if (entry.type === "safe-department-return") {
     const departmentReturn = entry.departmentReturn || {};
-    return `${safeDepartmentMovementLabel(true, departmentReturn)} department return ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
+    return `${safeDepartmentMovementLabel(true, departmentReturn)} department return ${departmentReturn.returnedItemDescription || ""} ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
   }
   const { lot = {}, transfer = {}, type } = entry;
   return type === "issue"
-    ? `${lot.number || ""} gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
-    : `${lot.number || ""} ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
+    ? `${lot.number || ""} ${lot.orderNumber || ""} job card gold issue ${lot.issueSourceName || lotIssueSourceName(lot)} ${lot.karigarName || ""} ${lot.currentDepartment || ""}`.toLowerCase()
+    : `${lot.number || ""} ${lot.orderNumber || ""} job card transfer ${transfer.fromDepartment || ""} ${transfer.toDepartment || ""} ${transfer.fromKarigarName || ""} ${transfer.toKarigarName || ""} ${transfer.reason || ""}`.toLowerCase();
 }
 
 function renderDepartmentTransferHistoryBoard() {
@@ -20341,7 +20686,7 @@ function renderDepartmentTransferPurityBreakup(events = []) {
 function departmentTransferPurityRows(events = []) {
   const groups = new Map();
   events.forEach((event) => {
-    const key = dashboardPurityLabel(event.purity || "");
+    const key = transferPurityLabel(event.purity || "");
     if (!groups.has(key)) {
       groups.set(key, { purity: key, inGw: 0, inNet: 0, outGw: 0, outNet: 0, difference: 0, fineGold: 0 });
     }
@@ -20437,6 +20782,8 @@ function departmentTransferEvents() {
       events.push({
         id: `${lot.id}-issue-in`,
         sortIndex: sortIndex++,
+        createdAt: lot.createdAt || "",
+        createdAtInferred: Boolean(lot.createdAtInferred),
         direction: "in",
         type: "Gold Issue",
         department: departmentTransferGroupName(firstDepartment, firstProcess),
@@ -20463,6 +20810,8 @@ function departmentTransferEvents() {
       const common = {
         id: transfer.id || `${lot.id}-${sortIndex}`,
         sortIndex: sortIndex++,
+        createdAt: transfer.createdAt || "",
+        createdAtInferred: Boolean(transfer.createdAtInferred),
         type: "Transfer",
         date: transfer.date || "-",
         lotNumber: lot.number || "-",
@@ -20515,13 +20864,15 @@ function departmentTransferEvents() {
     events.push({
       id: `${isReturn ? "safe-return" : "safe-issue"}-${data.id}`,
       sortIndex: sortIndex++,
+      createdAt: data.createdAt || "",
+      createdAtInferred: Boolean(data.createdAtInferred),
       direction: isReturn ? "out" : "in",
       type: movementLabel,
       department: departmentTransferGroupName(departmentName, processName),
       departmentDetail: departmentTransferDetail(departmentName, processName),
       date: data.date || "-",
       lotNumber: movementLabel,
-      jobNumber: data.sourceItemDescription || data.itemDescription || "Shelf item",
+      jobNumber: (isReturn ? data.returnedItemDescription : "") || data.sourceItemDescription || data.itemDescription || "Shelf item",
       counterparty: destinationName,
       process: processName,
       issueGw: accountedGrossWeight,
@@ -20531,16 +20882,25 @@ function departmentTransferEvents() {
       fineGold: Number(isReturn ? data.lossFineGold || fineGoldWeight(lossWeight, data.purity || data.locker) : 0),
       purity: data.purity || data.locker || "",
       remarks: isReturn
-        ? `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+        ? movementLabel === "LOSS BOOKED"
+          ? `Manufacturing loss ${gram(lossWeight)} removed from ${departmentName}${data.remarks ? `; ${data.remarks}` : ""}`
+          : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
         : `Direct issue from ${shelfName}${data.remarks ? `; ${data.remarks}` : ""}`,
       hasLot: false,
     });
   });
-  return events.sort((a, b) => b.sortIndex - a.sortIndex);
+  return events.sort((a, b) =>
+    transferHistoryTime(b.createdAt, b.date) - transferHistoryTime(a.createdAt, a.date)
+      || b.sortIndex - a.sortIndex
+  );
 }
 
 function departmentTransferGroupName(departmentName = "", processName = "") {
   const combined = `${processName || ""} ${departmentName || ""}`;
+  if (isPaperFilingDepartment(combined)) {
+    const masterName = dashboardMasterDepartmentName(departmentName) || dashboardMasterDepartmentName(processName);
+    return isPaperFilingDepartment(masterName) ? masterName : "Paper Filing";
+  }
   if (textMatchesAny(combined, ["filer", "filing", "fitting", "back to filer", "vinod"])) return "Filing / Fitting";
   if (isPrePolishDepartment(combined) || isPolishDepartment(combined)) return "Pre Polish / Polish";
   return departmentDashboardHeader(processName || departmentName || "Unassigned");
@@ -20620,7 +20980,7 @@ function renderDepartmentTransferRow(event, direction) {
     : `<button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button>`;
   return `
     <tr>
-      <td>${escapeHtml(event.date || "-")}</td>
+      <td>${escapeHtml(transferHistoryDateTime(event.date, event.createdAt))}</td>
       <td class="transfer-lot-job-cell">
         ${referenceHtml}
         <small>${escapeHtml(event.jobNumber || "-")}</small>
@@ -20650,7 +21010,16 @@ function transferReducedWeight(transfer) {
 
 function transferFineGold(transfer, lot = null) {
   const lotPurity = lot ? (lot.metalPurity || getLotOrders(lot)[0]?.purity || 0) : 0;
-  return fineGoldWeight(transfer.departmentBalance, transfer.differencePurity || lotPurity);
+  return fineGoldWeight(transfer.departmentBalance, karatLogicPurity(transfer.differencePurity || lotPurity));
+}
+
+function onlineTransferJobCardCell(lot = {}) {
+  const lotNumber = lot.number || "-";
+  const jobNumber = lot.orderNumber || "-";
+  return `
+    <button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(lotNumber)}'))">${escapeHtml(lotNumber)}</button>
+    <small>Job Card ${escapeHtml(jobNumber)}</small>
+  `;
 }
 
 function renderTransferHistoryRow(entry) {
@@ -20664,8 +21033,8 @@ function renderTransferHistoryRow(entry) {
     const destination = departmentTransferDetail(lot.issueKarigarName || lot.karigarName || transfer.toKarigarName || firstDepartment, firstDepartment);
     return `
       <tr class="online-transfer-row" tabindex="0">
-        <td>${escapeHtml(transfer.date || "-")}</td>
-        <td>${escapeHtml(lot.number)}</td>
+        <td>${escapeHtml(transferHistoryDateTime(transfer.date, transfer.createdAt))}</td>
+        <td class="transfer-lot-job-cell">${onlineTransferJobCardCell(lot)}</td>
         <td class="department-oneline-cell">${transferDirectionCell(sourceName, "from")}</td>
         <td class="department-oneline-cell">${transferDirectionCell(destination, "to")}</td>
         <td>${gram(transfer.transferWeight)}</td>
@@ -20675,7 +21044,7 @@ function renderTransferHistoryRow(entry) {
         <td>${gram(transferReducedWeight(transfer))}</td>
         <td>${gram(transfer.receivedWeight)}</td>
         <td>-</td>
-        <td>${escapeHtml(displayPurity(transfer.differencePurity || lot.metalPurity || "-"))}</td>
+        <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || lot.metalPurity || "-"))}</td>
         <td>${gram(transferFineGold(transfer, lot))}</td>
         <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
       </tr>
@@ -20685,8 +21054,8 @@ function renderTransferHistoryRow(entry) {
   const toDepartment = departmentTransferDetail(transfer.toKarigarName || transfer.toDepartment || "-", transfer.toDepartment || transfer.toKarigarName || "");
   return `
     <tr class="online-transfer-row" tabindex="0">
-      <td>${escapeHtml(transfer.date || "-")}</td>
-      <td>${escapeHtml(lot.number)}</td>
+      <td>${escapeHtml(transferHistoryDateTime(transfer.date, transfer.createdAt))}</td>
+      <td class="transfer-lot-job-cell">${onlineTransferJobCardCell(lot)}</td>
       <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(transfer.transferWeight)}</td>
@@ -20696,7 +21065,7 @@ function renderTransferHistoryRow(entry) {
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
-      <td>${escapeHtml(displayPurity(transfer.differencePurity || lot.metalPurity || "-"))}</td>
+      <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || lot.metalPurity || "-"))}</td>
       <td>${gram(transferFineGold(transfer, lot))}</td>
       <td class="remark-cell">
         <div class="online-transfer-remarks-actions">
@@ -20722,13 +21091,15 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
   const lossWeight = Number(isReturn ? data.lossWeight || 0 : 0);
   const accountedGrossWeight = Number(weight3(grossWeight + lossWeight));
   const lossFineGold = Number(isReturn ? data.lossFineGold || fineGoldWeight(lossWeight, data.purity || data.locker) : 0);
-  const itemDescription = data.sourceItemDescription || data.itemDescription || "Shelf item";
+  const itemDescription = (isReturn ? data.returnedItemDescription : "") || data.sourceItemDescription || data.itemDescription || "Shelf item";
   const remarks = isReturn
-    ? `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+    ? movementLabel === "LOSS BOOKED"
+      ? `Manufacturing loss ${gram(lossWeight)} removed from ${department}${data.remarks ? `; ${data.remarks}` : ""}`
+      : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
     : `Direct shelf issue to ${department}${data.remarks ? `; ${data.remarks}` : ""}`;
   return `
     <tr class="online-transfer-row" tabindex="0">
-      <td>${escapeHtml(data.date || "-")}</td>
+      <td>${escapeHtml(transferHistoryDateTime(data.date, data.createdAt))}</td>
       <td><strong>${escapeHtml(movementLabel)}</strong><br><small>${escapeHtml(itemDescription)}</small></td>
       <td class="department-oneline-cell">${transferDirectionCell(movedFrom, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(movedTo, "to")}</td>
@@ -20739,7 +21110,7 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
       <td>${gram(waxStoneWeight)}</td>
       <td>${gram(netWeight)}</td>
       <td>${isReturn ? gram(lossWeight) : "-"}</td>
-      <td>${escapeHtml(displayPurity(data.purity || data.locker || "-"))}</td>
+      <td>${escapeHtml(transferPurityLabel(data.purity || data.locker || "-"))}</td>
       <td>${gram(lossFineGold)}</td>
       <td class="remark-cell">${transferRemarkCell(remarks)}</td>
     </tr>
@@ -20752,6 +21123,8 @@ function goldIssueHistoryEntry(lot) {
     lot,
     transfer: {
       date: lot.issueDate || "-",
+      createdAt: lot.createdAt || "",
+      createdAtInferred: Boolean(lot.createdAtInferred),
       toKarigarName: lot.karigarName,
       transferWeight: lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)),
       grossReceivedWeight: lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)),
@@ -20759,7 +21132,7 @@ function goldIssueHistoryEntry(lot) {
       stoneWeight: 0,
       reducedWeight: lot.waxStoneWeight || 0,
       receivedWeight: lot.issuedWeight,
-      differencePurity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
+      differencePurity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || ""),
       differenceFineGold: 0,
       reason: `Gold issued from ${lot.issueSourceName || lotIssueSourceName(lot)} to ${lot.currentDepartment || lot.karigarName || "-"}${Number(lot.waxStoneWeight || 0) ? `; Gold Issue - Wax Stone = Net Wt, Wax Stone ${gram(lot.waxStoneWeight)}` : ""}`,
     },
@@ -20807,10 +21180,14 @@ function openLotHistory(lotId) {
 }
 
 function renderLotHistoryTable(lot) {
-  const rows = [
-    renderGoldIssueHistoryRow(lot),
-    ...(lot.transfers || []).map((transfer, index) => renderHistoryTableRow(transfer, index + 2, lot.id)),
-  ].join("");
+  const transferRows = (lot.transfers || [])
+    .map((transfer, index) => ({ transfer, step: index + 2 }))
+    .sort((a, b) =>
+      transferHistoryTime(b.transfer.createdAt, b.transfer.date) - transferHistoryTime(a.transfer.createdAt, a.transfer.date)
+        || b.step - a.step
+    )
+    .map(({ transfer, step }) => renderHistoryTableRow(transfer, step, lot.id));
+  const rows = [...transferRows, renderGoldIssueHistoryRow(lot)].join("");
   return `
     <div class="table-wrap lot-history-table">
       <table>
@@ -20830,7 +21207,7 @@ function renderGoldIssueHistoryRow(lot) {
   return `
     <tr class="lot-transfer-history-row">
       <td>1</td>
-      <td>${escapeHtml(lot.issueDate || "-")}</td>
+      <td>${escapeHtml(transferHistoryDateTime(lot.issueDate, lot.createdAt))}</td>
       <td class="department-oneline-cell">${transferDirectionCell(sourceName, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(destination, "to")}</td>
       <td>${gram(issueGw)}</td>
@@ -20840,9 +21217,9 @@ function renderGoldIssueHistoryRow(lot) {
       <td>${gram(waxStone)}</td>
       <td>${gram(lot.issuedWeight)}</td>
       <td>-</td>
-      <td>${escapeHtml(displayPurity(lot.metalPurity || "-"))}</td>
+      <td>${escapeHtml(transferPurityLabel(lot.metalPurity || "-"))}</td>
       <td>${gram(0)}</td>
-      <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${lot.metalPurity || "-"}; Gold Issue - Wax Stone = Net Wt`)}</td>
+      <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${transferPurityLabel(lot.metalPurity || "-")}; Gold Issue - Wax Stone = Net Wt`)}</td>
       <td>-</td>
     </tr>
   `;
@@ -20854,7 +21231,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
   return `
     <tr class="lot-transfer-history-row">
       <td>${step}</td>
-      <td>${escapeHtml(transfer.date || "-")}</td>
+      <td>${escapeHtml(transferHistoryDateTime(transfer.date, transfer.createdAt))}</td>
       <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(transfer.transferWeight)}</td>
@@ -20864,7 +21241,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
-      <td>${escapeHtml(displayPurity(transfer.differencePurity || findById("lots", lotId)?.metalPurity || ""))}</td>
+      <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || findById("lots", lotId)?.metalPurity || ""))}</td>
       <td>${gram(transferFineGold(transfer, findById("lots", lotId)))}</td>
       <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
       <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lotId}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lotId}', '${transfer.id}')">Delete</button></div></td>
@@ -20940,7 +21317,7 @@ function openMeltingReceive(meltingId) {
   if (form.xrfIssueWeight) form.xrfIssueWeight.value = weight3(breakup.xrfIssueWeight ?? xrfEntry?.weightIssue ?? 0.5);
   toggleMeltingReceiveMode(isRodReceive);
   document.getElementById("melting-receive-summary").textContent =
-    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
+    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${meltingBatchPurityLabel(melting)} ${melting.colour}`;
   updateMeltingReceiveLoss();
   updateMeltingReceiveXrfNote();
   document.getElementById("melting-receive-dialog").showModal();
@@ -21007,6 +21384,12 @@ function meltingBatchType(melting = {}) {
   return meltingDepartmentOptionValue(melting) === "Melting Department" ? "MELTING" : "CASTING";
 }
 
+function meltingBatchPurityLabel(melting = {}) {
+  return meltingBatchType(melting) === "MELTING"
+    ? formatPurity(melting.targetPurity)
+    : transferPurityLabel(melting.targetPurity);
+}
+
 function meltingBatchDateValue(melting = {}) {
   return meltingBatchType(melting) === "CASTING" && melting.receivedDate ? melting.receivedDate : melting.date || today();
 }
@@ -21043,7 +21426,7 @@ function openMeltingView(meltingId) {
   if (!melting) return;
   const breakup = melting.receiveBreakup || {};
   document.getElementById("melting-view-summary").textContent =
-    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${formatPurity(melting.targetPurity)} ${melting.colour}`;
+    `${melting.batchName || assignMeltingBatchName(melting)} / ${melting.date} / ${melting.departmentName || "Department"} / ${meltingBatchPurityLabel(melting)} ${melting.colour}`;
   document.getElementById("melting-view-body").innerHTML = `
     <article class="history-item">
       <div class="history-step">1</div>
@@ -21052,7 +21435,7 @@ function openMeltingView(meltingId) {
         <div class="history-grid">
           <span><b>Batch Name</b>${escapeHtml(melting.batchName || assignMeltingBatchName(melting))}</span>
           <span><b>Source Metals</b>${renderMeltingSources(melting)}</span>
-          <span><b>Target Purity</b>${formatPurity(melting.targetPurity)}</span>
+          <span><b>Target Purity</b>${meltingBatchPurityLabel(melting)}</span>
           <span><b>Colour</b>${escapeHtml(melting.colour || "-")}</span>
           <span><b>Department</b>${escapeHtml(melting.departmentName || "-")}</span>
           <span><b>Pure Gold</b>${gram(melting.pureGold)}</span>
@@ -21367,6 +21750,7 @@ function normalizeState(currentState) {
   if (!currentState || typeof currentState !== "object") {
     currentState = structuredClone(demoState);
   }
+  migrateTransferHistoryTimestamps(currentState);
   currentState.factoryResetAt = currentState.factoryResetAt || "";
   currentState.factoryResetReason = currentState.factoryResetReason || "";
   currentState.nextOrder = currentState.nextOrder || 1004;
@@ -21456,11 +21840,15 @@ function normalizeState(currentState) {
     const savedNetWeight = Number(item.netWeight ?? grossWeight);
     const waxStoneWeight = Number(weight3(item.waxStoneWeight ?? Math.max(grossWeight - savedNetWeight, 0)));
     const netWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight)));
+    const savedPurity = item.purity || item.locker || "";
+    const savedDesiredPurity = item.desiredPurity || safeItemDesiredPurity(item);
+    const purity = item.sourceType === "melting-receive" ? karatLogicPurity(savedPurity) : savedPurity;
+    const desiredPurity = item.sourceType === "melting-receive" ? karatLogicPurity(savedDesiredPurity || savedPurity) : savedDesiredPurity;
     return {
       id: item.id || crypto.randomUUID(),
       date: item.date || today(),
       locker: safeLockerForPurity(item.locker || item.purity),
-      purity: item.purity || item.locker || "",
+      purity,
       description: item.description || "",
       source: item.source || "",
       sourceType: item.sourceType || "",
@@ -21469,7 +21857,7 @@ function normalizeState(currentState) {
       castingBatchId: item.castingBatchId || "",
       castingBatchName: item.castingBatchName || "",
       colour: item.colour || safeItemColour(item),
-      desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
+      desiredPurity,
       safeKind: safeItemKind(item),
       grossWeight,
       waxStoneWeight,
@@ -21684,38 +22072,44 @@ function normalizeState(currentState) {
     shape: currentState.stoneOptions?.shape || [],
     size: currentState.stoneOptions?.size || [],
   };
-  currentState.melting = (currentState.melting || []).map((item) => ({
-    ...item,
-    sourcePurity: purityPercent(item.sourcePurity),
-    targetPurity: purityPercent(item.targetPurity),
-    departmentId: item.departmentId || "",
-    departmentName: item.departmentName || "",
-    status: item.status || "Issued",
-    receivedWeight: Number(item.receivedWeight || 0),
-    grossReceivedWeight: Number(item.grossReceivedWeight ?? (item.receiveBreakup ? meltingReceiveGrossWeight(item.receiveBreakup, item) : item.receivedWeight) ?? 0),
-    meltingLoss: Number(item.meltingLoss || 0),
-    receiveBreakup: item.receiveBreakup || null,
-    sourceType: item.sourceType || "",
-    sourceLotId: item.sourceLotId || "",
-    sourceJobNumber: item.sourceJobNumber || "",
-    sourceProductionNo: item.sourceProductionNo || "",
-    discardReason: item.discardReason || "",
-    sourceMetals: item.sourceMetals?.length
-      ? item.sourceMetals.map((metal) => ({
-          weight: Number(metal.weight || 0),
-          purity: purityPercent(metal.purity),
-          sourceKind: metal.sourceKind || (metal.safeLocker ? "rod" : "metal"),
-          safeLocker: metal.safeLocker || "",
-          safePurity: metal.safePurity || "",
-        }))
-      : [{
-          weight: Number(item.sourceWeight || 0),
-          purity: purityPercent(item.sourcePurity),
-          sourceKind: "metal",
-          safeLocker: "",
-          safePurity: "",
-        }],
-  }));
+  currentState.melting = (currentState.melting || []).map((item) => {
+    const enteredTargetPurity = purityPercent(item.targetPurity);
+    const targetPurity = meltingBatchType(item) === "CASTING"
+      ? karatLogicPercent(enteredTargetPurity)
+      : enteredTargetPurity;
+    return {
+      ...item,
+      sourcePurity: purityPercent(item.sourcePurity),
+      targetPurity,
+      departmentId: item.departmentId || "",
+      departmentName: item.departmentName || "",
+      status: item.status || "Issued",
+      receivedWeight: Number(item.receivedWeight || 0),
+      grossReceivedWeight: Number(item.grossReceivedWeight ?? (item.receiveBreakup ? meltingReceiveGrossWeight(item.receiveBreakup, item) : item.receivedWeight) ?? 0),
+      meltingLoss: Number(item.meltingLoss || 0),
+      receiveBreakup: item.receiveBreakup || null,
+      sourceType: item.sourceType || "",
+      sourceLotId: item.sourceLotId || "",
+      sourceJobNumber: item.sourceJobNumber || "",
+      sourceProductionNo: item.sourceProductionNo || "",
+      discardReason: item.discardReason || "",
+      sourceMetals: item.sourceMetals?.length
+        ? item.sourceMetals.map((metal) => ({
+            weight: Number(metal.weight || 0),
+            purity: purityPercent(metal.purity),
+            sourceKind: metal.sourceKind || (metal.safeLocker ? "rod" : "metal"),
+            safeLocker: metal.safeLocker || "",
+            safePurity: metal.safePurity || "",
+          }))
+        : [{
+            weight: Number(item.sourceWeight || 0),
+            purity: purityPercent(item.sourcePurity),
+            sourceKind: "metal",
+            safeLocker: "",
+            safePurity: "",
+          }],
+    };
+  });
   currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
   currentState.xrfTests = (currentState.xrfTests || []).map(normalizeXrfEntry);
   syncXrfWastageReturnsForState(currentState);
@@ -21816,6 +22210,8 @@ function normalizeState(currentState) {
 
 function normalizeLotIssueWeights(currentState, lot) {
   const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  const primaryOrder = currentState.orders.find((order) => orderIds.includes(order.id));
+  const metalPurity = karatLogicPurity(lot.metalPurity || primaryOrder?.purity || "");
   const billOrderIds = lot.billOrderIds?.length
     ? lot.billOrderIds.filter((id) => orderIds.includes(id))
     : (lot.qcReturn || lot.parentLotId ? orderIds : []);
@@ -21841,6 +22237,7 @@ function normalizeLotIssueWeights(currentState, lot) {
     issueKarigarId: lot.issueKarigarId || firstTransfer.fromKarigarId || lot.karigarId || "",
     issueKarigarName: lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName || "",
     issueDepartment: mergedProductionDepartmentName(lot.issueDepartment || firstTransfer.fromDepartment || lot.currentDepartment || lot.karigarName || ""),
+    metalPurity,
     transfers: transfers.map((transfer) => ({
       id: transfer.id || crypto.randomUUID(),
       ...transfer,
@@ -21851,14 +22248,14 @@ function normalizeLotIssueWeights(currentState, lot) {
       reducedWeight: transfer.reducedWeight ?? Number(transfer.waxStoneWeight ?? waxStoneWeight) + Number(transfer.stoneWeight ?? 0),
       receivedWeight: transfer.receivedWeight ?? transfer.transferWeight ?? 0,
       departmentBalance: transfer.departmentBalance ?? 0,
-      differencePurity: transfer.differencePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "",
-      differenceFineGold: transfer.differenceFineGold ?? fineGoldWeight(transfer.departmentBalance ?? 0, transfer.differencePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0),
+      differencePurity: karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || ""),
+      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "")),
       balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || ""),
       fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || ""),
       toDepartment: mergedProductionDepartmentName(transfer.toDepartment || ""),
     })).map((transfer) => ({
       ...transfer,
-      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, transfer.differencePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0),
+      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, transfer.differencePurity || metalPurity || primaryOrder?.purity || 0),
     })),
     currentDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || ""),
     issueDate: lot.issueDate || "",
@@ -21866,12 +22263,12 @@ function normalizeLotIssueWeights(currentState, lot) {
     waxStoneWeight,
     issuedWeight,
     nonGoldIssues: (lot.nonGoldIssues || []).map((issue) => normalizeProductionNonGoldIssue(issue, lot, currentState)),
-    issueSourceName: lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K")}`,
+    issueSourceName: lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || metalPurity || primaryOrder?.purity || "18K")}`,
     issueSourceDetail: lot.issueSourceDetail || lot.castingSafeItemDescription || "",
-    issueSourceLocker: lot.issueSourceLocker || safeLockerForPurity(lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || "18K"),
+    issueSourceLocker: lot.issueSourceLocker || safeLockerForPurity(metalPurity || primaryOrder?.purity || "18K"),
     actualWastage: Number(lot.actualWastage || 0),
     repairAdditionalLoss: Number(lot.repairAdditionalLoss || 0),
-    wastageFineGold: Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage || 0, lot.wastagePurity || lot.metalPurity || currentState.orders.find((order) => orderIds.includes(order.id))?.purity || 0)),
+    wastageFineGold: fineGoldWeight(lot.actualWastage || 0, karatLogicPurity(lot.wastagePurity || metalPurity || primaryOrder?.purity || 0)),
     productionStockWeight,
   };
 }

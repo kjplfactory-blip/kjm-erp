@@ -3840,6 +3840,7 @@ dialog::backdrop {
 .bill-dialog-card .bill-item-table,
 .bill-dialog-card .bill-fields,
 .bill-dialog-card .bill-totals,
+.bill-dialog-card .bill-qc-bulk-toolbar,
 .bill-dialog-card .dialog-actions {
   width: 100%;
 }
@@ -4088,6 +4089,46 @@ dialog::backdrop {
 #bill-dialog .bill-total-card.highlight {
   border-left-color: #0b7a75;
   background: #e7f8f3;
+}
+
+#bill-dialog .bill-qc-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid #a9d8cf;
+  border-radius: 8px;
+  background: #e7f8f3;
+  color: #0b514c;
+}
+
+#bill-dialog .bill-qc-bulk-toolbar > div {
+  display: grid;
+  gap: 1px;
+}
+
+#bill-dialog .bill-qc-bulk-toolbar strong {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+#bill-dialog .bill-qc-bulk-toolbar span {
+  color: #476b65;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+#bill-dialog #bill-qc-all-ok {
+  flex: 0 0 auto;
+  border-color: #0b7a75;
+  background: #fff;
+  color: #0b514c;
+  font-weight: 900;
+}
+
+#bill-dialog #bill-qc-all-ok:hover {
+  background: #d7f2eb;
 }
 
 #bill-dialog .bill-item-table {
@@ -8124,6 +8165,105 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   grid-column: 1 / -1;
 }
 
+.department-receive-lines-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #cbded8;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.department-receive-lines-panel .panel-heading {
+  margin: 0;
+  padding: 0 0 8px;
+}
+
+.department-receive-lines-panel .panel-heading small {
+  color: #5f746e;
+}
+
+.department-receive-line-head,
+.department-receive-line {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.85fr) minmax(210px, 1.4fr) repeat(3, minmax(95px, 0.55fr)) 38px;
+  gap: 8px;
+  align-items: end;
+}
+
+.department-receive-line-head {
+  padding: 0 4px;
+  color: #526963;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.department-receive-line {
+  padding: 8px 4px;
+  border-top: 1px solid #dce9e5;
+}
+
+.department-receive-line.is-loss-line {
+  border-color: #edc9c9;
+  background: #fff4f4;
+}
+
+.department-receive-line.is-loss-line select {
+  border-color: #c96565;
+  color: #8b2424;
+  font-weight: 800;
+}
+
+.department-receive-line label {
+  gap: 3px;
+  min-width: 0;
+}
+
+.department-receive-line label > span {
+  display: none;
+}
+
+.department-receive-line input,
+.department-receive-line select {
+  min-width: 0;
+  width: 100%;
+}
+
+.department-receive-line .remove-department-receive-line {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border-color: #e7b7b7;
+  color: #a02b2b;
+  font-size: 20px;
+}
+
+.department-receive-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.department-receive-totals span {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #cbded8;
+  border-radius: 6px;
+  background: #eef7f4;
+  color: #526963;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.department-receive-totals strong {
+  color: #153f37;
+  font-size: 15px;
+}
+
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel {
   height: calc(100vh - 72px);
   min-height: 680px;
@@ -8283,6 +8423,28 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
   .safe-department-receive-form {
     grid-template-columns: 1fr;
+  }
+
+  .department-receive-line-head {
+    display: none;
+  }
+
+  .department-receive-line {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .department-receive-line label > span {
+    display: block;
+  }
+
+  .department-receive-line .remove-department-receive-line {
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  .department-receive-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .safe-department-issue-form .inline-form {
