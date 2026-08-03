@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v405";
+const APP_VERSION = "v406";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -4063,8 +4063,8 @@ function entryOrderItemRowHtml(item = {}) {
     <label class="order-field-search">Search Design <input name="designSearch" value="${escapeHtml(item.designSearch || "")}" placeholder="Type design no/name"></label>
     <label class="order-field-design">Design <select name="designId"></select></label>
     <label class="multi-design-field">Multiple Designs In Same Category
-      <select name="designIds" multiple size="6"></select>
-      <small>For same category: hold Ctrl and click multiple designs, then press Add Item.</small>
+      <select name="designIds" size="6" aria-label="Click a design to add it"></select>
+      <small>Click designs one by one to add them. Use the cross below to remove a selected design.</small>
     </label>
     <div class="selected-design-chips" data-order-selected-designs></div>
     <label class="cb-field">CB Ring
@@ -4688,7 +4688,7 @@ function updateOrderItemDesignOptions(row, selectedDesignId = "") {
   ).join("");
   if (multiSelect) {
     multiSelect.innerHTML = multiDesigns.length
-      ? multiDesigns.map((design) => `<option value="${design.id}" ${previousMultiValues.includes(design.id) ? "selected" : ""}>${escapeHtml(designText(design))}</option>`).join("")
+      ? multiDesigns.map((design) => `<option value="${design.id}">${escapeHtml(designText(design))}</option>`).join("")
       : `<option value="">${category ? "No designs in this category" : "Select category first"}</option>`;
   }
   setOrderMultiDesignSelection(row, previousMultiValues);
@@ -4701,10 +4701,7 @@ function updateOrderItemDesignOptions(row, selectedDesignId = "") {
 }
 
 function selectedOrderDesignIds(row) {
-  return normalizeOrderDesignIds([
-    ...storedOrderDesignIds(row),
-    ...visibleSelectedOrderDesignIds(row),
-  ]);
+  return storedOrderDesignIds(row);
 }
 
 function normalizeOrderDesignIds(values = []) {
@@ -4716,19 +4713,16 @@ function storedOrderDesignIds(row) {
   return normalizeOrderDesignIds(row?.dataset.selectedDesignIds || "");
 }
 
-function visibleSelectedOrderDesignIds(row) {
-  const select = row?.querySelector('[name="designIds"]');
-  if (!select) return [];
-  return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
-}
-
 function setOrderMultiDesignSelection(row, ids = []) {
   if (!row) return [];
   const selectedIds = normalizeOrderDesignIds(ids);
   row.dataset.selectedDesignIds = selectedIds.join(",");
   row.querySelectorAll('[name="designIds"] option').forEach((option) => {
-    option.selected = selectedIds.includes(option.value);
+    option.selected = false;
+    option.disabled = Boolean(option.value) && selectedIds.includes(option.value);
   });
+  const select = row.querySelector('[name="designIds"]');
+  if (select) select.selectedIndex = -1;
   renderOrderSelectedDesignChips(row, selectedIds);
   return selectedIds;
 }
@@ -4736,10 +4730,9 @@ function setOrderMultiDesignSelection(row, ids = []) {
 function persistVisibleOrderDesignSelection(row) {
   const select = row?.querySelector('[name="designIds"]');
   if (!select) return setOrderMultiDesignSelection(row, storedOrderDesignIds(row));
-  const visibleIds = new Set([...select.options].map((option) => option.value).filter(Boolean));
-  const selectedVisibleIds = [...select.selectedOptions].map((option) => option.value).filter(Boolean);
-  const carriedIds = storedOrderDesignIds(row).filter((designId) => !visibleIds.has(designId));
-  return setOrderMultiDesignSelection(row, [...carriedIds, ...selectedVisibleIds]);
+  const selectedId = select.value;
+  if (!selectedId) return setOrderMultiDesignSelection(row, storedOrderDesignIds(row));
+  return addOrderMultiDesignSelection(row, selectedId);
 }
 
 function addOrderMultiDesignSelection(row, designId) {
@@ -4766,7 +4759,7 @@ function renderOrderSelectedDesignChips(row, ids = selectedOrderDesignIds(row)) 
   holder.innerHTML = selectedIds.map((designId) => `
     <span class="selected-design-chip">
       <b>${escapeHtml(designLabel(designId) || designId)}</b>
-      <button type="button" data-order-item-action="remove-design" data-design-id="${escapeHtml(designId)}" aria-label="Remove selected design">x</button>
+      <button type="button" data-order-item-action="remove-design" data-design-id="${escapeHtml(designId)}" aria-label="Remove selected design" title="Remove design">&times;</button>
     </span>
   `).join("");
 }

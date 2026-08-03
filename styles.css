@@ -2314,6 +2314,17 @@ form.active-operation-page,
 
 .order-item-row .multi-design-field select {
   min-height: 118px;
+  cursor: pointer;
+}
+
+.order-item-row .multi-design-field select option {
+  padding: 7px 9px;
+}
+
+.order-item-row .multi-design-field select option:disabled {
+  background: #e4f5ef;
+  color: var(--brand-dark);
+  font-weight: 900;
 }
 
 .order-item-row .multi-design-field small {
