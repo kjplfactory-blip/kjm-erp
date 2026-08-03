@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v397";
+const APP_VERSION = "v405";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -59,11 +59,15 @@ const STONE_ITEM_PRESETS = [
   ["CM", "CM - Chams"],
   ["CMB", "CMB - Chams Bracelet"],
   ["CME", "CME - Chams Ear Rings"],
+  ["PS", "PS - Main"],
+  ["PSE", "PSE - Ear Rings"],
   ["TM", "TM - Main"],
   ["TME", "TME - Ear Rings"],
 ];
 const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
+const PS_ITEM_KEYS = ["PS", "PSE"];
 const TM_ITEM_KEYS = ["TM", "TME"];
+const SET_ITEM_KEYS = [...CM_ITEM_KEYS, ...PS_ITEM_KEYS, ...TM_ITEM_KEYS];
 const PRODUCTION_NON_GOLD_TYPES = [
   { value: "moti", label: "Moti" },
   { value: "black-beads", label: "Black Beads" },
@@ -1321,6 +1325,8 @@ document.getElementById("safe-item-form").addEventListener("submit", (event) => 
     purity: data.locker,
     description: data.description,
     source: data.source || "Manual safe entry",
+    safeKind: data.safeKind,
+    colour: data.colour,
     grossWeight,
     waxStoneWeight,
     netWeight: safeItemNetFromGross(grossWeight, waxStoneWeight),
@@ -1966,7 +1972,7 @@ document.getElementById("office-table").addEventListener("change", saveOfficeHui
 document.getElementById("office-tile-board").addEventListener("change", saveOfficeHuidFromTable);
 document.getElementById("office-details-dialog").addEventListener("change", saveOfficeHuidFromTable);
 document.getElementById("office-select-all").addEventListener("change", (event) => {
-  document.querySelectorAll(".office-item-check").forEach((input) => {
+  document.querySelectorAll("#office-table .office-item-check").forEach((input) => {
     input.checked = event.target.checked;
   });
 });
@@ -2013,6 +2019,15 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
     closeHallmarkBatch();
     return;
   }
+  if (event.target.id === "office-back-bill-batches") {
+    closeOfficeBillBatch();
+    return;
+  }
+  const billBatchTile = event.target.closest("[data-office-bill-batch-open]");
+  if (billBatchTile) {
+    openOfficeBillBatch(billBatchTile.dataset.officeBillBatchOpen);
+    return;
+  }
   const hallmarkBatchTile = event.target.closest("[data-hallmark-batch-open]");
   if (hallmarkBatchTile) {
     openHallmarkBatch(hallmarkBatchTile.dataset.hallmarkBatchOpen);
@@ -2020,6 +2035,14 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
   }
   if (event.target.id === "office-select-dialog-items") {
     selectAllOfficeDialogItems();
+    return;
+  }
+  if (event.target.id === "office-clear-dialog-items") {
+    clearOfficeDialogItems();
+    return;
+  }
+  if (event.target.id === "office-hallmark-clear-filters") {
+    clearHallmarkingFilters();
     return;
   }
   const tagButton = event.target.closest("[data-office-tag-key]");
@@ -2043,7 +2066,19 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
   if (event.target.id === "office-print-tags") printHallmarkedTags();
 });
 
+document.getElementById("office-details-dialog").addEventListener("change", (event) => {
+  if (["office-hallmark-category", "office-hallmark-sort"].includes(event.target.id)) {
+    renderHallmarkingSearchResults(document.getElementById("office-hallmark-search")?.value || "");
+    return;
+  }
+  if (!event.target.matches?.("[data-office-batch-select-all]")) return;
+  setOfficeDialogItemsChecked(event.target.checked);
+});
+
 document.getElementById("office-details-dialog").addEventListener("input", (event) => {
+  if (event.target.id === "office-hallmark-search") {
+    renderHallmarkingSearchResults(event.target.value);
+  }
   if (event.target.id === "office-customer-search") {
     renderOfficeCustomerList();
   }
@@ -3779,7 +3814,13 @@ function switchOfficePage(page) {
     page = "sales";
   }
   const officeDialog = document.getElementById("office-details-dialog");
-  if (officeDialog) delete officeDialog.dataset.hallmarkBatch;
+  if (officeDialog) {
+    delete officeDialog.dataset.hallmarkBatch;
+    delete officeDialog.dataset.officeBillBatch;
+    delete officeDialog.dataset.hallmarkSearch;
+    delete officeDialog.dataset.hallmarkCategory;
+    delete officeDialog.dataset.hallmarkSort;
+  }
   document.querySelectorAll("[data-office-page]").forEach((button) => {
     button.classList.toggle("active", button.dataset.officePage === page);
   });
@@ -4031,9 +4072,9 @@ function entryOrderItemRowHtml(item = {}) {
         ${renderRingTypeOptions(item.ringType, designOrderRingKeys(selectedDesign, item.category))}
       </select>
     </label>
-    <label class="cm-field">CM Item
+    <label class="cm-field"><span data-set-item-label>${escapeHtml(setItemFieldLabel(item.category))}</span>
       <select name="cmItemType">
-        ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForDesign(selectedDesign, item.category), designOrderCmKeys(selectedDesign, item.category))}
+        ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForDesign(selectedDesign, item.category), designOrderCmKeys(selectedDesign, item.category), item.category)}
       </select>
     </label>
     <label class="normal-size-field">Size <input name="size" value="${escapeHtml(item.size || "")}" placeholder="Size"></label>
@@ -4075,8 +4116,8 @@ function savedOrderItemRowHtml(item = {}) {
     ${["CG", "CL+CG"].includes(item.ringType) ? `<span class="saved-item-cell"><b>CG Size</b>${escapeHtml(item.cgSize || item.size || "-")}</span>` : ""}
   `
     : "";
-  const cmDetails = isCmCategory(item.category)
-    ? `<span class="saved-item-cell"><b>CM Item</b>${escapeHtml(cmItemTypeLabel(item.cmItemType || defaultCmItemTypeForCategory(item.category)))}</span>`
+  const cmDetails = isSetItemCategory(item.category)
+    ? `<span class="saved-item-cell"><b>${escapeHtml(setItemFieldLabel(item.category))}</b>${escapeHtml(cmItemTypeLabel(item.cmItemType || defaultCmItemTypeForCategory(item.category), item.category))}</span>`
     : "";
   const normalSize = needsNormalSize(item.category)
     ? `<span class="saved-item-cell"><b>Size</b>${escapeHtml(item.size || "-")}</span>`
@@ -4123,10 +4164,29 @@ function designOrderRingKeys(design = null, category = "") {
   return [...new Set(keys)].length ? [...new Set(keys)] : ["CL", "CG"];
 }
 
+function setItemFamilyKeys(value = "") {
+  const code = categoryCode(value);
+  if (CM_ITEM_KEYS.includes(code)) return CM_ITEM_KEYS;
+  if (PS_ITEM_KEYS.includes(code)) return PS_ITEM_KEYS;
+  if (TM_ITEM_KEYS.includes(code)) return TM_ITEM_KEYS;
+  return [];
+}
+
+function setItemFamilyCode(value = "") {
+  const keys = setItemFamilyKeys(value);
+  return keys[0] || "";
+}
+
+function setItemFieldLabel(value = "") {
+  const family = setItemFamilyCode(value);
+  return family ? `${family} Item` : "Set Item";
+}
+
 function designOrderCmKeys(design = null, category = "") {
+  const familyKeys = setItemFamilyKeys(design?.category || category);
   const keys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
-    .filter((key) => CM_ITEM_KEYS.includes(key));
-  return [...new Set(keys)].length ? [...new Set(keys)] : CM_ITEM_KEYS;
+    .filter((key) => familyKeys.includes(key));
+  return [...new Set(keys)].length ? [...new Set(keys)] : familyKeys;
 }
 
 function itemKeyCombinations(keys = []) {
@@ -4162,32 +4222,37 @@ function ringTypeLabel(value = "") {
   }[value] || "-";
 }
 
-function renderCmItemTypeOptions(selected = "", keys = CM_ITEM_KEYS) {
-  const cmKeys = [...new Set(keys.filter((key) => CM_ITEM_KEYS.includes(key)))];
-  const options = [["", "Select CM item"], ...itemKeyCombinations(cmKeys).map((combo) => {
+function renderCmItemTypeOptions(selected = "", keys = CM_ITEM_KEYS, category = "CM") {
+  const familyKeys = setItemFamilyKeys(category);
+  const availableKeys = [...new Set(keys.filter((key) => familyKeys.includes(key)))];
+  const itemKeys = availableKeys.length ? availableKeys : familyKeys;
+  const options = [["", `Select ${setItemFieldLabel(category).toLowerCase()}`], ...itemKeyCombinations(itemKeys).map((combo) => {
     const value = combo.join("+");
     return [value, combo.map(stoneItemInputValue).join(" + ")];
   })];
-  if (selected && !options.some(([value]) => value === selected)) options.push([selected, cmItemTypeLabel(selected)]);
+  if (selected && !options.some(([value]) => value === selected)) options.push([selected, cmItemTypeLabel(selected, category)]);
   return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
 
-function cmItemTypeKeys(value = "") {
+function cmItemTypeKeys(value = "", category = "") {
+  const familyKeys = setItemFamilyKeys(category);
+  const allowedKeys = familyKeys.length ? familyKeys : SET_ITEM_KEYS;
   return String(value || "")
     .split("+")
     .map((key) => categoryCode(key))
-    .filter((key, index, list) => CM_ITEM_KEYS.includes(key) && list.indexOf(key) === index);
+    .filter((key, index, list) => allowedKeys.includes(key) && list.indexOf(key) === index);
 }
 
-function cmItemTypeLabel(value = "") {
-  const keys = cmItemTypeKeys(value);
+function cmItemTypeLabel(value = "", category = "") {
+  const keys = cmItemTypeKeys(value, category);
   if (!keys.length) return "-";
   return keys.map((key) => stoneItemLabel(key)).join(" + ");
 }
 
 function defaultCmItemTypeForCategory(value = "") {
   const category = categoryCode(value);
-  return CM_ITEM_KEYS.includes(category) ? category : "";
+  const familyKeys = setItemFamilyKeys(category);
+  return familyKeys.includes(category) ? category : familyKeys[0] || "";
 }
 
 function defaultCmItemTypeForDesign(design = null, category = "") {
@@ -4208,6 +4273,10 @@ function isCmCategory(value = "") {
   return CM_ITEM_KEYS.includes(categoryCode(value));
 }
 
+function isSetItemCategory(value = "") {
+  return SET_ITEM_KEYS.includes(categoryCode(value));
+}
+
 function needsNormalSize(value = "") {
   return ["BR", "LR", "GR"].includes(categoryCode(value));
 }
@@ -4220,7 +4289,7 @@ function updateOrderItemCategoryFields(row) {
   const cmSelect = row.querySelector('[name="cmItemType"]');
   const ringType = ringSelect.value;
   const showCb = isCbCategory(category);
-  const showCm = isCmCategory(category);
+  const showCm = isSetItemCategory(category);
   const showNormalSize = needsNormalSize(category);
   if (showCb) {
     ringSelect.innerHTML = renderRingTypeOptions(ringType, designOrderRingKeys(design, category));
@@ -4228,12 +4297,15 @@ function updateOrderItemCategoryFields(row) {
   }
   if (showCm) {
     const cmType = cmSelect.value || defaultCmItemTypeForDesign(design, category);
-    cmSelect.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category));
+    cmSelect.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category), category);
     cmSelect.value = [...cmSelect.options].some((option) => option.value === cmType) ? cmType : defaultCmItemTypeForDesign(design, category);
   }
   const activeRingTypeForVisibility = ringSelect.value;
   row.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
   row.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
+  row.querySelectorAll("[data-set-item-label]").forEach((label) => {
+    label.textContent = setItemFieldLabel(category);
+  });
   row.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(activeRingTypeForVisibility)));
   row.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(activeRingTypeForVisibility)));
   row.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
@@ -4516,8 +4588,8 @@ function expandCbBothRingItem(item) {
 }
 
 function expandCmSetItem(item) {
-  if (!item || !isCmCategory(item.category)) return [item].filter(Boolean);
-  const keys = cmItemTypeKeys(item.cmItemType || defaultCmItemTypeForCategory(item.category));
+  if (!item || !isSetItemCategory(item.category)) return [item].filter(Boolean);
+  const keys = cmItemTypeKeys(item.cmItemType || defaultCmItemTypeForCategory(item.category), item.category);
   if (!keys.length) return [item].filter(Boolean);
   return keys.map((key) => ({
     ...item,
@@ -4586,7 +4658,7 @@ function applyDesignToOrderItem(row, designId) {
   const design = findById("designs", designId);
   if (!row || !design) return;
   row.querySelector('[name="category"]').value = design.category || "";
-  if (isCmCategory(design.category) && !row.querySelector('[name="cmItemType"]').value) {
+  if (isSetItemCategory(design.category) && !row.querySelector('[name="cmItemType"]').value) {
     row.querySelector('[name="cmItemType"]').value = defaultCmItemTypeForDesign(design, design.category);
   }
   updateOrderItemCategoryFields(row);
@@ -4760,6 +4832,7 @@ function defaultDesignItemKeysForCategory(category = "") {
   if (code === "CB") return ["CL", "CG"];
   if (code === "CBR") return ["CLR", "CGR"];
   if (CM_ITEM_KEYS.includes(code)) return ["CM", "CME", "CMB"];
+  if (PS_ITEM_KEYS.includes(code)) return ["PS", "PSE"];
   if (TM_ITEM_KEYS.includes(code)) return ["TM", "TME"];
   if (["LR", "GR", "RING", "RINGS"].includes(code)) return ["LR", "GR"];
   return [];
@@ -5349,35 +5422,122 @@ function findRodSourceGroup(groupId = "") {
   return rodSourceGroups().find((group) => group.id === groupId) || null;
 }
 
+function wastageSourceGroupId(parts = []) {
+  return `wastage-source:${safeShelfKey(parts)}`;
+}
+
+function isWastageSourceGroupId(value = "") {
+  return String(value || "").startsWith("wastage-source:");
+}
+
+function safeWastageCategory(item = {}) {
+  const sourceLine = String(item.sourceLine || "").toLowerCase();
+  const description = String(item.description || "").toLowerCase();
+  if (sourceLine === "rava" || description.includes("rava")) return "Rava";
+  if (sourceLine === "treecutweight" || description.includes("tree cut")) return "Tree Cut";
+  if (sourceLine === "scrapdustweight" || description.includes("scrap") || description.includes("dust")) return "Scrap / Dust";
+  if (sourceLine === "otherreceivedweight" || description.includes("other received")) return "Other Received";
+  if (sourceLine === "wastage" || sourceLine.includes("wastage") || description.includes("wastage")) return "Wastage";
+  return "Remelting Material";
+}
+
+function wastageSourceGroups(purity = "") {
+  const lockerFilter = purity ? safeLockerForPurity(purity) : "";
+  const groups = new Map();
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemKind(item) === "wastage" && (!lockerFilter || safeLockerForPurity(item.locker || item.purity) === lockerFilter))
+    .forEach((item) => {
+      const locker = safeLockerForPurity(item.locker || item.purity);
+      const colour = safeWastageColour(item);
+      const key = safeShelfKey([locker, colour]);
+      const existing = groups.get(key) || {
+        id: wastageSourceGroupId([locker, colour]),
+        virtualSafeGroup: true,
+        locker,
+        purity: karatLogicPurity(locker),
+        description: `${locker} ${colour} Collective Wastage`,
+        source: "Combined Remelting Wastage",
+        sourceLine: "wastageSource",
+        colour,
+        desiredPurity: karatLogicPurity(locker),
+        safeKind: "wastage",
+        status: "In Safe",
+        grossWeight: 0,
+        waxStoneWeight: 0,
+        netWeight: 0,
+        fineGold: 0,
+        items: [],
+        categories: [],
+      };
+      const category = safeWastageCategory(item);
+      existing.grossWeight = Number(weight3(existing.grossWeight + Number(item.grossWeight || 0)));
+      existing.waxStoneWeight = Number(weight3(existing.waxStoneWeight + safeItemWaxStoneWeight(item)));
+      existing.netWeight = Number(weight3(existing.netWeight + safeItemAvailableWeight(item)));
+      existing.fineGold = Number(weight3(existing.fineGold + fineGoldWeight(safeItemAvailableWeight(item), item.purity || locker)));
+      existing.items.push(item);
+      if (!existing.categories.includes(category)) existing.categories.push(category);
+      groups.set(key, existing);
+    });
+  return [...groups.values()].sort((a, b) => {
+    const purityCompare = puritySortValue(a.locker) - puritySortValue(b.locker);
+    return purityCompare || a.colour.localeCompare(b.colour, undefined, { sensitivity: "base" });
+  });
+}
+
+function findWastageSourceGroup(groupId = "") {
+  return wastageSourceGroups().find((group) => group.id === groupId) || null;
+}
+
 function safeSourceSelectionGroup(value = "", sourceKind = "rod") {
-  return sourceKind === "rod" && isRodSourceGroupId(value) ? findRodSourceGroup(value) : null;
+  if (sourceKind === "rod" && isRodSourceGroupId(value)) return findRodSourceGroup(value);
+  if (sourceKind === "wastage" && isWastageSourceGroupId(value)) return findWastageSourceGroup(value);
+  return null;
+}
+
+function safeSourceSelectionParts(value = "", sourceKind = "rod") {
+  const prefix = sourceKind === "wastage" ? "wastage-source:" : "rod-source:";
+  if (!String(value || "").startsWith(prefix)) return [];
+  return String(value).slice(prefix.length).split("|").map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  });
 }
 
 function safeSourceSelectionLocker(value = "", sourceKind = "rod") {
   const group = safeSourceSelectionGroup(value, sourceKind);
-  return group ? group.locker : safeLockerForPurity(value);
+  const parts = safeSourceSelectionParts(value, sourceKind);
+  return group ? group.locker : (parts[0] ? safeLockerForPurity(parts[0]) : safeLockerForPurity(value));
 }
 
 function safeSourceSelectionPurity(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
-  return group ? group.desiredPurity : (fallback || value);
+  const parts = safeSourceSelectionParts(value, sourceKind);
+  const encodedPurity = sourceKind === "rod" ? parts[2] : parts[0] ? karatLogicPurity(parts[0]) : "";
+  return group ? group.desiredPurity : (fallback || encodedPurity || value);
 }
 
 function safeSourceSelectionColour(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
-  return group ? group.colour : fallback;
+  const parts = safeSourceSelectionParts(value, sourceKind);
+  return group ? group.colour : (fallback || parts[1] || "");
 }
 
 function safeSourceSelectionAvailableWeight(value = "", sourceKind = "rod") {
   const group = safeSourceSelectionGroup(value, sourceKind);
   if (group) return safeItemAvailableWeight(group);
+  if ((sourceKind === "rod" && isRodSourceGroupId(value)) || (sourceKind === "wastage" && isWastageSourceGroupId(value))) return 0;
   return safeLockerBalance(safeLockerForPurity(value), sourceKind);
 }
 
 function safeSourceSelectionLabel(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
-  if (group) return `${group.locker} Safe / ${group.colour} / ${group.desiredPurity}`;
+  if (group) return `${group.locker} Safe / ${group.colour} / ${group.desiredPurity}${sourceKind === "wastage" ? " / Collective Wastage" : ""}`;
   if (fallback) return fallback;
+  const parts = safeSourceSelectionParts(value, sourceKind);
+  if (parts.length) return `${safeLockerForPurity(parts[0])} Safe / ${parts[1] || "Mixed / Not Set"}${sourceKind === "rod" && parts[2] ? ` / ${parts[2]}` : ""}${sourceKind === "wastage" ? " / Collective Wastage" : ""}`;
   return `${safeLockerForPurity(value)} Safe`;
 }
 
@@ -5391,6 +5551,19 @@ function safeItemColour(item = {}) {
   }
   const sourceMatch = String(item.source || "").match(/^(.+?)\s+melting/i);
   return sourceMatch ? sourceMatch[1].trim() : "";
+}
+
+function safeWastageColour(item = {}) {
+  const raw = String(safeItemColour(item) || item.colour || "").trim();
+  const text = raw.toLowerCase();
+  if (/rose|pink/.test(text)) return "Rose";
+  if (/yellow/.test(text)) return "Yellow";
+  if (/white/.test(text)) return "White";
+  if (/green/.test(text)) return "Green";
+  if (/3\s*tone|three\s*tone/.test(text)) return "3 Tone";
+  if (/2\s*tone|two\s*tone/.test(text)) return "2 Tone";
+  if (raw && !/mixed|not set|unknown|^-$/.test(text)) return raw;
+  return "Mixed / Not Set";
 }
 
 function safeItemDesiredPurity(item = {}) {
@@ -6003,12 +6176,17 @@ function applySafeDepartmentReceiveIssueDefaults() {
   if (issue) {
     form.locker.value = safeLockerForPurity(issue.locker || issue.purity);
     form.purity.value = issue.purity || issue.locker || "18K";
+    const sourceItem = findById("safeItems", issue.safeItemId);
+    const sourceColour = safeWastageColour(sourceItem || issue);
+    ensureSelectOption(form.colour, sourceColour);
+    form.colour.value = sourceColour || "Mixed / Not Set";
   } else {
     const currentAvailability = safeDepartmentReceiveAvailability(form.departmentName.value, form.purity.value);
     form.purity.value = (Number(currentAvailability.gross || 0) || Number(currentAvailability.gold || 0))
       ? form.purity.value
       : safeDepartmentReceiveDefaultPurity(form.departmentName.value) || form.purity.value || "18K";
     form.locker.value = safeLockerForPurity(form.purity.value);
+    form.colour.value = "Mixed / Not Set";
   }
   updateSafeDepartmentReceiveCalculation();
 }
@@ -6173,6 +6351,8 @@ function saveSafeDepartmentReceive(event) {
       sourceId: entry.id,
       sourceLine: line.returnType,
       safeKind: safeDepartmentReturnSafeKind(line.returnType),
+      colour: form.colour.value,
+      desiredPurity: entry.purity,
       grossWeight: line.grossWeight,
       waxStoneWeight: line.waxStoneWeight,
       netWeight: line.netWeight,
@@ -7074,14 +7254,17 @@ function renderSafeLockerRodOptions(selected = "") {
 }
 
 function renderSafeLockerWastageOptions(selected = "") {
-  const options = SAFE_LOCKERS
-    .map((locker) => ({ locker, weight: safeLockerBalance(locker, "wastage") }))
-    .filter((item) => item.weight > 0 || item.locker === selected)
-    .map((item) =>
-      `<option value="${escapeHtml(item.locker)}" ${item.locker === selected ? "selected" : ""}>${escapeHtml(item.locker)} Safe / Wastage ${gram(item.weight)}</option>`
-    )
-    .join("");
-  return options || '<option value="">No wastage in safe</option>';
+  const groups = wastageSourceGroups();
+  const selectedFound = groups.some((group) => group.id === selected);
+  const legacySelected = selected && !selectedFound
+    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(isWastageSourceGroupId(selected) ? "Previous collective wastage selection" : `${safeLockerForPurity(selected)} Safe / Previous wastage selection`)}</option>`
+    : "";
+  const options = groups.map((group) =>
+    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(`${transferPurityLabel(group.locker)} / ${group.colour} / Wastage ${gram(group.netWeight)} / ${group.items.length} entries`)}</option>`
+  ).join("");
+  return legacySelected || options
+    ? `${legacySelected}${options}`
+    : '<option value="">No wastage in safe</option>';
 }
 
 function refreshMeltingSafeSourceOptions() {
@@ -7123,10 +7306,10 @@ function applySafeLockerSelectionToMeltingRow(select) {
   const sourceColour = safeSourceSelectionColour(locker, sourceKind, row.dataset.sourceColour || "");
   const purityInput = row.querySelector('[name="sourcePurity"]');
   if (purityInput) purityInput.value = weight3(purityPercent(desiredPurity || locker)).replace(/\.000$/, "");
-  if (sourceKind === "rod") {
+  if (["rod", "wastage"].includes(sourceKind)) {
     if (sourceColour) row.dataset.sourceColour = sourceColour;
     if (desiredPurity) row.dataset.sourceDesiredPurity = desiredPurity;
-    applyRodSourceToMeltingForm(row);
+    if (sourceKind === "rod") applyRodSourceToMeltingForm(row);
   }
 }
 
@@ -7273,7 +7456,7 @@ function removeMeltingIssueRecords(meltingId) {
 function restoreMeltingRodIssues(sourceMetals = [], meltingId, reason = "Melting issue corrected") {
   sourceMetals.forEach((metal) => {
     if (!["rod", "wastage"].includes(metal.sourceKind) || !metal.safeLocker || Number(metal.weight || 0) <= 0) return;
-    const locker = safeSourceSelectionLocker(metal.safeLocker, metal.sourceKind);
+    const locker = safeLockerForPurity(metal.sourceDesiredPurity || metal.purity || safeSourceSelectionLocker(metal.safeLocker, metal.sourceKind));
     const safeKind = metal.sourceKind === "wastage" ? "wastage" : "rod";
     addSafeItem({
       date: today(),
@@ -7849,7 +8032,7 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Due Date", order.dueDate || "-")}
         ${jobItemDetailCell("Category", order.category || "-")}
         ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
-        ${isCmCategory(order.category) ? jobItemDetailCell("CM Item", cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category))) : ""}
+        ${isSetItemCategory(order.category) ? jobItemDetailCell(setItemFieldLabel(order.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category)) : ""}
         ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
         ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
         ${jobItemDetailCell("Colour", order.color || "-")}
@@ -7908,7 +8091,8 @@ function itemBarcodeDetails(order = {}) {
     phone: customer.phone || "",
     design: order.designNumber || designText(design) || "",
     category: order.category || design.category || "",
-    cmItem: isCmCategory(order.category || design.category) ? cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category)) : "",
+    cmItem: isSetItemCategory(order.category || design.category) ? cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category), order.category || design.category) : "",
+    cmItemLabel: setItemFieldLabel(order.category || design.category),
     size: soldItemSizeText(order) || "",
     color: order.color || "",
     purity: order.purity || "",
@@ -7953,7 +8137,7 @@ function itemBarcodeDetailGridHtml(order = {}) {
       ${jobItemDetailCell("Phone", details.phone)}
       ${jobItemDetailCell("Design", details.design)}
       ${jobItemDetailCell("Category", details.category)}
-      ${details.cmItem ? jobItemDetailCell("CM Item", details.cmItem) : ""}
+      ${details.cmItem ? jobItemDetailCell(details.cmItemLabel, details.cmItem) : ""}
       ${jobItemDetailCell("Size", details.size)}
       ${jobItemDetailCell("Colour", details.color)}
       ${jobItemDetailCell("Purity", details.purity)}
@@ -8899,7 +9083,7 @@ function openItemEdit(orderId) {
   form.designId.innerHTML = renderDesignOptions();
   const design = findById("designs", order.designId || "");
   form.ringType.innerHTML = renderRingTypeOptions(order.ringType || "", designOrderRingKeys(design, order.category || ""));
-  form.cmItemType.innerHTML = renderCmItemTypeOptions(order.cmItemType || defaultCmItemTypeForDesign(design, order.category || ""), designOrderCmKeys(design, order.category || ""));
+  form.cmItemType.innerHTML = renderCmItemTypeOptions(order.cmItemType || defaultCmItemTypeForDesign(design, order.category || ""), designOrderCmKeys(design, order.category || ""), order.category || "");
   form.category.value = order.category || "";
   updateItemEditDesignOptions(form, order.designId || "");
   form.ringType.value = order.ringType || "";
@@ -9073,7 +9257,7 @@ function applyDesignToItemEdit(form, designId) {
   const design = findById("designs", designId);
   if (!design) return;
   form.category.value = design.category || "";
-  if (isCmCategory(design.category) && !form.cmItemType.value) form.cmItemType.value = defaultCmItemTypeForDesign(design, design.category);
+  if (isSetItemCategory(design.category) && !form.cmItemType.value) form.cmItemType.value = defaultCmItemTypeForDesign(design, design.category);
   updateItemEditDesignOptions(form, designId);
   updateItemEditCategoryFields(form);
 }
@@ -9083,7 +9267,7 @@ function updateItemEditCategoryFields(form) {
   const design = findById("designs", form.designId?.value || "");
   const ringType = form.ringType.value;
   const showCb = isCbCategory(category);
-  const showCm = isCmCategory(category);
+  const showCm = isSetItemCategory(category);
   const showNormalSize = needsNormalSize(category);
   if (showCb) {
     form.ringType.innerHTML = renderRingTypeOptions(ringType, designOrderRingKeys(design, category));
@@ -9091,12 +9275,15 @@ function updateItemEditCategoryFields(form) {
   }
   if (showCm) {
     const cmType = form.cmItemType.value || defaultCmItemTypeForDesign(design, category);
-    form.cmItemType.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category));
+    form.cmItemType.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category), category);
     form.cmItemType.value = [...form.cmItemType.options].some((option) => option.value === cmType) ? cmType : defaultCmItemTypeForDesign(design, category);
   }
   const activeRingType = form.ringType.value;
   form.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
   form.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
+  form.querySelectorAll("[data-set-item-label]").forEach((label) => {
+    label.textContent = setItemFieldLabel(category);
+  });
   form.querySelectorAll(".cl-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CL", "CL+CG"].includes(activeRingType)));
   form.querySelectorAll(".cg-size-field").forEach((field) => field.classList.toggle("hidden", !showCb || !["CG", "CL+CG"].includes(activeRingType)));
   form.querySelectorAll(".normal-size-field").forEach((field) => field.classList.toggle("hidden", !showNormalSize));
@@ -9125,7 +9312,7 @@ function cleanItemSizeFields(order) {
     if (!["CL", "CL+CG"].includes(order.ringType)) order.clSize = "";
     if (!["CG", "CL+CG"].includes(order.ringType)) order.cgSize = "";
   }
-  if (!isCmCategory(order.category)) order.cmItemType = "";
+  if (!isSetItemCategory(order.category)) order.cmItemType = "";
   else if (!order.cmItemType) order.cmItemType = defaultCmItemTypeForCategory(order.category);
   if (!needsNormalSize(order.category)) order.size = "";
 }
@@ -9141,8 +9328,8 @@ function orderSizeDetailHtml(order) {
   if (needsNormalSize(order.category)) {
     return `<span><b>Size</b>${escapeHtml(order.size || "-")}</span>`;
   }
-  if (isCmCategory(order.category)) {
-    return `<span><b>CM Item</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category)))}</span>`;
+  if (isSetItemCategory(order.category)) {
+    return `<span><b>${escapeHtml(setItemFieldLabel(order.category))}</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category))}</span>`;
   }
   return "";
 }
@@ -9162,8 +9349,8 @@ function printSizeDetailHtml(order) {
   if (needsNormalSize(order.category)) {
     return `<span><b>Size</b>${escapeHtml(order.size || "-")}</span>`;
   }
-  if (isCmCategory(order.category)) {
-    return `<span><b>CM Item</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category)))}</span>`;
+  if (isSetItemCategory(order.category)) {
+    return `<span><b>${escapeHtml(setItemFieldLabel(order.category))}</b>${escapeHtml(cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category))}</span>`;
   }
   return "";
 }
@@ -9472,7 +9659,7 @@ function setPrintPageSize(mode = "job") {
     document.head.appendChild(style);
   }
   if (mode === "bill") {
-    style.textContent = "@media print { @page { size: 148.5mm 105mm; margin: 0; } }";
+    style.textContent = "@media print { @page { size: A6 landscape; margin: 0; } html, body { width: 148.5mm !important; height: 105mm !important; margin: 0 !important; padding: 0 !important; } }";
   } else if (mode === "packing-list") {
     style.textContent = "@media print { @page { size: 297mm 210mm; margin: 0; } }";
   } else if (mode === "hallmark-tags") {
@@ -9809,14 +9996,35 @@ function markHallmarkTagsPrinted(entries = []) {
 }
 
 function selectAllOfficeDialogItems() {
-  const dialog = document.getElementById("office-details-dialog");
-  const checkboxes = Array.from(dialog?.querySelectorAll(".office-item-check") || []);
+  const checkboxes = officeDialogItemCheckboxes();
   if (!checkboxes.length) {
     alert("No item available to select.");
     return;
   }
-  checkboxes.forEach((input) => {
-    input.checked = true;
+  setOfficeDialogItemsChecked(true);
+}
+
+function clearOfficeDialogItems() {
+  setOfficeDialogItemsChecked(false);
+}
+
+function officeDialogSelectionScope() {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog?.open) return document;
+  if (dialog.dataset.page === "all") return document.getElementById("office-table") || dialog;
+  return document.getElementById("office-dialog-content") || dialog;
+}
+
+function officeDialogItemCheckboxes() {
+  return Array.from(officeDialogSelectionScope().querySelectorAll(".office-item-check"));
+}
+
+function setOfficeDialogItemsChecked(checked) {
+  officeDialogItemCheckboxes().forEach((input) => {
+    input.checked = Boolean(checked);
+  });
+  document.querySelectorAll("[data-office-batch-select-all]").forEach((input) => {
+    input.checked = Boolean(checked);
   });
 }
 
@@ -9952,10 +10160,13 @@ function billPrintHtml(lot, bill) {
           <p><b>Name</b> : ${escapeHtml(customer.name || "-")}</p>
           <p><b>Voucher No</b> : ${escapeHtml(bill.billNo || "-")}</p>
         </div>
-        <div class="bill-sample-title">
-          <span>KHUSHALI JEWELLS</span>
-          <strong>Bill</strong>
-          <small>Weight Approval</small>
+        <div class="bill-sample-brand">
+          <img class="bill-print-logo" src="assets/vella-logo.jpeg" alt="Khushali Jewells logo">
+          <div class="bill-sample-title">
+            <span>KHUSHALI JEWELLS</span>
+            <strong>Bill</strong>
+            <small>Weight Approval</small>
+          </div>
         </div>
         <div>
           <p><b>Date</b> : ${escapeHtml(bill.billDate || "-")}</p>
@@ -10505,6 +10716,7 @@ function combinedSetBagEntry(group) {
 function setBagFamilyForOrder(order = {}) {
   const keys = orderStoneItemKeys(order).map(normalizeStoneItemKey);
   if (keys.some((key) => CM_ITEM_KEYS.includes(key))) return "CM";
+  if (keys.some((key) => PS_ITEM_KEYS.includes(key))) return "PS";
   if (keys.some((key) => TM_ITEM_KEYS.includes(key))) return "TM";
   return "";
 }
@@ -10513,6 +10725,7 @@ function setBagItemKeyForOrder(order = {}) {
   const family = setBagFamilyForOrder(order);
   const keys = orderStoneItemKeys(order).map(normalizeStoneItemKey);
   if (family === "CM") return keys.find((key) => CM_ITEM_KEYS.includes(key)) || "";
+  if (family === "PS") return keys.find((key) => PS_ITEM_KEYS.includes(key)) || "";
   if (family === "TM") return keys.find((key) => TM_ITEM_KEYS.includes(key)) || "";
   return "";
 }
@@ -12650,7 +12863,7 @@ function designStoneItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
 function orderStoneItemKeys(order = {}) {
   const category = categoryCode(order.category || "");
   const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
-  const selectedCmKeys = cmItemTypeKeys(order.cmItemType);
+  const selectedCmKeys = cmItemTypeKeys(order.cmItemType, order.category);
   if (selectedCmKeys.length) return selectedCmKeys;
   const isCbrOrder = category === "CBR" || /\bCBR\b/.test(itemText);
   if (isCbrOrder) {
@@ -12666,11 +12879,13 @@ function orderStoneItemKeys(order = {}) {
   }
   if (/\bCME\b/.test(itemText)) return ["CME"];
   if (/\bCMB\b/.test(itemText)) return ["CMB"];
+  if (/\bPSE\b/.test(itemText)) return ["PSE"];
   if (/\bTME\b/.test(itemText)) return ["TME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
   if (["CM", "CMB", "CME"].includes(category)) return [category];
+  if (PS_ITEM_KEYS.includes(category)) return [category];
   if (TM_ITEM_KEYS.includes(category)) return [category];
   if (["LR", "GR"].includes(category)) return [category];
   if (/\bGR\b/.test(itemText) || /\bGENTS?\b/.test(itemText)) return ["GR"];
@@ -17007,6 +17222,7 @@ function renderBills() {
           <td>${escapeHtml(lot.number)}</td>
           <td>${escapeHtml(lot.orderNumber || "-")}${lot.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
           <td>${customerOrderDisplayHtml(customer)}</td>
+          <td><strong>${gram(currentTransferIssueWeight(lot))}</strong></td>
           <td>${gram(lot.finishedWeight)}</td>
           <td>${wastageDetailHtml(lot)}</td>
           <td>${escapeHtml(bill?.billNo || "-")}</td>
@@ -17022,7 +17238,7 @@ function renderBills() {
       `;
     })
     .join("");
-  document.getElementById("bill-table").innerHTML = rows || tableEmpty(9, "No completed job cards available for billing.");
+  document.getElementById("bill-table").innerHTML = rows || tableEmpty(10, "No completed job cards available for billing.");
 }
 
 function renderOffice() {
@@ -17094,6 +17310,12 @@ function openOfficeDialogPage(page) {
   if (dialog) {
     dialog.dataset.page = page;
     if (!["hallmarking", "hallmarked"].includes(page)) delete dialog.dataset.hallmarkBatch;
+    if (page !== "non-hallmarked") delete dialog.dataset.officeBillBatch;
+    if (page !== "hallmarking") {
+      delete dialog.dataset.hallmarkSearch;
+      delete dialog.dataset.hallmarkCategory;
+      delete dialog.dataset.hallmarkSort;
+    }
   }
   if (title) title.textContent = config.title;
   if (note) note.textContent = config.note;
@@ -17112,30 +17334,52 @@ function officeAccessNote() {
 
 function officeDialogConfig(page) {
   const items = officeItems();
-  const selectedHmBatch = document.getElementById("office-details-dialog")?.dataset.hallmarkBatch || "";
+  const officeDialog = document.getElementById("office-details-dialog");
+  const selectedHmBatch = officeDialog?.dataset.hallmarkBatch || "";
+  const selectedBillBatch = officeDialog?.dataset.officeBillBatch || "";
+  const hallmarkSearch = officeDialog?.dataset.hallmarkSearch || "";
+  const hallmarkCategory = officeDialog?.dataset.hallmarkCategory || "";
+  const hallmarkSort = officeDialog?.dataset.hallmarkSort || "batch-desc";
+  const allHallmarkingItems = items.filter((entry) => officeDepartment(entry.item) === "hallmarking");
+  const hallmarkingScope = selectedHmBatch
+    ? allHallmarkingItems.filter(({ item }) => hallmarkLotLabel(item) === selectedHmBatch)
+    : allHallmarkingItems;
+  const filteredHallmarkingItems = filterHallmarkingEntries(hallmarkingScope, hallmarkSearch, hallmarkCategory);
   const groups = {
     "non-hallmarked": items.filter((entry) => officeDepartment(entry.item) === "non-hallmarked"),
     hallmarked: items.filter((entry) => officeDepartment(entry.item) === "hallmarked"),
-    hallmarking: items.filter((entry) => officeDepartment(entry.item) === "hallmarking"),
+    hallmarking: filteredHallmarkingItems,
     sales: items.filter((entry) => officeDepartment(entry.item) === "sales"),
     sold: items.filter((entry) => officeDepartment(entry.item) === "sold"),
   };
   if (page === "non-hallmarked") {
     return {
-      title: "Non Hallmarked Item",
-      note: "Select item and transfer to Hallmarking.",
-      actions: '<button type="button" id="office-issue-hallmark">Transfer To Hallmarking</button>',
-      content: renderOfficeLibraryItems(groups["non-hallmarked"], "No non hallmarked stock."),
+      title: selectedBillBatch ? `Non Hallmarked Bill Batch - ${selectedBillBatch}` : "Non Hallmarked Item",
+      note: selectedBillBatch
+        ? "Select all or only the required items. The selected items will receive a new Hallmarking batch number; the balance will remain in this Bill batch."
+        : "Open a Bill No batch to select items for Hallmarking.",
+      actions: selectedBillBatch
+        ? '<button type="button" id="office-back-bill-batches" class="ghost-button">Back To Bill Batches</button><button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button><button type="button" id="office-clear-dialog-items" class="ghost-button">Clear Selection</button><button type="button" id="office-issue-hallmark">Create Hallmarking Batch</button>'
+        : "",
+      content: renderNonHallmarkedBillBatches(groups["non-hallmarked"], "No non hallmarked stock."),
     };
   }
   if (page === "hallmarking") {
+    const searchControl = hallmarkingSearchControl(
+      hallmarkSearch,
+      filteredHallmarkingItems.length,
+      hallmarkingScope.length,
+      hallmarkingScope,
+      hallmarkCategory,
+      hallmarkSort
+    );
     return {
       title: selectedHmBatch ? `Hallmarking Batch - ${selectedHmBatch}` : "Hallmarking Dept",
-      note: selectedHmBatch ? "Enter HUID for every item, then receive this batch lot-wise." : "Open a hallmarking batch tile to enter HUID and receive lot-wise.",
+      note: selectedHmBatch ? "Search this batch, enter HUID for every item, then receive it lot-wise." : "Search and open a hallmarking batch tile to enter HUID and receive lot-wise.",
       actions: selectedHmBatch
-        ? '<button type="button" id="office-back-hallmark-batches" class="ghost-button">Back To Batches</button><button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button><button type="button" id="office-receive-hallmark" class="ghost-button">Receive This Batch</button>'
-        : "",
-      content: renderHallmarkLotLibraryItems(groups.hallmarking, "No item issued to Hallmarking.", "hallmarking"),
+        ? `${searchControl}<button type="button" id="office-back-hallmark-batches" class="ghost-button">Back To Batches</button><button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button><button type="button" id="office-clear-dialog-items" class="ghost-button">Clear Selection</button><button type="button" id="office-receive-hallmark" class="ghost-button">Receive Selected / Batch</button>`
+        : searchControl,
+      content: renderHallmarkLotLibraryItems(groups.hallmarking, hallmarkSearch || hallmarkCategory ? "No matching item or Hallmarking batch." : "No item issued to Hallmarking.", "hallmarking", hallmarkSort),
     };
   }
   if (page === "hallmarked") {
@@ -17154,6 +17398,7 @@ function officeDialogConfig(page) {
         </select>
         <button type="button" id="office-issue-sales" class="ghost-button">Transfer To Sales Team</button>
         <button type="button" id="office-select-dialog-items" class="ghost-button">Select All</button>
+        <button type="button" id="office-clear-dialog-items" class="ghost-button">Clear Selection</button>
         <button type="button" id="office-print-tags" class="ghost-button">Print Selected Tags</button>
       ` : "",
       content: renderHallmarkLotLibraryItems(groups.hallmarked, "No hallmarked stock.", "hallmarked"),
@@ -17395,27 +17640,229 @@ function renderRepairItems(entries, emptyText) {
   `;
 }
 
-function renderHallmarkLotLibraryItems(entries, emptyText, page = "") {
+function officeBillBatchLabel({ lot = {}, bill = {} } = {}) {
+  return String(bill.billNo || lot.orderNumber || lot.number || "No Bill").trim() || "No Bill";
+}
+
+function officeBillBatchGroups(entries = []) {
+  return entries.reduce((groups, entry) => {
+    const batchId = officeBillBatchLabel(entry);
+    groups[batchId] = groups[batchId] || [];
+    groups[batchId].push(entry);
+    return groups;
+  }, {});
+}
+
+function officeBatchSelectionControl(label = "Select all items in this batch") {
+  return `
+    <label class="office-batch-select-control">
+      <input type="checkbox" data-office-batch-select-all>
+      <span>${escapeHtml(label)}</span>
+    </label>
+  `;
+}
+
+function renderNonHallmarkedBillBatches(entries, emptyText) {
+  if (!entries.length) return `<div class="empty">${emptyText}</div>`;
+  const groups = officeBillBatchGroups(entries);
+  const dialog = document.getElementById("office-details-dialog");
+  const selectedBatch = dialog?.dataset.officeBillBatch || "";
+  if (!selectedBatch) return renderOfficeBillBatchTiles(groups);
+  const selectedEntries = groups[selectedBatch] || [];
+  if (!selectedEntries.length) {
+    delete dialog.dataset.officeBillBatch;
+    return renderOfficeBillBatchTiles(groups);
+  }
+  const totals = hallmarkBatchTotals(selectedEntries);
+  const customers = [...new Set(selectedEntries.map(({ order }) => order.customer).filter(Boolean))];
+  const jobs = [...new Set(selectedEntries.map(({ lot }) => lot.orderNumber || lot.number).filter(Boolean))];
+  return `
+    <section class="hallmark-batch-detail office-bill-batch-detail">
+      <div class="panel-heading hallmark-lot-heading office-batch-heading">
+        <div>
+          <span class="office-batch-kicker">Bill Batch</span>
+          <h3>${escapeHtml(selectedBatch)}</h3>
+          <p class="dialog-note">${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} / GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</p>
+          <small>${escapeHtml(customers.join(", ") || "-")} / ${escapeHtml(jobs.join(", ") || "-")}</small>
+        </div>
+        <span class="status pending">Ready For Hallmarking</span>
+      </div>
+      ${officeBatchSelectionControl("Select all items in this Bill batch")}
+      <div class="office-batch-instruction">Choose any items below, then create a new Hallmarking batch. Unselected items stay in ${escapeHtml(selectedBatch)}.</div>
+      ${renderOfficeLibraryItems(selectedEntries, "")}
+    </section>
+  `;
+}
+
+function renderOfficeBillBatchTiles(groups = {}) {
+  const batches = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" }));
+  return `
+    <div class="hallmark-batch-grid office-bill-batch-grid">
+      ${batches.map(([batchId, entries]) => {
+        const totals = hallmarkBatchTotals(entries);
+        const customers = [...new Set(entries.map(({ order }) => order.customer).filter(Boolean))];
+        const jobs = [...new Set(entries.map(({ lot }) => lot.orderNumber || lot.number).filter(Boolean))];
+        return `
+          <button type="button" class="hallmark-batch-tile office-bill-batch-tile" data-office-bill-batch-open="${escapeHtml(batchId)}">
+            <span class="office-batch-kicker">Bill No</span>
+            <strong>${escapeHtml(batchId)}</strong>
+            <span>${entries.length} item${entries.length === 1 ? "" : "s"}</span>
+            <small>${escapeHtml(customers.join(", ") || "-")}</small>
+            <small>${escapeHtml(jobs.join(", ") || "-")}</small>
+            <small>GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</small>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function openOfficeBillBatch(batchId = "") {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog || !batchId) return;
+  dialog.dataset.officeBillBatch = batchId;
+  openOfficeDialogPage("non-hallmarked");
+}
+
+function closeOfficeBillBatch() {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog) return;
+  delete dialog.dataset.officeBillBatch;
+  openOfficeDialogPage("non-hallmarked");
+}
+
+function hallmarkingEntryCategory({ item = {}, order = {} } = {}) {
+  return String(item.category || order.category || "Uncategorised").trim() || "Uncategorised";
+}
+
+function hallmarkingCategories(entries = []) {
+  return [...new Set(entries.map(hallmarkingEntryCategory).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function hallmarkingSearchControl(query = "", shown = 0, total = 0, entries = [], selectedCategory = "", selectedSort = "batch-desc") {
+  const categoryOptions = hallmarkingCategories(entries).map((category) => `
+    <option value="${escapeHtml(category)}" ${category === selectedCategory ? "selected" : ""}>${escapeHtml(category)}</option>
+  `).join("");
+  return `
+    <div class="office-hallmark-filter-bar">
+      <label class="office-hallmark-search-control">
+        <span>Search Hallmarking</span>
+        <input id="office-hallmark-search" type="search" value="${escapeHtml(query)}" placeholder="HM batch, bill, job, PR, design or HUID" autocomplete="off">
+      </label>
+      <label class="office-hallmark-filter-control">
+        <span>Category</span>
+        <select id="office-hallmark-category">
+          <option value="">All Categories</option>
+          ${categoryOptions}
+        </select>
+      </label>
+      <label class="office-hallmark-filter-control">
+        <span>Sort</span>
+        <select id="office-hallmark-sort">
+          <option value="batch-desc" ${selectedSort === "batch-desc" ? "selected" : ""}>Newest HM Batch</option>
+          <option value="batch-asc" ${selectedSort === "batch-asc" ? "selected" : ""}>Oldest HM Batch</option>
+          <option value="category-asc" ${selectedSort === "category-asc" ? "selected" : ""}>Category A-Z</option>
+          <option value="category-desc" ${selectedSort === "category-desc" ? "selected" : ""}>Category Z-A</option>
+        </select>
+      </label>
+      <span id="office-hallmark-search-count" class="office-hallmark-search-count">${shown} of ${total} items</span>
+      <button type="button" id="office-hallmark-clear-filters" class="ghost-button office-hallmark-clear">Clear Filters</button>
+    </div>
+  `;
+}
+
+function hallmarkingEntrySearchText({ lot = {}, bill = {}, item = {}, order = {} } = {}) {
+  return [
+    hallmarkLotLabel(item),
+    bill.billNo,
+    lot.number,
+    lot.orderNumber,
+    item.productionNo,
+    order.productionNo,
+    order.customer,
+    order.designNo,
+    designLabel(order.designId),
+    order.category,
+    item.category,
+    order.item,
+    item.item,
+    item.huid1,
+    item.huid2,
+    item.purity,
+    order.purity,
+    officeItemLocation(item),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function filterHallmarkingEntries(entries = [], query = "", category = "") {
+  const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const normalizedCategory = String(category || "").trim().toLowerCase();
+  return entries.filter((entry) => {
+    if (normalizedCategory && hallmarkingEntryCategory(entry).toLowerCase() !== normalizedCategory) return false;
+    if (!terms.length) return true;
+    const searchText = hallmarkingEntrySearchText(entry);
+    return terms.every((term) => searchText.includes(term));
+  });
+}
+
+function renderHallmarkingSearchResults(query = "") {
+  const dialog = document.getElementById("office-details-dialog");
+  const content = document.getElementById("office-dialog-content");
+  if (!dialog?.open || dialog.dataset.page !== "hallmarking" || !content) return;
+  dialog.dataset.hallmarkSearch = query;
+  const category = document.getElementById("office-hallmark-category")?.value || dialog.dataset.hallmarkCategory || "";
+  const sortBy = document.getElementById("office-hallmark-sort")?.value || dialog.dataset.hallmarkSort || "batch-desc";
+  dialog.dataset.hallmarkCategory = category;
+  dialog.dataset.hallmarkSort = sortBy;
+  const selectedBatch = dialog.dataset.hallmarkBatch || "";
+  const allEntries = officeItems().filter((entry) => officeDepartment(entry.item) === "hallmarking");
+  const scopedEntries = selectedBatch
+    ? allEntries.filter(({ item }) => hallmarkLotLabel(item) === selectedBatch)
+    : allEntries;
+  const filteredEntries = filterHallmarkingEntries(scopedEntries, query, category);
+  content.innerHTML = renderHallmarkLotLibraryItems(
+    filteredEntries,
+    query || category ? "No matching item or Hallmarking batch." : "No item issued to Hallmarking.",
+    "hallmarking",
+    sortBy
+  );
+  const count = document.getElementById("office-hallmark-search-count");
+  if (count) count.textContent = `${filteredEntries.length} of ${scopedEntries.length} items`;
+}
+
+function clearHallmarkingFilters() {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog?.open || dialog.dataset.page !== "hallmarking") return;
+  dialog.dataset.hallmarkSearch = "";
+  dialog.dataset.hallmarkCategory = "";
+  dialog.dataset.hallmarkSort = "batch-desc";
+  openOfficeDialogPage("hallmarking");
+}
+
+function renderHallmarkLotLibraryItems(entries, emptyText, page = "", sortBy = "batch-asc") {
   if (!entries.length) return `<div class="empty">${emptyText}</div>`;
   const groups = hallmarkBatchGroups(entries);
   const selectedBatch = document.getElementById("office-details-dialog")?.dataset.hallmarkBatch || "";
-  if (!selectedBatch) return renderHallmarkBatchTiles(groups, page);
+  if (!selectedBatch) return renderHallmarkBatchTiles(groups, page, sortBy);
   const selectedEntries = groups[selectedBatch] || [];
   if (!selectedEntries.length) {
     delete document.getElementById("office-details-dialog").dataset.hallmarkBatch;
-    return renderHallmarkBatchTiles(groups, page);
+    return renderHallmarkBatchTiles(groups, page, sortBy);
   }
-  const totals = hallmarkBatchTotals(selectedEntries);
+  const sortedEntries = sortHallmarkingEntries(selectedEntries, sortBy);
+  const totals = hallmarkBatchTotals(sortedEntries);
   return `
     <section class="hallmark-batch-detail">
       <div class="panel-heading hallmark-lot-heading">
         <div>
           <h3>${escapeHtml(selectedBatch)}</h3>
-          <p class="dialog-note">${selectedEntries.length} item${selectedEntries.length === 1 ? "" : "s"} / GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</p>
+          <p class="dialog-note">${sortedEntries.length} item${sortedEntries.length === 1 ? "" : "s"} / GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</p>
         </div>
         <span class="status ${page === "hallmarking" ? "transfer" : "completed"}">${page === "hallmarking" ? "Pending Return" : "Received"}</span>
       </div>
-      ${renderOfficeLibraryItems(selectedEntries, "")}
+      ${officeBatchSelectionControl(`Select all items in ${selectedBatch}`)}
+      ${renderOfficeLibraryItems(sortedEntries, "")}
     </section>
   `;
 }
@@ -17436,8 +17883,38 @@ function hallmarkBatchTotals(entries = []) {
   }), { gw: 0, netWeight: 0 });
 }
 
-function renderHallmarkBatchTiles(groups = {}, page = "") {
-  const batches = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+function hallmarkBatchCategoryText(entries = []) {
+  return hallmarkingCategories(entries).join(", ") || "Uncategorised";
+}
+
+function sortHallmarkingEntries(entries = [], sortBy = "") {
+  const sorted = [...entries];
+  if (!["category-asc", "category-desc"].includes(sortBy)) return sorted;
+  const direction = sortBy === "category-desc" ? -1 : 1;
+  return sorted.sort((a, b) => {
+    const categoryCompare = hallmarkingEntryCategory(a).localeCompare(hallmarkingEntryCategory(b), undefined, { numeric: true, sensitivity: "base" });
+    if (categoryCompare) return categoryCompare * direction;
+    const designA = String(a.order?.designNo || designLabel(a.order?.designId) || a.item?.productionNo || "");
+    const designB = String(b.order?.designNo || designLabel(b.order?.designId) || b.item?.productionNo || "");
+    return designA.localeCompare(designB, undefined, { numeric: true, sensitivity: "base" }) * direction;
+  });
+}
+
+function sortHallmarkBatchGroups(groups = {}, sortBy = "batch-asc") {
+  const batches = Object.entries(groups);
+  return batches.sort(([lotA, entriesA], [lotB, entriesB]) => {
+    if (["category-asc", "category-desc"].includes(sortBy)) {
+      const direction = sortBy === "category-desc" ? -1 : 1;
+      const categoryCompare = hallmarkBatchCategoryText(entriesA).localeCompare(hallmarkBatchCategoryText(entriesB), undefined, { numeric: true, sensitivity: "base" });
+      if (categoryCompare) return categoryCompare * direction;
+    }
+    const lotCompare = lotA.localeCompare(lotB, undefined, { numeric: true, sensitivity: "base" });
+    return sortBy === "batch-desc" ? -lotCompare : lotCompare;
+  });
+}
+
+function renderHallmarkBatchTiles(groups = {}, page = "", sortBy = "batch-asc") {
+  const batches = sortHallmarkBatchGroups(groups, sortBy);
   return `
     <div class="hallmark-batch-grid">
       ${batches.map(([lotNo, entries]) => {
@@ -17447,10 +17924,12 @@ function renderHallmarkBatchTiles(groups = {}, page = "") {
           : item.hallmarkLotReceiveDate || item.hallmarkReceiveDate
         ).filter(Boolean);
         const dateText = dates[0] || "-";
+        const categories = hallmarkBatchCategoryText(entries);
         return `
           <button type="button" class="hallmark-batch-tile" data-hallmark-batch-open="${escapeHtml(lotNo)}">
             <strong>${escapeHtml(lotNo)}</strong>
             <span>${entries.length} item${entries.length === 1 ? "" : "s"}</span>
+            <small class="hallmark-batch-category">Category: ${escapeHtml(categories)}</small>
             <small>${page === "hallmarking" ? "Issued" : "Returned"} ${escapeHtml(dateText)}</small>
             <small>GW ${gram(totals.gw)} / Net ${gram(totals.netWeight)}</small>
           </button>
@@ -17480,6 +17959,9 @@ function renderOfficeLibraryItems(entries, emptyText) {
   return entries.map(({ lot, bill, item, order }) => {
     const key = officeItemKey(lot.id, item);
     const hmLot = hallmarkLotLabel(item);
+    const nonGold = billItemNonGoldBreakup(item, order);
+    const itemType = item.item || item.cmItemType || item.ringType || order.item || order.cmItemType || order.ringType || "-";
+    const sizeText = item.size || item.clSize || item.cgSize || soldItemSizeText(order) || "-";
     const soldAction = item.saleStatus === "Sold"
       ? `<button type="button" class="ghost-button office-view-button" data-sold-view-key="${escapeHtml(key)}">View</button>`
       : "";
@@ -17497,7 +17979,23 @@ function renderOfficeLibraryItems(entries, emptyText) {
           <div class="row-actions">${tagAction}${soldAction}</div>
         </div>
         <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.designNo || designLabel(order.designId) || "-")}</span>
-        <small>${escapeHtml(lot.orderNumber || "-")} / ${escapeHtml(bill.billNo || "-")} / ${gram(item.netWeight)}</small>
+        <div class="office-batch-item-details">
+          <span><b>Job Card</b>${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
+          <span><b>Bill No</b>${escapeHtml(bill.billNo || "-")}</span>
+          <span><b>Item</b>${escapeHtml(itemType)}</span>
+          <span><b>Category</b>${escapeHtml(item.category || order.category || "-")}</span>
+          <span><b>Purity</b>${escapeHtml(item.purity || order.purity || "-")}</span>
+          <span><b>Colour</b>${escapeHtml(item.color || order.color || "-")}</span>
+          <span><b>Size</b>${escapeHtml(sizeText)}</span>
+          <span><b>GW</b>${gram(item.finalGw)}</span>
+          <span><b>Stone</b>${gram(nonGold.stoneWeight)}</span>
+          <span><b>Black Beads</b>${gram(nonGold.blackBeadsWeight)}</span>
+          <span><b>Moti</b>${gram(nonGold.motiWeight)}</span>
+          <span><b>Spring</b>${gram(nonGold.springWeight)}</span>
+          <span><b>Other</b>${gram(nonGold.otherNonGoldWeight)}</span>
+          <span><b>Total Non-Gold</b>${gram(nonGold.total)}</span>
+          <span class="office-batch-net"><b>Net Wt</b>${gram(item.netWeight)}</span>
+        </div>
         ${hmLot ? `<small><b>HM Lot</b> ${escapeHtml(hmLot)}${item.hallmarkLotIssueDate ? ` / Issue ${escapeHtml(item.hallmarkLotIssueDate)}` : ""}${item.hallmarkLotReceiveDate ? ` / Return ${escapeHtml(item.hallmarkLotReceiveDate)}` : ""}</small>` : ""}
         <small>Location: ${escapeHtml(officeItemLocation(item))}</small>
         ${isRepairItem(item) ? `<small>${escapeHtml(repairDayText(item))} / Extra loss ${gram(item.repairAdditionalLoss)}</small>` : ""}
@@ -17714,7 +18212,7 @@ async function openOfficeItemView(key) {
             ${soldDetailCell("Sales Team", item.salesTeam)}
             ${soldDetailCell("Design", order.designNo || designLabel(order.designId))}
             ${soldDetailCell("Category", order.category || design.category)}
-            ${isCmCategory(order.category || design.category) ? soldDetailCell("CM Item", cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category))) : ""}
+            ${isSetItemCategory(order.category || design.category) ? soldDetailCell(setItemFieldLabel(order.category || design.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category), order.category || design.category)) : ""}
             ${soldDetailCell("Ring Type", ringTypeLabel(order.ringType))}
             ${soldDetailCell("Size", soldItemSizeText(order))}
             ${soldDetailCell("Colour", order.color)}
@@ -17835,14 +18333,16 @@ function isHallmarkedItem(item = {}) {
 
 function officeHuidHtml(lot, item, order = {}) {
   const key = officeItemKey(lot.id, item);
+  const earring = isEarringItem(order, item);
   const first = `
-    <input class="office-huid-input" data-key="${escapeHtml(key)}" data-field="huid1" value="${escapeHtml(item.huid1 || "")}" placeholder="HUID" ${canEditOfficeWeights() ? "" : "readonly"}>
+    <input class="office-huid-input" data-key="${escapeHtml(key)}" data-field="huid1" value="${escapeHtml(item.huid1 || "")}" placeholder="${earring ? "HUID 1" : "HUID"}" ${canEditOfficeWeights() ? "" : "readonly"}>
   `;
-  if (!isEarringItem(order, item)) return first;
+  if (!earring) return first;
   return `
     <div class="office-huid-pair">
       ${first}
       <input class="office-huid-input" data-key="${escapeHtml(key)}" data-field="huid2" value="${escapeHtml(item.huid2 || "")}" placeholder="HUID 2" ${canEditOfficeWeights() ? "" : "readonly"}>
+      <small>2 HUID required for earring</small>
     </div>
   `;
 }
@@ -17851,13 +18351,46 @@ function officeHuidText(item = {}) {
   return [item.huid1, item.huid2].filter(Boolean).join(" / ") || "-";
 }
 
+function hallmarkItemCodes(order = {}, item = {}) {
+  const values = [
+    item.item,
+    item.itemName,
+    item.itemType,
+    item.cmItemType,
+    item.subItem,
+    item.designNo,
+    order.item,
+    order.itemName,
+    order.itemType,
+    order.cmItemType,
+    order.subItem,
+    order.category,
+    order.designNo,
+    order.designNumber,
+  ];
+  return values.flatMap((value) => String(value || "")
+    .toUpperCase()
+    .split("+")
+    .map((part) => part.trim().match(/^[A-Z0-9]+/)?.[0] || "")
+    .filter(Boolean));
+}
+
 function isEarringItem(order = {}, item = {}) {
+  const codes = hallmarkItemCodes(order, item);
+  if (codes.some((code) => ["CME", "PSE", "TME"].includes(code) || (code.length <= 6 && code.endsWith("E")))) {
+    return true;
+  }
   const text = [
+    ...codes,
     order.category,
     order.item,
     order.designNo,
+    order.designNumber,
     order.remarks,
     order.ringType,
+    item.item,
+    item.itemName,
+    item.itemType,
     item.productionNo,
   ].join(" ");
   return textMatchesAny(text, ["earring", "ear ring", "earrings", "er"]);
@@ -18132,9 +18665,7 @@ function isDiscardedItem(item = {}) {
 }
 
 function selectedOfficeKeys() {
-  const dialog = document.getElementById("office-details-dialog");
-  const scope = dialog?.open ? dialog : document;
-  return Array.from(scope.querySelectorAll(".office-item-check:checked")).map((input) => input.value);
+  return officeDialogItemCheckboxes().filter((input) => input.checked).map((input) => input.value);
 }
 
 function hallmarkLotLabel(item = {}) {
@@ -18189,6 +18720,8 @@ function updateSelectedOfficeItems(action) {
     }
   }
   const hallmarkLotNo = action === "hallmarkIssue" ? nextHallmarkLotNumber() : "";
+  const officeDialog = document.getElementById("office-details-dialog");
+  const activeOfficePage = officeDialog?.open ? officeDialog.dataset.page || "" : "";
   let updated = 0;
   state.lots.forEach((lot) => {
     const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
@@ -18206,6 +18739,8 @@ function updateSelectedOfficeItems(action) {
           hallmarkLotNumber: hallmarkLotNo,
           hallmarkLotIssueDate: today(),
           hallmarkLotIssueIsoDate: isoToday(),
+          hallmarkSourceBillNo: bill.billNo || "",
+          hallmarkSourceJobCard: lot.orderNumber || lot.number || "",
           holder: "Hallmarking Department",
           salesTeam: "",
           salesIssueDate: "",
@@ -18242,6 +18777,32 @@ function updateSelectedOfficeItems(action) {
   }
   saveState();
   render();
+  if (officeDialog?.open && ["hallmarkIssue", "hallmarkReceive", "salesIssue"].includes(action)) {
+    refreshOfficeBatchDialog(activeOfficePage);
+  }
+  if (action === "hallmarkIssue") {
+    alert(`${updated} item${updated === 1 ? "" : "s"} issued in new Hallmarking batch ${hallmarkLotNo}.`);
+  } else if (action === "hallmarkReceive") {
+    const receivedLot = selectedOfficeEntries(keys)[0]?.item;
+    alert(`${updated} item${updated === 1 ? "" : "s"} received from Hallmarking batch ${hallmarkLotLabel(receivedLot) || ""}.`);
+  }
+}
+
+function refreshOfficeBatchDialog(page = "") {
+  const dialog = document.getElementById("office-details-dialog");
+  if (!dialog?.open || !page) return;
+  const items = officeItems();
+  if (page === "non-hallmarked" && dialog.dataset.officeBillBatch) {
+    const selected = dialog.dataset.officeBillBatch;
+    const remains = items.some((entry) => officeDepartment(entry.item) === "non-hallmarked" && officeBillBatchLabel(entry) === selected);
+    if (!remains) delete dialog.dataset.officeBillBatch;
+  }
+  if (["hallmarking", "hallmarked"].includes(page) && dialog.dataset.hallmarkBatch) {
+    const selected = dialog.dataset.hallmarkBatch;
+    const remains = items.some((entry) => officeDepartment(entry.item) === page && hallmarkLotLabel(entry.item) === selected);
+    if (!remains) delete dialog.dataset.hallmarkBatch;
+  }
+  openOfficeDialogPage(page);
 }
 
 function selectedOfficeEntries(keys) {
@@ -18288,10 +18849,86 @@ function openBill(lotId) {
     `${lot.number} / ${lot.orderNumber || "-"} / ${customer} / ${billableOrders.length} current item${billableOrders.length === 1 ? "" : "s"} / Finished ${gram(lot.finishedWeight)}`,
     lockedForUser ? "Bill already generated. Bill Dept can view only; Manager and Owner can edit." : "",
   ].filter(Boolean).join(" | ");
+  renderBillLotTrace(lot);
   renderBillItems(lot, bill);
   updateBillAmount();
   applyBillAccessMode();
   document.getElementById("bill-dialog").showModal();
+}
+
+function billLotTraceEntries(lot = {}) {
+  const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)));
+  const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
+  const issueEntry = {
+    step: 1,
+    type: "Gold Issue",
+    date: lot.issueDate || "-",
+    createdAt: lot.createdAt || "",
+    from: lotIssueSourceName(lot),
+    to: departmentTransferDetail(lot.issueKarigarName || lot.karigarName || firstDepartment, firstDepartment),
+    issueGw,
+    receiveGw: issueGw,
+    netWeight: Number(lot.issuedWeight || 0),
+    difference: 0,
+  };
+  const transferEntries = (lot.transfers || []).map((transfer, index) => ({
+    step: index + 2,
+    type: isBillTransferDestination({ toDepartment: transfer.toDepartment }, { name: transfer.toKarigarName }) ? "To Bill" : "Transfer",
+    date: transfer.date || "-",
+    createdAt: transfer.createdAt || "",
+    from: departmentTransferDetail(transfer.fromKarigarName || transfer.fromDepartment || "-", transfer.fromDepartment || transfer.fromKarigarName || ""),
+    to: departmentTransferDetail(transfer.toKarigarName || transfer.toDepartment || "-", transfer.toDepartment || transfer.toKarigarName || ""),
+    issueGw: Number(transfer.transferWeight || 0),
+    receiveGw: Number(transfer.grossReceivedWeight || 0),
+    netWeight: Number(transfer.receivedWeight || 0),
+    difference: Number(transfer.departmentBalance || 0),
+  }));
+  return [issueEntry, ...transferEntries].sort((a, b) =>
+    transferHistoryTime(b.createdAt, b.date) - transferHistoryTime(a.createdAt, a.date)
+      || b.step - a.step
+  );
+}
+
+function renderBillLotTrace(lot = {}) {
+  const container = document.getElementById("bill-lot-trace");
+  if (!container) return;
+  const entries = billLotTraceEntries(lot);
+  const latestTransfer = (lot.transfers || []).at(-1);
+  const lotGw = Number(currentTransferIssueWeight(lot) || 0);
+  const lotNetWeight = Number(latestTransfer?.receivedWeight ?? lot.finishedWeight ?? lot.issuedWeight ?? 0);
+  const latestEntry = entries[0] || {};
+  const rows = entries.map((entry) => `
+    <tr>
+      <td>${escapeHtml(transferHistoryDateTime(entry.date, entry.createdAt))}</td>
+      <td><strong>${escapeHtml(entry.type)}</strong><small>Step ${entry.step}</small></td>
+      <td>${transferDirectionCell(entry.from, "from")}</td>
+      <td>${transferDirectionCell(entry.to, "to")}</td>
+      <td>${gram(entry.issueGw)}</td>
+      <td>${gram(entry.receiveGw)}</td>
+      <td>${gram(entry.netWeight)}</td>
+      <td>${entry.difference ? gram(entry.difference) : "-"}</td>
+    </tr>
+  `).join("");
+  container.innerHTML = `
+    <div class="bill-lot-trace-heading">
+      <div><strong>Lot Movement Trace</strong><span>Newest entry first</span></div>
+      <div class="bill-lot-trace-metrics">
+        <span><b>Lot GW</b>${gram(lotGw)}</span>
+        <span><b>Lot Net</b>${gram(lotNetWeight)}</span>
+        <span><b>Entries</b>${entries.length}</span>
+        <span><b>Latest</b>${escapeHtml(transferHistoryDateTime(latestEntry.date, latestEntry.createdAt))}</span>
+      </div>
+    </div>
+    <details open>
+      <summary>View Complete Transfer Trace</summary>
+      <div class="bill-lot-trace-table">
+        <table>
+          <thead><tr><th>Date & Time</th><th>Entry</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Net Wt</th><th>Difference</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </details>
+  `;
 }
 
 function applyBillAccessMode() {
@@ -19048,6 +19685,66 @@ function renderSafe() {
   refreshMeltingSafeSourceOptions();
 }
 
+function renderSafeWastageCollective(filter = "") {
+  const container = document.getElementById("safe-wastage-collective");
+  if (!container) return;
+  const groups = wastageSourceGroups(filter);
+  if (!groups.length) {
+    container.innerHTML = '<div class="empty">No wastage is available for remelting in this shelf.</div>';
+    return;
+  }
+  const totalNet = Number(weight3(groups.reduce((total, group) => total + Number(group.netWeight || 0), 0)));
+  const totalFine = Number(weight3(groups.reduce((total, group) => total + Number(group.fineGold || 0), 0)));
+  const totalEntries = groups.reduce((total, group) => total + group.items.length, 0);
+  container.innerHTML = `
+    <article class="safe-wastage-total-card">
+      <span>${filter ? `${escapeHtml(filter)} Wastage` : "All Shelf Wastage"}</span>
+      <strong>${gram(totalNet)}</strong>
+      <small>Available for remelting</small>
+      <small>Fine ${gram(totalFine)} / ${groups.length} pools / ${totalEntries} entries</small>
+    </article>
+    ${groups.map((group) => `
+      <article class="safe-wastage-collective-card">
+        <div class="safe-wastage-card-head">
+          <span>${escapeHtml(transferPurityLabel(group.locker))}</span>
+          <b>${escapeHtml(group.colour)}</b>
+        </div>
+        <strong>${gram(group.netWeight)}</strong>
+        <small>Available Wastage NT</small>
+        <div class="safe-wastage-card-metrics">
+          <span>GW <b>${gram(group.grossWeight)}</b></span>
+          <span>Fine <b>${gram(group.fineGold)}</b></span>
+          <span>Entries <b>${group.items.length}</b></span>
+        </div>
+        <small class="safe-wastage-categories">${escapeHtml([...group.categories].sort().join(" / "))}</small>
+        ${canAccessPage("melting") ? `<button type="button" class="ghost-button" onclick="openWastagePoolInMelting('${escapeHtml(encodeURIComponent(group.id))}')">Use For Melting</button>` : ""}
+      </article>
+    `).join("")}
+  `;
+}
+
+function openWastagePoolInMelting(encodedGroupId = "") {
+  if (!canAccessPage("melting")) {
+    alert("This login does not have Melting access.");
+    return;
+  }
+  const groupId = decodeURIComponent(encodedGroupId || "");
+  const group = findWastageSourceGroup(groupId);
+  if (!group || safeItemAvailableWeight(group) <= 0) {
+    alert("This collective wastage pool is no longer available.");
+    renderSafeLockers();
+    return;
+  }
+  switchView("melting");
+  resetMeltingIssueForm();
+  const list = document.getElementById("melting-sources");
+  if (list) list.innerHTML = "";
+  addMeltingSourceRow("", purityPercent(group.desiredPurity), "top", true, "wastage", "", group.id, group.colour, group.desiredPurity);
+  document.getElementById("melting-form").targetPurity.value = "";
+  openOperationPage("melting", "conversion");
+  updateMeltingCalculation();
+}
+
 function renderSafeLockers() {
   const filter = document.getElementById("safe-locker-filter")?.value || "";
   const activeItems = (state.safeItems || []).filter((item) => item.status !== "Out");
@@ -19075,6 +19772,7 @@ function renderSafeLockers() {
       </button>
     `).join("");
   }
+  renderSafeWastageCollective(filter);
   const shelfContainer = document.getElementById("safe-casting-shelves");
   if (shelfContainer) {
     const shelfGroups = castingShelfGroups(filter);
@@ -19109,6 +19807,7 @@ function renderSafeLockers() {
         <tr>
           <td>${escapeHtml(item.date || "-")}</td>
           <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
+          <td>${escapeHtml(safeWastageColour(item))}</td>
           <td>${escapeHtml(safeKindLabel(item))}</td>
           <td>${escapeHtml(item.description || "-")}<br><small>${escapeHtml(item.sourceLine || item.purity || "")}</small></td>
           <td>${escapeHtml(item.source || "-")}</td>
@@ -19121,7 +19820,7 @@ function renderSafeLockers() {
       `;
     }).join("");
   const table = document.getElementById("safe-item-table");
-  if (table) table.innerHTML = rows || tableEmpty(10, "No item in this safe locker yet.");
+  if (table) table.innerHTML = rows || tableEmpty(11, "No item in this safe locker yet.");
 }
 
 function selectSafeLocker(locker) {
@@ -19547,8 +20246,9 @@ function getMeltingSourceMetals() {
           ? row.querySelector('[name="sourceWastageLocker"]')?.value || ""
           : "";
       const safePurity = sourceKind === "metal" ? row.querySelector('[name="sourceMetalSafePurity"]')?.value || "" : "";
-      const sourceColour = sourceKind === "rod" ? safeSourceSelectionColour(safeLocker, sourceKind, row.dataset.sourceColour || "") : "";
-      const sourceDesiredPurity = sourceKind === "rod" ? safeSourceSelectionPurity(safeLocker, sourceKind, row.dataset.sourceDesiredPurity || "") : "";
+      const isSafeSource = ["rod", "wastage"].includes(sourceKind);
+      const sourceColour = isSafeSource ? safeSourceSelectionColour(safeLocker, sourceKind, row.dataset.sourceColour || "") : "";
+      const sourceDesiredPurity = isSafeSource ? safeSourceSelectionPurity(safeLocker, sourceKind, row.dataset.sourceDesiredPurity || "") : "";
       const puritySource = sourceDesiredPurity || safeLocker || safePurity;
       const purity = puritySource ? purityPercent(puritySource) : Number(row.querySelector('[name="sourcePurity"]').value || 0);
       return {
@@ -20300,7 +21000,7 @@ function renderMeltingSources(item) {
     const sourceText = metal.sourceKind === "rod" && metal.safeLocker
       ? `Rod ${safeSourceSelectionLabel(metal.safeLocker, "rod", metal.safeLockerLabel || "")}`
       : metal.sourceKind === "wastage" && metal.safeLocker
-        ? `Wastage ${safeLockerForPurity(metal.safeLocker)} Safe`
+        ? `Wastage ${safeSourceSelectionLabel(metal.safeLocker, "wastage", metal.safeLockerLabel || "")}`
       : metal.safePurity
         ? `Metal Safe ${normalizeMetalSafePurity(metal.safePurity)}`
         : "Manual";
@@ -22121,7 +22821,8 @@ function normalizeState(currentState) {
     order.category = order.category || design?.category || "";
     order.size = order.size || "";
     order.ringType = order.ringType || "";
-    order.cmItemType = order.cmItemType || (isCmCategory(order.category) && CM_ITEM_KEYS.includes(categoryCode(order.item || "")) ? categoryCode(order.item) : defaultCmItemTypeForCategory(order.category));
+    const savedSetItemCode = categoryCode(order.item || "");
+    order.cmItemType = order.cmItemType || (isSetItemCategory(order.category) && setItemFamilyKeys(order.category).includes(savedSetItemCode) ? savedSetItemCode : defaultCmItemTypeForCategory(order.category));
     order.clSize = order.clSize || order.size || "";
     order.cgSize = order.cgSize || "";
     order.color = order.color || "";
