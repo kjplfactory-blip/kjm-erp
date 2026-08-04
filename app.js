@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v406";
+const APP_VERSION = "v407";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -2880,7 +2880,7 @@ async function resetFactoryData() {
       supabaseClient = await createSupabaseClient();
     } catch (error) {
       console.warn("Supabase reset save could not connect.", error);
-      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), error.message || String(error));
+      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), syncErrorDetail(error));
     }
   }
 
@@ -2948,7 +2948,7 @@ async function resetFactoryInventoryToZero() {
       supabaseClient = await createSupabaseClient();
     } catch (error) {
       console.warn("Supabase inventory reset save could not connect.", error);
-      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), error.message || String(error));
+      setSyncStatus("offline", syncStatusForError(error, "Reset: Local Only"), syncErrorDetail(error));
     }
   }
 
@@ -3283,6 +3283,15 @@ function syncStatusForError(error, fallback) {
   return fallback;
 }
 
+function syncErrorDetail(error) {
+  const detail = String(error?.message || error || "").replace(/\s+/g, " ").trim();
+  const normalized = detail.toLowerCase();
+  if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
+    return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
+  }
+  return detail;
+}
+
 function scheduleSupabaseReconnect() {
   clearTimeout(supabaseReconnectTimer);
   supabaseReconnectTimer = setTimeout(() => {
@@ -3354,7 +3363,7 @@ async function initializeSupabase() {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
     stopSupabaseRealtime();
     supabaseClient = null;
-    setSyncStatus("offline", syncStatusForError(error, "Sync: Offline"), error.message || String(error));
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Offline"), syncErrorDetail(error));
     scheduleSupabaseReconnect();
   } finally {
     supabaseIsConnecting = false;
@@ -3473,7 +3482,7 @@ async function syncStateToSupabase(options = {}) {
   }
   if (error) {
     console.warn("Supabase save failed", error);
-    setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), error.message || String(error));
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), syncErrorDetail(error));
     scheduleSupabaseReconnect();
     return false;
   }
@@ -3513,7 +3522,7 @@ async function loadSupabaseState(options = {}) {
   }
   if (error) {
     console.warn("Supabase load failed", error);
-    setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), error.message || String(error));
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), syncErrorDetail(error));
     scheduleSupabaseReconnect();
     return false;
   }
