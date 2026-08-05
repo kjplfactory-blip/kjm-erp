@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=419">
+  <link rel="stylesheet" href="styles.css?v=420">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v419</small>
+        <small class="app-version-badge">App v426</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v419</span>
+          <span class="app-version-badge">App v426</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -141,7 +141,7 @@
           <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
           <article class="metric xrf-dashboard-metric"><span>XRF Pending GW</span><strong id="metric-xrf-pending">0 g</strong><button class="metric-open" type="button" data-dashboard-view="melting" data-dashboard-operation="xrf">Open</button></article>
-          <article class="metric"><span>Non-Gold In Departments</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="non-gold">Open</button></article>
+          <article class="metric"><span>Non-Gold In Factory</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="factory" data-dashboard-operation="summary">Open</button></article>
           <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
           <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="billing" data-dashboard-operation="bill">Open</button></article>
           <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="office" data-dashboard-page="all">Open</button></article>
@@ -514,9 +514,9 @@
             <label>Job Card <select name="jobNumber" required></select></label>
             <label>Department <select name="karigarId" required></select></label>
             <label>Metal Purity <input name="metalPurity" list="metal-purity-options" value="18K" required></label>
-            <label>Casting Item From Safe <select name="castingSafeItemId" required></select></label>
-            <label>Rod Colour <input name="rodColour" placeholder="Auto from safe rod" readonly></label>
-            <label>Rod Desired Purity <input name="rodDesiredPurity" placeholder="Auto from safe rod" readonly></label>
+            <label>Casting / Related Item From Safe <select name="castingSafeItemId" required></select></label>
+            <label>Source Colour <input name="rodColour" placeholder="Auto from selected shelf item" readonly></label>
+            <label>Source Purity <input name="rodDesiredPurity" placeholder="Auto from selected shelf item" readonly></label>
             <datalist id="metal-purity-options">
               <option value="24K"></option>
               <option value="22K"></option>
@@ -688,6 +688,8 @@
                   <option value="18K">18K Safe</option>
                   <option value="22K">22K Safe</option>
                 </select>
+                <button id="jump-safe-history" class="ghost-button" type="button">View Shelf History</button>
+                <button id="open-casting-wastage-transfer" class="ghost-button" type="button">Casting To Wastage</button>
                 <button id="open-safe-department-receive" class="ghost-button" type="button">Receive From Dept</button>
               </div>
             </div>
@@ -730,16 +732,8 @@
                   <option value="accessory">Accessory / Other</option>
                 </select>
               </label>
-              <label>Non-Gold Category
-                <select name="nonGoldCategory">
-                  <option value="">None / Gold Item</option>
-                  <option value="stone">Stone</option>
-                  <option value="black-beads">Black Beads</option>
-                  <option value="moti">Moti</option>
-                  <option value="spring">Spring</option>
-                  <option value="other">Other</option>
-                </select>
-              </label>
+              <input name="nonGoldCategory" type="hidden">
+              <input name="nonGoldWeight" type="hidden">
               <label>Colour
                 <select name="colour">
                   <option>Yellow</option>
@@ -752,14 +746,33 @@
               <label>Item / Reference <input name="description" placeholder="Casting item, chain, tree cut" required></label>
               <label>GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
               <label>Wax Stone (g) <input name="waxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
-              <label>Known Non-Gold Wt (g) <input name="nonGoldWeight" type="number" min="0" step="0.001" placeholder="Blank = use full GW"></label>
+              <fieldset class="non-gold-component-picker full-row" data-non-gold-picker>
+                <legend>Non-Gold Components - Select Any Combination</legend>
+                <div class="non-gold-component-grid">
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="stone"> Stone</span><input type="number" min="0" step="0.001" data-non-gold-weight="stone" placeholder="Wt (g)" disabled></label>
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="black-beads"> Black Beads</span><input type="number" min="0" step="0.001" data-non-gold-weight="black-beads" placeholder="Wt (g)" disabled></label>
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="moti"> Moti</span><input type="number" min="0" step="0.001" data-non-gold-weight="moti" placeholder="Wt (g)" disabled></label>
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="spring"> Spring</span><input type="number" min="0" step="0.001" data-non-gold-weight="spring" placeholder="Wt (g)" disabled></label>
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="other"> Other</span><input type="number" min="0" step="0.001" data-non-gold-weight="other" placeholder="Wt (g)" disabled></label>
+                </div>
+                <div class="non-gold-component-total"><span>Selected Non-Gold Total</span><output data-non-gold-total>0.000 g</output></div>
+              </fieldset>
+              <label class="checkbox-line"><input name="nonGoldWeightUnknown" type="checkbox"> Weight unknown: treat GW minus wax stone as non-gold</label>
               <label>Source <input name="source" placeholder="Melting, casting, manual receive"></label>
               <button type="submit">Add To Safe</button>
             </form>
             <div id="safe-casting-shelves" class="safe-casting-shelf-grid"></div>
+            <div id="safe-entry-history-heading" class="safe-entry-history-heading">
+              <div>
+                <span>Shelf Ledger</span>
+                <h3>Safe Entry History</h3>
+                <small>Review every shelf movement and use the row actions to issue, receive, move, or correct an entry.</small>
+              </div>
+              <button id="jump-safe-entry-form" class="ghost-button" type="button">Back To Add Entry</button>
+            </div>
             <div class="table-wrap safe-entry-table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Locker</th><th>Colour</th><th>Kind</th><th>Non-Gold Category</th><th>Item / Ref</th><th>Source</th><th>Full GW</th><th>Wax Stone</th><th>Non-Gold</th><th>Gold / NT</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Locker</th><th>Colour</th><th>Kind</th><th>Non-Gold Components</th><th>Item / Ref</th><th>Source</th><th>Full GW</th><th>Wax Stone</th><th>Non-Gold</th><th>Gold / NT</th><th>Status</th><th></th></tr></thead>
                 <tbody id="safe-item-table"></tbody>
               </table>
             </div>
@@ -1736,21 +1749,25 @@
             <option value="job">Job Card Only</option>
             <option value="both">Job Card + Department</option>
           </select></label>
-          <label class="safe-issue-job-field hidden">Job Card / Lot <select name="lotId"></select></label>
+          <label class="safe-issue-job-field hidden">Job Card / Lot <select name="lotId"></select><small>Includes gold-pending and gold-issued jobs currently in production.</small></label>
           <label class="safe-issue-product-field hidden">Semi-Finished Product / PR <select name="orderId"></select></label>
           <label class="safe-issue-department-field">Department <select name="departmentId" required></select></label>
           <label class="safe-issue-process-field">Process <select name="process" required></select></label>
           <label>Issue GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
           <label>Wax Stone In Issue (g) <input name="waxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
-          <label>Non-Gold Category <select name="nonGoldCategory">
-            <option value="">None</option>
-            <option value="stone">Stone</option>
-            <option value="black-beads">Black Beads</option>
-            <option value="moti">Moti</option>
-            <option value="spring">Spring</option>
-            <option value="other">Other</option>
-          </select></label>
-          <label>Known Non-Gold Weight (g) <input name="nonGoldWeight" type="number" min="0" step="0.001" placeholder="Enter if known"></label>
+          <input name="nonGoldCategory" type="hidden">
+          <input name="nonGoldWeight" type="hidden">
+          <fieldset class="non-gold-component-picker full-row" data-non-gold-picker>
+            <legend>Non-Gold Components - Select Any Combination</legend>
+            <div class="non-gold-component-grid">
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="stone"> Stone</span><input type="number" min="0" step="0.001" data-non-gold-weight="stone" placeholder="Wt (g)" disabled></label>
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="black-beads"> Black Beads</span><input type="number" min="0" step="0.001" data-non-gold-weight="black-beads" placeholder="Wt (g)" disabled></label>
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="moti"> Moti</span><input type="number" min="0" step="0.001" data-non-gold-weight="moti" placeholder="Wt (g)" disabled></label>
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="spring"> Spring</span><input type="number" min="0" step="0.001" data-non-gold-weight="spring" placeholder="Wt (g)" disabled></label>
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="other"> Other</span><input type="number" min="0" step="0.001" data-non-gold-weight="other" placeholder="Wt (g)" disabled></label>
+            </div>
+            <div class="non-gold-component-total"><span>Selected Non-Gold Total</span><output data-non-gold-total>0.000 g</output></div>
+          </fieldset>
           <label class="checkbox-line"><input name="nonGoldWeightUnknown" type="checkbox"> Weight unknown: treat Issue GW as non-gold</label>
           <label>Net / Gold Weight (g) <input name="netWeight" type="number" readonly></label>
           <label>Purity / Karat <input name="purity" readonly></label>
@@ -1760,6 +1777,51 @@
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-safe-issue-bottom">Cancel</button>
           <button id="safe-issue-submit" type="submit">Issue To Department</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="casting-wastage-dialog">
+      <form id="casting-wastage-form" class="dialog-card history-dialog casting-wastage-form">
+        <div class="dialog-header">
+          <div>
+            <h2>Move Casting Item To Wastage</h2>
+            <p id="casting-wastage-summary" class="dialog-note">Select a casting item and enter the GW and stone contained in the wastage portion.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-casting-wastage">Close</button>
+        </div>
+        <div class="inline-form casting-wastage-fields">
+          <label class="full-row">Casting Item In Shelf <select name="itemId" required></select></label>
+          <label>Karat / Safe <input name="locker" readonly></label>
+          <label>Source Colour <input name="sourceColour" readonly></label>
+          <label>Available Casting GW (g) <input name="availableGrossWeight" type="number" readonly></label>
+          <label>Tracked Stone In Item (g) <input name="availableStoneWeight" type="number" readonly></label>
+          <label>Available Gold / NT (g) <input name="availableNetWeight" type="number" readonly></label>
+          <label>Wastage Colour <select name="colour" required>
+            <option value="">Select colour</option>
+            <option>Yellow</option>
+            <option>Rose</option>
+            <option>White</option>
+            <option>Green</option>
+            <option>2 Tone</option>
+            <option>3 Tone</option>
+            <option>Mixed / Not Set</option>
+          </select></label>
+          <label>GW To Move To Wastage (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
+          <label>Stone In Moved GW (g) <input name="stoneWeight" type="number" min="0" step="0.001" value="0"></label>
+          <label>Wastage Gold / NT (g) <input name="netWeight" type="number" readonly></label>
+          <label class="full-row">Remarks <input name="remarks" placeholder="Tree scrap, rejected casting portion, mixed-colour separation"></label>
+        </div>
+        <div class="casting-wastage-balance" aria-live="polite">
+          <span>Wastage GW <strong id="casting-wastage-gw">0.000 g</strong></span>
+          <span>Stone <strong id="casting-wastage-stone">0.000 g</strong></span>
+          <span>Wastage Gold / NT <strong id="casting-wastage-net">0.000 g</strong></span>
+          <span>Casting GW Remaining <strong id="casting-wastage-remaining">0.000 g</strong></span>
+        </div>
+        <p class="dialog-note">For a mixed-colour casting item, select the actual wastage colour. The new wastage is collected automatically under the selected colour and the source item's karat. Stone is excluded from reusable wastage gold.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-casting-wastage">Cancel</button>
+          <button type="submit">Move To Wastage</button>
         </div>
       </form>
     </dialog>
@@ -2104,6 +2166,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=419"></script>
+  <script src="app.js?v=420"></script>
 </body>
 </html>

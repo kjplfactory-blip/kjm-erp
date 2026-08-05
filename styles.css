@@ -11819,14 +11819,331 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   opacity: 1;
 }
 
+/* V421: one shelf item can retain an exact multi-category non-gold breakdown. */
+.non-gold-component-picker {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 9px 10px 10px;
+  border: 1px solid #b8d8ce;
+  border-radius: 8px;
+  background: #f6fcf9;
+}
+
+.non-gold-component-picker legend {
+  padding: 0 6px;
+  color: #155f52;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.non-gold-component-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.non-gold-component-picker .non-gold-component {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(78px, 0.72fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #d1e7df;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.non-gold-component span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #234f47;
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.non-gold-component input[type="checkbox"] {
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #16806c;
+}
+
+.non-gold-component input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 6px 7px;
+  text-align: right;
+}
+
+.non-gold-component:has(input[type="checkbox"]:checked) {
+  border-color: #65ad9c;
+  background: #eef9f5;
+  box-shadow: inset 0 0 0 1px rgba(22, 128, 108, 0.08);
+}
+
+.non-gold-component-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+  color: #365f57;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.non-gold-component-total output {
+  min-width: 92px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #dff2eb;
+  color: #0d6656;
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-align: right;
+}
+
 @media (max-width: 1000px) {
   .safe-department-issue-form .inline-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .non-gold-component-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 650px) {
   .safe-department-issue-form .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .non-gold-component-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* V422: the full Safe Locker workspace scrolls so the shelf ledger can use the screen. */
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-locker-panel.active-operation-page {
+  display: flex;
+  height: calc(100dvh - 72px);
+  min-height: 560px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #6aa898 #e7f2ee;
+  scroll-padding-top: 56px;
+}
+
+#safe.operation-open .safe-locker-panel.active-operation-page > .panel-heading {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 7px 16px rgba(22, 76, 65, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+#safe.operation-open .safe-locker-panel.active-operation-page .safe-non-gold-panel,
+#safe.operation-open .safe-locker-panel.active-operation-page .safe-wastage-collective-panel,
+#safe.operation-open .safe-locker-panel.active-operation-page .safe-inline-form,
+#safe.operation-open .safe-locker-panel.active-operation-page .safe-casting-shelf-grid {
+  flex: 0 0 auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.safe-entry-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 7px;
+  padding: 10px 12px;
+  border: 1px solid #bdd9cf;
+  border-left: 5px solid #16806c;
+  border-radius: 7px;
+  background: #f1faf6;
+  scroll-margin-top: 58px;
+}
+
+.safe-entry-history-heading span,
+.safe-entry-history-heading small {
+  display: block;
+  color: #567069;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.safe-entry-history-heading span {
+  color: #14715f;
+  text-transform: uppercase;
+}
+
+.safe-entry-history-heading h3 {
+  margin: 2px 0;
+  color: #163f37;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.safe-entry-history-heading button,
+#jump-safe-history {
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-locker-panel.active-operation-page .safe-entry-table-wrap {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 520px;
+  max-height: none;
+  margin-bottom: 14px;
+  overflow: visible;
+  border-color: #b9d4cc;
+  box-shadow: 0 8px 22px rgba(17, 72, 61, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-entry-table-wrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-entry-table-wrap thead th {
+  position: sticky;
+  top: 49px;
+  z-index: 9;
+  padding: 8px 5px;
+  background: #e8f5f0;
+  color: #174c42;
+  box-shadow: inset 0 -1px 0 #a9cfc3;
+  white-space: normal;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-entry-table-wrap tbody td {
+  padding: 7px 5px;
+  font-size: 10.5px;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#safe.operation-open .safe-entry-table-wrap th:nth-child(1) { width: 6%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(2) { width: 5%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(3) { width: 5%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(4) { width: 6%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(5) { width: 11%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(6) { width: 12%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(7) { width: 9%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(8),
+#safe.operation-open .safe-entry-table-wrap th:nth-child(9),
+#safe.operation-open .safe-entry-table-wrap th:nth-child(10),
+#safe.operation-open .safe-entry-table-wrap th:nth-child(11) { width: 6%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(12) { width: 8%; }
+#safe.operation-open .safe-entry-table-wrap th:nth-child(13) { width: 14%; }
+
+#safe.operation-open .safe-entry-table-wrap td:nth-child(8),
+#safe.operation-open .safe-entry-table-wrap td:nth-child(9),
+#safe.operation-open .safe-entry-table-wrap td:nth-child(10),
+#safe.operation-open .safe-entry-table-wrap td:nth-child(11) {
+  white-space: nowrap;
+}
+
+#safe.operation-open .safe-entry-table-wrap .row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+#safe.operation-open .safe-entry-table-wrap .row-actions button {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px;
+  font-size: 8.5px;
+  line-height: 1.1;
+  white-space: normal;
+}
+
+@media (max-width: 900px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-locker-panel.active-operation-page {
+    height: calc(100dvh - 58px);
+    min-height: 480px;
+    overflow-y: auto;
+  }
+
+  .safe-entry-history-heading {
+    align-items: flex-start;
+  }
+
+  .safe-entry-history-heading small {
+    display: none;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-locker-panel.active-operation-page .safe-entry-table-wrap {
+    min-height: 430px;
+  }
+}
+
+/* V425: move casting shelf portions into colour- and karat-wise wastage. */
+.casting-wastage-form .casting-wastage-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.casting-wastage-balance {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.casting-wastage-balance span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(151, 207, 186, 0.58);
+  border-radius: 7px;
+  background: #f6fcf9;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.casting-wastage-balance strong {
+  color: #07594f;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.safe-casting-shelf-card > .ghost-button {
+  width: 100%;
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .casting-wastage-form .casting-wastage-fields,
+  .casting-wastage-balance {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .casting-wastage-form .casting-wastage-fields,
+  .casting-wastage-balance {
     grid-template-columns: 1fr;
   }
 }
