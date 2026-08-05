@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v426";
+const APP_VERSION = "v432";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1320,7 +1320,7 @@ document.getElementById("safe-item-form").addEventListener("change", (event) => 
 });
 
 document.getElementById("safe-item-form").addEventListener("input", (event) => {
-  if (["grossWeight", "waxStoneWeight"].includes(event.target.name) || event.target.matches("[data-non-gold-weight]")) {
+  if (["grossWeight", "waxStoneWeight", "jobWaxStoneWeight", "jobHandStoneWeight"].includes(event.target.name) || event.target.matches("[data-non-gold-weight]")) {
     updateSafeItemEntryMode(event.currentTarget);
   }
 });
@@ -1446,6 +1446,7 @@ document.getElementById("cancel-casting-wastage")?.addEventListener("click", () 
 });
 
 document.getElementById("safe-issue-form").addEventListener("change", (event) => {
+  const form = event.currentTarget;
   if (event.target.name === "departmentId") renderSafeIssueProcessOptions(event.target.value);
   if (event.target.name === "itemId") {
     applySafeIssueItemDefaults(event.target.value);
@@ -1453,7 +1454,16 @@ document.getElementById("safe-issue-form").addEventListener("change", (event) =>
   }
   if (event.target.name === "destinationMode") updateSafeIssueDestinationMode();
   if (event.target.name === "lotId") applySafeIssueLotDefaults(event.target.value);
-  if (event.target.name === "orderId") updateSafeIssueCalculation();
+  if (event.target.name === "orderId") {
+    applySafeIssueJobCardStoneDefaults(true);
+    updateSafeIssueCalculation();
+  }
+  if (event.target.name === "stoneAdjustmentType") {
+    form.dataset.stoneAllocationAuto = event.target.value === "trace" ? "true" : "false";
+    if (event.target.value === "trace") applySafeIssueJobCardStoneDefaults(true);
+    updateSafeIssueCalculation();
+  }
+  if (event.target.name === "completedStage") updateSafeIssueCalculation();
   if (event.target.name === "nonGoldWeightUnknown" || event.target.matches("[data-non-gold-check]")) {
     updateSafeIssueCalculation();
     updateSafeIssueDestinationMode();
@@ -1461,7 +1471,12 @@ document.getElementById("safe-issue-form").addEventListener("change", (event) =>
 });
 
 document.getElementById("safe-issue-form").addEventListener("input", (event) => {
-  if (["grossWeight", "waxStoneWeight"].includes(event.target.name) || event.target.matches("[data-non-gold-weight]")) {
+  const form = event.currentTarget;
+  if (event.target.matches("[data-non-gold-weight]")) applySafeIssueJobCardStoneDefaults();
+  if (["jobWaxStoneWeight", "jobHandStoneWeight"].includes(event.target.name)) {
+    form.dataset.stoneAllocationAuto = "false";
+  }
+  if (["grossWeight", "waxStoneWeight", "jobWaxStoneWeight", "jobHandStoneWeight"].includes(event.target.name) || event.target.matches("[data-non-gold-weight]")) {
     updateSafeIssueCalculation();
     updateSafeIssueDestinationMode();
   }
@@ -1505,8 +1520,40 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   const issuedNonGoldBreakdown = safeIssueEnteredNonGoldBreakdown(form);
   const issuedNonGoldWeight = nonGoldBreakdownTotal(issuedNonGoldBreakdown);
   const issuedNetWeight = Number(weight3(Math.max(issuedGrossWeight - issuedWaxStoneWeight - issuedNonGoldWeight, 0)));
-  if (linksJobCard && issuedNonGoldWeight <= 0) {
-    alert("Job Card linking is available for non-gold shelf items. Select a non-gold category and enter its weight first.");
+  const manuallyEnteredStoneWeight = Number(weight3(issuedNonGoldBreakdown.stone || 0));
+  const stoneAdjustmentType = normalizeSafeIssueStoneAdjustmentType(form.stoneAdjustmentType?.value);
+  const stoneAdjustmentParts = safeIssueStoneAdjustmentParts(
+    stoneAdjustmentType,
+    manuallyEnteredStoneWeight,
+    form.jobWaxStoneWeight?.value,
+    form.jobHandStoneWeight?.value,
+  );
+  const stoneAdjustmentOrder = linkedOrder || (selection.orders.length === 1 ? selection.orders[0] : null);
+  const stoneAdjustmentOrders = stoneAdjustmentOrder ? [stoneAdjustmentOrder] : selection.orders;
+  const completedStage = String(form.completedStage?.value || "").trim();
+  const completedStages = completedProductionStagesForLots(lot ? [lot] : []);
+  if (linksJobCard && completedStages.length && !completedStages.some((stage) => departmentTextKey(stage) === departmentTextKey(completedStage))) {
+    alert("Select the last completed production stage for this Job Card issue.");
+    return;
+  }
+  if (linksJobCard && manuallyEnteredStoneWeight > 0 && !stoneAdjustmentType) {
+    alert("Select whether the entered Stone should trace the existing Job Card stone or add missing Wax / Hand stone.");
+    return;
+  }
+  if (stoneAdjustmentType && manuallyEnteredStoneWeight <= 0) {
+    alert("Enter Stone weight in Non-Gold Components before selecting a Job Card stone adjustment.");
+    return;
+  }
+  if (stoneAdjustmentType === "both" && (stoneAdjustmentParts.wax <= 0 || stoneAdjustmentParts.hand <= 0)) {
+    alert("Enter both Wax Stone and Hand Stone portions for the combined adjustment.");
+    return;
+  }
+  if (stoneAdjustmentType && Math.abs(stoneAdjustmentParts.total - manuallyEnteredStoneWeight) > 0.0005) {
+    alert(`Stone adjustment does not match. Entered Stone ${gram(manuallyEnteredStoneWeight)} must equal Wax ${gram(stoneAdjustmentParts.wax)} + Hand ${gram(stoneAdjustmentParts.hand)} = ${gram(stoneAdjustmentParts.total)}.`);
+    return;
+  }
+  if (stoneAdjustmentType && stoneAdjustmentType !== "trace" && !stoneAdjustmentOrder) {
+    alert("Select one individual Semi-Finished Product / PR when adding missing stone. Trace Existing can use Whole Job Card / All PR Items.");
     return;
   }
   if (form.nonGoldWeightUnknown.checked && nonGoldPickerSelectedTypes(form).length !== 1) {
@@ -1530,10 +1577,10 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   }
   if (issuedGrossWeight > availableGrossWeight + 0.0005
     || issuedWaxStoneWeight > availableWaxStoneWeight + 0.0005
-    || (availableNonGoldWeight > 0 && issuedNonGoldWeight > availableNonGoldWeight + 0.0005)
-    || (availableNonGoldWeight > 0 && !nonGoldBreakdownCanCover(availableNonGoldBreakdown, issuedNonGoldBreakdown))
+    || issuedNonGoldWeight > availableNonGoldWeight + 0.0005
+    || !nonGoldBreakdownCanCover(availableNonGoldBreakdown, issuedNonGoldBreakdown, ["combination", "other"])
     || issuedNetWeight > availableNetWeight + 0.0005) {
-    alert(`Issue cannot exceed Safe Locker balance: GW ${gram(availableGrossWeight)} / Wax ${gram(availableWaxStoneWeight)} / Non-Gold ${gram(availableNonGoldWeight)} (${nonGoldBreakdownText(availableNonGoldBreakdown) || "not allocated"}) / Gold ${gram(availableNetWeight)}.`);
+    alert(`This partial issue exceeds the remaining Safe Locker balance. Remaining: GW ${gram(availableGrossWeight)} / Wax ${gram(availableWaxStoneWeight)} / Non-Gold ${gram(availableNonGoldWeight)} (${nonGoldBreakdownText(availableNonGoldBreakdown) || "none"}) / Gold ${gram(availableNetWeight)}. Enter only the GW and non-gold contained in this small lot; later issues will use the remaining balance.`);
     return;
   }
   const issue = createSafeDepartmentIssue(item, department, form.process.value, form.remarks.value, {
@@ -1552,13 +1599,21 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     productionNo: linkedOrder?.productionNo || linkedOrder?.number || "",
     designNumber: linkedOrder?.designNumber || designLabel(linkedOrder?.designId) || "",
     itemName: linkedOrder?.item || linkedOrder?.category || "",
+    stoneAdjustmentType,
+    stoneAdjustmentWeight: stoneAdjustmentType ? manuallyEnteredStoneWeight : 0,
+    waxStoneAdjustmentWeight: stoneAdjustmentParts.wax,
+    handStoneAdjustmentWeight: stoneAdjustmentParts.hand,
+    stoneAdjustmentOrderId: stoneAdjustmentOrder?.id || "",
+    stoneAdjustmentProductionNo: stoneAdjustmentOrder?.productionNo || stoneAdjustmentOrder?.number || (stoneAdjustmentType === "trace" ? "Whole Job Card" : ""),
+    completedStage,
   });
   state.safeDepartmentIssues = state.safeDepartmentIssues || [];
   state.safeDepartmentIssues.unshift(issue);
+  const stoneAdjustmentSummary = applySafeIssueStoneAdjustment(stoneAdjustmentOrder, issue, stoneAdjustmentOrders);
   const remainingGrossWeight = Number(weight3(Math.max(availableGrossWeight - issuedGrossWeight, 0)));
   const remainingWaxStoneWeight = Number(weight3(Math.max(availableWaxStoneWeight - issuedWaxStoneWeight, 0)));
   const remainingNonGoldWeight = Number(weight3(Math.max(availableNonGoldWeight - issuedNonGoldWeight, 0)));
-  const remainingNonGoldBreakdown = subtractNonGoldBreakdown(availableNonGoldBreakdown, issuedNonGoldBreakdown);
+  const remainingNonGoldBreakdown = subtractNonGoldBreakdown(availableNonGoldBreakdown, issuedNonGoldBreakdown, ["combination", "other"]);
   const remainingNetWeight = safeItemNetFromGross(remainingGrossWeight, remainingWaxStoneWeight, remainingNonGoldWeight);
   if (remainingGrossWeight <= 0.0005 && remainingNetWeight <= 0.0005) {
     item.status = "Out";
@@ -1594,7 +1649,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   const issueWeightSummary = issue.issuedNonGoldWeight > 0
     ? `${nonGoldBreakdownText(issue.issuedNonGoldBreakdown, issue.nonGoldCategory, issue.issuedNonGoldWeight)} / Total ${gram(issue.issuedNonGoldWeight)}`
     : `GW ${gram(issue.issuedGrossWeight)} / Gold ${gram(issue.issuedNetWeight)}`;
-  alert(`${safeIssueDestinationModeLabel(destinationMode)} saved.\n${issue.jobNumber ? `${issue.jobNumber}${issue.lotNumber ? ` / ${issue.lotNumber}` : " / Gold Pending"}${issue.productionNo ? ` / ${issue.productionNo}` : ""}\n` : ""}${issueWeightSummary} issued to ${department.name}.`);
+  alert(`${safeIssueDestinationModeLabel(destinationMode)} saved.\n${issue.jobNumber ? `${issue.jobNumber}${issue.lotNumber ? ` / ${issue.lotNumber}` : " / Gold Pending"}${issue.productionNo ? ` / ${issue.productionNo}` : ""}\n` : ""}${issueWeightSummary} issued to ${department.name}.${stoneAdjustmentSummary ? `\n${stoneAdjustmentSummary}` : ""}`);
 });
 
 document.getElementById("cancel-safe-issue").addEventListener("click", () => {
@@ -5876,22 +5931,26 @@ function addNonGoldBreakdowns(left = {}, right = {}) {
   return normalizeNonGoldBreakdown(total);
 }
 
-function nonGoldBreakdownCanCover(availableValue = {}, requestedValue = {}) {
+function nonGoldBreakdownCanCover(availableValue = {}, requestedValue = {}, flexibleCategories = ["combination"]) {
   const available = normalizeNonGoldBreakdown(availableValue);
   const requested = normalizeNonGoldBreakdown(requestedValue);
-  let flexible = Number(available.combination || 0);
+  const flexibleKeys = [...new Set((flexibleCategories || []).map(normalizeSafeNonGoldCategory).filter(Boolean))];
+  let flexible = Number(weight3(flexibleKeys.reduce((total, category) => total + Number(available[category] || 0), 0)));
+  const requestedFlexible = Number(weight3(flexibleKeys.reduce((total, category) => total + Number(requested[category] || 0), 0)));
+  if (nonGoldBreakdownTotal(requested) > nonGoldBreakdownTotal(available) + 0.0005) return false;
   for (const [category, requestedWeight] of Object.entries(requested)) {
-    if (category === "combination") continue;
+    if (flexibleKeys.includes(category)) continue;
     const deficit = Math.max(Number(requestedWeight || 0) - Number(available[category] || 0), 0);
     flexible = Number(weight3(flexible - deficit));
     if (flexible < -0.0005) return false;
   }
-  return Number(requested.combination || 0) <= flexible + 0.0005;
+  return requestedFlexible <= flexible + 0.0005;
 }
 
-function subtractNonGoldBreakdown(availableValue = {}, requestedValue = {}) {
+function subtractNonGoldBreakdown(availableValue = {}, requestedValue = {}, flexibleCategories = ["combination"]) {
   const remaining = { ...normalizeNonGoldBreakdown(availableValue) };
   const requested = normalizeNonGoldBreakdown(requestedValue);
+  const flexibleKeys = [...new Set((flexibleCategories || []).map(normalizeSafeNonGoldCategory).filter(Boolean))];
   Object.entries(requested).forEach(([category, requestedWeight]) => {
     let amount = Number(requestedWeight || 0);
     const directTake = Math.min(Number(remaining[category] || 0), amount);
@@ -5899,9 +5958,13 @@ function subtractNonGoldBreakdown(availableValue = {}, requestedValue = {}) {
       remaining[category] = Number(weight3(Number(remaining[category] || 0) - directTake));
       amount = Number(weight3(amount - directTake));
     }
-    if (amount > 0 && category !== "combination") {
-      remaining.combination = Number(weight3(Math.max(Number(remaining.combination || 0) - amount, 0)));
-    }
+    flexibleKeys.filter((fallbackCategory) => fallbackCategory !== category).forEach((fallbackCategory) => {
+      if (amount <= 0) return;
+      const fallbackTake = Math.min(Number(remaining[fallbackCategory] || 0), amount);
+      if (fallbackTake <= 0) return;
+      remaining[fallbackCategory] = Number(weight3(Number(remaining[fallbackCategory] || 0) - fallbackTake));
+      amount = Number(weight3(amount - fallbackTake));
+    });
   });
   return normalizeNonGoldBreakdown(remaining);
 }
@@ -6495,6 +6558,27 @@ function normalizeSafeIssueDestinationMode(value = "", lotId = "") {
   return lotId ? "both" : "department";
 }
 
+function normalizeSafeIssueStoneAdjustmentType(value = "") {
+  const type = String(value || "").trim().toLowerCase();
+  return ["trace", "wax", "hand", "both"].includes(type) ? type : "";
+}
+
+function safeIssueStoneAdjustmentParts(typeValue = "", totalValue = 0, waxValue = 0, handValue = 0) {
+  const type = normalizeSafeIssueStoneAdjustmentType(typeValue);
+  const total = Number(weight3(totalValue || 0));
+  const wax = type === "wax"
+    ? total
+    : ["trace", "both"].includes(type)
+      ? Number(weight3(Math.max(Number(waxValue || 0), 0)))
+      : 0;
+  const hand = type === "hand"
+    ? total
+    : ["trace", "both"].includes(type)
+      ? Number(weight3(Math.max(Number(handValue || 0), 0)))
+      : 0;
+  return { wax, hand, total: Number(weight3(wax + hand)) };
+}
+
 function safeIssueLinksJobCard(value = "") {
   return ["job", "both"].includes(normalizeSafeIssueDestinationMode(value));
 }
@@ -6505,6 +6589,18 @@ function safeIssueDestinationModeLabel(value = "") {
     job: "Job Card Only",
     both: "Job Card + Department",
   })[normalizeSafeIssueDestinationMode(value)] || "Department Only";
+}
+
+function safeIssueStoneAdjustmentText(issue = {}) {
+  const type = normalizeSafeIssueStoneAdjustmentType(issue.stoneAdjustmentType);
+  const weight = Number(weight3(issue.stoneAdjustmentWeight || 0));
+  const completedStage = String(issue.completedStage || issue.stoneAdjustmentCompletedStage || "").trim();
+  if (!type || weight <= 0) return completedStage ? `Last completed stage: ${completedStage}` : "";
+  const productionNo = issue.stoneAdjustmentProductionNo || issue.productionNo || "Job Card item";
+  const parts = safeIssueStoneAdjustmentParts(type, weight, issue.waxStoneAdjustmentWeight, issue.handStoneAdjustmentWeight);
+  const action = type === "trace" ? "Stone traced" : "Stone adjusted";
+  const sign = type === "trace" ? "" : "+";
+  return `${productionNo} ${action}: Wax ${sign}${gram(parts.wax)} / Hand ${sign}${gram(parts.hand)} / Total ${gram(parts.total)}${completedStage ? ` / Last completed stage: ${completedStage}` : ""}`;
 }
 
 function safeIssueDestinationDescription(issue = {}) {
@@ -6574,6 +6670,14 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
   const purity = karatLogicPurity(savedPurity);
   const fullyReturned = grossWeight <= 0.0005 && netWeight <= 0.0005;
   const consumedByJob = safeIssueLinksJobCard(destinationMode) && Boolean(linkedLot && (linkedLot.status === "Completed" || linkedBill));
+  const stoneAdjustmentType = normalizeSafeIssueStoneAdjustmentType(issue.stoneAdjustmentType);
+  const stoneAdjustmentWeight = Number(weight3(issue.stoneAdjustmentWeight || 0));
+  const stoneAdjustmentParts = safeIssueStoneAdjustmentParts(
+    stoneAdjustmentType,
+    stoneAdjustmentWeight,
+    issue.waxStoneAdjustmentWeight,
+    issue.handStoneAdjustmentWeight,
+  );
   return {
     id: issue.id || crypto.randomUUID(),
     date: issue.date || today(),
@@ -6597,6 +6701,13 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     productionNo: issue.productionNo || linkedOrder?.productionNo || linkedOrder?.number || "",
     designNumber: issue.designNumber || linkedOrder?.designNumber || "",
     itemName: issue.itemName || linkedOrder?.item || linkedOrder?.category || "",
+    stoneAdjustmentType,
+    stoneAdjustmentWeight,
+    waxStoneAdjustmentWeight: stoneAdjustmentParts.wax,
+    handStoneAdjustmentWeight: stoneAdjustmentParts.hand,
+    stoneAdjustmentOrderId: issue.stoneAdjustmentOrderId || "",
+    stoneAdjustmentProductionNo: issue.stoneAdjustmentProductionNo || "",
+    completedStage: String(issue.completedStage || issue.stoneAdjustmentCompletedStage || "").trim(),
     issuedGrossWeight,
     issuedWaxStoneWeight,
     issuedNonGoldWeight,
@@ -6656,6 +6767,13 @@ function createSafeDepartmentIssue(item, department, process = "", remarks = "",
     productionNo: issueWeights.productionNo || "",
     designNumber: issueWeights.designNumber || "",
     itemName: issueWeights.itemName || "",
+    stoneAdjustmentType: normalizeSafeIssueStoneAdjustmentType(issueWeights.stoneAdjustmentType),
+    stoneAdjustmentWeight: Number(weight3(issueWeights.stoneAdjustmentWeight || 0)),
+    waxStoneAdjustmentWeight: Number(weight3(issueWeights.waxStoneAdjustmentWeight || 0)),
+    handStoneAdjustmentWeight: Number(weight3(issueWeights.handStoneAdjustmentWeight || 0)),
+    stoneAdjustmentOrderId: issueWeights.stoneAdjustmentOrderId || "",
+    stoneAdjustmentProductionNo: issueWeights.stoneAdjustmentProductionNo || "",
+    completedStage: String(issueWeights.completedStage || "").trim(),
     issuedNetWeight,
     grossWeight: issuedGrossWeight,
     waxStoneWeight: issuedWaxStoneWeight,
@@ -6764,7 +6882,7 @@ function renderSafeIssueOrderOptions(jobReference = "", selectedOrderId = "") {
   const selection = safeIssueJobSelection(jobReference || form.lotId?.value);
   const orders = selection.orders;
   form.orderId.innerHTML = orders.length
-    ? `<option value="">Whole Job Card${selection.lot ? " / Lot" : ""}</option>${orders.map((order) => {
+    ? `<option value="">Whole Job Card / All PR Items (Trace Existing)</option>${orders.map((order) => {
       const design = order.designNumber || designLabel(order.designId) || order.category || "Item";
       return `<option value="${escapeHtml(order.id)}">${escapeHtml(`${order.productionNo || order.number} / ${design} / ${orderCurrentStage(order)}`)}</option>`;
     }).join("")}`
@@ -6787,6 +6905,7 @@ function applySafeIssueLotDefaults(jobReference = "", lockDepartment = false) {
   form.departmentId.disabled = false;
   form.process.disabled = false;
   renderSafeIssueOrderOptions(selection.value, form.orderId?.value || "");
+  renderSafeIssueCompletedStageOptions(selection.value);
   if (!selection.jobNumber) {
     updateSafeIssueCalculation();
     return;
@@ -6800,26 +6919,248 @@ function applySafeIssueLotDefaults(jobReference = "", lockDepartment = false) {
     form.departmentId.disabled = true;
     form.process.disabled = true;
   }
+  applySafeIssueJobCardStoneDefaults(true);
   updateSafeIssueCalculation();
+}
+
+function completedProductionStagesForLots(lots = []) {
+  const stages = [];
+  const addStage = (value) => {
+    const stage = mergedProductionDepartmentName(value || "").trim();
+    if (stage && !stages.some((item) => departmentTextKey(item) === departmentTextKey(stage))) stages.push(stage);
+  };
+  lots.forEach((lot) => {
+    if (lot.issueDate || Number(lot.grossIssuedWeight || lot.issuedWeight || 0) > 0) addStage("Gold Issue");
+    (lot.transfers || []).forEach((transfer) => addStage(transfer.fromDepartment || transfer.fromKarigarName));
+    if (lot.status === "Completed") addStage("Production Complete");
+  });
+  return stages;
+}
+
+function renderSafeIssueCompletedStageOptions(jobReference = "") {
+  const form = document.getElementById("safe-issue-form");
+  const select = form?.completedStage;
+  if (!select) return [];
+  const selection = safeIssueJobSelection(jobReference || form.lotId?.value);
+  const stages = completedProductionStagesForLots(selection.lot ? [selection.lot] : []);
+  const currentValue = String(select.value || "").trim();
+  const referenceChanged = select.dataset.jobReference !== selection.value;
+  const currentMatch = stages.find((stage) => departmentTextKey(stage) === departmentTextKey(currentValue));
+  const selected = !referenceChanged && currentMatch ? currentMatch : (stages.at(-1) || "");
+  select.innerHTML = stages.length
+    ? stages.map((stage, index) => `<option value="${escapeHtml(stage)}">${escapeHtml(stage)}${index === stages.length - 1 ? " (Latest)" : ""}</option>`).join("")
+    : '<option value="">No completed production stage yet</option>';
+  select.value = selected;
+  select.dataset.jobReference = selection.value;
+  return stages;
+}
+
+function safeIssueStoneAdjustmentTarget(selection = {}, orderId = "") {
+  return (orderId ? findById("orders", orderId) : null)
+    || (selection.orders?.length === 1 ? selection.orders[0] : null)
+    || null;
+}
+
+function safeIssueJobCardStoneTraceForOrders(orders = []) {
+  const items = (orders || []).filter(Boolean).flatMap(productionStoneItemsForOrder);
+  const waxItems = items.filter((item) => item.settingType === "wax");
+  const handItems = items.filter((item) => item.settingType === "hand");
+  const wax = Number(weight3(productionStoneTotals(waxItems).weight || 0));
+  const hand = Number(weight3(productionStoneTotals(handItems).weight || 0));
+  return {
+    wax,
+    hand,
+    total: Number(weight3(wax + hand)),
+    waxRows: waxItems.length,
+    handRows: handItems.length,
+  };
+}
+
+function safeIssueJobCardStoneTrace(order = null) {
+  return safeIssueJobCardStoneTraceForOrders(order ? [order] : []);
+}
+
+function applySafeIssueJobCardStoneDefaults(force = false) {
+  const form = document.getElementById("safe-issue-form");
+  if (!form || !safeIssueLinksJobCard(form.destinationMode?.value)) return false;
+  const selection = safeIssueJobSelection(form.lotId?.value);
+  const order = safeIssueStoneAdjustmentTarget(selection, form.orderId?.value || "");
+  const traceOrders = order ? [order] : selection.orders;
+  const trace = safeIssueJobCardStoneTraceForOrders(traceOrders);
+  const enteredStone = Number(weight3(safeIssueEnteredNonGoldBreakdown(form).stone || 0));
+  const isAuto = form.dataset.stoneAllocationAuto === "true";
+  if (!traceOrders.length || enteredStone <= 0 || (!force && form.stoneAdjustmentType?.value && !isAuto)) return false;
+  let type = "";
+  let wax = 0;
+  let hand = 0;
+  if (trace.wax > 0 && trace.hand > 0 && Math.abs(enteredStone - trace.total) <= 0.0005) {
+    type = "trace";
+    wax = trace.wax;
+    hand = trace.hand;
+  } else if (trace.wax > 0 && Math.abs(enteredStone - trace.wax) <= 0.0005) {
+    type = "trace";
+    wax = enteredStone;
+  } else if (trace.hand > 0 && Math.abs(enteredStone - trace.hand) <= 0.0005) {
+    type = "trace";
+    hand = enteredStone;
+  }
+  if (!type) {
+    if (force && isAuto) {
+      form.stoneAdjustmentType.value = "";
+      form.jobWaxStoneWeight.value = "0";
+      form.jobHandStoneWeight.value = "0";
+      form.dataset.stoneAllocationAuto = "false";
+    }
+    return false;
+  }
+  form.stoneAdjustmentType.value = type;
+  form.jobWaxStoneWeight.value = weight3(wax);
+  form.jobHandStoneWeight.value = weight3(hand);
+  form.dataset.stoneAllocationAuto = "true";
+  return true;
+}
+
+function safeIssueJobStageSummaryHtml(selection = {}, order = null, adjustmentType = "", stoneWeight = 0, adjustmentParts = {}, completedStage = "") {
+  if (!selection.jobNumber) return "";
+  const stages = completedProductionStagesForLots(selection.lot ? [selection.lot] : []);
+  const currentStage = order ? orderCurrentStage(order) : (selection.lot?.currentDepartment || "Gold Pending");
+  const traceOrders = order ? [order] : selection.orders;
+  const stoneTrace = safeIssueJobCardStoneTraceForOrders(traceOrders);
+  const waxWeight = stoneTrace.wax;
+  const handWeight = stoneTrace.hand;
+  const waxAdjustment = Number(weight3(adjustmentParts.wax || 0));
+  const handAdjustment = Number(weight3(adjustmentParts.hand || 0));
+  const adjustmentTotal = Number(weight3(waxAdjustment + handAdjustment));
+  const tracesExisting = adjustmentType === "trace";
+  const projectedWax = Number(weight3(waxWeight + (tracesExisting ? 0 : waxAdjustment)));
+  const projectedHand = Number(weight3(handWeight + (tracesExisting ? 0 : handAdjustment)));
+  const target = order
+    ? `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || "Item"}`
+    : `${selection.jobNumber} / Whole Job Card / ${selection.orders.length} PR item${selection.orders.length === 1 ? "" : "s"}`;
+  return `
+    <div class="safe-issue-stage-heading">
+      <span>Selected Job Card Item</span>
+      <strong>${escapeHtml(target)}</strong>
+      <small>Current Stage: ${escapeHtml(currentStage || "Pending")}</small>
+    </div>
+    <div class="safe-issue-stage-block">
+      <span>Stages Completed</span>
+      <strong>${escapeHtml(stages.join(" > ") || "None yet")}</strong>
+      <small>Selected last completed stage: ${escapeHtml(completedStage || "None yet")}</small>
+    </div>
+    <div class="safe-issue-stage-block">
+      <span>Stone Traced From Job Card</span>
+      <strong>Wax ${gram(waxWeight)} / Hand ${gram(handWeight)} / Total ${gram(stoneTrace.total)}</strong>
+      <small>${stoneTrace.waxRows} Wax row${stoneTrace.waxRows === 1 ? "" : "s"} / ${stoneTrace.handRows} Hand row${stoneTrace.handRows === 1 ? "" : "s"} in the ${order ? "selected PR" : "whole Job Card"} details.</small>
+    </div>
+    <div class="safe-issue-stage-block">
+      <span>${tracesExisting ? "This Issue Traced Against Job Card" : "Job Card Stone After This Issue"}</span>
+      <strong>Wax ${gram(projectedWax)} / Hand ${gram(projectedHand)}</strong>
+      <small>${adjustmentType && stoneWeight > 0 ? `Entered Stone ${gram(stoneWeight)} = Wax ${gram(waxAdjustment)} + Hand ${gram(handAdjustment)}${Math.abs(adjustmentTotal - stoneWeight) > 0.0005 ? " (not matching)" : tracesExisting ? " (matched without duplication)" : ""}` : "Choose Trace Existing, Wax, Hand, or Wax + Hand for the entered Stone."}</small>
+    </div>
+  `;
+}
+
+function updateSafeIssueJobStageSummary() {
+  const form = document.getElementById("safe-issue-form");
+  const panel = document.getElementById("safe-issue-job-stage-summary");
+  if (!form || !panel) return;
+  const mode = normalizeSafeIssueDestinationMode(form.destinationMode.value);
+  const selection = safeIssueLinksJobCard(mode) ? safeIssueJobSelection(form.lotId.value) : safeIssueJobSelection();
+  const order = safeIssueStoneAdjustmentTarget(selection, form.orderId?.value || "");
+  const adjustmentType = normalizeSafeIssueStoneAdjustmentType(form.stoneAdjustmentType?.value);
+  const stoneWeight = Number(weight3(safeIssueEnteredNonGoldBreakdown(form).stone || 0));
+  const adjustmentParts = safeIssueStoneAdjustmentParts(
+    adjustmentType,
+    stoneWeight,
+    form.jobWaxStoneWeight?.value,
+    form.jobHandStoneWeight?.value,
+  );
+  const showSplit = safeIssueLinksJobCard(mode) && ["trace", "both"].includes(adjustmentType);
+  form.querySelectorAll(".safe-issue-stone-split-field").forEach((field) => field.classList.toggle("hidden", !showSplit));
+  [form.jobWaxStoneWeight, form.jobHandStoneWeight].filter(Boolean).forEach((input) => {
+    input.readOnly = adjustmentType === "trace";
+  });
+  panel.classList.toggle("hidden", !selection.jobNumber);
+  panel.innerHTML = safeIssueJobStageSummaryHtml(selection, order, adjustmentType, stoneWeight, adjustmentParts, form.completedStage?.value || "");
+}
+
+function applySafeIssueStoneAdjustment(order, issue = {}, traceOrders = []) {
+  const adjustmentType = normalizeSafeIssueStoneAdjustmentType(issue.stoneAdjustmentType);
+  const stoneWeight = Number(weight3(issue.stoneAdjustmentWeight || 0));
+  if (!adjustmentType || stoneWeight <= 0) return "";
+  const adjustmentParts = safeIssueStoneAdjustmentParts(
+    adjustmentType,
+    stoneWeight,
+    issue.waxStoneAdjustmentWeight,
+    issue.handStoneAdjustmentWeight,
+  );
+  if (adjustmentType === "trace") {
+    const orders = order ? [order] : (traceOrders || []).filter(Boolean);
+    if (!orders.length) return "";
+    const trace = safeIssueJobCardStoneTraceForOrders(orders);
+    const reference = order ? (order.productionNo || order.number) : `${issue.jobNumber || "Job Card"} / All ${orders.length} PR item${orders.length === 1 ? "" : "s"}`;
+    return `${reference}: Existing Job Card stone traced as Wax ${gram(adjustmentParts.wax)} + Hand ${gram(adjustmentParts.hand)} = ${gram(adjustmentParts.total)} after ${issue.completedStage || "the selected stage"}. Saved Job Card totals remain Wax ${gram(trace.wax)} / Hand ${gram(trace.hand)}; no stone was duplicated.`;
+  }
+  if (!order) return "";
+  const existingItems = productionStoneItemsForOrder(order).map((item) => ({ ...item }));
+  [
+    { settingType: "wax", weight: adjustmentParts.wax },
+    { settingType: "hand", weight: adjustmentParts.hand },
+  ].filter((entry) => entry.weight > 0).forEach(({ settingType, weight }) => {
+    existingItems.push({
+      id: crypto.randomUUID(),
+      sourceDesignStoneId: "",
+      safeDepartmentIssueId: issue.id || "",
+      manualShelfIssue: true,
+      date: today(),
+      completedStageAtIssue: issue.completedStage || "",
+      settingType,
+      manufacturingStage: manufacturingStageForSettingType(settingType),
+      itemKey: normalizeStoneItemKey(orderStoneItemKeys(order)[0] || DEFAULT_STONE_ITEM_KEY),
+      stoneType: "MANUAL",
+      shape: "MIXED",
+      size: "ISSUE",
+      code: `MANUAL-${settingType.toUpperCase()}`,
+      pcs: 1,
+      weightPerPc: formatStoneWeight(weight),
+      totalWeight: weight3(weight),
+    });
+  });
+  order.productionStoneItems = existingItems;
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
+  order.productionStoneCopiedFrom = `Shelf Issue ${issue.id || ""}`.trim();
+  const waxTotal = productionStoneTotals(existingItems, "wax").weight;
+  const handTotal = productionStoneTotals(existingItems, "hand").weight;
+  return `${order.productionNo || order.number}: Stone adjusted Wax +${gram(adjustmentParts.wax)} / Hand +${gram(adjustmentParts.hand)} = ${gram(adjustmentParts.total)}. New totals: Wax ${gram(waxTotal)} / Hand ${gram(handTotal)}.`;
 }
 
 function updateSafeIssueDestinationMode() {
   const form = document.getElementById("safe-issue-form");
   if (!form) return;
   updateNonGoldPicker(form);
-  const categorySelected = Boolean(form.nonGoldCategory.value);
   [...form.destinationMode.options].forEach((option) => {
-    option.disabled = option.value !== "department" && !categorySelected;
+    option.disabled = false;
   });
-  if (!categorySelected && safeIssueLinksJobCard(form.destinationMode.value)) form.destinationMode.value = "department";
   const mode = normalizeSafeIssueDestinationMode(form.destinationMode.value);
   const linksJobCard = safeIssueLinksJobCard(mode);
   const jobField = form.querySelector(".safe-issue-job-field");
   const productField = form.querySelector(".safe-issue-product-field");
+  const stageField = form.querySelector(".safe-issue-stage-field");
+  const stoneAdjustmentField = form.querySelector(".safe-issue-stone-adjustment-field");
   if (jobField) jobField.classList.toggle("hidden", !linksJobCard);
   if (productField) productField.classList.toggle("hidden", !linksJobCard);
+  if (stageField) stageField.classList.toggle("hidden", !linksJobCard);
+  if (stoneAdjustmentField) stoneAdjustmentField.classList.toggle("hidden", !linksJobCard);
+  if (!linksJobCard && form.stoneAdjustmentType) form.stoneAdjustmentType.value = "";
   form.lotId.required = linksJobCard;
-  if (!linksJobCard) renderSafeIssueOrderOptions();
+  if (!linksJobCard) {
+    renderSafeIssueOrderOptions();
+    renderSafeIssueCompletedStageOptions();
+  } else if (!form.lotId.value) {
+    renderSafeIssueCompletedStageOptions();
+  }
   const selection = safeIssueJobSelection(form.lotId.value);
   form.departmentId.disabled = false;
   form.process.disabled = false;
@@ -6835,10 +7176,11 @@ function updateSafeIssueDestinationMode() {
     note.textContent = mode === "department"
       ? "Department Only keeps the item in department holding without linking it to a job card."
       : mode === "job"
-        ? "Job Card Only links the non-gold item to the selected production job. Gold-issued jobs use their current department; gold-pending jobs let you select the department."
-        : "Job Card + Department links the non-gold item to the selected production job and records it in the selected department holding.";
+        ? "Job Card Only links this partial shelf issue to the selected production job. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance."
+        : "Job Card + Department links this partial shelf issue to the production job and department. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance.";
   }
   updateSafeIssueCalculation();
+  updateSafeIssueJobStageSummary();
 }
 
 function applySafeIssueItemDefaults(itemId = "") {
@@ -6883,7 +7225,8 @@ function updateSafeIssueCalculation() {
     ? `${safeIssueDestinationModeLabel(mode)} / ${selection.jobNumber}${selection.lot ? ` / ${selection.lot.number}` : " / Gold Pending"}${linkedOrder ? ` / ${linkedOrder.productionNo || linkedOrder.number}` : " / Whole Job Card"}`
     : safeIssueDestinationModeLabel(mode);
   const issueComponentText = nonGoldBreakdownText(issueNonGoldBreakdown) || "None selected";
-  summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.purity || item.locker)}. ${destinationText}. Available GW ${gram(availableGrossWeight)} / Non-Gold ${gram(availableNonGoldWeight)} / Gold ${gram(availableNetWeight)}. Selected: ${issueComponentText}. Issue GW ${gram(issueGrossWeight)} - Wax ${gram(issueWaxStoneWeight)} - Non-Gold ${gram(issueNonGoldWeight)} = Gold ${gram(issueNetWeight)}. Fine gold is calculated only on the Gold weight.`;
+  summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.purity || item.locker)}. ${destinationText}. Remaining shelf balance: GW ${gram(availableGrossWeight)} / Non-Gold ${gram(availableNonGoldWeight)} / Gold ${gram(availableNetWeight)}. This partial issue: ${issueComponentText}. GW ${gram(issueGrossWeight)} - Wax ${gram(issueWaxStoneWeight)} - Non-Gold ${gram(issueNonGoldWeight)} = Gold ${gram(issueNetWeight)}. Each small lot may have a different non-gold portion; all saved issues are deducted cumulatively.`;
+  updateSafeIssueJobStageSummary();
 }
 
 function safeIssueDepartmentForHistory(departmentName = "") {
@@ -6900,6 +7243,8 @@ function openSafeIssueToDepartment(itemId = "", departmentName = "") {
   const form = document.getElementById("safe-issue-form");
   if (!form) return;
   form.reset();
+  form.dataset.stoneAllocationAuto = "false";
+  if (form.completedStage) form.completedStage.dataset.jobReference = "";
   form.departmentId.disabled = false;
   form.process.disabled = false;
   const items = renderSafeIssueItemOptions(itemId);
@@ -6914,7 +7259,7 @@ function openSafeIssueToDepartment(itemId = "", departmentName = "") {
   renderSafeIssueProcessOptions(form.departmentId.value);
   form.remarks.value = "";
   applySafeIssueItemDefaults(form.itemId.value);
-  form.destinationMode.value = form.nonGoldCategory.value && safeIssueJobChoices().length ? "both" : "department";
+  form.destinationMode.value = safeIssueJobChoices().length && safeItemNonGoldWeight(findById("safeItems", form.itemId.value) || {}) > 0 ? "both" : "department";
   updateSafeIssueDestinationMode();
   document.getElementById("safe-issue-dialog").showModal();
 }
@@ -10293,6 +10638,8 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       data-original-stone-key="${escapeHtml(stoneKey)}"
       data-original-weight-per-pc="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}"
       data-original-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}"
+      data-manual-shelf-issue="${item.manualShelfIssue ? "true" : ""}"
+      data-safe-department-issue-id="${escapeHtml(item.safeDepartmentIssueId || "")}"
     >
       <td><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select></td>
       <td data-production-stone-code>${escapeHtml(item.code || stoneLookupCode({ stoneType, shape, size }) || "-")}</td>
@@ -10452,6 +10799,8 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   return {
     id: row.dataset.productionStoneId || crypto.randomUUID(),
     sourceDesignStoneId: row.dataset.sourceDesignStoneId || "",
+    safeDepartmentIssueId: row.dataset.safeDepartmentIssueId || "",
+    manualShelfIssue: row.dataset.manualShelfIssue === "true",
     date: today(),
     settingType,
     manufacturingStage,
@@ -10469,6 +10818,7 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
 function saveMissingProductionStoneWeightsToMaster(items = [], order = {}) {
   let updated = 0;
   items.forEach((item) => {
+    if (item.manualShelfIssue) return;
     const weightPerPc = formatStoneWeight(item.weightPerPc);
     if (!item.stoneType || !item.shape || !item.size || Number(weightPerPc || 0) <= 0) return;
     const existing = findStoneByLibraryFields(item.stoneType, item.shape, item.size);
@@ -12571,6 +12921,7 @@ function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
   }
   const transferCount = (currentLot.transfers || []).length;
   const currentWeight = currentTransferIssueWeight(currentLot);
+  const completedStages = completedProductionStagesForLots(lots);
   return `
     <article class="order-current-card order-current-card-main">
       <span>Current Stage</span>
@@ -12579,6 +12930,11 @@ function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
     </article>
     <article class="order-current-card order-current-dept-card">
       ${currentDepartmentBadgeHtml(currentLot)}
+    </article>
+    <article class="order-current-card">
+      <span>Stages Completed</span>
+      <strong>${completedStages.length}</strong>
+      <small>${escapeHtml(completedStages.join(" > ") || "None yet")}</small>
     </article>
     <article class="order-current-card">
       <span>Lot</span>
@@ -13419,7 +13775,10 @@ function productionStoneWeightForTransfer(lot) {
 }
 
 function transferWaxStoneWeight(lot) {
-  return Number(lot.waxStoneWeight || productionStoneTotalsForOrders(getLotOrders(lot), "wax").weight || 0);
+  return Number(weight3(Math.max(
+    Number(lot.waxStoneWeight || 0),
+    Number(productionStoneTotalsForOrders(getLotOrders(lot), "wax").weight || 0),
+  )));
 }
 
 function currentHandStoneWeight(lot, beforeTransferId = "") {
@@ -23576,7 +23935,7 @@ function departmentTransferEvents() {
         ? movementLabel === "LOSS BOOKED"
           ? `Manufacturing loss ${gram(lossWeight)} removed from ${departmentName}${data.remarks ? `; ${data.remarks}` : ""}`
           : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
-        : `${safeIssueDestinationModeLabel(data.destinationMode)} from ${shelfName}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`,
+        : `${safeIssueDestinationModeLabel(data.destinationMode)} from ${shelfName}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`,
       hasLot: Boolean(data.lotId),
     });
   });
@@ -23798,7 +24157,7 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
     ? movementLabel === "LOSS BOOKED"
       ? `Manufacturing loss ${gram(lossWeight)} removed from ${department}${data.remarks ? `; ${data.remarks}` : ""}`
       : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
-    : `${safeIssueDestinationModeLabel(data.destinationMode)} to ${department}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`;
+    : `${safeIssueDestinationModeLabel(data.destinationMode)} to ${department}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`;
   const referenceText = data.lotNumber
     ? `${data.lotNumber} / ${data.jobNumber || "-"}`
     : itemDescription;
@@ -24907,6 +25266,8 @@ function normalizeState(currentState) {
       return {
         id: item.id || crypto.randomUUID(),
         sourceDesignStoneId: item.sourceDesignStoneId || matchedDesignStone?.id || "",
+        safeDepartmentIssueId: item.safeDepartmentIssueId || "",
+        manualShelfIssue: Boolean(item.manualShelfIssue),
         date: item.date || today(),
         settingType: item.settingType || automaticSetting.settingType,
         manufacturingStage: item.manufacturingStage || automaticSetting.manufacturingStage,
