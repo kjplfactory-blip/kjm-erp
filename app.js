@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v432";
+const APP_VERSION = "v433";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1489,7 +1489,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   const destinationMode = normalizeSafeIssueDestinationMode(form.destinationMode.value);
   const linksJobCard = safeIssueLinksJobCard(destinationMode);
   const selection = linksJobCard ? safeIssueJobSelection(form.lotId.value) : safeIssueJobSelection();
-  const lot = selection.lot;
+  let lot = selection.lot;
   if (linksJobCard && !selection.jobNumber) {
     alert("Select one Job Card currently in production for this non-gold issue.");
     return;
@@ -1583,6 +1583,23 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     alert(`This partial issue exceeds the remaining Safe Locker balance. Remaining: GW ${gram(availableGrossWeight)} / Wax ${gram(availableWaxStoneWeight)} / Non-Gold ${gram(availableNonGoldWeight)} (${nonGoldBreakdownText(availableNonGoldBreakdown) || "none"}) / Gold ${gram(availableNetWeight)}. Enter only the GW and non-gold contained in this small lot; later issues will use the remaining balance.`);
     return;
   }
+  const safeGoldIssue = ensureSafeIssueProductionLot({
+    selection,
+    lot,
+    department,
+    process: form.process.value,
+    item,
+    issuedGrossWeight,
+    issuedWaxStoneWeight,
+    issuedNonGoldWeight,
+    issuedNonGoldBreakdown,
+    issuedNetWeight,
+    stoneAdjustmentParts,
+  });
+  lot = safeGoldIssue.lot;
+  const lotMovedToDepartment = !safeGoldIssue.created && destinationMode === "both"
+    ? transferExistingLotForSafeIssue(lot, department, form.process.value, item)
+    : false;
   const issue = createSafeDepartmentIssue(item, department, form.process.value, form.remarks.value, {
     grossWeight: issuedGrossWeight,
     waxStoneWeight: issuedWaxStoneWeight,
@@ -1606,9 +1623,11 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     stoneAdjustmentOrderId: stoneAdjustmentOrder?.id || "",
     stoneAdjustmentProductionNo: stoneAdjustmentOrder?.productionNo || stoneAdjustmentOrder?.number || (stoneAdjustmentType === "trace" ? "Whole Job Card" : ""),
     completedStage,
+    goldIssueLotId: safeGoldIssue.created ? lot?.id || "" : "",
   });
   state.safeDepartmentIssues = state.safeDepartmentIssues || [];
   state.safeDepartmentIssues.unshift(issue);
+  if (safeGoldIssue.created && lot) lot.safeDepartmentIssueId = issue.id;
   const stoneAdjustmentSummary = applySafeIssueStoneAdjustment(stoneAdjustmentOrder, issue, stoneAdjustmentOrders);
   const remainingGrossWeight = Number(weight3(Math.max(availableGrossWeight - issuedGrossWeight, 0)));
   const remainingWaxStoneWeight = Number(weight3(Math.max(availableWaxStoneWeight - issuedWaxStoneWeight, 0)));
@@ -1649,7 +1668,12 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   const issueWeightSummary = issue.issuedNonGoldWeight > 0
     ? `${nonGoldBreakdownText(issue.issuedNonGoldBreakdown, issue.nonGoldCategory, issue.issuedNonGoldWeight)} / Total ${gram(issue.issuedNonGoldWeight)}`
     : `GW ${gram(issue.issuedGrossWeight)} / Gold ${gram(issue.issuedNetWeight)}`;
-  alert(`${safeIssueDestinationModeLabel(destinationMode)} saved.\n${issue.jobNumber ? `${issue.jobNumber}${issue.lotNumber ? ` / ${issue.lotNumber}` : " / Gold Pending"}${issue.productionNo ? ` / ${issue.productionNo}` : ""}\n` : ""}${issueWeightSummary} issued to ${department.name}.${stoneAdjustmentSummary ? `\n${stoneAdjustmentSummary}` : ""}`);
+  const lotActionSummary = safeGoldIssue.created
+    ? `\nGOLD ISSUE CREATED: ${lot.number} / ${lot.currentDepartment || lot.karigarName}.`
+    : lotMovedToDepartment
+      ? `\nLOT TRANSFERRED: ${lot.number} / ${lot.currentDepartment || lot.karigarName}.`
+      : "";
+  alert(`${safeIssueDestinationModeLabel(destinationMode)} saved.\n${issue.jobNumber ? `${issue.jobNumber}${issue.lotNumber ? ` / ${issue.lotNumber}` : " / Gold Pending"}${issue.productionNo ? ` / ${issue.productionNo}` : ""}\n` : ""}${issueWeightSummary} issued to ${department.name}.${lotActionSummary}${stoneAdjustmentSummary ? `\n${stoneAdjustmentSummary}` : ""}`);
 });
 
 document.getElementById("cancel-safe-issue").addEventListener("click", () => {
@@ -6610,6 +6634,287 @@ function safeIssueDestinationDescription(issue = {}) {
   return issue.destinationMode === "job" ? `${jobReference} at ${department}` : `${jobReference} + ${department}`;
 }
 
+function ensureSafeIssueProductionLot({
+  selection = {},
+  lot = null,
+  department = null,
+  process = "",
+  item = {},
+  issuedGrossWeight = 0,
+  issuedWaxStoneWeight = 0,
+  issuedNonGoldWeight = 0,
+  issuedNonGoldBreakdown = {},
+  issuedNetWeight = 0,
+  stoneAdjustmentParts = {},
+} = {}) {
+  if (lot || !selection.jobNumber || !selection.orders?.length || !department) return { lot, created: false };
+  const orders = selection.orders.filter((order) => !isCompletedOrder(order) && order.status !== "Discarded");
+  if (!orders.length) return { lot: null, created: false };
+  const lotNumber = `LOT-${state.nextLot++}`;
+  const issueProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name);
+  const metalPurity = karatLogicPurity(item.purity || item.locker || orders[0]?.purity || "18K");
+  const tracedWaxStone = Number(weight3(stoneAdjustmentParts.wax || 0));
+  const tracedHandStone = Number(weight3(stoneAdjustmentParts.hand || 0));
+  const waxStoneWeight = Number(weight3(Number(issuedWaxStoneWeight || 0) + tracedWaxStone));
+  const initialHandStoneWeight = tracedHandStone;
+  const issueOtherNonGoldWeight = Number(weight3(Math.max(
+    Number(issuedNonGoldWeight || 0) - tracedWaxStone - tracedHandStone,
+    0,
+  )));
+  orders.forEach((order) => {
+    order.status = "In Production";
+  });
+  const createdLot = {
+    id: crypto.randomUUID(),
+    number: lotNumber,
+    issueDate: today(),
+    createdAt: new Date().toISOString(),
+    orderId: orders[0].id,
+    orderIds: orders.map((order) => order.id),
+    orderNumber: selection.jobNumber,
+    karigarId: department.id,
+    karigarName: department.name,
+    issueKarigarId: department.id,
+    issueKarigarName: department.name,
+    issueDepartment: issueProcess,
+    currentDepartment: issueProcess,
+    metalPurity,
+    grossIssuedWeight: Number(weight3(issuedGrossWeight)),
+    waxStoneWeight,
+    initialHandStoneWeight,
+    issueOtherNonGoldWeight,
+    issueNonGoldWeight: Number(weight3(issuedNonGoldWeight)),
+    issueNonGoldBreakdown: normalizeNonGoldBreakdown(issuedNonGoldBreakdown),
+    issuedWeight: Number(weight3(issuedNetWeight)),
+    castingSafeItemId: item.id || "",
+    castingSafeItemDescription: item.description || "",
+    issueSourceName: `SHELF${safeLockerForPurity(item.locker || item.purity || metalPurity)}`,
+    issueSourceDetail: safeIssueItemOptionLabel(item),
+    issueSourceLocker: safeLockerForPurity(item.locker || item.purity || metalPurity),
+    rodColour: safeItemColour(item),
+    rodDesiredPurity: transferPurityLabel(safeItemDesiredPurity(item)),
+    expectedWastage: 0,
+    finishedWeight: 0,
+    actualWastage: 0,
+    status: "Issued",
+    transfers: [],
+    createdFromSafeIssue: true,
+  };
+  state.lots.unshift(createdLot);
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Out",
+    purity: metalPurity,
+    weight: Number(weight3(issuedNetWeight)),
+    reference: `${lotNumber} for ${selection.jobNumber} issued from ${createdLot.issueSourceName} to ${department.name}; Gold Issue GW ${gram(issuedGrossWeight)} - Wax ${gram(waxStoneWeight)} - Hand ${gram(initialHandStoneWeight)} - Other ${gram(issueOtherNonGoldWeight)} = Net Gold ${gram(issuedNetWeight)}`,
+  });
+  return { lot: createdLot, created: true };
+}
+
+function transferExistingLotForSafeIssue(lot = null, department = null, process = "", item = {}) {
+  if (!lot || !department || lot.status === "Completed") return false;
+  const targetProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name);
+  const sameDepartment = lot.karigarId === department.id;
+  const sameProcess = departmentTextKey(lot.currentDepartment || lot.karigarName) === departmentTextKey(targetProcess);
+  if (sameDepartment && sameProcess) return false;
+  const transferWeight = Number(weight3(currentTransferIssueWeight(lot)));
+  if (transferWeight <= 0) return false;
+  const waxStoneWeight = Number(weight3(transferWaxStoneWeight(lot)));
+  const handStoneWeight = Number(weight3(currentHandStoneWeight(lot)));
+  const receivedWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - handStoneWeight - Number(lot.issueOtherNonGoldWeight || 0), 0)));
+  const transfer = {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    fromKarigarId: lot.karigarId || "",
+    fromKarigarName: lot.karigarName || lot.currentDepartment || "",
+    toKarigarId: department.id,
+    toKarigarName: department.name,
+    transferWeight,
+    grossReceivedWeight: transferWeight,
+    waxStoneWeight,
+    stoneWeight: handStoneWeight,
+    handStoneWeight,
+    reducedWeight: Number(weight3(waxStoneWeight + handStoneWeight + Number(lot.issueOtherNonGoldWeight || 0))),
+    receivedWeight,
+    departmentBalance: 0,
+    differencePurity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || ""),
+    differenceFineGold: 0,
+    balanceDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName),
+    fromDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName),
+    toDepartment: targetProcess,
+    toProcessRaw: process || targetProcess,
+    reason: `Lot transferred with Safe shelf issue: ${item.description || "Shelf item"}`,
+  };
+  lot.transfers = lot.transfers || [];
+  lot.transfers.push(transfer);
+  recalculateLotAfterTransferChange(lot);
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Transfer",
+    purity: lot.metalPurity || "-",
+    weight: receivedWeight,
+    reference: `${lot.number} transferred with Safe shelf issue from ${transfer.fromDepartment} to ${targetProcess}; GW ${gram(transferWeight)} / Net ${gram(receivedWeight)}`,
+  });
+  return true;
+}
+
+function migrateLegacySafeShelfGoldIssues(currentState) {
+  const issues = currentState.safeDepartmentIssues || [];
+  const lots = currentState.lots || [];
+  const orders = currentState.orders || [];
+  issues.forEach((issue) => {
+    if (issue.goldIssueLotId || issue.status !== "In Department") return;
+    const selectedOrder = issue.orderId ? orders.find((order) => order.id === issue.orderId) : null;
+    const jobNumber = String(issue.jobNumber || selectedOrder?.jobNumber || "").trim();
+    if (!jobNumber) return;
+    const jobOrders = orders.filter((order) => String(order.jobNumber || "").trim().toLowerCase() === jobNumber.toLowerCase());
+    const activeOrders = jobOrders.filter((order) => !isCompletedOrder(order) && order.status !== "Discarded");
+    if (!activeOrders.length) return;
+    let linkedLot = (issue.lotId ? lots.find((lot) => lot.id === issue.lotId) : null)
+      || (issue.lotNumber ? lots.find((lot) => lot.number === issue.lotNumber) : null)
+      || lots.find((lot) => String(lot.orderNumber || "").trim().toLowerCase() === jobNumber.toLowerCase() && lot.status !== "Completed");
+    if (linkedLot) {
+      issue.lotId = linkedLot.id;
+      issue.lotNumber = linkedLot.number;
+      migrateLegacySafeShelfLotDepartment(currentState, issue, linkedLot);
+      return;
+    }
+    const department = (issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null) || {};
+    const departmentId = department.id || issue.departmentId || "";
+    const departmentName = department.name || issue.departmentName || issue.process || "";
+    if (!departmentName) return;
+    let lotNumber = "";
+    do {
+      lotNumber = `LOT-${currentState.nextLot++}`;
+    } while (lots.some((lot) => lot.number === lotNumber));
+    const tracedWaxStone = Number(weight3(issue.waxStoneAdjustmentWeight || 0));
+    const tracedHandStone = Number(weight3(issue.handStoneAdjustmentWeight || 0));
+    const issuedGrossWeight = Number(weight3(issue.issuedGrossWeight || issue.grossWeight || 0));
+    const issuedWaxStoneWeight = Number(weight3(issue.issuedWaxStoneWeight || issue.waxStoneWeight || 0));
+    const issuedNonGoldWeight = Number(weight3(issue.issuedNonGoldWeight || issue.nonGoldWeight || 0));
+    const issuedNetWeight = Number(weight3(issue.issuedNetWeight ?? issue.netWeight ?? Math.max(issuedGrossWeight - issuedWaxStoneWeight - issuedNonGoldWeight, 0)));
+    if (issuedGrossWeight <= 0) return;
+    const issueProcess = mergedProductionDepartmentName(issue.process || departmentName);
+    const metalPurity = karatLogicPurity(issue.purity || issue.locker || activeOrders[0]?.purity || "18K");
+    const createdLot = {
+      id: crypto.randomUUID(),
+      number: lotNumber,
+      issueDate: issue.date || today(),
+      createdAt: issue.createdAt || new Date().toISOString(),
+      createdAtInferred: Boolean(issue.createdAtInferred),
+      orderId: activeOrders[0].id,
+      orderIds: activeOrders.map((order) => order.id),
+      orderNumber: jobNumber,
+      karigarId: departmentId,
+      karigarName: departmentName,
+      issueKarigarId: departmentId,
+      issueKarigarName: departmentName,
+      issueDepartment: issueProcess,
+      currentDepartment: issueProcess,
+      metalPurity,
+      grossIssuedWeight: issuedGrossWeight,
+      waxStoneWeight: Number(weight3(issuedWaxStoneWeight + tracedWaxStone)),
+      initialHandStoneWeight: tracedHandStone,
+      issueOtherNonGoldWeight: Number(weight3(Math.max(issuedNonGoldWeight - tracedWaxStone - tracedHandStone, 0))),
+      issueNonGoldWeight: issuedNonGoldWeight,
+      issueNonGoldBreakdown: normalizeNonGoldBreakdown(issue.issuedNonGoldBreakdown || issue.nonGoldBreakdown),
+      issuedWeight: issuedNetWeight,
+      castingSafeItemId: issue.safeItemId || "",
+      castingSafeItemDescription: issue.itemDescription || "",
+      issueSourceName: `SHELF${safeLockerForPurity(issue.locker || issue.purity || metalPurity)}`,
+      issueSourceDetail: issue.itemDescription || issue.itemKind || "Legacy shelf issue",
+      issueSourceLocker: safeLockerForPurity(issue.locker || issue.purity || metalPurity),
+      expectedWastage: 0,
+      finishedWeight: 0,
+      actualWastage: 0,
+      status: "Issued",
+      transfers: [],
+      createdFromSafeIssue: true,
+      migratedFromSafeIssue: true,
+      safeDepartmentIssueId: issue.id,
+    };
+    lots.unshift(createdLot);
+    linkedLot = createdLot;
+    activeOrders.forEach((order) => {
+      order.status = "In Production";
+    });
+    issue.destinationMode = "both";
+    issue.lotId = linkedLot.id;
+    issue.lotNumber = linkedLot.number;
+    issue.jobNumber = jobNumber;
+    issue.goldIssueLotId = linkedLot.id;
+  });
+}
+
+function migrateLegacySafeShelfLotDepartment(currentState, issue = {}, lot = {}) {
+  if (normalizeSafeIssueDestinationMode(issue.destinationMode, issue.lotId) !== "both" || lot.status === "Completed") return;
+  const targetDepartment = (issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null) || {};
+  const targetDepartmentId = targetDepartment.id || issue.departmentId || "";
+  const targetDepartmentName = targetDepartment.name || issue.departmentName || "";
+  const targetProcess = mergedProductionDepartmentName(issue.process || targetDepartmentName);
+  if (!targetDepartmentName || !targetProcess) return;
+  const sameDepartment = lot.karigarId === targetDepartmentId || departmentTextKey(lot.karigarName) === departmentTextKey(targetDepartmentName);
+  const sameProcess = departmentTextKey(lot.currentDepartment || lot.karigarName) === departmentTextKey(targetProcess);
+  if (sameDepartment && sameProcess) return;
+  const transfers = lot.transfers || [];
+  if (transfers.some((transfer) => transfer.safeDepartmentIssueId === issue.id)) return;
+  const latest = transfers.at(-1);
+  const issueTime = transferHistoryTime(issue.createdAt, issue.date);
+  const latestTime = latest ? transferHistoryTime(latest.createdAt, latest.date) : transferHistoryTime(lot.createdAt, lot.issueDate);
+  if (latestTime > issueTime) return;
+  const transferWeight = Number(weight3(latest?.grossReceivedWeight ?? latest?.transferWeight ?? lot.grossIssuedWeight ?? lot.issuedWeight ?? 0));
+  if (transferWeight <= 0) return;
+  const waxStoneWeight = Number(weight3(latest?.waxStoneWeight ?? lot.waxStoneWeight ?? 0));
+  const handStoneWeight = Number(weight3(latest?.handStoneWeight ?? latest?.stoneWeight ?? lot.initialHandStoneWeight ?? 0));
+  const otherNonGoldWeight = Number(weight3(lot.issueOtherNonGoldWeight || 0));
+  const receivedWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - handStoneWeight - otherNonGoldWeight, 0)));
+  const fromDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
+  const transfer = {
+    id: crypto.randomUUID(),
+    date: issue.date || today(),
+    createdAt: issue.createdAt || new Date().toISOString(),
+    createdAtInferred: Boolean(issue.createdAtInferred),
+    safeDepartmentIssueId: issue.id,
+    fromKarigarId: lot.karigarId || "",
+    fromKarigarName: lot.karigarName || lot.currentDepartment || "",
+    toKarigarId: targetDepartmentId,
+    toKarigarName: targetDepartmentName,
+    transferWeight,
+    grossReceivedWeight: transferWeight,
+    waxStoneWeight,
+    stoneWeight: handStoneWeight,
+    handStoneWeight,
+    reducedWeight: Number(weight3(waxStoneWeight + handStoneWeight + otherNonGoldWeight)),
+    receivedWeight,
+    departmentBalance: 0,
+    differencePurity: karatLogicPurity(lot.metalPurity || activeOrderPurityForState(currentState, lot)),
+    differenceFineGold: 0,
+    balanceDepartment: fromDepartment,
+    fromDepartment,
+    toDepartment: targetProcess,
+    toProcessRaw: issue.process || targetProcess,
+    reason: `Previous shelf issue migrated to production transfer: ${issue.itemDescription || "Shelf item"}`,
+  };
+  lot.transfers = transfers;
+  lot.transfers.push(transfer);
+  lot.karigarId = targetDepartmentId;
+  lot.karigarName = targetDepartmentName;
+  lot.currentDepartment = targetProcess;
+  lot.status = "Issued";
+  const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  (currentState.orders || []).filter((order) => orderIds.includes(order.id)).forEach((order) => {
+    if (!isCompletedOrder(order) && order.status !== "Discarded") order.status = "In Production";
+  });
+}
+
+function activeOrderPurityForState(currentState, lot = {}) {
+  const orderIds = lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
+  return (currentState.orders || []).find((order) => orderIds.includes(order.id))?.purity || "";
+}
+
 function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = state) {
   const issuedGrossWeight = Number(weight3(issue.issuedGrossWeight ?? issue.grossWeight ?? item.grossWeight ?? 0));
   const issuedWaxStoneWeight = Number(weight3(issue.issuedWaxStoneWeight ?? issue.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
@@ -6708,6 +7013,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     stoneAdjustmentOrderId: issue.stoneAdjustmentOrderId || "",
     stoneAdjustmentProductionNo: issue.stoneAdjustmentProductionNo || "",
     completedStage: String(issue.completedStage || issue.stoneAdjustmentCompletedStage || "").trim(),
+    goldIssueLotId: issue.goldIssueLotId || "",
     issuedGrossWeight,
     issuedWaxStoneWeight,
     issuedNonGoldWeight,
@@ -6774,6 +7080,7 @@ function createSafeDepartmentIssue(item, department, process = "", remarks = "",
     stoneAdjustmentOrderId: issueWeights.stoneAdjustmentOrderId || "",
     stoneAdjustmentProductionNo: issueWeights.stoneAdjustmentProductionNo || "",
     completedStage: String(issueWeights.completedStage || "").trim(),
+    goldIssueLotId: issueWeights.goldIssueLotId || "",
     issuedNetWeight,
     grossWeight: issuedGrossWeight,
     waxStoneWeight: issuedWaxStoneWeight,
@@ -7176,8 +7483,8 @@ function updateSafeIssueDestinationMode() {
     note.textContent = mode === "department"
       ? "Department Only keeps the item in department holding without linking it to a job card."
       : mode === "job"
-        ? "Job Card Only links this partial shelf issue to the selected production job. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance."
-        : "Job Card + Department links this partial shelf issue to the production job and department. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance.";
+        ? "Job Card Only creates Gold Issue for a Gold Pending job and places the lot in its selected department. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance."
+        : "Job Card + Department creates Gold Issue for a Gold Pending job and places or transfers the lot to the selected department. Non-gold is optional in each small lot; combined issues use the shelf's remaining balance.";
   }
   updateSafeIssueCalculation();
   updateSafeIssueJobStageSummary();
@@ -7222,7 +7529,7 @@ function updateSafeIssueCalculation() {
   const selection = safeIssueLinksJobCard(mode) ? safeIssueJobSelection(form.lotId.value) : safeIssueJobSelection();
   const linkedOrder = selection.jobNumber && form.orderId?.value ? findById("orders", form.orderId.value) : null;
   const destinationText = selection.jobNumber
-    ? `${safeIssueDestinationModeLabel(mode)} / ${selection.jobNumber}${selection.lot ? ` / ${selection.lot.number}` : " / Gold Pending"}${linkedOrder ? ` / ${linkedOrder.productionNo || linkedOrder.number}` : " / Whole Job Card"}`
+    ? `${safeIssueDestinationModeLabel(mode)} / ${selection.jobNumber}${selection.lot ? ` / ${selection.lot.number}` : " / Gold Pending / Will Create Gold Issue"}${linkedOrder ? ` / ${linkedOrder.productionNo || linkedOrder.number}` : " / Whole Job Card"}`
     : safeIssueDestinationModeLabel(mode);
   const issueComponentText = nonGoldBreakdownText(issueNonGoldBreakdown) || "None selected";
   summary.textContent = `${item.description || "Shelf item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.purity || item.locker)}. ${destinationText}. Remaining shelf balance: GW ${gram(availableGrossWeight)} / Non-Gold ${gram(availableNonGoldWeight)} / Gold ${gram(availableNetWeight)}. This partial issue: ${issueComponentText}. GW ${gram(issueGrossWeight)} - Wax ${gram(issueWaxStoneWeight)} - Non-Gold ${gram(issueNonGoldWeight)} = Gold ${gram(issueNetWeight)}. Each small lot may have a different non-gold portion; all saved issues are deducted cumulatively.`;
@@ -8738,7 +9045,7 @@ function factoryPhysicalStock() {
 
   addFactoryCompletedBillStock(parts);
 
-  safeDepartmentIssuesInHand().filter((issue) => issue.destinationMode !== "job" || !issue.lotId).forEach((issue) => {
+  safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
     const gross = Number(issue.grossWeight || issue.netWeight || 0);
     const gold = Number(issue.netWeight || gross);
     addFactoryStockPart(parts, "departmentIssues", "Safe Items In Departments", gross, gold, issue.purity || issue.locker || "", null, issue.nonGoldWeight || 0);
@@ -13787,7 +14094,7 @@ function currentHandStoneWeight(lot, beforeTransferId = "") {
   const transferIndex = beforeTransferId ? allTransfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
   const transfers = transferIndex >= 0 ? allTransfers.slice(0, transferIndex) : allTransfers;
   const latestWithHandStone = [...transfers].reverse().find((transfer) => Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? 0) > 0);
-  return Number(latestWithHandStone?.handStoneWeight ?? latestWithHandStone?.stoneWeight ?? 0);
+  return Number(latestWithHandStone?.handStoneWeight ?? latestWithHandStone?.stoneWeight ?? lot.initialHandStoneWeight ?? 0);
 }
 
 function isSettingDepartment(value = "") {
@@ -16945,7 +17252,7 @@ function departmentMetalInHand() {
       purity: issue.purity || issue.karat || "",
     });
   });
-  safeDepartmentIssuesInHand().filter((issue) => issue.destinationMode !== "job" || !issue.lotId).forEach((issue) => {
+  safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
     addDepartmentWeight(departments, issue.departmentName || issue.process || "Unassigned", {
       gross: Number(issue.grossWeight || 0),
       gold: Number(issue.netWeight || 0),
@@ -17045,19 +17352,20 @@ function departmentCurrentLotTotals(lot) {
     : 0;
   const handStone = Math.max(existingHandStone, Number(plannedHandStone || 0));
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
+  const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
   const metalGross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
   const waxStone = Number(weight3(lotWaxStone + linkedSafe.waxStone));
-  const nonGold = Number(weight3(directNonGold + linkedSafe.nonGold));
+  const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold));
   const gross = Number(weight3(metalGross + directNonGold + linkedSafe.gross));
-  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone, 0) + linkedSafe.gold));
+  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold, 0) + linkedSafe.gold));
   return { gross, gold, waxStone, handStone, nonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
 function safeJobIssuePhysicalTotalsForLot(lot = {}) {
   return (state.safeDepartmentIssues || [])
     .map((rawIssue) => normalizeSafeDepartmentIssue(rawIssue, rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {}))
-    .filter((issue) => issue.lotId === lot.id && issue.destinationMode === "job" && issue.status === "In Department")
+    .filter((issue) => !issue.goldIssueLotId && issue.lotId === lot.id && issue.destinationMode === "job" && issue.status === "In Department")
     .reduce((totals, issue) => ({
       gross: Number(weight3(totals.gross + Number(issue.grossWeight || 0))),
       gold: Number(weight3(totals.gold + Number(issue.netWeight || 0))),
@@ -23604,9 +23912,10 @@ function sortTransferHistoryEntries(entries = []) {
 }
 
 function safeDepartmentTransferHistoryEntries() {
-  const issues = (state.safeDepartmentIssues || []).map((rawIssue) => {
+  const issues = (state.safeDepartmentIssues || []).flatMap((rawIssue) => {
     const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
-    return { type: "safe-department-issue", issue: normalizeSafeDepartmentIssue(rawIssue, item) };
+    const issue = normalizeSafeDepartmentIssue(rawIssue, item);
+    return issue.goldIssueLotId ? [] : [{ type: "safe-department-issue", issue }];
   });
   const returns = (state.safeDepartmentReturns || []).map((entry) => ({
     type: "safe-department-return",
@@ -24182,6 +24491,9 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
 }
 
 function goldIssueHistoryEntry(lot) {
+  const initialHandStoneWeight = Number(lot.initialHandStoneWeight || 0);
+  const initialOtherNonGoldWeight = Number(lot.issueOtherNonGoldWeight || 0);
+  const reducedWeight = Number(weight3(Number(lot.waxStoneWeight || 0) + initialHandStoneWeight + initialOtherNonGoldWeight));
   return {
     type: "issue",
     lot,
@@ -24193,12 +24505,13 @@ function goldIssueHistoryEntry(lot) {
       transferWeight: lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)),
       grossReceivedWeight: lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)),
       waxStoneWeight: lot.waxStoneWeight || 0,
-      stoneWeight: 0,
-      reducedWeight: lot.waxStoneWeight || 0,
+      stoneWeight: initialHandStoneWeight,
+      handStoneWeight: initialHandStoneWeight,
+      reducedWeight,
       receivedWeight: lot.issuedWeight,
       differencePurity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || ""),
       differenceFineGold: 0,
-      reason: `Gold issued from ${lot.issueSourceName || lotIssueSourceName(lot)} to ${lot.currentDepartment || lot.karigarName || "-"}${Number(lot.waxStoneWeight || 0) ? `; Gold Issue - Wax Stone = Net Wt, Wax Stone ${gram(lot.waxStoneWeight)}` : ""}`,
+      reason: `Gold issued from ${lot.issueSourceName || lotIssueSourceName(lot)} to ${lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-"}; GW ${gram(lot.grossIssuedWeight || lot.issuedWeight)} - Wax ${gram(lot.waxStoneWeight || 0)} - Hand ${gram(initialHandStoneWeight)} - Other ${gram(initialOtherNonGoldWeight)} = Net Gold ${gram(lot.issuedWeight)}`,
     },
   };
 }
@@ -24265,6 +24578,9 @@ function renderLotHistoryTable(lot) {
 function renderGoldIssueHistoryRow(lot) {
   const issueGw = Number(lot.grossIssuedWeight || lot.issuedWeight || 0);
   const waxStone = Number(lot.waxStoneWeight || 0);
+  const handStone = Number(lot.initialHandStoneWeight || 0);
+  const otherNonGold = Number(lot.issueOtherNonGoldWeight || 0);
+  const reducedWeight = Number(weight3(waxStone + handStone + otherNonGold));
   const sourceName = lotIssueSourceName(lot);
   const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
   const destination = departmentTransferDetail(lot.issueKarigarName || lot.karigarName || firstDepartment, firstDepartment);
@@ -24277,13 +24593,13 @@ function renderGoldIssueHistoryRow(lot) {
       <td>${gram(issueGw)}</td>
       <td>${gram(issueGw)}</td>
       <td>${gram(waxStone)}</td>
-      <td>${gram(0)}</td>
-      <td>${gram(waxStone)}</td>
+      <td>${gram(handStone)}</td>
+      <td>${gram(reducedWeight)}</td>
       <td>${gram(lot.issuedWeight)}</td>
       <td>-</td>
       <td>${escapeHtml(transferPurityLabel(lot.metalPurity || "-"))}</td>
       <td>${gram(0)}</td>
-      <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${transferPurityLabel(lot.metalPurity || "-")}; Gold Issue - Wax Stone = Net Wt`)}</td>
+      <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${transferPurityLabel(lot.metalPurity || "-")}; Gold Issue GW ${gram(issueGw)} - Wax ${gram(waxStone)} - Hand ${gram(handStone)} - Other ${gram(otherNonGold)} = Net Gold ${gram(lot.issuedWeight)}`)}</td>
       <td>-</td>
     </tr>
   `;
@@ -24989,7 +25305,9 @@ function normalizeState(currentState) {
   );
   currentState.safeDepartmentIssues = (currentState.safeDepartmentIssues || []).map((issue) => {
     const item = issue.safeItemId ? currentState.safeItems.find((entry) => entry.id === issue.safeItemId) || {} : {};
-    return normalizeSafeDepartmentIssue(issue, item, currentState);
+    const normalizedIssue = normalizeSafeDepartmentIssue(issue, item, currentState);
+    if (!issue.destinationMode && (issue.jobNumber || issue.orderId || issue.lotId || issue.lotNumber)) normalizedIssue.destinationMode = "both";
+    return normalizedIssue;
   });
   currentState.metalSafeMovements = (currentState.metalSafeMovements || []).map((movement) => ({
     id: movement.id || crypto.randomUUID(),
@@ -25302,6 +25620,7 @@ function normalizeState(currentState) {
     const lot = issue.lotId ? (currentState.lots || []).find((item) => item.id === issue.lotId) || {} : {};
     return normalizeProductionNonGoldIssue(issue, lot, currentState);
   });
+  migrateLegacySafeShelfGoldIssues(currentState);
   currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
   currentState.settingManagerEntries = (currentState.settingManagerEntries || []).map((entry) => normalizeSettingManagerEntry(entry, currentState));
   currentState.lots.forEach((lot) => {
