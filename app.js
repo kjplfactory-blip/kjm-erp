@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v433";
+const APP_VERSION = "v434";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -12292,7 +12292,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
   const design = findById("designs", order.designId) || {};
   const productionNo = item.productionNo || order.productionNo || order.number || "";
   const designName = order.designNo || designLabel(order.designId) || (design.id ? designText(design) : "") || "-";
-  const sizeText = soldItemSizeText(order) || "-";
+  const sizeText = billItemSizeText(item, order) || "-";
   const nonGold = billItemNonGoldBreakup(item, order);
   const huid = officeHuidText(item);
   const hmLot = hallmarkLotLabel(item) || "-";
@@ -12311,7 +12311,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
           <span>${escapeHtml(item.purity || order.purity || "-")}</span>
         </div>
         <div class="hallmark-tag-line"><b>HUID</b> ${escapeHtml(huid)} <b>HM</b> ${escapeHtml(hmLot)} <b>Bill</b> ${escapeHtml(bill.billNo || "-")}</div>
-        <div class="hallmark-tag-line">${escapeHtml(designName)} / ${escapeHtml(order.category || design.category || "-")} / ${escapeHtml(order.color || "-")} / Sz ${escapeHtml(sizeText)}</div>
+        <div class="hallmark-tag-line">${escapeHtml(designName)} / ${escapeHtml(item.category || order.category || design.category || "-")} / ${escapeHtml(item.color || order.color || "-")} / Sz ${escapeHtml(sizeText)}</div>
         <div class="hallmark-tag-line"><b>GW</b> ${weight3(item.finalGw)} <b>ST</b> ${weight3(nonGold.stoneWeight)} <b>NET</b> ${weight3(item.netWeight)} <b>Job</b> ${escapeHtml(lot.orderNumber || lot.number || "-")}</div>
         <div class="hallmark-tag-line">${escapeHtml(order.customer || "-")} / ${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / ${escapeHtml(nonGoldText)}</div>
       </div>
@@ -12384,12 +12384,12 @@ function billTagIndividualItemDetail(item = {}, order = {}) {
   if (isCbCategory(category)) {
     if (["CL", "CLR"].includes(ringType)) {
       const label = category === "CBR" ? "CLR" : "CL";
-      const size = item.clSize || order.clSize || item.size || order.size || "-";
+      const size = item.size || item.clSize || order.clSize || order.size || "-";
       return `${label} / SIZE ${size}`;
     }
     if (["CG", "CGR"].includes(ringType)) {
       const label = category === "CBR" ? "CGR" : "CG";
-      const size = item.cgSize || order.cgSize || item.size || order.size || "-";
+      const size = item.size || item.cgSize || order.cgSize || order.size || "-";
       return `${label} / SIZE ${size}`;
     }
   }
@@ -12576,13 +12576,14 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     customer: order.customer || "",
     orderType: manufacturingOrderTypeLabel(order.customer || ""),
     officeDestination: manufacturingOfficeDestinationLabel(order.customer || ""),
-    design: order.designNo || designLabel(order.designId) || "",
-    category: order.category || "Uncategorised",
+    design: item.designNo || order.designNo || designLabel(order.designId) || "",
+    category: item.category || order.category || "Uncategorised",
     ringType: item.ringType || order.ringType || "",
     cmItemType: item.cmItemType || order.cmItemType || "",
-    size: item.size || order.size || "",
+    size: billItemSizeText(item, order),
     clSize: item.clSize || order.clSize || "",
     cgSize: item.cgSize || order.cgSize || "",
+    color: item.color || order.color || "",
     purity: item.purity || order.purity || "",
     finalGw,
     blackBeadsWeight: billNumber(item.blackBeadsWeight || item.bbWeight || nonGold.blackBeadsWeight),
@@ -12629,6 +12630,7 @@ function billPrintItemTableHtml(items = []) {
       <td>${escapeHtml(item.customer || "-")}<br><small>${escapeHtml(item.orderType || "")}</small></td>
       <td>${escapeHtml(item.category || "-")}</td>
       <td>${escapeHtml(item.design || "-")}</td>
+      <td>${escapeHtml(item.size || "-")}</td>
       <td>${escapeHtml(item.purity || "-")}</td>
       <td>${gram(item.finalGw)}</td>
       <td>${gram(item.blackBeadsWeight)}</td>
@@ -12643,9 +12645,9 @@ function billPrintItemTableHtml(items = []) {
   return `
     <table class="bill-print-table bill-print-items-table">
       <thead>
-        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
+        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Size</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="14">No item details</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="15">No item details</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -20556,7 +20558,7 @@ function renderOfficeLibraryItems(entries, emptyText) {
     const hmLot = hallmarkLotLabel(item);
     const nonGold = billItemNonGoldBreakup(item, order);
     const itemType = item.item || item.cmItemType || item.ringType || order.item || order.cmItemType || order.ringType || "-";
-    const sizeText = item.size || item.clSize || item.cgSize || soldItemSizeText(order) || "-";
+    const sizeText = billItemSizeText(item, order) || "-";
     const soldAction = item.saleStatus === "Sold"
       ? `<button type="button" class="ghost-button office-view-button" data-sold-view-key="${escapeHtml(key)}">View</button>`
       : "";
@@ -20809,7 +20811,7 @@ async function openOfficeItemView(key) {
             ${soldDetailCell("Category", order.category || design.category)}
             ${isSetItemCategory(order.category || design.category) ? soldDetailCell(setItemFieldLabel(order.category || design.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category || design.category), order.category || design.category)) : ""}
             ${soldDetailCell("Ring Type", ringTypeLabel(order.ringType))}
-            ${soldDetailCell("Size", soldItemSizeText(order))}
+            ${soldDetailCell("Size", billItemSizeText(item, order))}
             ${soldDetailCell("Colour", order.color)}
             ${soldDetailCell("Purity", item.purity || order.purity)}
             ${soldDetailCell("GW", gram(item.finalGw))}
@@ -21713,6 +21715,30 @@ function billOrderDesignCode(order = {}) {
   return order.designNo || order.designNumber || design.number || designText(design) || order.category || "";
 }
 
+function billOrderUsesSize(order = {}) {
+  return isCbCategory(order.category)
+    || needsNormalSize(order.category)
+    || Boolean(String(order.size || order.clSize || order.cgSize || "").trim());
+}
+
+function billOrderDefaultSize(order = {}) {
+  const ringType = categoryCode(order.ringType || order.item || "");
+  if (isCbCategory(order.category)) {
+    if (["CL", "CLR"].includes(ringType)) return String(order.clSize || order.size || "").trim();
+    if (["CG", "CGR"].includes(ringType)) return String(order.cgSize || order.size || "").trim();
+    const combined = [
+      order.clSize ? `CL ${order.clSize}` : "",
+      order.cgSize ? `CG ${order.cgSize}` : "",
+    ].filter(Boolean).join(" / ");
+    return combined || String(order.size || "").trim();
+  }
+  return String(order.size || "").trim();
+}
+
+function billItemSizeText(item = {}, order = {}) {
+  return String(item.size || "").trim() || billOrderDefaultSize(order);
+}
+
 function renderBillItems(lot, bill = {}) {
   const body = document.getElementById("bill-item-table");
   if (!body) return;
@@ -21729,18 +21755,21 @@ function renderBillItems(lot, bill = {}) {
     const qcStatus = saved.qcStatus || "Pending QC";
     const qcNote = saved.reworkLotNumber ? `Returned: ${saved.reworkLotNumber}` : (saved.officeStatus ? saved.officeStatus : "");
     const designCode = billOrderDesignCode(order);
+    const sizeEnabled = billOrderUsesSize(order);
+    const sizeValue = billItemSizeText(saved, order);
     const itemLabel = [
       designCode || `Item ${index + 1}`,
       order.productionNo || order.number || "",
       order.ringType || "",
     ].filter(Boolean).join(" / ");
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
-          <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}${order.size ? ` / Size ${escapeHtml(order.size)}` : ""}</small>
+          <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}</small>
         </td>
+        <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
         <td>
           <div class="bill-non-gold-grid">
@@ -21767,13 +21796,14 @@ function renderBillItems(lot, bill = {}) {
       </tr>
     `;
   }).join("");
-  body.innerHTML = rows || tableEmpty(7, "No item details found for this job card.");
+  body.innerHTML = rows || tableEmpty(8, "No item details found for this job card.");
 }
 
 function billItemRows(existingItems = []) {
   const canChangeQc = canEditQcStatus();
   return Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]")).map((row) => {
     const existing = existingItems.find((item) => item.orderId === row.dataset.orderId || item.productionNo === row.dataset.productionNo) || {};
+    const sizeInput = row.querySelector('[name="billItemSize"]');
     const finalGwInput = row.querySelector('[name="billItemFinalGw"]');
     const bbNoInput = row.querySelector('[name="billItemBbNo"]');
     const bbTypeInput = row.querySelector('[name="billItemBbType"]');
@@ -21805,6 +21835,11 @@ function billItemRows(existingItems = []) {
       orderId: row.dataset.orderId || "",
       productionNo: row.dataset.productionNo || "",
       designNo: row.dataset.designNo || existing.designNo || "",
+      category: row.dataset.category || existing.category || "",
+      ringType: row.dataset.ringType || existing.ringType || "",
+      cmItemType: row.dataset.cmItemType || existing.cmItemType || "",
+      color: row.dataset.color || existing.color || "",
+      size: String(sizeInput?.value || "").trim(),
       purity: row.dataset.purity || "",
       finalGw: Number(weight3(finalGw)),
       bbNo,
@@ -25375,6 +25410,14 @@ function normalizeState(currentState) {
     items: (bill.items || []).map((item) => ({
       orderId: item.orderId || "",
       productionNo: item.productionNo || "",
+      designNo: item.designNo || "",
+      category: item.category || "",
+      ringType: item.ringType || "",
+      cmItemType: item.cmItemType || "",
+      color: item.color || "",
+      size: item.size || "",
+      clSize: item.clSize || "",
+      cgSize: item.cgSize || "",
       purity: item.purity || "",
       finalGw: Number(item.finalGw || 0),
       bbNo: item.bbNo || item.blackBeads || "",

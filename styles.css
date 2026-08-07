@@ -4344,28 +4344,33 @@ dialog::backdrop {
 
 .bill-item-table th:first-child,
 .bill-item-table td:first-child {
-  width: 19%;
+  width: 17%;
 }
 
 .bill-item-table th:nth-child(2),
 .bill-item-table td:nth-child(2) {
-  width: 8%;
+  width: 7%;
 }
 
 .bill-item-table th:nth-child(3),
 .bill-item-table td:nth-child(3) {
-  width: 37%;
+  width: 8%;
 }
 
 .bill-item-table th:nth-child(4),
-.bill-item-table td:nth-child(4),
+.bill-item-table td:nth-child(4) {
+  width: 34%;
+}
+
 .bill-item-table th:nth-child(5),
 .bill-item-table td:nth-child(5),
 .bill-item-table th:nth-child(6),
 .bill-item-table td:nth-child(6),
 .bill-item-table th:nth-child(7),
-.bill-item-table td:nth-child(7) {
-  width: 9%;
+.bill-item-table td:nth-child(7),
+.bill-item-table th:nth-child(8),
+.bill-item-table td:nth-child(8) {
+  width: 8.5%;
 }
 
 .transfer-entry-table th,
@@ -4778,6 +4783,22 @@ dialog::backdrop {
   color: #5c4200;
   font-size: 12px;
   font-weight: 900;
+}
+
+#bill-dialog input[name="billItemSize"] {
+  border-color: #86cdb9;
+  background: #effbf7;
+  color: #0b514c;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+#bill-dialog .bill-size-not-applicable {
+  display: block;
+  color: #94a3b8;
+  font-weight: 800;
+  text-align: center;
 }
 
 #bill-dialog input[readonly] {
