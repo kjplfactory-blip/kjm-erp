@@ -3617,6 +3617,44 @@ th {
   object-fit: contain;
 }
 
+.design-image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.design-image-gallery.hidden {
+  display: none;
+}
+
+.stone-chart-view-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stone-chart-view-card figcaption {
+  color: var(--brand-dark);
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.stone-chart-view-card img {
+  width: 100%;
+  max-height: calc(100vh - 190px);
+  border-radius: 6px;
+  background: #f5f7f6;
+  object-fit: contain;
+}
+
 #design-detail-dialog {
   width: calc(100vw - 16px);
   max-width: none;
@@ -12898,6 +12936,403 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .production-return-route,
   .production-return-weight-grid,
   .production-return-totals {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phone camera barcode scanner and read-only product viewer. */
+#product-camera-scanner-dialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  height: calc(100dvh - 12px);
+  max-height: calc(100dvh - 12px);
+}
+
+.camera-scanner-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+}
+
+.camera-scanner-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+  gap: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.camera-scanner-panel,
+.camera-product-result {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #cfe2dc;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.camera-scanner-panel {
+  position: relative;
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.camera-scanner-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.camera-scanner-heading h3,
+.camera-scanner-heading p,
+.camera-detail-section h3,
+.camera-product-identity h3,
+.camera-product-identity p {
+  margin: 0;
+}
+
+.camera-status {
+  margin-top: 4px !important;
+  font-weight: 800;
+}
+
+.camera-status.scanning {
+  color: #07594f;
+}
+
+.camera-status.success {
+  color: var(--success);
+}
+
+.camera-status.error {
+  color: var(--danger);
+}
+
+.camera-read-only-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border: 1px solid #9fd7c5;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #e9f8f2;
+  color: #07594f;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.product-camera-reader {
+  position: relative;
+  min-height: 280px;
+  overflow: hidden;
+  border: 2px solid #2d9c77;
+  border-radius: 8px;
+  background: #081b17;
+}
+
+.product-camera-reader video,
+.product-camera-reader img,
+.product-camera-reader canvas {
+  max-width: 100% !important;
+}
+
+.product-camera-reader video {
+  width: 100% !important;
+  min-height: 280px;
+  max-height: 58vh;
+  object-fit: cover;
+}
+
+.camera-scan-guide {
+  display: flex;
+  justify-content: center;
+  margin-top: -2px;
+}
+
+.camera-scan-guide span {
+  width: min(360px, 82%);
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #28b481 14%, #28b481 86%, transparent);
+  box-shadow: 0 0 14px rgba(40, 180, 129, 0.52);
+}
+
+.camera-scanner-fallback {
+  display: grid;
+  grid-template-columns: auto auto minmax(170px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #dbe7e3;
+}
+
+.camera-scanner-fallback > span {
+  align-self: center;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.camera-scanner-fallback label {
+  margin: 0;
+}
+
+.camera-photo-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 1px solid #9fc7bb;
+  border-radius: 7px;
+  padding: 9px 12px;
+  background: #f1faf6;
+  color: #07594f;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.camera-photo-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.camera-product-result {
+  padding: 16px;
+}
+
+.camera-product-card {
+  display: grid;
+  gap: 14px;
+}
+
+.camera-product-hero {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #cfe2dc;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f1faf6 0%, #fff9e8 100%);
+}
+
+.camera-product-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 105 / 148;
+  overflow: hidden;
+  border: 1px solid #b9d3ca;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.camera-product-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.camera-product-image-placeholder {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.camera-product-identity {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+}
+
+.camera-product-identity > small {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.camera-product-identity h3 {
+  color: #07594f;
+  font-size: clamp(24px, 4vw, 42px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.camera-product-identity p {
+  color: #263b35;
+  font-weight: 800;
+}
+
+.camera-product-identity .status {
+  width: max-content;
+}
+
+.camera-detail-section {
+  display: grid;
+  gap: 8px;
+}
+
+.camera-detail-section > h3 {
+  padding-bottom: 6px;
+  border-bottom: 2px solid #d8e9e3;
+  color: #07594f;
+  font-size: 13px;
+}
+
+.camera-product-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.camera-product-detail-grid > span {
+  display: block;
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px;
+  border: 1px solid #dbe7e3;
+  border-radius: 7px;
+  background: #fbfdfc;
+  color: #20322d;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.camera-product-detail-grid > span b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.camera-weight-section .camera-product-detail-grid > span:first-child,
+.camera-weight-section .camera-product-detail-grid > span:nth-child(10) {
+  border-color: #8fcbb8;
+  background: #eaf8f3;
+  color: #07594f;
+}
+
+.camera-product-readonly-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid #2d9c77;
+  background: #eff9f5;
+  color: #315148;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.camera-product-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 300px;
+  padding: 30px;
+  text-align: center;
+}
+
+.camera-product-empty strong {
+  color: #9f2432;
+  font-size: 24px;
+}
+
+.camera-product-empty p,
+.camera-product-empty small {
+  max-width: 560px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .camera-scanner-dialog {
+    overflow: auto;
+  }
+
+  .camera-scanner-workspace {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .camera-scanner-panel,
+  .camera-product-result {
+    overflow: visible;
+  }
+
+  .camera-product-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  #product-camera-scanner-dialog {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .camera-scanner-dialog {
+    padding: 14px;
+  }
+
+  .camera-scanner-dialog > .dialog-header {
+    margin: -14px -14px 2px !important;
+    padding: 14px !important;
+  }
+
+  .camera-scanner-dialog > .dialog-header .row-actions {
+    width: 100%;
+  }
+
+  .camera-scanner-dialog > .dialog-header .row-actions button {
+    flex: 1;
+  }
+
+  .product-camera-reader,
+  .product-camera-reader video {
+    min-height: 230px;
+  }
+
+  .camera-scanner-fallback {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-scanner-fallback > span {
+    justify-self: center;
+  }
+
+  .camera-photo-button {
+    width: 100%;
+  }
+
+  .camera-product-result {
+    padding: 10px;
+  }
+
+  .camera-product-hero {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .camera-product-identity h3 {
+    font-size: 24px;
+  }
+
+  .camera-product-detail-grid {
     grid-template-columns: 1fr;
   }
 }

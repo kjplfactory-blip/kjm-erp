@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v444</small>
+        <small class="app-version-badge">App v447</small>
           </div>
         </div>
         <label>User
@@ -108,11 +108,11 @@
               <span>Scan Barcode</span>
               <input id="global-barcode-scan" class="global-barcode-input" placeholder="Scan PR / HUID / barcode" autocomplete="off">
             </label>
-            <button id="focus-barcode-scan" class="ghost-button" type="button">Scan</button>
+            <button id="focus-barcode-scan" class="ghost-button" type="button">Camera Scan</button>
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v444</span>
+          <span class="app-version-badge">App v447</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1603,6 +1603,47 @@
       </div>
     </dialog>
 
+    <dialog id="product-camera-scanner-dialog">
+      <div class="dialog-card camera-scanner-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2>Scan Product Barcode</h2>
+            <p class="dialog-note">Point the rear camera at the ERP barcode. Scanning only displays product details and does not change any data.</p>
+          </div>
+          <div class="row-actions">
+            <button class="ghost-button hidden" type="button" id="scan-another-product">Scan Another</button>
+            <button class="ghost-button" type="button" id="close-product-camera-scanner">Close</button>
+          </div>
+        </div>
+        <div class="camera-scanner-workspace">
+          <section class="camera-scanner-panel">
+            <div class="camera-scanner-heading">
+              <div>
+                <h3>Phone Camera</h3>
+                <p id="product-camera-status" class="dialog-note" aria-live="polite">Camera is ready to start.</p>
+              </div>
+              <span class="camera-read-only-badge">View Only</span>
+            </div>
+            <div id="product-camera-reader" class="product-camera-reader"></div>
+            <div class="camera-scan-guide" aria-hidden="true"><span></span></div>
+            <div class="camera-scanner-fallback">
+              <label class="camera-photo-button">
+                Scan Barcode Photo
+                <input id="product-barcode-photo" type="file" accept="image/*" capture="environment">
+              </label>
+              <span>or</span>
+              <label>
+                Enter PR / HUID / Barcode
+                <input id="product-camera-manual-code" autocomplete="off" placeholder="Type or paste barcode">
+              </label>
+              <button class="ghost-button" type="button" id="check-product-camera-code">Scan Code</button>
+            </div>
+          </section>
+          <section id="product-camera-result" class="camera-product-result hidden" aria-live="polite"></section>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="production-stone-dialog">
       <form method="dialog" id="production-stone-form" class="dialog-card production-stone-dialog">
         <div class="dialog-header">
@@ -2150,6 +2191,7 @@
           <button class="ghost-button" type="button" id="close-design-image">Close</button>
         </div>
         <img id="design-image-full" class="design-image-full" alt="Design preview">
+        <div id="design-image-gallery" class="design-image-gallery hidden"></div>
       </div>
     </dialog>
 
@@ -2319,6 +2361,7 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=444"></script>
+    <script src="assets/html5-qrcode.min.js?v=2.3.8"></script>
+  <script src="app.js?v=447"></script>
 </body>
 </html>

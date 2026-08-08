@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v444";
+const APP_VERSION = "v447";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -129,6 +129,10 @@ let catalogueImageCache = new Map();
 let barcodeScanBuffer = "";
 let barcodeScanLastInputAt = 0;
 let barcodeScanStatusTimer = null;
+let phoneBarcodeScanner = null;
+let phoneBarcodeScannerActive = false;
+let phoneBarcodeScanSession = 0;
+let phoneBarcodeResultLocked = false;
 let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
@@ -991,12 +995,14 @@ document.getElementById("stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (!requirePageEditPermission("stone-library", "add or edit stone master")) return;
   const data = getFormData(event.target);
-  const existing = data.stoneId ? findById("stones", data.stoneId) : null;
+  const existing = data.stoneId
+    ? findById("stones", data.stoneId)
+    : findStoneByLibraryFields(data.stoneType, data.shape, data.size);
   const stone = {
     id: existing?.id || crypto.randomUUID(),
     stoneType: data.stoneType,
     shape: normalizeOcrShape(data.shape),
-    size: data.size,
+    size: normalizeSizeText(data.size),
     code: stoneLookupCode({ ...data, shape: normalizeOcrShape(data.shape) }),
     weightPerPc: formatStoneWeight(data.weightPerPc),
     pricePerPc: data.pricePerPc,
@@ -1184,9 +1190,37 @@ globalBarcodeScanInput?.addEventListener("change", handleBarcodeScanField);
 globalBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydown);
 
 document.getElementById("focus-barcode-scan")?.addEventListener("click", () => {
-  globalBarcodeScanInput?.focus();
-  globalBarcodeScanInput?.select();
-  setBarcodeScanStatus("Scanner ready", "success");
+  openPhoneBarcodeScanner();
+});
+
+document.getElementById("scan-another-product")?.addEventListener("click", () => {
+  startPhoneBarcodeCamera();
+});
+
+document.getElementById("close-product-camera-scanner")?.addEventListener("click", () => {
+  document.getElementById("product-camera-scanner-dialog")?.close();
+});
+
+document.getElementById("product-camera-scanner-dialog")?.addEventListener("close", () => {
+  stopPhoneBarcodeScanner();
+});
+
+document.getElementById("check-product-camera-code")?.addEventListener("click", () => {
+  const input = document.getElementById("product-camera-manual-code");
+  const value = input?.value || "";
+  if (renderPhoneBarcodeProduct(value).ok && input) input.value = "";
+});
+
+document.getElementById("product-camera-manual-code")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  document.getElementById("check-product-camera-code")?.click();
+});
+
+document.getElementById("product-barcode-photo")?.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (file) scanPhoneBarcodePhoto(file);
 });
 
 document.addEventListener("keydown", handleHardwareBarcodeScan, true);
@@ -5300,6 +5334,326 @@ function sortedDesigns() {
   );
 }
 
+function openPhoneBarcodeScanner() {
+  if (!currentUser) {
+    alert("Login before scanning a product barcode.");
+    return;
+  }
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog.open) dialog.showModal();
+  startPhoneBarcodeCamera();
+}
+
+async function startPhoneBarcodeCamera() {
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog || !currentUser) return;
+  if (!dialog.open) dialog.showModal();
+
+  await stopPhoneBarcodeScanner();
+  phoneBarcodeResultLocked = false;
+  document.getElementById("product-camera-result")?.classList.add("hidden");
+  document.getElementById("scan-another-product")?.classList.add("hidden");
+  const reader = document.getElementById("product-camera-reader");
+  if (reader) {
+    reader.classList.remove("hidden");
+    reader.innerHTML = "";
+  }
+
+  if (typeof window.Html5Qrcode !== "function") {
+    showPhoneBarcodeScanError("Camera scanner could not load. Refresh the latest ERP version and try again.");
+    return;
+  }
+  if (!window.isSecureContext && location.protocol !== "file:") {
+    showPhoneBarcodeScanError("Phone camera access requires the live HTTPS website. You can still use Scan Barcode Photo below.");
+    return;
+  }
+
+  const session = ++phoneBarcodeScanSession;
+  const formats = phoneBarcodeSupportedFormats();
+  const scannerOptions = formats.length ? { formatsToSupport: formats } : {};
+  const scanner = new window.Html5Qrcode("product-camera-reader", scannerOptions);
+  phoneBarcodeScanner = scanner;
+  setPhoneBarcodeCameraStatus("Allow camera permission, then place the full barcode inside the green scanning area.", "scanning");
+
+  try {
+    await scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 12,
+        aspectRatio: 1.777778,
+        qrbox: (width, height) => ({
+          width: Math.max(220, Math.floor(width * 0.88)),
+          height: Math.max(90, Math.min(150, Math.floor(height * 0.42))),
+        }),
+      },
+      (decodedText) => handlePhoneBarcodeDetected(decodedText),
+      () => {}
+    );
+    if (session !== phoneBarcodeScanSession || !dialog.open) {
+      try { await scanner.stop(); } catch (error) {}
+      try { scanner.clear(); } catch (error) {}
+      return;
+    }
+    phoneBarcodeScannerActive = true;
+    setPhoneBarcodeCameraStatus("Camera active. Hold the barcode steady and fill the scanning area.", "scanning");
+  } catch (error) {
+    if (session !== phoneBarcodeScanSession) return;
+    phoneBarcodeScanner = null;
+    phoneBarcodeScannerActive = false;
+    showPhoneBarcodeScanError(phoneBarcodeCameraErrorMessage(error));
+  }
+}
+
+function phoneBarcodeSupportedFormats() {
+  const formats = window.Html5QrcodeSupportedFormats;
+  if (!formats) return [];
+  return [formats.CODE_128, formats.CODE_39, formats.QR_CODE, formats.EAN_13, formats.EAN_8]
+    .filter((value) => Number.isFinite(value));
+}
+
+async function stopPhoneBarcodeScanner() {
+  phoneBarcodeScanSession += 1;
+  const scanner = phoneBarcodeScanner;
+  phoneBarcodeScanner = null;
+  phoneBarcodeScannerActive = false;
+  if (!scanner) return;
+  try { await scanner.stop(); } catch (error) {}
+  try { scanner.clear(); } catch (error) {}
+}
+
+async function handlePhoneBarcodeDetected(decodedText) {
+  if (phoneBarcodeResultLocked) return;
+  phoneBarcodeResultLocked = true;
+  setPhoneBarcodeCameraStatus("Barcode detected. Loading product details...", "success");
+  await stopPhoneBarcodeScanner();
+  renderPhoneBarcodeProduct(decodedText);
+}
+
+async function scanPhoneBarcodePhoto(file) {
+  if (!file || !currentUser) return;
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog.open) dialog.showModal();
+  await stopPhoneBarcodeScanner();
+  phoneBarcodeResultLocked = false;
+  document.getElementById("product-camera-result")?.classList.add("hidden");
+  document.getElementById("scan-another-product")?.classList.add("hidden");
+  if (typeof window.Html5Qrcode !== "function") {
+    showPhoneBarcodeScanError("Barcode photo scanner could not load. Refresh the latest ERP version and try again.");
+    return;
+  }
+  const reader = document.getElementById("product-camera-reader");
+  if (reader) {
+    reader.classList.remove("hidden");
+    reader.innerHTML = "";
+  }
+  const formats = phoneBarcodeSupportedFormats();
+  const scanner = new window.Html5Qrcode("product-camera-reader", formats.length ? { formatsToSupport: formats } : {});
+  phoneBarcodeScanner = scanner;
+  setPhoneBarcodeCameraStatus("Reading barcode from the selected photo...", "scanning");
+  try {
+    const result = await scanner.scanFileV2(file, true);
+    phoneBarcodeScanner = null;
+    try { scanner.clear(); } catch (error) {}
+    renderPhoneBarcodeProduct(result?.decodedText || "");
+  } catch (error) {
+    phoneBarcodeScanner = null;
+    try { scanner.clear(); } catch (clearError) {}
+    showPhoneBarcodeScanError("No supported ERP barcode was found in that photo. Retake it in good light with the complete barcode visible.");
+  }
+}
+
+function phoneBarcodeCameraErrorMessage(error) {
+  const text = String(error?.name || error?.message || error || "").toLowerCase();
+  if (text.includes("notallowed") || text.includes("permission") || text.includes("denied")) {
+    return "Camera permission was blocked. Allow camera access for this website, then press Scan Another.";
+  }
+  if (text.includes("notfound") || text.includes("no camera") || text.includes("devicesnotfound")) {
+    return "No camera was found. Use Scan Barcode Photo or enter the PR number manually.";
+  }
+  if (text.includes("secure") || text.includes("https")) {
+    return "Phone camera access requires the live HTTPS website. Open the live ERP link and try again.";
+  }
+  return "Camera could not start. Close any other app using the camera, check permission, and press Scan Another.";
+}
+
+function setPhoneBarcodeCameraStatus(message, mode = "") {
+  const node = document.getElementById("product-camera-status");
+  if (!node) return;
+  node.textContent = message || "Camera is ready to start.";
+  node.className = ["dialog-note", "camera-status", mode].filter(Boolean).join(" ");
+}
+
+function showPhoneBarcodeScanError(message) {
+  setPhoneBarcodeCameraStatus(message, "error");
+  const result = document.getElementById("product-camera-result");
+  if (result) {
+    result.classList.remove("hidden");
+    result.innerHTML = `
+      <div class="camera-product-empty">
+        <strong>Barcode Not Read</strong>
+        <p>${escapeHtml(message)}</p>
+      </div>
+    `;
+  }
+  document.getElementById("scan-another-product")?.classList.remove("hidden");
+}
+
+function renderPhoneBarcodeProduct(value) {
+  const query = normalizeBarcodeText(value);
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog.open) dialog.showModal();
+  stopPhoneBarcodeScanner();
+  const match = findPhoneBarcodeProduct(query);
+  const result = document.getElementById("product-camera-result");
+  document.getElementById("product-camera-reader")?.classList.add("hidden");
+  document.getElementById("scan-another-product")?.classList.remove("hidden");
+  if (!match.ok) {
+    setPhoneBarcodeCameraStatus(match.message, "error");
+    if (result) {
+      result.classList.remove("hidden");
+      result.innerHTML = `
+        <div class="camera-product-empty">
+          <strong>Product Not Found</strong>
+          <p>${escapeHtml(match.message)}</p>
+          ${query ? `<small>Scanned value: ${escapeHtml(query)}</small>` : ""}
+        </div>
+      `;
+    }
+    return match;
+  }
+
+  setPhoneBarcodeCameraStatus(`Product found: ${match.label}`, "success");
+  if (result) {
+    result.classList.remove("hidden");
+    result.innerHTML = phoneBarcodeProductHtml(match);
+  }
+  loadPhoneBarcodeDesignImage(match.design);
+  return match;
+}
+
+function findPhoneBarcodeProduct(value) {
+  const query = normalizeBarcodeText(value);
+  if (!query) return { ok: false, message: "Scan a barcode or enter a PR / HUID number." };
+  if (!currentUser) return { ok: false, message: "Login before scanning a product barcode." };
+  const order = findOrderByBarcode(query);
+  const officeEntry = findOfficeEntryByBarcode(query);
+  if (!order && !officeEntry) return { ok: false, message: "No ERP product matches this barcode." };
+  if (isSalesUser() && (!officeEntry || !canOpenScannedOfficeEntry(officeEntry))) {
+    return { ok: false, message: "This product is not currently held by your sales team." };
+  }
+  const matchedOrder = order || officeEntry?.order || {};
+  const design = findById("designs", matchedOrder.designId) || {};
+  return {
+    ok: true,
+    query,
+    order: matchedOrder,
+    officeEntry,
+    design,
+    label: matchedOrder.productionNo || officeEntry?.item?.productionNo || matchedOrder.number || "product",
+  };
+}
+
+function phoneBarcodeProductHtml(match) {
+  const order = match.order || {};
+  const design = match.design || {};
+  const officeEntry = match.officeEntry || null;
+  const lotEntries = order.id ? lotsForOrder(order) : [];
+  const lot = officeEntry?.lot || lotEntries.find((item) => item.status !== "Completed") || lotEntries[0] || {};
+  const billEntry = order.id ? findBillItemForOrder(order) : null;
+  const bill = officeEntry?.bill || billEntry?.bill || {};
+  const billItem = officeEntry?.item || billEntry?.item || {};
+  const customer = findById("customers", order.customerId) || {};
+  const details = itemBarcodeDetails(order);
+  const productionStones = order.id ? productionStoneItemsForOrder(order) : [];
+  const waxStone = productionStoneTotals(productionStones, "wax");
+  const handStone = productionStoneTotals(productionStones, "hand");
+  const nonGold = billItemNonGoldBreakup(billItem, order);
+  const hasFinalWeights = billItem.finalGw !== undefined && billItem.finalGw !== "";
+  const currentStage = order.id ? orderCurrentStage(order) : officeEntry ? officeItemLocation(billItem) : "-";
+  const itemType = details.cmItem || ringTypeLabel(order.ringType) || order.itemType || "-";
+  const officeLocation = officeEntry ? officeItemLocation(billItem) : "-";
+  const imageAlt = designText(design) || order.designNumber || "Design image";
+  return `
+    <article class="camera-product-card">
+      <div class="camera-product-hero">
+        <div class="camera-product-image ${design.id || design.imageData ? "" : "empty"}">
+          <img class="${design.imageData ? "" : "hidden"}" data-phone-scan-design-image="${escapeHtml(design.id || "")}" src="${escapeHtml(design.imageData || "")}" alt="${escapeHtml(imageAlt)}">
+          <span class="camera-product-image-placeholder ${design.imageData ? "hidden" : ""}">Design Image</span>
+        </div>
+        <div class="camera-product-identity">
+          <small>Production Number</small>
+          <h3>${escapeHtml(order.productionNo || billItem.productionNo || order.number || "-")}</h3>
+          <p>${escapeHtml(order.designNumber || designText(design) || "-")} / ${escapeHtml(order.category || design.category || "Uncategorised")}</p>
+          <span class="status ${statusClass(currentStage)}">${escapeHtml(currentStage || "-")}</span>
+          <span class="camera-read-only-badge">Details Only</span>
+        </div>
+      </div>
+      <section class="camera-detail-section">
+        <h3>Order And Product</h3>
+        <div class="camera-product-detail-grid">
+          ${jobItemDetailCell("Job Card", order.jobNumber || order.number || lot.orderNumber || "-")}
+          ${jobItemDetailCell("Customer", order.customer || customer.name || "-")}
+          ${jobItemDetailCell("Phone", customer.phone || "-")}
+          ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+          ${jobItemDetailCell("Category", order.category || design.category || "-")}
+          ${jobItemDetailCell("Item", itemType)}
+          ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
+          ${jobItemDetailCell("Colour", order.color || "-")}
+          ${jobItemDetailCell("Purity", order.purity || "-")}
+          ${jobItemDetailCell("No. Of Pc", order.noOfPc || order.quantity || 1)}
+          ${jobItemDetailCell("Urgent", order.urgent ? "Yes" : "No")}
+          ${jobItemDetailCell("Remark", order.remarks || "-")}
+        </div>
+      </section>
+      <section class="camera-detail-section">
+        <h3>Current Movement</h3>
+        <div class="camera-product-detail-grid">
+          ${jobItemDetailCell("Current Status", currentStage || "-")}
+          ${jobItemDetailCell("Lot", lot.number || "-")}
+          ${jobItemDetailCell("Department", lot.currentDepartment || lot.karigarName || "-")}
+          ${jobItemDetailCell("Order Date", order.orderDate || "-")}
+          ${jobItemDetailCell("Due Date", order.dueDate || "-")}
+          ${jobItemDetailCell("Days Remaining", orderDeliveryText(order) || (isCompletedOrder(order) ? "Completed" : "-"))}
+          ${jobItemDetailCell("Bill No", bill.billNo || "-")}
+          ${jobItemDetailCell("QC Status", billItem.qcStatus || "-")}
+          ${jobItemDetailCell("Office Location", officeLocation)}
+          ${jobItemDetailCell("HUID", officeHuidText(billItem) || "-")}
+        </div>
+      </section>
+      <section class="camera-detail-section camera-weight-section">
+        <h3>Weight Details</h3>
+        <div class="camera-product-detail-grid">
+          ${jobItemDetailCell("Final GW", hasFinalWeights ? gram(billItem.finalGw) : "-")}
+          ${jobItemDetailCell("Stone Weight", hasFinalWeights ? gram(nonGold.stoneWeight) : gram(waxStone.weight + handStone.weight))}
+          ${jobItemDetailCell("Wax Stone", `${waxStone.pcs} pcs / ${gram(waxStone.weight)}`)}
+          ${jobItemDetailCell("Hand Stone", `${handStone.pcs} pcs / ${gram(handStone.weight)}`)}
+          ${jobItemDetailCell("Black Beads", hasFinalWeights ? gram(nonGold.blackBeadsWeight) : "-")}
+          ${jobItemDetailCell("Moti", hasFinalWeights ? gram(nonGold.motiWeight) : "-")}
+          ${jobItemDetailCell("Spring", hasFinalWeights ? gram(nonGold.springWeight) : "-")}
+          ${jobItemDetailCell("Other Non-Gold", hasFinalWeights ? gram(nonGold.otherNonGoldWeight) : "-")}
+          ${jobItemDetailCell("Total Non-Gold", hasFinalWeights ? gram(nonGold.total) : gram(waxStone.weight + handStone.weight))}
+          ${jobItemDetailCell("Net Weight", hasFinalWeights ? gram(billItem.netWeight) : "-")}
+          ${jobItemDetailCell("Lot Current GW", lot.number ? gram(currentTransferIssueWeight(lot)) : "-")}
+        </div>
+      </section>
+      <p class="camera-product-readonly-note">This scan is view only. No customer order, transfer, stock movement, or ERP entry has been created.</p>
+    </article>
+  `;
+}
+
+async function loadPhoneBarcodeDesignImage(design = {}) {
+  if (!design.id) return;
+  const image = Array.from(document.querySelectorAll("[data-phone-scan-design-image]"))
+    .find((node) => node.dataset.phoneScanDesignImage === design.id);
+  if (!image) return;
+  const imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
+  if (!imageData || image.dataset.phoneScanDesignImage !== design.id) return;
+  image.src = imageData;
+  image.classList.remove("hidden");
+  image.closest(".camera-product-image")?.classList.remove("empty");
+  image.parentElement?.querySelector(".camera-product-image-placeholder")?.classList.add("hidden");
+}
+
 function handleBarcodeScanField(event) {
   openScannedBarcode(event.target.value);
   event.target.value = "";
@@ -5344,13 +5698,12 @@ function isBarcodeTypingTarget(target) {
 function openScannedBarcode(value) {
   const query = normalizeBarcodeText(value);
   if (!query) return false;
-  const result = openProductByBarcode(query);
+  const result = renderPhoneBarcodeProduct(query);
   if (result.ok) {
-    setBarcodeScanStatus(`Opened ${result.label}`, "success");
+    setBarcodeScanStatus(`Found ${result.label}`, "success");
     return true;
   }
   setBarcodeScanStatus(result.message, "error");
-  alert(result.message);
   return false;
 }
 
@@ -14850,15 +15203,17 @@ function renderStoneLibrary() {
 
 function renderStoneLibraryList() {
   const query = document.getElementById("stone-search").value.trim().toLowerCase();
+  const querySize = /[xX*×]/.test(query) ? normalizeSizeText(query) : "";
   const lookupType = document.getElementById("stone-lookup-type")?.value || "";
   const lookupShape = document.getElementById("stone-lookup-shape")?.value || "";
   const lookupSize = document.getElementById("stone-lookup-size")?.value || "";
   const hasSearch = Boolean(query || lookupType || lookupShape || lookupSize);
   const matches = state.stones.filter((stone) =>
-    `${stone.stoneType} ${stone.shape} ${stone.size} ${stone.code} ${stone.weightPerPc} ${stone.pricePerPc} ${stone.remarks}`.toLowerCase().includes(query) &&
+    (`${stone.stoneType} ${stone.shape} ${stone.size} ${stone.code} ${stone.weightPerPc} ${stone.pricePerPc} ${stone.remarks}`.toLowerCase().includes(query)
+      || (querySize && normalizeSizeText(stone.size) === querySize)) &&
     (!lookupType || stone.stoneType === lookupType) &&
     (!lookupShape || stone.shape === lookupShape) &&
-    (!lookupSize || stone.size === lookupSize)
+    (!lookupSize || normalizeSizeText(stone.size) === normalizeSizeText(lookupSize))
   );
   const totalPages = Math.max(Math.ceil(matches.length / stoneLibraryPageSize), 1);
   stoneLibraryPage = Math.min(Math.max(stoneLibraryPage, 1), totalPages);
@@ -14955,11 +15310,7 @@ function updateStoneFormFromSelection() {
   const form = document.getElementById("stone-form");
   const data = getFormData(form);
   form.code.value = stoneLookupCode(data);
-  const match = state.stones.find((stone) =>
-    stone.stoneType === data.stoneType &&
-    stone.shape === data.shape &&
-    stone.size === data.size
-  );
+  const match = findStoneByLibraryFields(data.stoneType, data.shape, data.size);
   if (match && !form.stoneId.value) {
     form.weightPerPc.value = formatStoneWeight(match.weightPerPc) || "";
     form.pricePerPc.value = match.pricePerPc || "";
@@ -15040,7 +15391,7 @@ function renderStoneLookup() {
   const matches = state.stones.filter((stone) =>
     (!type || stone.stoneType === type) &&
     (!shape || stone.shape === shape) &&
-    (!size || stone.size === size)
+    (!size || normalizeSizeText(stone.size) === normalizeSizeText(size))
   ).slice(0, 20);
   result.classList.toggle("empty", !matches.length);
   result.innerHTML = matches.length
@@ -15103,7 +15454,7 @@ function resetStoneForm() {
 }
 
 function stoneLookupCode(stone) {
-  return `${stone.stoneType || ""}${normalizeOcrShape(stone.shape || "")}${stone.size || ""}`.replace(/\s+/g, "").toUpperCase();
+  return `${stone.stoneType || ""}${normalizeOcrShape(stone.shape || "")}${normalizeSizeText(stone.size || "")}`.replace(/\s+/g, "").toUpperCase();
 }
 
 function departmentProcessesFromText(value = "") {
@@ -17101,14 +17452,20 @@ function normalizeDisplaySize(value = "") {
 }
 
 function normalizeSizeText(value = "") {
-  return String(value || "")
+  const parts = String(value || "")
     .replace(/[×xX]/g, "*")
     .split("*")
     .map((part) => {
-      const num = Number(cleanOcrNumber(part));
-      return Number.isFinite(num) ? String(Number(num.toFixed(2))) : part.trim();
+      const cleaned = cleanOcrNumber(part);
+      if (!cleaned) return part.trim().toUpperCase();
+      const num = Number(cleaned);
+      return Number.isFinite(num) ? String(Number(num.toFixed(2))) : part.trim().toUpperCase();
     })
-    .join("*");
+    .filter(Boolean);
+  if (parts.length === 2 && parts.every((part) => Number.isFinite(Number(part)))) {
+    parts.sort((left, right) => Number(left) - Number(right));
+  }
+  return parts.join("*");
 }
 
 function ocrSizeCandidates(value = "") {
@@ -18780,7 +19137,9 @@ async function openDesignDetail(designId) {
   activateDesignMaster(design.id);
   const dialog = document.getElementById("design-detail-dialog");
   const image = document.getElementById("design-detail-image");
-  const chartKeys = designStoneChartItemKeys(design);
+  const allChartKeys = designStoneChartItemKeys(design);
+  const chartKeys = viewableDesignStoneChartItemKeys(design);
+  const hasGeneralChart = allChartKeys.some((key) => normalizeStoneItemKey(key) === DEFAULT_STONE_ITEM_KEY);
   const itemKeys = normalizeDesignItemKeys(design.itemKeys || [], design.category || "");
   const stoneEntryCount = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
   dialog.dataset.designId = design.id;
@@ -18790,7 +19149,7 @@ async function openDesignDetail(designId) {
   document.getElementById("design-detail-items").textContent = itemKeys.length ? itemKeys.map(stoneItemInputValue).join(" / ") : "General";
   document.getElementById("design-detail-charts").textContent = chartKeys.length
     ? chartKeys.map(stoneItemInputValue).join(" / ")
-    : design.hasStoneChartSource ? "Main chart image" : "No chart saved";
+    : hasGeneralChart ? "GENERAL (automatic fallback)" : design.hasStoneChartSource ? "Main chart image" : "No chart saved";
   document.getElementById("design-detail-stone-count").textContent = stoneEntryCount ? `${stoneEntryCount} saved row${stoneEntryCount === 1 ? "" : "s"}` : "No rows saved";
   renderDesignDetailStoneRows(design);
   const status = document.getElementById("design-detail-stone-status");
@@ -18852,6 +19211,10 @@ async function openDesignImage(designId) {
     return;
   }
   const image = document.getElementById("design-image-full");
+  const gallery = document.getElementById("design-image-gallery");
+  gallery.classList.add("hidden");
+  gallery.innerHTML = "";
+  image.classList.remove("hidden");
   image.classList.add("a6-design-preview");
   image.src = imageData || design.imageData || "";
   document.getElementById("design-image-title").textContent = design.number || "Design Image";
@@ -18885,37 +19248,52 @@ async function openDesignStoneCrop(designId) {
 async function openStoneChart(designId) {
   const design = findById("designs", designId);
   if (!design) return;
-  const chartKeys = designStoneChartItemKeys(design);
-  const choices = [...(design.hasStoneChartSource ? ["SOURCE"] : []), ...chartKeys];
-  if (!choices.length) {
-    alert("No stone chart uploaded for this design.");
-    return;
+  const chartKeys = viewableDesignStoneChartItemKeys(design);
+  const charts = (await Promise.all(chartKeys.map(async (itemKey) => ({
+    itemKey,
+    label: stoneItemInputValue(itemKey),
+    imageData: await getStoneChartImage(design.id, itemKey).catch(() => ""),
+  })))).filter((chart) => chart.imageData);
+  let usedGeneralFallback = false;
+  if (!charts.length && designStoneChartItemKeys(design).some((key) => normalizeStoneItemKey(key) === DEFAULT_STONE_ITEM_KEY)) {
+    const generalImage = await getStoneChartImage(design.id, DEFAULT_STONE_ITEM_KEY).catch(() => "");
+    if (generalImage) {
+      charts.push({ itemKey: DEFAULT_STONE_ITEM_KEY, label: "General Stone Chart", imageData: generalImage });
+      usedGeneralFallback = true;
+    }
   }
-  const labelForChoice = (key) => key === "SOURCE" ? "Main" : stoneItemInputValue(key);
-  const choice = choices.length === 1
-    ? labelForChoice(choices[0])
-    : prompt(`Which stone chart to view?\nAvailable: ${choices.map(labelForChoice).join(", ")}`, labelForChoice(choices[0]));
-  if (choice === null) return;
-  const selectedKey = String(choice || "").trim().toUpperCase() === "MAIN" || String(choice || "").trim().toUpperCase() === "SOURCE"
-    ? "SOURCE"
-    : normalizeStoneItemKey(choice);
-  if (!choices.includes(selectedKey)) {
-    alert("Stone chart item not found.");
-    return;
+  if (!charts.length && design.hasStoneChartSource) {
+    const sourceImage = await getStoneChartSourceImage(design.id).catch(() => "");
+    if (sourceImage) charts.push({ itemKey: "SOURCE", label: "Main Stone Chart", imageData: sourceImage });
   }
-  const imageData = selectedKey === "SOURCE"
-    ? await getStoneChartSourceImage(design.id).catch(() => "")
-    : await getStoneChartImage(design.id, selectedKey).catch(() => "");
-  if (!imageData) {
-    alert("No stone chart uploaded for this item.");
+  if (!charts.length) {
+    alert("No stone chart is saved for this design.");
     return;
   }
   const image = document.getElementById("design-image-full");
+  const gallery = document.getElementById("design-image-gallery");
   image.classList.remove("a6-design-preview");
-  image.src = imageData;
-  document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"} / ${labelForChoice(selectedKey)}`;
-  document.getElementById("design-image-summary").textContent = `${design.name || ""} ${selectedKey === "SOURCE" ? "Main matching image" : stoneItemLabel(selectedKey)}`.trim();
-  document.getElementById("design-image-dialog").showModal();
+  image.classList.add("hidden");
+  image.removeAttribute("src");
+  gallery.classList.remove("hidden");
+  gallery.innerHTML = charts.map((chart) => `
+    <figure class="stone-chart-view-card">
+      <figcaption>${escapeHtml(chart.label)}</figcaption>
+      <img src="${escapeHtml(chart.imageData)}" alt="${escapeHtml(`${design.number || design.name || "Design"} ${chart.label} stone chart`)}">
+    </figure>
+  `).join("");
+  document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"}`;
+  document.getElementById("design-image-summary").textContent = usedGeneralFallback
+    ? "GENERAL stone chart shown automatically because no item-specific chart is available."
+    : `${charts.length} item-specific chart${charts.length === 1 ? "" : "s"} shown automatically. GENERAL skipped.`;
+  const dialog = document.getElementById("design-image-dialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function viewableDesignStoneChartItemKeys(design = {}) {
+  return designStoneChartItemKeys(design)
+    .map(normalizeStoneItemKey)
+    .filter((key, index, keys) => key && key !== DEFAULT_STONE_ITEM_KEY && keys.indexOf(key) === index);
 }
 
 async function removeDesignStoneChart(designId) {
