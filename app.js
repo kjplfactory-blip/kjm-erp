@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v449";
+const APP_VERSION = "v451";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -124,6 +124,8 @@ let selectedDesignIds = new Set();
 let activeDesignMasterId = "";
 let catalogueItems = [];
 let catalogueSelection = new Set();
+let catalogueSelectionQuantities = new Map();
+let catalogueScannedSelections = [];
 let catalogueActiveCategory = "";
 let catalogueImageCache = new Map();
 let barcodeScanBuffer = "";
@@ -134,6 +136,7 @@ let phoneBarcodeScannerActive = false;
 let phoneBarcodeScanSession = 0;
 let phoneBarcodeResultLocked = false;
 let phoneBarcodeLibraryPromise = null;
+let phoneBarcodeScanMode = "view";
 let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
@@ -575,6 +578,7 @@ document.getElementById("catalogue-select-all")?.addEventListener("click", selec
 document.getElementById("catalogue-clear-selection")?.addEventListener("click", clearCatalogueSelection);
 document.getElementById("catalogue-clear-all")?.addEventListener("click", clearCatalogueImages);
 document.getElementById("catalogue-print")?.addEventListener("click", openCatalogueOrderDialog);
+document.getElementById("catalogue-barcode-scan")?.addEventListener("click", openCatalogueBarcodeScanner);
 document.getElementById("catalogue-order-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
   printCatalogueSelection();
@@ -609,9 +613,26 @@ document.getElementById("catalogue-board")?.addEventListener("click", (event) =>
   toggleCatalogueSelection(card.dataset.catalogueCard);
 });
 document.getElementById("catalogue-selected-list")?.addEventListener("click", (event) => {
+  const quantityButton = event.target.closest("[data-catalogue-quantity-step]");
+  if (quantityButton) {
+    changeCatalogueSelectionQuantity(
+      quantityButton.dataset.catalogueQuantityStep,
+      Number(quantityButton.dataset.catalogueQuantityDelta || 0)
+    );
+    return;
+  }
+  const scanRemoveButton = event.target.closest("[data-catalogue-scan-remove]");
+  if (scanRemoveButton) {
+    removeScannedCatalogueSelection(scanRemoveButton.dataset.catalogueScanRemove);
+    return;
+  }
   const removeButton = event.target.closest("[data-catalogue-remove]");
   if (!removeButton) return;
   toggleCatalogueSelection(removeButton.dataset.catalogueRemove, false);
+});
+document.getElementById("catalogue-selected-list")?.addEventListener("change", (event) => {
+  if (!event.target.matches("[data-catalogue-quantity]")) return;
+  setCatalogueSelectionQuantity(event.target.dataset.catalogueQuantity, event.target.value);
 });
 
 document.querySelectorAll("[data-dashboard-view]").forEach((button) => {
@@ -1204,6 +1225,8 @@ document.getElementById("close-product-camera-scanner")?.addEventListener("click
 
 document.getElementById("product-camera-scanner-dialog")?.addEventListener("close", () => {
   stopPhoneBarcodeScanner();
+  phoneBarcodeScanMode = "view";
+  updatePhoneBarcodeDialogText();
 });
 
 document.getElementById("check-product-camera-code")?.addEventListener("click", () => {
@@ -5340,9 +5363,35 @@ function openPhoneBarcodeScanner() {
     alert("Login before scanning a product barcode.");
     return;
   }
+  phoneBarcodeScanMode = "view";
+  updatePhoneBarcodeDialogText();
   const dialog = document.getElementById("product-camera-scanner-dialog");
   if (!dialog.open) dialog.showModal();
   startPhoneBarcodeCamera();
+}
+
+function openCatalogueBarcodeScanner() {
+  if (!currentUser) {
+    alert("Login before scanning a product barcode.");
+    return;
+  }
+  phoneBarcodeScanMode = "catalogue";
+  updatePhoneBarcodeDialogText();
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog.open) dialog.showModal();
+  startPhoneBarcodeCamera();
+}
+
+function updatePhoneBarcodeDialogText() {
+  const isCatalogue = phoneBarcodeScanMode === "catalogue";
+  const title = document.getElementById("product-camera-title");
+  const note = document.getElementById("product-camera-note");
+  if (title) title.textContent = isCatalogue ? "Scan & Add Client Selection" : "Scan Product Barcode";
+  if (note) {
+    note.textContent = isCatalogue
+      ? "Each successful scan adds the matching catalogue design with its Design No. and PR No. Scan the same PR again to increase its quantity. Nothing is saved to ERP stock or orders."
+      : "Point the rear camera at the ERP barcode. Scanning only displays product details and does not change any data.";
+  }
 }
 
 async function startPhoneBarcodeCamera() {
@@ -5472,8 +5521,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-449", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=449", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-451", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=451", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -5566,7 +5615,22 @@ function renderPhoneBarcodeProduct(value) {
     return match;
   }
 
-  setPhoneBarcodeCameraStatus(`Product found: ${match.label}`, "success");
+  if (phoneBarcodeScanMode === "catalogue") {
+    match.catalogueSelectionResult = addScannedProductToCatalogueSelection(match);
+  }
+  const selectionResult = match.catalogueSelectionResult;
+  if (selectionResult?.ok) {
+    setPhoneBarcodeCameraStatus(
+      selectionResult.quantityIncreased
+        ? `${selectionResult.designNo} / ${selectionResult.productionNo} quantity increased to ${selectionResult.quantity}.`
+        : `Added ${selectionResult.designNo} / ${selectionResult.productionNo} to client selection.`,
+      "success"
+    );
+  } else if (selectionResult) {
+    setPhoneBarcodeCameraStatus(selectionResult.message, "error");
+  } else {
+    setPhoneBarcodeCameraStatus(`Product found: ${match.label}`, "success");
+  }
   if (result) {
     result.classList.remove("hidden");
     result.innerHTML = phoneBarcodeProductHtml(match);
@@ -5617,8 +5681,15 @@ function phoneBarcodeProductHtml(match) {
   const itemType = details.cmItem || ringTypeLabel(order.ringType) || order.itemType || "-";
   const officeLocation = officeEntry ? officeItemLocation(billItem) : "-";
   const imageAlt = designText(design) || order.designNumber || "Design image";
+  const selectionResult = match.catalogueSelectionResult;
   return `
     <article class="camera-product-card">
+      ${selectionResult ? `
+        <div class="camera-catalogue-result ${selectionResult.ok ? "success" : "error"}">
+          <strong>${selectionResult.ok ? (selectionResult.quantityIncreased ? "Quantity Increased" : "Added To Client Selection") : "Not Added To Client Selection"}</strong>
+          <span>${escapeHtml(selectionResult.ok ? `Design No. ${selectionResult.designNo} / PR No. ${selectionResult.productionNo} / Qty ${selectionResult.quantity}` : selectionResult.message)}</span>
+        </div>
+      ` : ""}
       <div class="camera-product-hero">
         <div class="camera-product-image ${design.id || design.imageData ? "" : "empty"}">
           <img class="${design.imageData ? "" : "hidden"}" data-phone-scan-design-image="${escapeHtml(design.id || "")}" src="${escapeHtml(design.imageData || "")}" alt="${escapeHtml(imageAlt)}">
@@ -10983,7 +11054,7 @@ function catalogueCategoryGroups() {
     }
     const group = groups.get(category);
     group.items.push(item);
-    if (catalogueSelection.has(item.id)) group.selected += 1;
+    if (catalogueItemIsSelected(item.id)) group.selected += 1;
     if (!group.cover) group.cover = catalogueItemImage(item);
   });
   return [...groups.values()].sort((a, b) => a.category.localeCompare(b.category, undefined, { numeric: true, sensitivity: "base" }));
@@ -11018,7 +11089,153 @@ function catalogueVisibleItems() {
 }
 
 function catalogueSelectedItems() {
-  return catalogueItemsList().filter((item) => catalogueSelection.has(item.id));
+  const items = catalogueItemsList();
+  const scannedItemIds = new Set(catalogueScannedSelections.map((entry) => entry.catalogueItemId));
+  const manualItems = items
+    .filter((item) => catalogueSelection.has(item.id) && !scannedItemIds.has(item.id))
+    .map((item) => ({
+      ...item,
+      selectionKey: `manual:${item.id}`,
+      productionNo: "",
+      quantity: catalogueQuantity(catalogueSelectionQuantities.get(item.id)),
+      scannedSelection: false,
+    }));
+  const scannedItems = catalogueScannedSelections.map((entry) => {
+    const item = items.find((candidate) => candidate.id === entry.catalogueItemId) || entry.catalogueItem || {};
+    return {
+      ...item,
+      selectionKey: entry.id,
+      productionNo: entry.productionNo,
+      quantity: catalogueQuantity(entry.quantity),
+      scannedSelection: true,
+    };
+  }).filter((item) => item.id);
+  return [...manualItems, ...scannedItems];
+}
+
+function catalogueItemIsSelected(id) {
+  return catalogueSelection.has(id) || catalogueScannedSelections.some((entry) => entry.catalogueItemId === id);
+}
+
+function addScannedProductToCatalogueSelection(match = {}) {
+  const order = match.order || {};
+  const design = match.design || {};
+  const productionNo = String(order.productionNo || match.officeEntry?.item?.productionNo || order.barcode || order.number || "").trim();
+  const catalogueItem = findCatalogueItemForScannedProduct(order, design);
+  if (!productionNo) {
+    const message = "The scanned product has no PR number, so it was not added.";
+    setCatalogueBarcodeStatus(message, "error");
+    return { ok: false, message };
+  }
+  if (!catalogueItem) {
+    const designNo = scannedProductDesignNumber(order, design) || "this product";
+    const message = `Design ${designNo} is not uploaded in Catalogue. Upload the matching catalogue image, then scan again.`;
+    setCatalogueBarcodeStatus(message, "error");
+    return { ok: false, message, productionNo, designNo };
+  }
+  const duplicate = catalogueScannedSelections.find((entry) =>
+    normalizeBarcodeText(entry.productionNo) === normalizeBarcodeText(productionNo)
+  );
+  if (duplicate) {
+    duplicate.quantity = catalogueQuantity(catalogueQuantity(duplicate.quantity) + 1);
+    const message = `Quantity increased: Design No. ${catalogueItem.designNo} / PR No. ${productionNo} / Qty ${duplicate.quantity}.`;
+    setCatalogueBarcodeStatus(message, "success");
+    renderCatalogue();
+    return {
+      ok: true,
+      quantityIncreased: true,
+      quantity: duplicate.quantity,
+      designNo: catalogueItem.designNo,
+      productionNo,
+      catalogueItemId: catalogueItem.id,
+    };
+  }
+  const initialQuantity = catalogueSelection.has(catalogueItem.id)
+    ? catalogueQuantity(catalogueSelectionQuantities.get(catalogueItem.id))
+    : 1;
+  catalogueSelection.delete(catalogueItem.id);
+  catalogueSelectionQuantities.delete(catalogueItem.id);
+  catalogueScannedSelections.push({
+    id: crypto.randomUUID(),
+    catalogueItemId: catalogueItem.id,
+    catalogueItem: { ...catalogueItem },
+    designNo: catalogueItem.designNo,
+    productionNo,
+    quantity: initialQuantity,
+    orderId: order.id || "",
+    scannedAt: new Date().toISOString(),
+  });
+  const message = `Added: Design No. ${catalogueItem.designNo} / PR No. ${productionNo}.`;
+  setCatalogueBarcodeStatus(message, "success");
+  renderCatalogue();
+  return { ok: true, quantityIncreased: false, quantity: initialQuantity, designNo: catalogueItem.designNo, productionNo, catalogueItemId: catalogueItem.id };
+}
+
+function catalogueQuantity(value) {
+  const quantity = Math.floor(Number(value));
+  return Number.isFinite(quantity) ? Math.max(1, Math.min(999, quantity)) : 1;
+}
+
+function catalogueSelectedPieceCount(items = catalogueSelectedItems()) {
+  return items.reduce((total, item) => total + catalogueQuantity(item.quantity), 0);
+}
+
+function setCatalogueSelectionQuantity(selectionKey, value) {
+  const quantity = catalogueQuantity(value);
+  if (String(selectionKey || "").startsWith("manual:")) {
+    const itemId = String(selectionKey).slice(7);
+    if (!catalogueSelection.has(itemId)) return;
+    catalogueSelectionQuantities.set(itemId, quantity);
+  } else {
+    const entry = catalogueScannedSelections.find((item) => item.id === selectionKey);
+    if (!entry) return;
+    entry.quantity = quantity;
+  }
+  renderCatalogue();
+}
+
+function changeCatalogueSelectionQuantity(selectionKey, delta) {
+  const selected = catalogueSelectedItems().find((item) => item.selectionKey === selectionKey);
+  if (!selected) return;
+  setCatalogueSelectionQuantity(selectionKey, catalogueQuantity(selected.quantity) + Number(delta || 0));
+}
+
+function scannedProductDesignNumber(order = {}, design = {}) {
+  return String(design.number || order.designNo || order.designNumber || design.name || "").split(" - ")[0].trim();
+}
+
+function findCatalogueItemForScannedProduct(order = {}, design = {}) {
+  const references = [
+    design.number,
+    design.name,
+    designText(design),
+    order.designNo,
+    order.designNumber,
+    String(order.designNumber || "").split(" - ")[0],
+  ].map(normalizedDesignMatchKey).filter((key) => key.length >= 2);
+  if (!references.length) return null;
+  const candidates = catalogueItemsList().map((item) => ({ item, key: normalizedDesignMatchKey(item.designNo || item.fileName) }));
+  const exact = candidates.find((candidate) => references.includes(candidate.key));
+  if (exact) return exact.item;
+  const close = candidates.find((candidate) => candidate.key.length >= 3 && references.some((reference) =>
+    reference.length >= 3 && (candidate.key.includes(reference) || reference.includes(candidate.key))
+  ));
+  return close?.item || null;
+}
+
+function removeScannedCatalogueSelection(selectionId) {
+  const entry = catalogueScannedSelections.find((item) => item.id === selectionId);
+  if (!entry) return;
+  catalogueScannedSelections = catalogueScannedSelections.filter((item) => item.id !== selectionId);
+  setCatalogueBarcodeStatus(`Removed Design No. ${entry.designNo} / PR No. ${entry.productionNo}.`);
+  renderCatalogue();
+}
+
+function setCatalogueBarcodeStatus(message, mode = "") {
+  const node = document.getElementById("catalogue-barcode-status");
+  if (!node) return;
+  node.textContent = message || "Scan a product barcode to add its Design No. and PR No. Scan the same PR again to increase quantity.";
+  node.className = ["catalogue-barcode-status", mode].filter(Boolean).join(" ");
 }
 
 function renderCatalogue() {
@@ -11029,6 +11246,7 @@ function renderCatalogue() {
   const categoryGroups = catalogueVisibleCategoryGroups();
   const visible = catalogueVisibleItems();
   const selected = catalogueSelectedItems();
+  const selectedPieces = catalogueSelectedPieceCount(selected);
   const count = document.getElementById("catalogue-count");
   const selectedSummary = document.getElementById("catalogue-selected-summary");
   const selectedList = document.getElementById("catalogue-selected-list");
@@ -11039,9 +11257,9 @@ function renderCatalogue() {
     if (!items.length) {
       count.textContent = "No catalogue image uploaded.";
     } else if (isCategoryView) {
-      count.textContent = `${categoryGroups.length} categor${categoryGroups.length === 1 ? "y" : "ies"} shown. ${items.length} saved image(s), ${selected.length} selected.`;
+      count.textContent = `${categoryGroups.length} categor${categoryGroups.length === 1 ? "y" : "ies"} shown. ${items.length} saved image(s), ${selected.length} selected / ${selectedPieces} pcs.`;
     } else {
-      count.textContent = `${catalogueActiveCategory}: ${visible.length} image(s) shown. ${selected.length} selected.`;
+      count.textContent = `${catalogueActiveCategory}: ${visible.length} image(s) shown. ${selected.length} selected / ${selectedPieces} pcs.`;
     }
   }
   if (backButton) backButton.classList.toggle("hidden", isCategoryView);
@@ -11059,17 +11277,27 @@ function renderCatalogue() {
   `);
   if (selectedSummary) {
     selectedSummary.textContent = selected.length
-      ? `${selected.length} design${selected.length === 1 ? "" : "s"} selected for customer order.`
+      ? `${selected.length} item line${selected.length === 1 ? "" : "s"} / ${selectedPieces} total piece${selectedPieces === 1 ? "" : "s"}.`
       : "No design selected.";
   }
   if (selectedList) {
     selectedList.innerHTML = selected.length
       ? selected.map((item, index) => `
-        <article class="catalogue-selected-row">
+        <article class="catalogue-selected-row ${item.scannedSelection ? "scanned" : ""}">
           <span>${index + 1}</span>
           ${catalogueSelectedImageHtml(item)}
-          <strong>${escapeHtml(item.designNo)}</strong>
-          <button class="ghost-button" type="button" data-catalogue-remove="${escapeHtml(item.id)}">Remove</button>
+          <div class="catalogue-selected-identity">
+            <strong>Design No. ${escapeHtml(item.designNo)}</strong>
+            <small>PR No. ${escapeHtml(item.productionNo || "-")}</small>
+          </div>
+          <div class="catalogue-selected-actions">
+            <div class="catalogue-quantity-control" aria-label="Order quantity">
+              <button class="ghost-button" type="button" data-catalogue-quantity-step="${escapeHtml(item.selectionKey)}" data-catalogue-quantity-delta="-1" aria-label="Reduce quantity">-</button>
+              <label>Qty <input type="number" min="1" max="999" step="1" value="${catalogueQuantity(item.quantity)}" data-catalogue-quantity="${escapeHtml(item.selectionKey)}" aria-label="Quantity for ${escapeHtml(item.designNo)}"></label>
+              <button class="ghost-button" type="button" data-catalogue-quantity-step="${escapeHtml(item.selectionKey)}" data-catalogue-quantity-delta="1" aria-label="Increase quantity">+</button>
+            </div>
+            <button class="ghost-button catalogue-selection-remove" type="button" ${item.scannedSelection ? `data-catalogue-scan-remove="${escapeHtml(item.selectionKey)}"` : `data-catalogue-remove="${escapeHtml(item.id)}"`}>Remove</button>
+          </div>
         </article>
       `).join("")
       : '<div class="empty">Selected designs will appear here.</div>';
@@ -11090,7 +11318,7 @@ function catalogueCategoryCardHtml(group) {
 }
 
 function catalogueCardHtml(item) {
-  const selected = catalogueSelection.has(item.id);
+  const selected = catalogueItemIsSelected(item.id);
   const imageData = catalogueItemImage(item);
   return `
     <article class="catalogue-card ${selected ? "selected" : ""}" data-catalogue-card="${escapeHtml(item.id)}">
@@ -11123,19 +11351,33 @@ function openCatalogueCategory(category) {
 
 function toggleCatalogueSelection(id, checked = null) {
   if (!catalogueItemsList().some((item) => item.id === id)) return;
-  const shouldSelect = checked === null ? !catalogueSelection.has(id) : Boolean(checked);
-  if (shouldSelect) catalogueSelection.add(id);
-  else catalogueSelection.delete(id);
+  const shouldSelect = checked === null ? !catalogueItemIsSelected(id) : Boolean(checked);
+  if (shouldSelect) {
+    catalogueSelection.add(id);
+    if (!catalogueSelectionQuantities.has(id)) catalogueSelectionQuantities.set(id, 1);
+  }
+  else {
+    catalogueSelection.delete(id);
+    catalogueSelectionQuantities.delete(id);
+    catalogueScannedSelections = catalogueScannedSelections.filter((entry) => entry.catalogueItemId !== id);
+  }
   renderCatalogue();
 }
 
 function selectVisibleCatalogueItems() {
-  catalogueVisibleItems().forEach((item) => catalogueSelection.add(item.id));
+  catalogueVisibleItems().forEach((item) => {
+    catalogueSelection.add(item.id);
+    if (!catalogueSelectionQuantities.has(item.id)) catalogueSelectionQuantities.set(item.id, 1);
+  });
   renderCatalogue();
 }
 
 function clearCatalogueSelection() {
   catalogueSelection.clear();
+  catalogueSelectionQuantities.clear();
+  catalogueScannedSelections = [];
+  document.getElementById("catalogue-order-form")?.reset();
+  setCatalogueBarcodeStatus("New client selection ready. Scan a product barcode or select catalogue designs.");
   renderCatalogue();
 }
 
@@ -11147,6 +11389,8 @@ async function removeCatalogueItem(id) {
   state.catalogueItems = catalogueItemsList().filter((entry) => entry.id !== id);
   catalogueItems = state.catalogueItems;
   catalogueSelection.delete(id);
+  catalogueSelectionQuantities.delete(id);
+  catalogueScannedSelections = catalogueScannedSelections.filter((entry) => entry.catalogueItemId !== id);
   await deleteCatalogueImage(id).catch(() => {});
   saveDeletionAndRefresh();
 }
@@ -11159,6 +11403,8 @@ async function clearCatalogueImages() {
   state.catalogueItems = [];
   catalogueItems = state.catalogueItems;
   catalogueSelection.clear();
+  catalogueSelectionQuantities.clear();
+  catalogueScannedSelections = [];
   catalogueActiveCategory = "";
   const upload = document.getElementById("catalogue-upload");
   if (upload) upload.value = "";
@@ -11184,7 +11430,8 @@ function openCatalogueOrderDialog() {
   const dialog = document.getElementById("catalogue-order-dialog");
   const form = document.getElementById("catalogue-order-form");
   const summary = document.getElementById("catalogue-order-dialog-summary");
-  if (summary) summary.textContent = `${selected.length} design${selected.length === 1 ? "" : "s"} selected. Enter client details to print order summary.`;
+  const pieces = catalogueSelectedPieceCount(selected);
+  if (summary) summary.textContent = `${selected.length} item line${selected.length === 1 ? "" : "s"} / ${pieces} total piece${pieces === 1 ? "" : "s"}. Enter client details to print order summary.`;
   dialog?.showModal();
   form?.querySelector('[name="customerName"]')?.focus();
 }
@@ -11213,6 +11460,7 @@ async function printCatalogueSelection() {
 
 function cataloguePrintHtml(orderData = {}, items = []) {
   const printedAt = new Date().toLocaleString("en-IN");
+  const totalPieces = catalogueSelectedPieceCount(items);
   return `
     <section class="catalogue-print-document">
       <header class="catalogue-print-header">
@@ -11222,7 +11470,8 @@ function cataloguePrintHtml(orderData = {}, items = []) {
         </div>
         <div class="catalogue-print-meta">
           <span><b>Date</b>${escapeHtml(printedAt)}</span>
-          <span><b>Total Selected</b>${items.length}</span>
+          <span><b>Item Lines</b>${items.length}</span>
+          <span><b>Total Pieces</b>${totalPieces}</span>
         </div>
       </header>
       <section class="catalogue-print-customer">
@@ -11237,6 +11486,8 @@ function cataloguePrintHtml(orderData = {}, items = []) {
             <div class="catalogue-print-detail">
               <span><b>No</b>${index + 1}</span>
               <span><b>Design No</b>${escapeHtml(item.designNo)}</span>
+              <span><b>PR No</b>${escapeHtml(item.productionNo || "-")}</span>
+              <span><b>Quantity</b>${catalogueQuantity(item.quantity)}</span>
               <span><b>Category</b>${escapeHtml(catalogueCategoryLabel(item.category))}</span>
             </div>
           </article>
