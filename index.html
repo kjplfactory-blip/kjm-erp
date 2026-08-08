@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v443</small>
+        <small class="app-version-badge">App v444</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v443</span>
+          <span class="app-version-badge">App v444</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2164,7 +2164,9 @@
         </div>
         <div class="design-detail-layout">
           <section class="design-detail-media">
-            <img id="design-detail-image" class="design-detail-image" alt="Design image">
+            <div class="design-detail-a6-frame" aria-label="A6 design image">
+              <img id="design-detail-image" class="design-detail-image" alt="Design image">
+            </div>
             <label id="design-detail-stone-status" class="design-stone-entry-status design-detail-stone-status is-pending">
               <input type="checkbox" tabindex="-1" aria-label="Stone entry pending" disabled>
               <span>Stone Entry Pending</span>
@@ -2177,6 +2179,13 @@
               <div><span>Stone Charts</span><strong id="design-detail-charts">-</strong></div>
               <div><span>Stone Details</span><strong id="design-detail-stone-count">-</strong></div>
             </div>
+            <section class="design-detail-stones">
+              <div class="design-detail-section-heading">
+                <h3>Stone Details</h3>
+                <span id="design-detail-stone-summary">No stone details saved</span>
+              </div>
+              <div id="design-detail-stone-list" class="design-detail-stone-list"></div>
+            </section>
             <div class="design-selected-toolbar design-detail-actions" data-design-selected-toolbar>
               <div class="design-selected-summary">
                 <span>Selected Design</span>
@@ -2310,6 +2319,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=443"></script>
+  <script src="app.js?v=444"></script>
 </body>
 </html>

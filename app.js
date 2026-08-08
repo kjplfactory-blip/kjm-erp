@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v443";
+const APP_VERSION = "v444";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -18792,6 +18792,7 @@ async function openDesignDetail(designId) {
     ? chartKeys.map(stoneItemInputValue).join(" / ")
     : design.hasStoneChartSource ? "Main chart image" : "No chart saved";
   document.getElementById("design-detail-stone-count").textContent = stoneEntryCount ? `${stoneEntryCount} saved row${stoneEntryCount === 1 ? "" : "s"}` : "No rows saved";
+  renderDesignDetailStoneRows(design);
   const status = document.getElementById("design-detail-stone-status");
   status.className = `design-stone-entry-status design-detail-stone-status ${stoneEntryCount ? "is-ready" : "is-pending"}`;
   status.innerHTML = `<input type="checkbox" tabindex="-1" aria-label="Stone entry ${stoneEntryCount ? "available" : "pending"}" ${stoneEntryCount ? "checked" : ""} disabled><span>${stoneEntryCount ? `Stone Entry Complete (${stoneEntryCount})` : "Stone Entry Pending"}</span>`;
@@ -18810,6 +18811,38 @@ async function openDesignDetail(designId) {
   }
 }
 
+function renderDesignDetailStoneRows(design) {
+  const items = Array.isArray(design?.stoneItems) ? design.stoneItems : [];
+  const container = document.getElementById("design-detail-stone-list");
+  const summary = document.getElementById("design-detail-stone-summary");
+  const totalPcs = items.reduce((total, item) => total + Number(item.pcs || 0), 0);
+  const totalWeight = items.reduce((total, item) => {
+    const rowWeight = Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0));
+    return total + rowWeight;
+  }, 0);
+  summary.textContent = items.length
+    ? `${items.length} row${items.length === 1 ? "" : "s"} / ${totalPcs} pcs / ${weight5(totalWeight)} g`
+    : "No stone details saved";
+  container.innerHTML = items.length
+    ? items.map((item, index) => `
+      <article class="design-detail-stone-row">
+        <div class="design-detail-stone-row-title">
+          <strong>${escapeHtml(stoneItemInputValue(item.itemKey || DEFAULT_STONE_ITEM_KEY))}</strong>
+          <span>${escapeHtml(item.code || stoneLookupCode(item) || `Stone ${index + 1}`)}</span>
+        </div>
+        <div class="design-detail-stone-values">
+          <div><span>Type</span><strong>${escapeHtml(item.stoneType || "-")}</strong></div>
+          <div><span>Shape</span><strong>${escapeHtml(item.shape || "-")}</strong></div>
+          <div><span>Size</span><strong>${escapeHtml(item.size || "-")}</strong></div>
+          <div><span>Pcs</span><strong>${escapeHtml(item.pcs || "0")}</strong></div>
+          <div><span>Wt/Pc</span><strong>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")} g</strong></div>
+          <div><span>Total</span><strong>${escapeHtml(weight5(Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0))))} g</strong></div>
+        </div>
+      </article>
+    `).join("")
+    : '<div class="empty">Add or read the stone chart to show stone details here.</div>';
+}
+
 async function openDesignImage(designId) {
   const design = findById("designs", designId);
   if (!design) return;
@@ -18819,6 +18852,7 @@ async function openDesignImage(designId) {
     return;
   }
   const image = document.getElementById("design-image-full");
+  image.classList.add("a6-design-preview");
   image.src = imageData || design.imageData || "";
   document.getElementById("design-image-title").textContent = design.number || "Design Image";
   document.getElementById("design-image-summary").textContent = design.name || "";
@@ -18877,6 +18911,7 @@ async function openStoneChart(designId) {
     return;
   }
   const image = document.getElementById("design-image-full");
+  image.classList.remove("a6-design-preview");
   image.src = imageData;
   document.getElementById("design-image-title").textContent = `Stone Chart - ${design.number || "Design"} / ${labelForChoice(selectedKey)}`;
   document.getElementById("design-image-summary").textContent = `${design.name || ""} ${selectedKey === "SOURCE" ? "Main matching image" : stoneItemLabel(selectedKey)}`.trim();
