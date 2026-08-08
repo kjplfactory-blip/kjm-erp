@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v437";
+const APP_VERSION = "v443";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -121,6 +121,7 @@ let supabaseLastLocalChangeAt = 0;
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
+let activeDesignMasterId = "";
 let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueActiveCategory = "";
@@ -395,6 +396,87 @@ function refreshOperationPage(viewId, pageId) {
   if (viewId === "transfer-history" && pageId === "department") renderDepartmentTransferHistoryBoard();
   if (viewId === "reports" && pageId === "summary") renderReports();
   if (viewId === "users" && pageId === "login") renderLoginUsers();
+}
+
+function captureDeleteRefreshContext(overrides = {}) {
+  const orderDialog = document.getElementById("order-dialog");
+  const historyDialog = document.getElementById("history-dialog");
+  const designCategoryDialog = document.getElementById("design-category-dialog");
+  const officeDialog = document.getElementById("office-details-dialog");
+  const safeHistoryDialog = document.getElementById("safe-item-issue-history-dialog");
+  const meltingViewDialog = document.getElementById("melting-view-dialog");
+  const operationPages = Array.from(document.querySelectorAll(".view.operation-open")).map((section) => ({
+    viewId: section.id,
+    pageId: section.querySelector(".operation-page.active-operation-page")?.dataset.operationPage
+      || section.querySelector("[data-operation-view].active")?.dataset.operationPage
+      || "",
+  })).filter((entry) => entry.viewId && entry.pageId);
+  return {
+    operationPages,
+    orderDialogOpen: Boolean(orderDialog?.open),
+    orderId: overrides.orderId || orderDialog?.dataset.orderId || document.querySelector('#update-order-form [name="orderId"]')?.value || "",
+    orderBucket: orderDialog?.dataset.bucket || "all",
+    orderEditMode: !document.getElementById("update-order-form")?.classList.contains("hidden"),
+    historyDialogOpen: Boolean(historyDialog?.open),
+    lotId: overrides.lotId || historyDialog?.dataset.lotId || "",
+    designCategoryOpen: Boolean(designCategoryDialog?.open),
+    designCategory: document.getElementById("design-category-title")?.textContent || "",
+    officeDialogOpen: Boolean(officeDialog?.open),
+    officePage: officeDialog?.dataset.page || "",
+    officeItemKey: officeDialog?.dataset.officeItemKey || "",
+    safeHistoryOpen: Boolean(safeHistoryDialog?.open),
+    safeItemId: safeHistoryDialog?.dataset.safeItemId || "",
+    meltingViewOpen: Boolean(meltingViewDialog?.open),
+    meltingId: meltingViewDialog?.dataset.meltingId || "",
+    dailyContainerOpen: Boolean(document.getElementById("daily-tally-container-dialog")?.open),
+  };
+}
+
+function refreshAfterDelete(overrides = {}) {
+  const context = captureDeleteRefreshContext(overrides);
+  render();
+  context.operationPages.forEach(({ viewId, pageId }) => {
+    if (viewId === "transfer-history") openTransferHistoryOperationDialog(pageId);
+    else openOperationPage(viewId, pageId);
+  });
+  if (context.designCategoryOpen) {
+    const categoryExists = designCategoryGroups().some((group) => group.category === context.designCategory);
+    if (categoryExists) openDesignCategory(encodeURIComponent(context.designCategory));
+    else document.getElementById("design-category-dialog")?.close();
+  }
+  if (context.orderDialogOpen) {
+    const order = findById("orders", context.orderId);
+    if (order) openOrderDetail(order.id, context.orderEditMode, context.orderBucket);
+    else document.getElementById("order-dialog")?.close();
+  }
+  if (context.historyDialogOpen) {
+    if (findById("lots", context.lotId)) openLotHistory(context.lotId);
+    else document.getElementById("history-dialog")?.close();
+  }
+  if (context.safeHistoryOpen) {
+    if (findById("safeItems", context.safeItemId)) openSafeItemIssueHistory(context.safeItemId);
+    else document.getElementById("safe-item-issue-history-dialog")?.close();
+  }
+  if (context.meltingViewOpen) {
+    if (findById("melting", context.meltingId)) openMeltingView(context.meltingId);
+    else document.getElementById("melting-view-dialog")?.close();
+  }
+  if (context.officeDialogOpen && context.officePage) {
+    if (context.officePage === "product-view" && context.officeItemKey && findOfficeBillItem(context.officeItemKey)) {
+      openOfficeItemView(context.officeItemKey);
+    } else if (context.officePage === "product-view") {
+      openOfficeDialogPage(document.getElementById("office-details-dialog")?.dataset.backPage || "all");
+    } else {
+      openOfficeDialogPage(context.officePage);
+    }
+  }
+  if (context.dailyContainerOpen) renderDailyTallyContainers();
+  refreshOpenDepartmentTransferHistory();
+}
+
+function saveDeletionAndRefresh(overrides = {}) {
+  saveState();
+  refreshAfterDelete(overrides);
 }
 
 function resetOperationPage(viewId) {
@@ -901,6 +983,9 @@ document.getElementById("designs").addEventListener("change", handleDesignSelect
 document.getElementById("design-category-dialog").addEventListener("change", handleDesignSelectionChange);
 document.getElementById("design-select-category").addEventListener("click", selectCurrentDesignCategory);
 document.getElementById("design-delete-selected-category").addEventListener("click", deleteSelectedDesigns);
+document.querySelectorAll("[data-design-selected-toolbar]").forEach((toolbar) => {
+  toolbar.addEventListener("click", handleDesignMasterAction);
+});
 
 document.getElementById("stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2499,6 +2584,10 @@ document.getElementById("close-melting-view").addEventListener("click", () => {
 
 document.getElementById("close-design-image").addEventListener("click", () => {
   document.getElementById("design-image-dialog").close();
+});
+
+document.getElementById("close-design-detail").addEventListener("click", () => {
+  document.getElementById("design-detail-dialog").close();
 });
 
 document.getElementById("close-design-category").addEventListener("click", () => {
@@ -4166,6 +4255,14 @@ function restoreStoneEntryReturnContext() {
     switchDesignPage("master");
     setTimeout(() => openDesignCategory(encodeURIComponent(context.category)), 0);
   }
+  if (context.type === "design-detail" && context.designId) {
+    switchView("designs");
+    switchDesignPage("master");
+    setTimeout(() => {
+      if (context.category) openDesignCategory(encodeURIComponent(context.category));
+      openDesignDetail(context.designId);
+    }, 0);
+  }
 }
 
 function restoreStoneCropReturnContext() {
@@ -4178,6 +4275,14 @@ function restoreStoneCropReturnContext() {
     setTimeout(() => {
       openDesignCategory(encodeURIComponent(context.category));
       setTimeout(() => focusDesignCardInMaster(context.designId), 60);
+    }, 0);
+  }
+  if (context.type === "design-detail" && context.designId) {
+    switchView("designs");
+    switchDesignPage("master");
+    setTimeout(() => {
+      if (context.category) openDesignCategory(encodeURIComponent(context.category));
+      openDesignDetail(context.designId);
     }, 0);
   }
 }
@@ -6597,9 +6702,7 @@ function deleteSafeShelfEntry(itemId) {
     const returnIds = new Set(linkedReturns.map((entry) => entry.id));
     state.safeDepartmentReturns = (state.safeDepartmentReturns || []).filter((entry) => !returnIds.has(entry.id));
   }
-  saveState();
-  render();
-  refreshOpenDepartmentTransferHistory();
+  saveDeletionAndRefresh();
   alert(isDepartmentReturn && linkedReturns.length
     ? "Shelf entry deleted. The linked receipt was reversed and the weight is back in department holding."
     : "Shelf entry deleted.");
@@ -9552,8 +9655,7 @@ function deleteMeltingEntry(meltingId) {
   state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === melting.id));
   removeCastingFittingItemsJobCards(melting);
   state.melting = (state.melting || []).filter((item) => item.id !== melting.id);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function finishedStock() {
@@ -9607,8 +9709,7 @@ async function removeItem(collection, id) {
     selectedDesignIds.delete(id);
   }
   state[collection] = state[collection].filter((item) => item.id !== id);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function clearJobCards(resetAt = new Date().toISOString()) {
@@ -9703,6 +9804,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   if (!order) return;
   const form = document.getElementById("update-order-form");
   const dialog = document.getElementById("order-dialog");
+  dialog.dataset.orderId = order.id;
   form.orderId.value = order.id;
   form.customerId.value = order.customerId || "";
   form.orderDate.value = order.orderDate;
@@ -9722,7 +9824,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   updateFittingItemsJobToolbar(order);
   document.getElementById("order-production-panel")?.classList.remove("hidden");
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
 }
 
 function getJobOrders(order) {
@@ -10667,8 +10769,7 @@ async function removeCatalogueItem(id) {
   catalogueItems = state.catalogueItems;
   catalogueSelection.delete(id);
   await deleteCatalogueImage(id).catch(() => {});
-  saveState();
-  renderCatalogue();
+  saveDeletionAndRefresh();
 }
 
 async function clearCatalogueImages() {
@@ -14031,10 +14132,7 @@ function deleteTransfer(lotId, transferId) {
     weight: 0,
     reference: `${lot.number} deleted transfer ${transferLabel}, issued ${gram(transfer.transferWeight)}, net ${gram(transfer.receivedWeight)}`,
   });
-  saveState();
-  render();
-  const historyDialog = document.getElementById("history-dialog");
-  if (historyDialog.open) openLotHistory(lot.id);
+  saveDeletionAndRefresh({ lotId: lot.id });
 }
 
 function recalculateLotAfterTransferChange(lot) {
@@ -14986,8 +15084,7 @@ function removeStone(id) {
   if (!requirePageDeletePermission("stone-library", "delete stone from master")) return;
   if (!confirm("Delete this stone from library?")) return;
   state.stones = state.stones.filter((stone) => stone.id !== id);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function resetStoneForm() {
@@ -17998,8 +18095,7 @@ function deleteDailyTally(entryId) {
   if (!entry) return;
   if (!confirm("Delete this daily tally entry?")) return;
   state.dailyTallies = (state.dailyTallies || []).filter((item) => item.id !== entryId);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function dailyTallyDifferenceStatus(difference = 0) {
@@ -18306,21 +18402,60 @@ function removeJobOrder(jobNumber) {
   if (!requireDeletePermission("delete job cards")) return;
   if (!confirm(`Delete full job card ${jobNumber}?`)) return;
   state.orders = state.orders.filter((order) => (order.jobNumber || order.productionNo || order.number) !== jobNumber);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function handleDesignSelectionChange(event) {
   const input = event.target.closest?.(".design-select-input");
   if (!input) return;
-  if (input.checked) selectedDesignIds.add(input.dataset.designSelect);
+  if (input.checked) {
+    selectedDesignIds.add(input.dataset.designSelect);
+    activeDesignMasterId = input.dataset.designSelect;
+  }
   else selectedDesignIds.delete(input.dataset.designSelect);
   updateDesignSelectionSummary();
+}
+
+function activateDesignMaster(designId) {
+  if (!findById("designs", designId)) return;
+  activeDesignMasterId = designId;
+  updateDesignSelectionSummary();
+}
+
+async function handleDesignMasterAction(event) {
+  const button = event.target.closest?.("[data-design-master-action]");
+  if (!button || button.disabled) return;
+  const design = findById("designs", activeDesignMasterId);
+  if (!design) {
+    activeDesignMasterId = "";
+    updateDesignSelectionSummary();
+    return;
+  }
+  const action = button.dataset.designMasterAction;
+  if (action === "view") await openDesignImage(design.id);
+  if (action === "crop") await openDesignStoneCrop(design.id);
+  if (action === "chart") await openStoneChart(design.id);
+  if (action === "stone-details") openDesignStoneDetails(design.id);
+  if (action === "edit") {
+    document.getElementById("design-category-dialog")?.close();
+    document.getElementById("design-detail-dialog")?.close();
+    editDesign(design.id);
+  }
+  if (action === "merge") {
+    document.getElementById("design-detail-dialog")?.close();
+    await mergeDesignPrompt(design.id);
+  }
+  if (action === "remove-chart") await removeDesignStoneChart(design.id);
+  if (action === "delete") {
+    document.getElementById("design-detail-dialog")?.close();
+    await removeItem("designs", design.id);
+  }
 }
 
 function updateDesignSelectionSummary() {
   const validIds = new Set(state.designs.map((design) => design.id));
   selectedDesignIds = new Set([...selectedDesignIds].filter((id) => validIds.has(id)));
+  if (activeDesignMasterId && !validIds.has(activeDesignMasterId)) activeDesignMasterId = "";
   document.querySelectorAll(".design-select-input").forEach((input) => {
     input.checked = selectedDesignIds.has(input.dataset.designSelect);
   });
@@ -18329,6 +18464,21 @@ function updateDesignSelectionSummary() {
     : "No design selected";
   document.querySelectorAll("[data-design-selection-count]").forEach((item) => {
     item.textContent = text;
+  });
+  const activeDesign = findById("designs", activeDesignMasterId);
+  document.querySelectorAll("[data-design-card]").forEach((card) => {
+    const isActive = card.dataset.designCard === activeDesignMasterId;
+    card.classList.toggle("active-design-card", isActive);
+    card.setAttribute("aria-selected", String(isActive));
+  });
+  document.querySelectorAll("[data-active-design-summary]").forEach((summary) => {
+    summary.textContent = activeDesign ? designText(activeDesign) : "Select a design tile";
+  });
+  document.querySelectorAll("[data-design-master-action]").forEach((button) => {
+    const action = button.dataset.designMasterAction;
+    const needsChart = action === "chart" || action === "remove-chart";
+    const hasChart = activeDesign && (designStoneChartItemKeys(activeDesign).length || activeDesign.hasStoneChartSource);
+    button.disabled = !activeDesign || (needsChart && !hasChart);
   });
 }
 
@@ -18349,6 +18499,7 @@ function selectVisibleDesigns() {
 
 function clearDesignSelection() {
   selectedDesignIds.clear();
+  activeDesignMasterId = "";
   updateDesignSelectionSummary();
 }
 
@@ -18578,38 +18729,22 @@ function designStoneChartPreviewHtml(design) {
 }
 
 function renderDesignCard(design) {
-  const chartKeys = designStoneChartItemKeys(design);
-  const hasSource = Boolean(design.hasStoneChartSource);
-  const stoneSummary = design.stoneItems?.length ? ` / ${designStoneSummaryText(design.stoneItems)}` : design.stoneDetails ? " / Stone details added" : "";
-  const itemKeys = normalizeDesignItemKeys(design.itemKeys || [], design.category || "");
-  const itemSummary = itemKeys.length ? `Items: ${itemKeys.map(stoneItemInputValue).join(" / ")}` : "Items: General";
+  const stoneEntryCount = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
+  const hasStoneEntries = stoneEntryCount > 0;
   return `
-    <article class="design-category-item" data-design-card="${escapeHtml(design.id)}">
-      <label class="design-select-check">
-        <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
-        <span>Select</span>
+    <article class="design-category-item design-image-tile" data-design-card="${escapeHtml(design.id)}" role="button" tabindex="0" aria-selected="${activeDesignMasterId === design.id}" onclick="openDesignDetail('${design.id}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault(); openDesignDetail('${design.id}');}">
+      <label class="design-select-check" onclick="event.stopPropagation()" title="Select for bulk actions">
+        <input class="design-select-input" type="checkbox" data-design-select="${escapeHtml(design.id)}" aria-label="Select ${escapeHtml(designText(design))} for bulk actions" ${selectedDesignIds.has(design.id) ? "checked" : ""}>
       </label>
-      <div class="design-preview-pair ${chartKeys.length || hasSource ? "has-stone-chart" : ""}">
-        <figure>
-          <span>Design</span>
-          <img class="design-thumb" loading="lazy" decoding="async" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
-          <small class="design-image-load-status" data-design-image-status="${escapeHtml(design.id)}">Loading image...</small>
-        </figure>
-        ${designStoneChartPreviewHtml(design)}
-      </div>
-      <strong>${escapeHtml(designText(design))}</strong>
-      <span>${escapeHtml(design.category || "Uncategorised")}</span>
-      <span class="design-item-summary">${escapeHtml(itemSummary)}</span>
-      <span class="dialog-note">${chartKeys.length ? `${chartKeys.length} item crop${chartKeys.length === 1 ? "" : "s"} saved` : "No item crop saved"}${hasSource ? " / old full chart copy can be cleaned" : ""}${escapeHtml(stoneSummary)}</span>
-      <div class="row-actions">
-        <button class="ghost-button" onclick="openDesignImage('${design.id}')">View</button>
-        <button class="ghost-button" onclick="openDesignStoneCrop('${design.id}')">Crop Chart From Design</button>
-        ${chartKeys.length || hasSource ? `<button class="ghost-button" onclick="openStoneChart('${design.id}')">Stone Chart</button><button class="ghost-button danger-button" onclick="removeDesignStoneChart('${design.id}')">Remove Stone Chart</button>` : ""}
-        <button class="ghost-button" onclick="openDesignStoneDetails('${design.id}')">Modify Stone Details</button>
-        <button class="ghost-button" onclick="mergeDesignPrompt('${design.id}')">Merge</button>
-        <button onclick="editDesign('${design.id}')">Edit</button>
-        <button class="delete-btn" onclick="removeItem('designs', '${design.id}')">Delete</button>
-      </div>
+      <figure class="design-tile-figure">
+        <img class="design-thumb" loading="lazy" decoding="async" data-design-image="${design.id}" alt="${escapeHtml(design.name || design.number || "Design")}">
+        <small class="design-image-load-status hidden" data-design-image-status="${escapeHtml(design.id)}"></small>
+      </figure>
+      <strong class="design-tile-number">${escapeHtml(design.number || design.name || "Design")}</strong>
+      <label class="design-stone-entry-status ${hasStoneEntries ? "is-ready" : "is-pending"}" onclick="event.stopPropagation()" title="${hasStoneEntries ? `${stoneEntryCount} stone row${stoneEntryCount === 1 ? "" : "s"} saved` : "No stone rows saved. Stone entry is pending."}">
+        <input type="checkbox" tabindex="-1" aria-label="Stone entry ${hasStoneEntries ? "available" : "pending"}" ${hasStoneEntries ? "checked" : ""} disabled>
+        <span>${hasStoneEntries ? `Stone Entry (${stoneEntryCount})` : "Stone Entry Pending"}</span>
+      </label>
     </article>
   `;
 }
@@ -18639,6 +18774,42 @@ function openDesignCategory(categoryKey) {
   updateDesignSelectionSummary();
 }
 
+async function openDesignDetail(designId) {
+  const design = findById("designs", designId);
+  if (!design) return;
+  activateDesignMaster(design.id);
+  const dialog = document.getElementById("design-detail-dialog");
+  const image = document.getElementById("design-detail-image");
+  const chartKeys = designStoneChartItemKeys(design);
+  const itemKeys = normalizeDesignItemKeys(design.itemKeys || [], design.category || "");
+  const stoneEntryCount = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
+  dialog.dataset.designId = design.id;
+  document.getElementById("design-detail-title").textContent = design.number || design.name || "Design Details";
+  document.getElementById("design-detail-summary").textContent = design.name && design.name !== design.number ? design.name : "Complete design information and actions";
+  document.getElementById("design-detail-category").textContent = design.category || "Uncategorised";
+  document.getElementById("design-detail-items").textContent = itemKeys.length ? itemKeys.map(stoneItemInputValue).join(" / ") : "General";
+  document.getElementById("design-detail-charts").textContent = chartKeys.length
+    ? chartKeys.map(stoneItemInputValue).join(" / ")
+    : design.hasStoneChartSource ? "Main chart image" : "No chart saved";
+  document.getElementById("design-detail-stone-count").textContent = stoneEntryCount ? `${stoneEntryCount} saved row${stoneEntryCount === 1 ? "" : "s"}` : "No rows saved";
+  const status = document.getElementById("design-detail-stone-status");
+  status.className = `design-stone-entry-status design-detail-stone-status ${stoneEntryCount ? "is-ready" : "is-pending"}`;
+  status.innerHTML = `<input type="checkbox" tabindex="-1" aria-label="Stone entry ${stoneEntryCount ? "available" : "pending"}" ${stoneEntryCount ? "checked" : ""} disabled><span>${stoneEntryCount ? `Stone Entry Complete (${stoneEntryCount})` : "Stone Entry Pending"}</span>`;
+  image.removeAttribute("src");
+  image.classList.remove("image-missing");
+  image.alt = design.name || design.number || "Design image";
+  if (!dialog.open) dialog.showModal();
+  updateDesignSelectionSummary();
+  const imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
+  if (dialog.dataset.designId !== design.id) return;
+  if (imageData || design.imageData) {
+    image.src = imageData || design.imageData;
+  } else {
+    image.classList.add("image-missing");
+    image.alt = "Design image is not synced";
+  }
+}
+
 async function openDesignImage(designId) {
   const design = findById("designs", designId);
   if (!design) return;
@@ -18658,13 +18829,17 @@ async function openDesignStoneCrop(designId) {
   const design = findById("designs", designId);
   if (!design) return;
   const categoryDialog = document.getElementById("design-category-dialog");
-  stoneCropReturnContext = {
-    type: "design-category",
-    category: categoryDialog.open
-      ? document.getElementById("design-category-title").textContent || design.category || "Uncategorised"
-      : design.category || "Uncategorised",
-    designId: design.id,
-  };
+  const detailDialog = document.getElementById("design-detail-dialog");
+  stoneCropReturnContext = detailDialog?.open
+    ? { type: "design-detail", category: design.category || "Uncategorised", designId: design.id }
+    : {
+        type: "design-category",
+        category: categoryDialog.open
+          ? document.getElementById("design-category-title").textContent || design.category || "Uncategorised"
+          : design.category || "Uncategorised",
+        designId: design.id,
+      };
+  if (detailDialog?.open) detailDialog.close();
   if (document.getElementById("design-category-dialog").open) {
     document.getElementById("design-category-dialog").close();
   }
@@ -18740,6 +18915,9 @@ async function removeDesignStoneChart(designId) {
   renderDesigns();
   if (document.getElementById("design-category-dialog").open) {
     openDesignCategory(encodeURIComponent(design.category || "Uncategorised"));
+  }
+  if (document.getElementById("design-detail-dialog").open) {
+    await openDesignDetail(design.id);
   }
 }
 
@@ -18818,8 +18996,17 @@ async function mergeDesignRecords(source, target) {
 
 function openDesignStoneDetails(designId) {
   const categoryDialog = document.getElementById("design-category-dialog");
-  if (categoryDialog?.open) {
-    const design = findById("designs", designId);
+  const detailDialog = document.getElementById("design-detail-dialog");
+  const design = findById("designs", designId);
+  if (detailDialog?.open) {
+    stoneEntryReturnContext = {
+      type: "design-detail",
+      category: design?.category || "Uncategorised",
+      designId,
+    };
+    detailDialog.close();
+    if (categoryDialog?.open) categoryDialog.close();
+  } else if (categoryDialog?.open) {
     stoneEntryReturnContext = {
       type: "design-category",
       category: design?.category || document.getElementById("design-category-title").textContent || "Uncategorised",
@@ -19681,8 +19868,7 @@ function deleteSettingSetter(setterId) {
   }
   if (!confirm(`Delete setter ${setter.name}?`)) return;
   state.settingSetters = (state.settingSetters || []).filter((item) => item.id !== setterId);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function updateSettingIssueSummary() {
@@ -20082,6 +20268,7 @@ function openOfficeDialogPage(page) {
   const config = officeDialogConfig(page);
   if (dialog) {
     dialog.dataset.page = page;
+    if (page !== "product-view") delete dialog.dataset.officeItemKey;
     if (!["hallmarking", "hallmarked"].includes(page)) delete dialog.dataset.hallmarkBatch;
     if (page !== "non-hallmarked") delete dialog.dataset.officeBillBatch;
     if (page !== "hallmarking") {
@@ -21239,6 +21426,7 @@ async function openOfficeItemView(key) {
   if (dialog) {
     dialog.dataset.backPage = dialog.dataset.page || "all";
     dialog.dataset.page = "product-view";
+    dialog.dataset.officeItemKey = key;
   }
   let imageData = "";
   if (design.id) {
@@ -23059,6 +23247,7 @@ function openSafeItemIssueHistory(itemId = "") {
   const table = document.getElementById("safe-item-issue-history-table");
   if (table) table.innerHTML = rows || tableEmpty(10, "No part issue has been recorded from this shelf item.");
   const dialog = document.getElementById("safe-item-issue-history-dialog");
+  if (dialog) dialog.dataset.safeItemId = item.id;
   if (dialog && !dialog.open) dialog.showModal();
 }
 
@@ -24304,8 +24493,7 @@ function deleteXrfEntry(entryId) {
   state.xrfTests = (state.xrfTests || []).filter((item) => item.id !== entryId);
   removeXrfMetalSafeReturn(entryId);
   removeXrfWastageReturn(entryId);
-  saveState();
-  render();
+  saveDeletionAndRefresh();
 }
 
 function removeXrfMetalSafeReturn(entryId) {
@@ -25307,6 +25495,7 @@ function openLotHistory(lotId) {
   document.getElementById("history-summary").textContent = `${lot.number} / ${lot.orderNumber} / ${lot.karigarName} / ${lot.currentDepartment || "-"}`;
   document.getElementById("history-list").innerHTML = renderLotHistoryTable(lot);
   const historyDialog = document.getElementById("history-dialog");
+  historyDialog.dataset.lotId = lot.id;
   if (!historyDialog.open) historyDialog.showModal();
 }
 
@@ -25599,7 +25788,9 @@ function openMeltingView(meltingId) {
       </div>
     </article>
   `;
-  document.getElementById("melting-view-dialog").showModal();
+  const dialog = document.getElementById("melting-view-dialog");
+  dialog.dataset.meltingId = melting.id;
+  if (!dialog.open) dialog.showModal();
 }
 
 function updateMeltingReceiveLoss() {
