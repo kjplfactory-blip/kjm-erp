@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v447";
+const APP_VERSION = "v448";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -133,6 +133,7 @@ let phoneBarcodeScanner = null;
 let phoneBarcodeScannerActive = false;
 let phoneBarcodeScanSession = 0;
 let phoneBarcodeResultLocked = false;
+let phoneBarcodeLibraryPromise = null;
 let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
@@ -5359,8 +5360,11 @@ async function startPhoneBarcodeCamera() {
     reader.innerHTML = "";
   }
 
-  if (typeof window.Html5Qrcode !== "function") {
-    showPhoneBarcodeScanError("Camera scanner could not load. Refresh the latest ERP version and try again.");
+  setPhoneBarcodeCameraStatus("Loading the mobile barcode scanner...", "scanning");
+  const scannerReady = await ensurePhoneBarcodeLibrary();
+  if (!dialog.open) return;
+  if (!scannerReady) {
+    showPhoneBarcodeScanError("The barcode scanner could not be loaded from the ERP or the internet. Check the phone internet connection, then press Scan Another.");
     return;
   }
   if (!window.isSecureContext && location.protocol !== "file:") {
@@ -5437,8 +5441,11 @@ async function scanPhoneBarcodePhoto(file) {
   phoneBarcodeResultLocked = false;
   document.getElementById("product-camera-result")?.classList.add("hidden");
   document.getElementById("scan-another-product")?.classList.add("hidden");
-  if (typeof window.Html5Qrcode !== "function") {
-    showPhoneBarcodeScanError("Barcode photo scanner could not load. Refresh the latest ERP version and try again.");
+  setPhoneBarcodeCameraStatus("Loading the mobile barcode scanner...", "scanning");
+  const scannerReady = await ensurePhoneBarcodeLibrary();
+  if (!dialog.open) return;
+  if (!scannerReady) {
+    showPhoneBarcodeScanError("The barcode scanner could not be loaded from the ERP or the internet. Check the phone internet connection, then try again.");
     return;
   }
   const reader = document.getElementById("product-camera-reader");
@@ -5460,6 +5467,43 @@ async function scanPhoneBarcodePhoto(file) {
     try { scanner.clear(); } catch (clearError) {}
     showPhoneBarcodeScanError("No supported ERP barcode was found in that photo. Retake it in good light with the complete barcode visible.");
   }
+}
+
+function ensurePhoneBarcodeLibrary() {
+  if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
+  if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-448", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=448", document.baseURI).href;
+  const scannerUrls = [
+    rootScannerUrl,
+    localScannerUrl,
+    "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js",
+    "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
+  ];
+  phoneBarcodeLibraryPromise = scannerUrls.reduce(
+    (attempt, url) => attempt.then((loaded) => loaded || loadPhoneBarcodeScript(url)),
+    Promise.resolve(false)
+  ).then((loaded) => {
+    if (!loaded) phoneBarcodeLibraryPromise = null;
+    return Boolean(loaded && typeof window.Html5Qrcode === "function");
+  });
+  return phoneBarcodeLibraryPromise;
+}
+
+function loadPhoneBarcodeScript(url) {
+  if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    script.dataset.phoneBarcodeLibrary = "true";
+    script.onload = () => resolve(typeof window.Html5Qrcode === "function");
+    script.onerror = () => {
+      script.remove();
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  });
 }
 
 function phoneBarcodeCameraErrorMessage(error) {
