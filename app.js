@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v448";
+const APP_VERSION = "v449";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -5472,8 +5472,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-448", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=448", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-449", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=449", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -5946,31 +5946,7 @@ function barcodeCodeMatches(query, candidates, code) {
 }
 
 function barcodeSvg(value) {
-  const code = `*${String(value || "").toUpperCase()}*`;
-  const patterns = {
-    "0": "101001101101", "1": "110100101011", "2": "101100101011", "3": "110110010101",
-    "4": "101001101011", "5": "110100110101", "6": "101100110101", "7": "101001011011",
-    "8": "110100101101", "9": "101100101101", "A": "110101001011", "B": "101101001011",
-    "C": "110110100101", "D": "101011001011", "E": "110101100101", "F": "101101100101",
-    "G": "101010011011", "H": "110101001101", "I": "101101001101", "J": "101011001101",
-    "K": "110101010011", "L": "101101010011", "M": "110110101001", "N": "101011010011",
-    "O": "110101101001", "P": "101101101001", "Q": "101010110011", "R": "110101011001",
-    "S": "101101011001", "T": "101011011001", "U": "110010101011", "V": "100110101011",
-    "W": "110011010101", "X": "100101101011", "Y": "110010110101", "Z": "100110110101",
-    "-": "100101011011", ".": "110010101101", " ": "100110101101", "*": "100101101101",
-  };
-  let x = 0;
-  const bars = [];
-  [...code].forEach((char) => {
-    const pattern = patterns[char] || patterns["-"];
-    [...pattern].forEach((bar, index) => {
-      const width = bar === "1" ? 2 : 1;
-      if (index % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${width}" height="34"></rect>`);
-      x += width;
-    });
-    x += 1;
-  });
-  return `<div class="barcode-wrap"><svg class="barcode" viewBox="0 0 ${x} 34" preserveAspectRatio="none">${bars.join("")}</svg><small>${escapeHtml(value)}</small></div>`;
+  return code128BarcodeSvg(value, { maxLength: 60, compact: true });
 }
 
 const code128Patterns = [
@@ -5997,6 +5973,9 @@ function barcodeSafeText(value = "", maxLength = 180) {
 
 function code128BarcodeSvg(value, options = {}) {
   const text = barcodeSafeText(value, options.maxLength || 180);
+  const compact = Boolean(options.compact);
+  const barHeight = compact ? 44 : 60;
+  const quietZone = 12;
   const codes = [104];
   [...text].forEach((char) => {
     const code = char.charCodeAt(0) - 32;
@@ -6004,17 +5983,19 @@ function code128BarcodeSvg(value, options = {}) {
   });
   const checksum = codes.reduce((sum, code, index) => sum + (index === 0 ? code : code * index), 0) % 103;
   codes.push(checksum, 106);
-  let x = 0;
+  let x = quietZone;
   const bars = [];
   codes.forEach((code) => {
     const pattern = code128Patterns[code] || code128Patterns[13];
     [...pattern].forEach((widthText, index) => {
       const width = Number(widthText);
-      if (index % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${width}" height="60"></rect>`);
+      if (index % 2 === 0) bars.push(`<rect x="${x}" y="0" width="${width}" height="${barHeight}" fill="#111111"></rect>`);
       x += width;
     });
   });
-  return `<div class="barcode-wrap detail-barcode-wrap"><svg class="barcode code128-barcode" viewBox="0 0 ${x} 60" preserveAspectRatio="none">${bars.join("")}</svg><small>${escapeHtml(text)}</small></div>`;
+  const totalWidth = x + quietZone;
+  const wrapClass = compact ? "standard-code128-wrap" : "detail-barcode-wrap";
+  return `<div class="barcode-wrap ${wrapClass}"><svg class="barcode code128-barcode" viewBox="0 0 ${totalWidth} ${barHeight}" preserveAspectRatio="none"><rect x="0" y="0" width="${totalWidth}" height="${barHeight}" fill="#ffffff"></rect>${bars.join("")}</svg><small>${escapeHtml(text)}</small></div>`;
 }
 
 function findById(collection, id) {
@@ -10840,14 +10821,15 @@ function itemBarcodeDetailGridHtml(order = {}) {
 }
 
 function itemBarcodeGeneratorHtml(order = {}) {
-  const payload = itemBarcodePayload(order);
+  const details = itemBarcodeDetails(order);
+  const payload = details.productionNo || order.barcode || order.number || "";
   return `
     <section class="barcode-generator-card">
       <div class="generated-barcode-box">
-        ${code128BarcodeSvg(payload)}
+        ${code128BarcodeSvg(payload, { maxLength: 60 })}
       </div>
       <div class="barcode-readable-text">
-        <b>Phone scanner will show this text:</b>
+        <b>Scanner lookup code:</b>
         <p>${escapeHtml(payload)}</p>
       </div>
       ${itemBarcodeDetailGridHtml(order)}
