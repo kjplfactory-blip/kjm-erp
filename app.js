@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v434";
+const APP_VERSION = "v436";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1628,6 +1628,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
   state.safeDepartmentIssues = state.safeDepartmentIssues || [];
   state.safeDepartmentIssues.unshift(issue);
   if (safeGoldIssue.created && lot) lot.safeDepartmentIssueId = issue.id;
+  syncProductionReturnAfterSafeIssue(item, issue, lot);
   const stoneAdjustmentSummary = applySafeIssueStoneAdjustment(stoneAdjustmentOrder, issue, stoneAdjustmentOrders);
   const remainingGrossWeight = Number(weight3(Math.max(availableGrossWeight - issuedGrossWeight, 0)));
   const remainingWaxStoneWeight = Number(weight3(Math.max(availableWaxStoneWeight - issuedWaxStoneWeight, 0)));
@@ -2300,6 +2301,11 @@ document.getElementById("office-details-dialog").addEventListener("click", (even
     printHallmarkedTags([tagButton.dataset.officeTagKey]);
     return;
   }
+  const productionReturnButton = event.target.closest("[data-return-office-item]");
+  if (productionReturnButton) {
+    openProductionReturnDialog(productionReturnButton.dataset.returnOfficeItem);
+    return;
+  }
   const discardButton = event.target.closest("[data-discard-office-item]");
   if (discardButton) {
     discardOfficeItem(discardButton.dataset.discardOfficeItem);
@@ -2341,6 +2347,18 @@ document.getElementById("office-details-dialog").addEventListener("submit", (eve
   if (event.target.id !== "office-customer-form") return;
   event.preventDefault();
   saveOfficeCustomer(event.target);
+});
+
+document.getElementById("production-return-form")?.addEventListener("input", updateProductionReturnTotals);
+document.getElementById("production-return-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveOfficeProductionReturn(event.target);
+});
+document.getElementById("close-production-return")?.addEventListener("click", () => {
+  document.getElementById("production-return-dialog")?.close();
+});
+document.getElementById("cancel-production-return")?.addEventListener("click", () => {
+  document.getElementById("production-return-dialog")?.close();
 });
 
 document.getElementById("bill-form").addEventListener("input", updateBillAmount);
@@ -2793,6 +2811,10 @@ document.getElementById("transfer-form").addEventListener("change", (event) => {
 
 document.getElementById("close-history").addEventListener("click", () => {
   document.getElementById("history-dialog").close();
+});
+
+document.getElementById("close-safe-item-issue-history")?.addEventListener("click", () => {
+  document.getElementById("safe-item-issue-history-dialog")?.close();
 });
 
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
@@ -9542,6 +9564,7 @@ function officeStockWeight() {
 }
 
 function isFactoryOutBillItem(item = {}) {
+  if (item.productionReturnFromOffice) return true;
   return item.qcStatus === "QC OK" && (item.factoryStatus === "Factory Out" || item.officeStatus === "Office");
 }
 
@@ -18115,10 +18138,13 @@ function renderRepairJobOrderCard({ lot, bill, item, order }) {
         <span><b>Net Wt</b>${gram(item.netWeight)}</span>
         <span><b>Total Non-Gold</b>${billNonGoldTotalText(item, order)}</span>
         <span><b>Non-Gold Details</b>${escapeHtml(billNonGoldSummaryText(item, order))}</span>
+        ${item.productionReturnReason ? `<span><b>Return Reason</b>${escapeHtml(item.productionReturnReason)}</span>` : ""}
+        ${item.productionReturnSafeItemId ? `<span><b>Production Shelf</b>${escapeHtml(findById("safeItems", item.productionReturnSafeItemId)?.locker || "Issued From Shelf")}</span>` : ""}
         <span><b>Extra Loss</b>${gram(item.repairAdditionalLoss)}</span>
       </div>
       <div class="row-actions">
         <button type="button" onclick="openRepairJobItem('${escapeHtml(order.id)}')">Open Job Item</button>
+        ${item.productionReturnSafeItemId ? `<button class="ghost-button" type="button" onclick="openReturnedProductionShelf('${escapeHtml(item.productionReturnSafeItemId)}')">Open Production Shelf</button>` : ""}
       </div>
     </article>
   `;
@@ -20737,6 +20763,314 @@ function updateOfficeCustomerReferences(customer) {
   });
 }
 
+function productionReturnNonGoldBreakdown(item = {}) {
+  return normalizeNonGoldBreakdown({
+    stone: billNumber(item.stoneWeight ?? item.stWeight ?? item.stoneWt),
+    "black-beads": billNumber(item.blackBeadsWeight ?? item.bbWeight),
+    moti: billNumber(item.motiWeight ?? item.mmWeight),
+    spring: billNumber(item.springWeight),
+    other: billNumber(item.otherNonGoldWeight ?? item.otherWeight),
+  });
+}
+
+function productionReturnWeightSummary(item = {}, overrides = {}) {
+  const grossWeight = Number(weight3(overrides.grossWeight ?? item.finalGw ?? item.grossWeight ?? 0));
+  const nonGoldBreakdown = normalizeNonGoldBreakdown(overrides.nonGoldBreakdown || productionReturnNonGoldBreakdown(item));
+  const nonGoldWeight = Number(weight3(nonGoldBreakdownTotal(nonGoldBreakdown)));
+  const netWeight = Number(weight3(Math.max(grossWeight - nonGoldWeight, 0)));
+  return { grossWeight, nonGoldBreakdown, nonGoldWeight, netWeight };
+}
+
+function productionReturnSafeItem({ lot = {}, bill = {}, item = {}, order = {}, weights = {}, reason = "", remarks = "", fromOffice = false } = {}) {
+  const purity = item.purity || order.purity || lot.metalPurity || "18K";
+  const locker = safeLockerForPurity(purity);
+  const productionNo = item.productionNo || order.productionNo || order.number || "Returned Item";
+  const designNumber = item.designNo || order.designNo || designLabel(order.designId) || order.category || "";
+  const colour = item.color || order.color || "Mixed / Not Set";
+  return {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    locker,
+    purity: karatLogicPurity(purity),
+    desiredPurity: karatLogicPurity(purity),
+    colour,
+    safeKind: "accessory",
+    description: `${productionNo}${designNumber ? ` / ${designNumber}` : ""} / Returned Finished Item`,
+    source: `${fromOffice ? "Office Return" : "Bill / QC Failed"}${bill.billNo ? ` / ${bill.billNo}` : ""}`,
+    sourceLine: "productionReturn",
+    grossWeight: Number(weight3(weights.grossWeight || 0)),
+    waxStoneWeight: 0,
+    nonGoldWeight: Number(weight3(weights.nonGoldWeight || 0)),
+    nonGoldBreakdown: normalizeNonGoldBreakdown(weights.nonGoldBreakdown),
+    nonGoldCategory: nonGoldBreakdownCategory(weights.nonGoldBreakdown),
+    nonGoldWeightKnown: true,
+    netWeight: Number(weight3(weights.netWeight || 0)),
+    status: "In Safe",
+    remarks: [reason, remarks].filter(Boolean).join(" / "),
+    sourceType: "production-return",
+    sourceId: `${lot.id || "lot"}:${item.orderId || productionNo}`,
+    returnSourceLotId: lot.id || "",
+    returnSourceLotNumber: lot.number || "",
+    returnSourceJobNumber: lot.orderNumber || order.jobNumber || "",
+    returnSourceBillId: bill.id || "",
+    returnSourceBillNo: bill.billNo || "",
+    returnOrderId: item.orderId || order.id || "",
+    returnProductionNo: productionNo,
+    returnReason: reason,
+    returnRemarks: remarks,
+    returnedFromOffice: fromOffice,
+  };
+}
+
+function addOfficeProductionReturnLedger(safeItem = {}) {
+  if (!safeItem.returnedFromOffice || Number(safeItem.netWeight || 0) <= 0) return null;
+  const sourceId = safeItem.id;
+  const existing = (state.factoryLedger || []).find((entry) => entry.sourceType === "office-production-return" && entry.sourceId === sourceId);
+  if (existing) return existing;
+  return addFactoryLedgerEntry({
+    id: `office-return-${sourceId}`,
+    date: safeItem.date || today(),
+    direction: "in",
+    type: "Office Return / Factory In",
+    materialType: "bill-return",
+    purity: safeItem.purity || safeItem.locker || "",
+    weight: Number(safeItem.netWeight || 0),
+    stockPosting: `${safeItem.locker || safeLockerForPurity(safeItem.purity)} Production Shelf Return`,
+    reference: `${safeItem.returnProductionNo || "Returned item"} / ${safeItem.returnSourceBillNo || "Office"}`,
+    remarks: `Returned GW ${gram(safeItem.grossWeight)} - Non-Gold ${gram(safeItem.nonGoldWeight)} = Net Gold ${gram(safeItem.netWeight)}; ${nonGoldBreakdownText(safeItem.nonGoldBreakdown) || "No non-gold"}; ${safeItem.returnReason || "Office return"}`,
+    sourceType: "office-production-return",
+    sourceId,
+    sourceLine: safeItem.returnOrderId || "",
+  });
+}
+
+function returnBillItemToProductionShelf({ lot = {}, bill = {}, item = {}, order = {}, weights = {}, reason = "", remarks = "" } = {}) {
+  if (!bill?.items?.length || !item) return null;
+  const index = bill.items.findIndex((entry) => officeItemKey(lot.id, entry) === officeItemKey(lot.id, item));
+  if (index < 0) return null;
+  if (item.productionReturnSafeItemId) {
+    const existingSafeItem = findById("safeItems", item.productionReturnSafeItemId);
+    if (existingSafeItem) return { safeItem: existingSafeItem, billItem: item, duplicate: true };
+  }
+  const wasFactoryOut = isFactoryOutBillItem(item)
+    || item.factoryStatus === "Factory Out"
+    || item.officeStatus === "Office"
+    || Boolean(item.salesTeam || item.hallmarkStatus || item.huid1 || item.huid2);
+  const normalizedWeights = productionReturnWeightSummary(item, weights);
+  if (normalizedWeights.grossWeight <= 0 || normalizedWeights.nonGoldWeight > normalizedWeights.grossWeight + 0.0005) return null;
+  const safeItem = productionReturnSafeItem({ lot, bill, item, order, weights: normalizedWeights, reason, remarks, fromOffice: wasFactoryOut });
+  state.safeItems = state.safeItems || [];
+  state.safeItems.unshift(safeItem);
+  addOfficeProductionReturnLedger(safeItem);
+  const returnDate = today();
+  const returnIsoDate = isoToday();
+  const updatedItem = {
+    ...item,
+    finalGw: normalizedWeights.grossWeight,
+    stoneWeight: Number(normalizedWeights.nonGoldBreakdown.stone || 0),
+    stWeight: Number(normalizedWeights.nonGoldBreakdown.stone || 0),
+    blackBeadsWeight: Number(normalizedWeights.nonGoldBreakdown["black-beads"] || 0),
+    bbWeight: Number(normalizedWeights.nonGoldBreakdown["black-beads"] || 0),
+    motiWeight: Number(normalizedWeights.nonGoldBreakdown.moti || 0),
+    mmWeight: Number(normalizedWeights.nonGoldBreakdown.moti || 0),
+    springWeight: Number(normalizedWeights.nonGoldBreakdown.spring || 0),
+    otherNonGoldWeight: Number(normalizedWeights.nonGoldBreakdown.other || 0),
+    otherWeight: Number(normalizedWeights.nonGoldBreakdown.other || 0),
+    reducedWeight: normalizedWeights.nonGoldWeight,
+    netWeight: normalizedWeights.netWeight,
+    qcStatus: "QC Failed",
+    qcDate: returnDate,
+    officeStatus: "",
+    factoryStatus: wasFactoryOut ? "Factory Out" : "Factory In",
+    productionReturnFromOffice: wasFactoryOut,
+    productionReturnSafeItemId: safeItem.id,
+    productionReturnDate: returnDate,
+    productionReturnIsoDate: returnIsoDate,
+    productionReturnReason: reason,
+    productionReturnRemarks: remarks,
+    repairStatus: "Returned To Production Shelf",
+    repairStartDate: item.repairStartDate || returnDate,
+    repairStartIsoDate: item.repairStartIsoDate || returnIsoDate,
+    repairBaseFinalGw: Number(item.repairBaseFinalGw || normalizedWeights.grossWeight),
+    repairBaseNetWeight: Number(item.repairBaseNetWeight || normalizedWeights.netWeight),
+    repairAdditionalLoss: Number(item.repairAdditionalLoss || 0),
+    reworkLotId: "",
+    reworkLotNumber: "",
+    holder: `${safeItem.locker} Production Shelf`,
+    salesTeam: "",
+    salesIssueDate: "",
+    saleStatus: "",
+  };
+  bill.items[index] = updatedItem;
+  if (order?.id) order.status = "Repair Production Shelf";
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: returnDate,
+    type: wasFactoryOut ? "Office Return" : "QC Failed Return",
+    purity: safeItem.purity,
+    weight: normalizedWeights.netWeight,
+    reference: `${safeItem.returnProductionNo} returned to ${safeItem.locker} shelf; GW ${gram(normalizedWeights.grossWeight)} - ${nonGoldBreakdownText(normalizedWeights.nonGoldBreakdown) || "Non-Gold 0.000 g"} = Net Gold ${gram(normalizedWeights.netWeight)}; ${reason || "Return to production"}`,
+  });
+  return { safeItem, billItem: updatedItem, duplicate: false };
+}
+
+function finalizeProductionShelfReturnLot(lot = {}, bill = {}) {
+  lot.bill = bill;
+  const officeItemsRemaining = (bill.items || []).some((item) => item.qcStatus === "QC OK" && item.officeStatus === "Office" && !isDiscardedItem(item));
+  lot.billingStage = officeItemsRemaining ? "Part Office / Part Production Shelf" : "Returned To Production Shelf";
+  lot.currentDepartment = officeItemsRemaining ? "Part Office / Production Shelf" : "Production Shelf";
+  lot.karigarName = lot.currentDepartment;
+  lot.productionStockWeight = billProductionStockWeight(bill);
+  updateSavedBill(bill);
+}
+
+function openProductionReturnDialog(key = "") {
+  if (!canEditOfficeWeights()) {
+    alert("Only Office Main or Owner can return an Office item to Production Shelf.");
+    return;
+  }
+  const found = findOfficeBillItem(key);
+  if (!found) {
+    alert("Product details not found.");
+    return;
+  }
+  const { lot, bill, item } = found;
+  const order = findById("orders", item.orderId) || {};
+  if (isDiscardedItem(item) || item.saleStatus === "Sold" || item.hallmarkStatus === "Issued") {
+    alert("This item cannot be returned while it is sold, discarded, or currently with Hallmarking.");
+    return;
+  }
+  if (item.productionReturnSafeItemId && findById("safeItems", item.productionReturnSafeItemId)) {
+    alert("This item is already recorded in Production Shelf.");
+    return;
+  }
+  const form = document.getElementById("production-return-form");
+  const nonGold = productionReturnNonGoldBreakdown(item);
+  const purity = item.purity || order.purity || lot.metalPurity || "18K";
+  form.officeItemKey.value = key;
+  form.reason.value = "";
+  form.locker.value = `${safeLockerForPurity(purity)} Production Shelf`;
+  form.purity.value = transferPurityLabel(purity);
+  form.grossWeight.value = billWeightInputValue(item.finalGw || 0);
+  form.stoneWeight.value = billWeightInputValue(nonGold.stone || 0);
+  form.blackBeadsWeight.value = billWeightInputValue(nonGold["black-beads"] || 0);
+  form.motiWeight.value = billWeightInputValue(nonGold.moti || 0);
+  form.springWeight.value = billWeightInputValue(nonGold.spring || 0);
+  form.otherNonGoldWeight.value = billWeightInputValue(nonGold.other || 0);
+  form.remarks.value = "";
+  document.getElementById("production-return-summary").textContent = `${item.productionNo || order.productionNo || "Item"} / ${order.designNo || designLabel(order.designId) || "-"} / ${lot.orderNumber || lot.number} / ${bill.billNo || "No Bill"} / Current: ${officeItemLocation(item)}`;
+  updateProductionReturnTotals();
+  document.getElementById("office-details-dialog")?.close();
+  document.getElementById("production-return-dialog")?.showModal();
+}
+
+function productionReturnFormWeights(form = document.getElementById("production-return-form")) {
+  const nonGoldBreakdown = normalizeNonGoldBreakdown({
+    stone: Number(form?.stoneWeight?.value || 0),
+    "black-beads": Number(form?.blackBeadsWeight?.value || 0),
+    moti: Number(form?.motiWeight?.value || 0),
+    spring: Number(form?.springWeight?.value || 0),
+    other: Number(form?.otherNonGoldWeight?.value || 0),
+  });
+  return productionReturnWeightSummary({}, { grossWeight: Number(form?.grossWeight?.value || 0), nonGoldBreakdown });
+}
+
+function updateProductionReturnTotals() {
+  const form = document.getElementById("production-return-form");
+  const totals = document.getElementById("production-return-totals");
+  if (!form || !totals) return;
+  const weights = productionReturnFormWeights(form);
+  const invalid = weights.nonGoldWeight > weights.grossWeight + 0.0005;
+  totals.classList.toggle("invalid", invalid);
+  totals.innerHTML = `
+    <article><span>Return GW</span><strong>${gram(weights.grossWeight)}</strong></article>
+    <article><span>Total Non-Gold</span><strong>${gram(weights.nonGoldWeight)}</strong><small>${escapeHtml(nonGoldBreakdownText(weights.nonGoldBreakdown) || "None")}</small></article>
+    <article><span>Net Gold To Factory</span><strong>${gram(weights.netWeight)}</strong></article>
+  `;
+}
+
+function saveOfficeProductionReturn(form) {
+  if (!canEditOfficeWeights()) {
+    alert("Only Office Main or Owner can return an Office item to Production Shelf.");
+    return;
+  }
+  const found = findOfficeBillItem(form.officeItemKey.value);
+  if (!found) {
+    alert("Product details not found.");
+    return;
+  }
+  const weights = productionReturnFormWeights(form);
+  if (weights.grossWeight <= 0) {
+    alert("Enter returned GW greater than zero.");
+    return;
+  }
+  if (weights.nonGoldWeight > weights.grossWeight + 0.0005) {
+    alert(`Total non-gold ${gram(weights.nonGoldWeight)} cannot exceed returned GW ${gram(weights.grossWeight)}.`);
+    return;
+  }
+  const reason = form.reason.value.trim();
+  if (!reason) {
+    alert("Select the return reason.");
+    return;
+  }
+  const order = findById("orders", found.item.orderId) || {};
+  const result = returnBillItemToProductionShelf({
+    ...found,
+    order,
+    weights,
+    reason,
+    remarks: form.remarks.value.trim(),
+  });
+  if (!result || result.duplicate) {
+    alert(result?.duplicate ? "This item is already recorded in Production Shelf." : "The return could not be saved. Check the weights.");
+    return;
+  }
+  finalizeProductionShelfReturnLot(found.lot, found.bill);
+  saveState();
+  render();
+  document.getElementById("production-return-dialog")?.close();
+  alert(`${result.safeItem.returnProductionNo} returned to ${result.safeItem.locker} Production Shelf.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.`);
+}
+
+function syncProductionReturnAfterSafeIssue(safeItem = {}, issue = {}, reworkLot = null) {
+  if (safeItem.sourceType !== "production-return" || !safeItem.returnSourceLotId) return;
+  const sourceLot = findById("lots", safeItem.returnSourceLotId);
+  const bill = sourceLot?.bill
+    || (safeItem.returnSourceBillId ? (state.bills || []).find((entry) => entry.id === safeItem.returnSourceBillId) : null)
+    || (state.bills || []).find((entry) => entry.lotId === sourceLot?.id);
+  if (!sourceLot || !bill?.items?.length) return;
+  const index = bill.items.findIndex((item) =>
+    (safeItem.returnOrderId && item.orderId === safeItem.returnOrderId)
+    || (safeItem.returnProductionNo && item.productionNo === safeItem.returnProductionNo)
+  );
+  if (index < 0) return;
+  if (reworkLot) {
+    reworkLot.parentLotId = sourceLot.id;
+    reworkLot.qcReturn = true;
+    reworkLot.qcReturnReason = safeItem.returnReason || "Returned finished item from Production Shelf";
+    reworkLot.billOrderIds = reworkLot.orderIds?.length ? [...reworkLot.orderIds] : [safeItem.returnOrderId].filter(Boolean);
+  }
+  const current = bill.items[index];
+  bill.items[index] = {
+    ...current,
+    repairStatus: reworkLot ? "In Repair Production" : "Returned Material In Department",
+    repairIssueDate: today(),
+    repairIssueIsoDate: isoToday(),
+    reworkLotId: reworkLot?.id || "",
+    reworkLotNumber: reworkLot?.number || "",
+    productionReturnSafeIssueId: issue.id || "",
+    holder: reworkLot?.currentDepartment || issue.process || issue.departmentName || "Repair Production",
+  };
+  const order = findById("orders", safeItem.returnOrderId);
+  if (order?.id) order.status = "In Production";
+  sourceLot.bill = bill;
+  sourceLot.billingStage = "QC Failed / Repair Production";
+  sourceLot.productionStockWeight = billProductionStockWeight(bill);
+  updateSavedBill(bill);
+}
+
 async function openOfficeItemView(key) {
   const found = findOfficeBillItem(key);
   if (!found) {
@@ -20765,10 +21099,18 @@ async function openOfficeItemView(key) {
   const discardAction = canEditOfficeWeights() && !isDiscardedItem(item)
     ? `<button type="button" class="danger-button" data-discard-office-item="${escapeHtml(key)}">Discard / Send To Melting</button>`
     : "";
+  const productionReturnAction = canEditOfficeWeights()
+    && !isDiscardedItem(item)
+    && !isRepairItem(item)
+    && item.saleStatus !== "Sold"
+    && item.hallmarkStatus !== "Issued"
+    && !item.productionReturnSafeItemId
+      ? `<button type="button" data-return-office-item="${escapeHtml(key)}">Return To Production Shelf</button>`
+      : "";
   const tagAction = isHallmarkedItem(item)
     ? `<button type="button" class="ghost-button" data-office-tag-key="${escapeHtml(key)}">Print Tag</button>`
     : "";
-  if (actions) actions.innerHTML = `<button type="button" id="office-back-sold" class="ghost-button">Back To Office Details</button>${tagAction}${discardAction}`;
+  if (actions) actions.innerHTML = `<button type="button" id="office-back-sold" class="ghost-button">Back To Office Details</button>${tagAction}${productionReturnAction}${discardAction}`;
   if (detailsPanel) detailsPanel.classList.add("hidden");
   if (content) {
     content.innerHTML = `
@@ -20907,7 +21249,7 @@ function repairJobItems() {
 function isRepairItem(item = {}) {
   if (isDiscardedItem(item)) return false;
   if (item.qcStatus === "QC Failed") return true;
-  return ["QC Failed", "In Repair Production", "Repaired - Ready For Final Bill"].includes(item.repairStatus || "");
+  return ["QC Failed", "Returned To Production Shelf", "Returned Material In Department", "In Repair Production", "Repaired - Ready For Final Bill"].includes(item.repairStatus || "");
 }
 
 function officeDepartment(item = {}) {
@@ -21186,6 +21528,8 @@ function createDiscardMeltingRecord({ item, order, lot, reason, goldWeight, puri
 }
 
 function officeItemHolder(item) {
+  if (item.repairStatus === "Returned To Production Shelf") return item.holder || "Production Shelf";
+  if (item.repairStatus === "Returned Material In Department") return item.holder || "Repair Production";
   if (isRepairItem(item)) return item.repairStatus === "In Repair Production" ? "Repair Production" : "QC Failed / Repair";
   if (item.saleStatus === "Sold") return item.salesTeam || "Sold";
   if (item.salesTeam) return item.salesTeam;
@@ -21197,6 +21541,8 @@ function officeItemHolder(item) {
 function officeItemLocation(item) {
   if (isDiscardedItem(item)) return "Discarded / Melting";
   if (isRepairItem(item)) {
+    if (item.repairStatus === "Returned To Production Shelf") return item.holder || "Production Shelf";
+    if (item.repairStatus === "Returned Material In Department") return item.holder || "Repair Production Department";
     if (item.repairStatus === "In Repair Production") return "Repair Production";
     if (item.repairStatus === "Repaired - Ready For Final Bill") return "Repair Completed - Final Bill";
     return "QC Failed - Back To Production";
@@ -21221,6 +21567,7 @@ function officeItemStatus(item) {
 function officeItemStatusClass(item) {
   if (isDiscardedItem(item)) return "cancelled";
   if (isRepairItem(item)) {
+    if (["Returned To Production Shelf", "Returned Material In Department"].includes(item.repairStatus)) return "transfer";
     if (item.repairStatus === "In Repair Production") return "transfer";
     if (item.repairStatus === "Repaired - Ready For Final Bill") return "pending";
     return "cancelled";
@@ -21982,56 +22329,34 @@ function returnQcFailedItemsToProduction() {
   const failedItems = (bill.items || []).filter((item) =>
     item.qcStatus === "QC Failed"
     && !isDiscardedItem(item)
+    && !item.productionReturnSafeItemId
     && item.repairStatus !== "In Repair Production"
-    && !item.reworkLotId
   );
   if (!failedItems.length) {
-    alert("Select QC Failed for at least one item not already sent to repair production.");
+    alert("Select QC Failed for at least one item not already returned to Production Shelf.");
     return;
   }
-  const failedOrderIds = failedItems.map((item) => item.orderId).filter(Boolean);
-  const failedOrders = failedOrderIds.map((id) => findById("orders", id)).filter(Boolean);
-  if (!failedOrders.length) {
-    alert("No failed job item found.");
+  const returned = failedItems.map((item) => {
+    const order = findById("orders", item.orderId) || {};
+    return returnBillItemToProductionShelf({
+      lot,
+      bill,
+      item,
+      order,
+      weights: productionReturnWeightSummary(item),
+      reason: "QC Failed",
+      remarks: "Returned from Bill / QC for repair, wastage review, or melting decision",
+    });
+  }).filter((result) => result && !result.duplicate);
+  if (!returned.length) {
+    alert("QC failed item could not be returned. Check its GW and non-gold weights.");
     return;
   }
-  const repairStartDate = today();
-  const repairStartIsoDate = isoToday();
-  const reworkLot = createQcFailedReworkLot(lot, failedOrders, failedItems);
-  failedOrders.forEach((order) => {
-    order.status = "Repair Production";
-  });
-  bill.items = (bill.items || []).map((item) => {
-    if (!failedOrderIds.includes(item.orderId)) return item;
-    return {
-      ...item,
-      officeStatus: "",
-      repairStatus: "In Repair Production",
-      repairStartDate: item.repairStartDate || repairStartDate,
-      repairStartIsoDate: item.repairStartIsoDate || repairStartIsoDate,
-      repairIssueDate: repairStartDate,
-      repairIssueIsoDate: repairStartIsoDate,
-      repairBaseFinalGw: Number(item.repairBaseFinalGw || item.finalGw || 0),
-      repairBaseNetWeight: Number(item.repairBaseNetWeight || item.netWeight || 0),
-      repairAdditionalLoss: Number(item.repairAdditionalLoss || 0),
-      reworkLotId: reworkLot.id,
-      reworkLotNumber: reworkLot.number,
-      holder: "Repair Production",
-      salesTeam: "",
-      salesIssueDate: "",
-      saleStatus: "",
-      qcDate: repairStartDate,
-    };
-  });
-  lot.bill = bill;
-  lot.billingStage = "QC Failed / Repair Production";
-  lot.productionStockWeight = billProductionStockWeight(bill);
-  lot.currentDepartment = "Repair Production";
-  lot.karigarName = "Repair Production";
-  updateSavedBill(bill);
+  finalizeProductionShelfReturnLot(lot, bill);
   saveState();
   render();
   openBill(lot.id);
+  alert(`${returned.length} QC failed item${returned.length === 1 ? "" : "s"} returned to Production Shelf with complete GW, non-gold, and net-gold breakup.`);
 }
 
 function moveQcFailedItemsToOfficeRepair() {
@@ -22454,6 +22779,13 @@ function renderSafeLockers() {
   const rows = (state.safeItems || [])
     .filter((item) => !filter || safeLockerForPurity(item.locker || item.purity) === filter)
     .map((item) => {
+      const partIssueCount = (state.safeDepartmentIssues || []).filter((issue) => issue.safeItemId === item.id).length;
+      const partIssueButton = partIssueCount
+        ? `<button class="ghost-button" type="button" onclick="openSafeItemIssueHistory('${item.id}')">Part Issues (${partIssueCount})</button>`
+        : "";
+      const productionReturnMeltButton = item.sourceType === "production-return" && item.status !== "Out"
+        ? `<button class="danger-button" type="button" onclick="meltProductionReturnSafeItem('${item.id}')">Remove Non-Gold / Melt</button>`
+        : "";
       const outDetail = item.issueDepartmentName
         ? `${item.outDate || "-"}<br><small>${escapeHtml(item.issueDepartmentName)} / ${escapeHtml(item.issueProcess || "-")}</small>${item.issueLotNumber ? `<br><small>${escapeHtml(item.issueLotNumber)} / ${escapeHtml(item.issueJobNumber || "-")}</small>` : ""}`
         : escapeHtml(item.outDate || "-");
@@ -22461,10 +22793,10 @@ function renderSafeLockers() {
         ? safeDepartmentIssuesInHand().find((issue) => issue.id === item.safeDepartmentIssueId)
         : null;
       const actions = item.status === "Out"
-        ? `<div class="safe-out-actions">${outDetail}${departmentIssue ? `<button class="ghost-button" type="button" onclick="openSafeDepartmentReceive('${departmentIssue.id}')">Receive</button>` : ""}</div>`
-        : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue Item</button>${isCastingIssueStock(item) ? `<button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${item.id}')">To Wastage</button>` : ""}<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button><button class="delete-btn" type="button" onclick="deleteSafeShelfEntry('${item.id}')">Delete Entry</button></div>`;
+        ? `<div class="safe-out-actions">${outDetail}${partIssueButton}${departmentIssue ? `<button class="ghost-button" type="button" onclick="openSafeDepartmentReceive('${departmentIssue.id}')">Receive</button>` : ""}</div>`
+        : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue Item</button>${partIssueButton}${productionReturnMeltButton}${isCastingIssueStock(item) ? `<button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${item.id}')">To Wastage</button>` : ""}<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button><button class="delete-btn" type="button" onclick="deleteSafeShelfEntry('${item.id}')">Delete Entry</button></div>`;
       return `
-        <tr>
+        <tr data-safe-item-id="${escapeHtml(item.id)}">
           <td>${escapeHtml(item.date || "-")}</td>
           <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
           <td>${escapeHtml(safeWastageColour(item))}</td>
@@ -22485,12 +22817,249 @@ function renderSafeLockers() {
   if (table) table.innerHTML = rows || tableEmpty(13, "No item in this safe locker yet.");
 }
 
+function safeItemIssueHistoryEntries(itemId = "", currentState = state) {
+  const item = (currentState.safeItems || []).find((entry) => entry.id === itemId) || {};
+  return (currentState.safeDepartmentIssues || [])
+    .filter((rawIssue) => rawIssue.safeItemId === itemId)
+    .map((rawIssue) => {
+      const issue = normalizeSafeDepartmentIssue(rawIssue, item, currentState);
+      const linkedLotId = rawIssue.goldIssueLotId || issue.goldIssueLotId || issue.lotId || "";
+      const lot = linkedLotId
+        ? (currentState.lots || []).find((entry) => entry.id === linkedLotId) || null
+        : (issue.lotNumber ? (currentState.lots || []).find((entry) => entry.number === issue.lotNumber) || null : null);
+      return { rawIssue, issue, lot };
+    })
+    .sort((left, right) => transferHistoryTime(right.issue.createdAt, right.issue.date) - transferHistoryTime(left.issue.createdAt, left.issue.date));
+}
+
+function safeItemIssueHistoryTotals(entries = [], item = {}) {
+  const totals = entries.reduce((summary, entry) => {
+    const issue = entry.issue || entry;
+    summary.grossWeight += Number(issue.issuedGrossWeight || 0);
+    summary.waxStoneWeight += Number(issue.issuedWaxStoneWeight || 0);
+    summary.nonGoldWeight += Number(issue.issuedNonGoldWeight || 0);
+    summary.netWeight += Number(issue.issuedNetWeight || 0);
+    return summary;
+  }, { count: entries.length, grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, netWeight: 0 });
+  return {
+    ...totals,
+    grossWeight: Number(weight3(totals.grossWeight)),
+    waxStoneWeight: Number(weight3(totals.waxStoneWeight)),
+    nonGoldWeight: Number(weight3(totals.nonGoldWeight)),
+    netWeight: Number(weight3(totals.netWeight)),
+    remainingGrossWeight: item.status === "Out" ? 0 : Number(weight3(item.grossWeight || 0)),
+  };
+}
+
+function openSafePartIssueLotHistory(lotId = "") {
+  const lot = findById("lots", lotId);
+  if (!lot) {
+    alert("The linked production lot is no longer available.");
+    return;
+  }
+  document.getElementById("safe-item-issue-history-dialog")?.close();
+  openLotHistory(lot.id);
+}
+
+function openSafeItemIssueHistory(itemId = "") {
+  const item = findById("safeItems", itemId);
+  if (!item) return;
+  const entries = safeItemIssueHistoryEntries(itemId);
+  const totals = safeItemIssueHistoryTotals(entries, item);
+  const summary = document.getElementById("safe-item-issue-history-summary");
+  if (summary) {
+    summary.textContent = `${item.description || "Shelf Item"} / ${safeLockerForPurity(item.locker || item.purity)} / ${item.source || "Manual Entry"} / ${item.status || "In Safe"}`;
+  }
+  const totalsNode = document.getElementById("safe-item-issue-history-totals");
+  if (totalsNode) {
+    totalsNode.innerHTML = `
+      <article><span>Part Issues</span><strong>${totals.count}</strong></article>
+      <article><span>Total Issue GW</span><strong>${gram(totals.grossWeight)}</strong></article>
+      <article><span>Wax Stone Issued</span><strong>${gram(totals.waxStoneWeight)}</strong></article>
+      <article><span>Non-Gold Issued</span><strong>${gram(totals.nonGoldWeight)}</strong></article>
+      <article><span>Net Gold Issued</span><strong>${gram(totals.netWeight)}</strong></article>
+      <article><span>Current Shelf GW</span><strong>${gram(totals.remainingGrossWeight)}</strong></article>
+    `;
+  }
+  const rows = entries.map(({ rawIssue, issue, lot }, index) => {
+    const jobNumber = issue.jobNumber || lot?.orderNumber || "";
+    const productionNo = issue.productionNo || issue.stoneAdjustmentProductionNo || "";
+    const originalDepartment = rawIssue.departmentName || issue.departmentName || "-";
+    const originalProcess = rawIssue.process || issue.process || "-";
+    const nonGoldText = nonGoldBreakdownText(issue.issuedNonGoldBreakdown, issue.nonGoldCategory, issue.issuedNonGoldWeight) || "-";
+    const movementDepartment = lot?.currentDepartment || lot?.karigarName || "-";
+    const movementStatus = lot?.status || (issue.status === "In Department" ? issue.departmentName || issue.process : issue.status);
+    const movementCount = lot?.transfers?.length || 0;
+    const returnText = Number(issue.returnedGrossWeight || 0) > 0 ? `<br><small>Returned ${gram(issue.returnedGrossWeight)}</small>` : "";
+    return `
+      <tr>
+        <td><strong>${escapeHtml(transferHistoryDateTime(issue.date, issue.createdAt))}</strong><br><small>Part ${entries.length - index}</small></td>
+        <td><strong>${escapeHtml(jobNumber || safeIssueDestinationModeLabel(issue.destinationMode))}</strong>${productionNo ? `<br><small>PR ${escapeHtml(productionNo)}</small>` : ""}${issue.designNumber ? `<br><small>${escapeHtml(issue.designNumber)} / ${escapeHtml(issue.itemName || "-")}</small>` : ""}</td>
+        <td>${lot ? `<strong>${escapeHtml(lot.number || issue.lotNumber || "-")}</strong><br><button class="ghost-button safe-history-open-button" type="button" onclick="openSafePartIssueLotHistory('${lot.id}')">Open Movement</button>` : `<strong>${escapeHtml(issue.lotNumber || "Not Linked")}</strong><br><small>${escapeHtml(safeIssueDestinationModeLabel(issue.destinationMode))}</small>`}</td>
+        <td><strong>${escapeHtml(originalDepartment)}</strong><br><small>${escapeHtml(originalProcess)}</small></td>
+        <td><strong>${gram(issue.issuedGrossWeight)}</strong></td>
+        <td>${gram(issue.issuedWaxStoneWeight)}</td>
+        <td><strong>${gram(issue.issuedNonGoldWeight)}</strong><br><small>${escapeHtml(nonGoldText)}</small></td>
+        <td><strong>${gram(issue.issuedNetWeight)}</strong></td>
+        <td><strong>${escapeHtml(movementDepartment)}</strong><br><small>${escapeHtml(movementStatus || "-")} / ${movementCount} transfer${movementCount === 1 ? "" : "s"}</small></td>
+        <td><span class="status ${statusClass(issue.status)}">${escapeHtml(issue.status)}</span>${returnText}${issue.remarks ? `<br><small title="${escapeHtml(issue.remarks)}">${escapeHtml(issue.remarks)}</small>` : ""}</td>
+      </tr>
+    `;
+  }).join("");
+  const table = document.getElementById("safe-item-issue-history-table");
+  if (table) table.innerHTML = rows || tableEmpty(10, "No part issue has been recorded from this shelf item.");
+  const dialog = document.getElementById("safe-item-issue-history-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function recoverProductionReturnNonGold(safeItem = {}, meltingId = "") {
+  const breakdown = safeItemNonGoldBreakdown(safeItem);
+  const recovered = [];
+  Object.entries(breakdown).forEach(([category, rawWeight]) => {
+    const weight = Number(weight3(rawWeight || 0));
+    if (weight <= 0) return;
+    const recoveredItem = {
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: new Date().toISOString(),
+      locker: safeItem.locker,
+      purity: safeItem.purity,
+      desiredPurity: safeItem.desiredPurity || safeItem.purity,
+      colour: safeItem.colour || "Mixed / Not Set",
+      safeKind: "non-gold",
+      description: `${safeNonGoldCategoryLabel(category)} recovered from ${safeItem.returnProductionNo || safeItem.description || "returned item"}`,
+      source: `Dismantled Production Return / ${safeItem.returnSourceBillNo || "No Bill"}`,
+      sourceLine: "recoveredNonGold",
+      grossWeight: weight,
+      waxStoneWeight: 0,
+      nonGoldWeight: weight,
+      nonGoldBreakdown: normalizeNonGoldBreakdown({ [category]: weight }),
+      nonGoldCategory: category,
+      nonGoldWeightKnown: true,
+      netWeight: 0,
+      status: "In Safe",
+      remarks: `Recovered before melting ${safeItem.returnProductionNo || "returned item"}`,
+      sourceType: "production-return-recovery",
+      sourceId: safeItem.id,
+      sourceMeltingId: meltingId,
+      returnSourceLotId: safeItem.returnSourceLotId || "",
+      returnOrderId: safeItem.returnOrderId || "",
+      returnProductionNo: safeItem.returnProductionNo || "",
+    };
+    state.safeItems.unshift(recoveredItem);
+    recovered.push(recoveredItem);
+  });
+  return recovered;
+}
+
+function meltProductionReturnSafeItem(itemId = "") {
+  if (!requirePageEditPermission("safe", "send a returned product to melting")) return;
+  const item = findById("safeItems", itemId);
+  if (!item || item.sourceType !== "production-return" || item.status === "Out") {
+    alert("Returned production shelf item is not available.");
+    return;
+  }
+  const goldWeight = safeItemGoldWeight(item);
+  if (goldWeight <= 0) {
+    alert("Net gold weight is zero. Correct the returned item weights before melting.");
+    return;
+  }
+  const nonGoldText = nonGoldBreakdownText(safeItemNonGoldBreakdown(item)) || "None";
+  const reason = prompt(`Dismantling / melting remarks for ${item.returnProductionNo || item.description}:`, item.returnReason || "Damaged item - remove non-gold and melt gold");
+  if (reason === null) return;
+  if (!confirm(`Send net gold ${gram(goldWeight)} to Melting?\nRecover to shelf: ${nonGoldText}\nThe full returned item will be marked Out.`)) return;
+  const sourceLot = findById("lots", item.returnSourceLotId) || {
+    id: item.returnSourceLotId || "",
+    number: item.returnSourceLotNumber || "",
+    orderNumber: item.returnSourceJobNumber || "",
+  };
+  const order = findById("orders", item.returnOrderId) || {};
+  const meltingId = createDiscardMeltingRecord({
+    item: {
+      productionNo: item.returnProductionNo || order.productionNo || "",
+      netWeight: goldWeight,
+      finalGw: item.grossWeight,
+    },
+    order,
+    lot: sourceLot,
+    reason: reason.trim() || "Returned item dismantled for melting",
+    goldWeight,
+    purity: purityPercent(item.purity || item.locker || order.purity || "18K"),
+  });
+  const recovered = recoverProductionReturnNonGold(item, meltingId);
+  item.status = "Out";
+  item.outDate = today();
+  item.issueDepartmentName = "Melting Department";
+  item.issueProcess = "Dismantled / Gold To Melting";
+  item.productionReturnMeltingId = meltingId;
+  item.recoveredNonGoldItemIds = recovered.map((entry) => entry.id);
+  item.remarks = [item.remarks, reason.trim(), `Net gold ${gram(goldWeight)} sent to melting`, `Recovered ${gram(item.nonGoldWeight)}`].filter(Boolean).join(" / ");
+  const bill = sourceLot?.bill || (state.bills || []).find((entry) => entry.id === item.returnSourceBillId || entry.lotId === item.returnSourceLotId);
+  if (bill?.items?.length) {
+    const index = bill.items.findIndex((entry) =>
+      (item.returnOrderId && entry.orderId === item.returnOrderId)
+      || (item.returnProductionNo && entry.productionNo === item.returnProductionNo)
+    );
+    if (index >= 0) {
+      bill.items[index] = {
+        ...bill.items[index],
+        discardStatus: "Discarded",
+        discardDate: today(),
+        discardReason: reason.trim() || "Returned item dismantled for melting",
+        discardMeltingId: meltingId,
+        repairStatus: "Dismantled / Gold Sent To Melting",
+        productionReturnMeltingId: meltingId,
+        recoveredNonGoldItemIds: recovered.map((entry) => entry.id),
+        holder: "Melting Department",
+      };
+      if (sourceLot?.id) sourceLot.bill = bill;
+      updateSavedBill(bill);
+    }
+  }
+  if (order?.id) order.status = "Discarded / Melting";
+  if (recovered.length) {
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      type: "Non-Gold Recovered",
+      purity: "-",
+      weight: Number(weight3(recovered.reduce((total, entry) => total + Number(entry.grossWeight || 0), 0))),
+      reference: `${item.returnProductionNo || "Returned item"} dismantled; ${nonGoldText} recovered to ${item.locker} shelf`,
+    });
+  }
+  saveState();
+  render();
+  alert(`${item.returnProductionNo || "Returned item"} dismantled.\nGold ${gram(goldWeight)} issued to Melting.\nRecovered non-gold ${gram(item.nonGoldWeight)} saved in ${recovered.length} shelf entr${recovered.length === 1 ? "y" : "ies"}.`);
+}
+
 function selectSafeLocker(locker) {
   const filter = document.getElementById("safe-locker-filter");
   const selectedLocker = SAFE_LOCKERS.includes(locker) ? locker : "";
   if (filter) filter.value = selectedLocker;
   syncSafeEntryLockerWithFilter(selectedLocker);
   renderSafeLockers();
+}
+
+function openReturnedProductionShelf(itemId = "") {
+  const item = findById("safeItems", itemId);
+  if (!item) {
+    alert("The returned shelf entry is no longer available. It may already be issued or dismantled.");
+    return;
+  }
+  if (currentUser && !canAccessPage("safe")) {
+    alert("This login does not have access to Safe Locker.");
+    return;
+  }
+  document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
+  switchView("safe");
+  openOperationPage("safe", "items");
+  selectSafeLocker(safeLockerForPurity(item.locker || item.purity));
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`[data-safe-item-id="${item.id}"]`);
+    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    row?.classList.add("safe-return-focus-row");
+    setTimeout(() => row?.classList.remove("safe-return-focus-row"), 2400);
+  });
 }
 
 function syncSafeEntryLockerWithFilter(locker = "") {
@@ -25303,6 +25872,7 @@ function normalizeState(currentState) {
     return {
       id: item.id || crypto.randomUUID(),
       date: item.date || today(),
+      createdAt: item.createdAt || "",
       locker: safeLockerForPurity(item.locker || item.purity),
       purity,
       description: item.description || "",
@@ -25332,6 +25902,19 @@ function normalizeState(currentState) {
       issueLotNumber: item.issueLotNumber || "",
       issueJobNumber: item.issueJobNumber || "",
       safeDepartmentIssueId: item.safeDepartmentIssueId || "",
+      returnSourceLotId: item.returnSourceLotId || "",
+      returnSourceLotNumber: item.returnSourceLotNumber || "",
+      returnSourceJobNumber: item.returnSourceJobNumber || "",
+      returnSourceBillId: item.returnSourceBillId || "",
+      returnSourceBillNo: item.returnSourceBillNo || "",
+      returnOrderId: item.returnOrderId || "",
+      returnProductionNo: item.returnProductionNo || "",
+      returnReason: item.returnReason || "",
+      returnRemarks: item.returnRemarks || "",
+      returnedFromOffice: Boolean(item.returnedFromOffice),
+      productionReturnMeltingId: item.productionReturnMeltingId || "",
+      recoveredNonGoldItemIds: Array.isArray(item.recoveredNonGoldItemIds) ? item.recoveredNonGoldItemIds : [],
+      sourceMeltingId: item.sourceMeltingId || "",
       remarks: item.remarks || "",
     };
   });
@@ -25444,6 +26027,15 @@ function normalizeState(currentState) {
       officeStatus: item.qcStatus === "QC Failed" && !item.discardStatus ? "" : (item.officeStatus || ""),
       factoryStatus: item.factoryStatus || (item.officeStatus === "Office" ? "Factory Out" : "Factory In"),
       factoryOutDate: item.factoryOutDate || (item.officeStatus === "Office" ? item.qcDate || today() : ""),
+      productionReturnFromOffice: Boolean(item.productionReturnFromOffice),
+      productionReturnSafeItemId: item.productionReturnSafeItemId || "",
+      productionReturnDate: item.productionReturnDate || "",
+      productionReturnIsoDate: item.productionReturnIsoDate || "",
+      productionReturnReason: item.productionReturnReason || "",
+      productionReturnRemarks: item.productionReturnRemarks || "",
+      productionReturnSafeIssueId: item.productionReturnSafeIssueId || "",
+      productionReturnMeltingId: item.productionReturnMeltingId || "",
+      recoveredNonGoldItemIds: Array.isArray(item.recoveredNonGoldItemIds) ? item.recoveredNonGoldItemIds : [],
       hallmarkStatus: item.hallmarkStatus || "",
       hallmarkIssueDate: item.hallmarkIssueDate || "",
       hallmarkIssueIsoDate: item.hallmarkIssueIsoDate || "",

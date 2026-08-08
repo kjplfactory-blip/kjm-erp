@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v434</small>
+        <small class="app-version-badge">App v436</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v434</span>
+          <span class="app-version-badge">App v436</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1734,6 +1734,50 @@
       </form>
     </dialog>
 
+    <dialog id="production-return-dialog">
+      <form id="production-return-form" class="dialog-card history-dialog production-return-form">
+        <div class="dialog-header">
+          <div>
+            <h2>Return Item To Production Shelf</h2>
+            <p id="production-return-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-production-return">Close</button>
+        </div>
+        <input type="hidden" name="officeItemKey">
+        <div class="production-return-route">
+          <label>Return Reason
+            <select name="reason" required>
+              <option value="">Select reason</option>
+              <option>QC Failed</option>
+              <option>Repair Required</option>
+              <option>Size Correction</option>
+              <option>Polish / Finish Correction</option>
+              <option>Damage / Wastage</option>
+              <option>Remove Stones And Melt</option>
+              <option>Other Office Return</option>
+            </select>
+          </label>
+          <label>Production Shelf <input name="locker" readonly></label>
+          <label>Purity / Karat <input name="purity" readonly></label>
+        </div>
+        <div class="production-return-weight-grid">
+          <label>Return GW (g) <input name="grossWeight" type="number" min="0.001" step="0.001" required></label>
+          <label>Stone Weight (g) <input name="stoneWeight" type="number" min="0" step="0.00001" value="0"></label>
+          <label>Black Beads Weight (g) <input name="blackBeadsWeight" type="number" min="0" step="0.00001" value="0"></label>
+          <label>Moti Weight (g) <input name="motiWeight" type="number" min="0" step="0.00001" value="0"></label>
+          <label>Spring Weight (g) <input name="springWeight" type="number" min="0" step="0.00001" value="0"></label>
+          <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.00001" value="0"></label>
+        </div>
+        <div id="production-return-totals" class="production-return-totals"></div>
+        <label class="full-row">Return Remarks <textarea name="remarks" rows="3" placeholder="Reason, damage, repair instruction, stone removal or melting instruction"></textarea></label>
+        <p class="dialog-note">The full returned item is placed in the matching karat Production Shelf. GW, every non-gold component, and net gold remain separately traceable. Use the shelf item for repair issue, or use Send Gold To Melting after removing recoverable non-gold.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-production-return">Cancel</button>
+          <button type="submit">Return To Production Shelf</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="safe-issue-dialog">
       <form id="safe-issue-form" class="dialog-card history-dialog safe-department-issue-form">
         <div class="dialog-header">
@@ -1801,6 +1845,38 @@
           <button id="safe-issue-submit" type="submit">Issue To Department</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="safe-item-issue-history-dialog">
+      <div class="dialog-card history-dialog safe-item-issue-history-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Part Issue History</h2>
+            <p id="safe-item-issue-history-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-safe-item-issue-history">Close</button>
+        </div>
+        <div id="safe-item-issue-history-totals" class="safe-item-issue-history-totals"></div>
+        <div class="table-wrap safe-item-issue-history-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date / Part</th>
+                <th>Job Card / PR</th>
+                <th>Lot</th>
+                <th>Department / Process</th>
+                <th>Issue GW</th>
+                <th>Wax Stone</th>
+                <th>Non-Gold</th>
+                <th>Net Gold</th>
+                <th>Current Movement</th>
+                <th>Status / Remarks</th>
+              </tr>
+            </thead>
+            <tbody id="safe-item-issue-history-table"></tbody>
+          </table>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="casting-wastage-dialog">
@@ -2188,6 +2264,6 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=434"></script>
+  <script src="app.js?v=436"></script>
 </body>
 </html>

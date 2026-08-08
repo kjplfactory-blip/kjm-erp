@@ -12208,3 +12208,250 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     grid-template-columns: 1fr;
   }
 }
+
+/* V435: trace every partial issue back to its original Safe Locker item. */
+#safe-item-issue-history-dialog {
+  width: calc(100vw - 18px);
+  max-width: none;
+  height: calc(100vh - 18px);
+  max-height: none;
+  overflow: hidden;
+}
+
+.safe-item-issue-history-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+}
+
+.safe-item-issue-history-totals {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.safe-item-issue-history-totals article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(151, 207, 186, 0.7);
+  border-radius: 7px;
+  background: #f4fbf8;
+}
+
+.safe-item-issue-history-totals span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.safe-item-issue-history-totals strong {
+  color: #07594f;
+  font-size: 17px;
+  line-height: 1.15;
+}
+
+.safe-item-issue-history-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.safe-item-issue-history-table-wrap table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.safe-item-issue-history-table-wrap th,
+.safe-item-issue-history-table-wrap td {
+  padding: 8px 6px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.safe-item-issue-history-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #e9f6f1;
+}
+
+.safe-item-issue-history-table-wrap th:nth-child(1) { width: 12%; }
+.safe-item-issue-history-table-wrap th:nth-child(2) { width: 13%; }
+.safe-item-issue-history-table-wrap th:nth-child(3) { width: 11%; }
+.safe-item-issue-history-table-wrap th:nth-child(4) { width: 12%; }
+.safe-item-issue-history-table-wrap th:nth-child(5) { width: 8%; }
+.safe-item-issue-history-table-wrap th:nth-child(6) { width: 8%; }
+.safe-item-issue-history-table-wrap th:nth-child(7) { width: 10%; }
+.safe-item-issue-history-table-wrap th:nth-child(8) { width: 8%; }
+.safe-item-issue-history-table-wrap th:nth-child(9) { width: 10%; }
+.safe-item-issue-history-table-wrap th:nth-child(10) { width: 8%; }
+
+.safe-history-open-button {
+  width: 100%;
+  min-height: 26px;
+  margin-top: 5px;
+  padding: 4px 6px;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .safe-item-issue-history-totals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .safe-item-issue-history-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .safe-item-issue-history-table-wrap table,
+  .safe-item-issue-history-table-wrap tbody {
+    display: block;
+  }
+
+  .safe-item-issue-history-table-wrap thead {
+    display: none;
+  }
+
+  .safe-item-issue-history-table-wrap tbody {
+    padding: 8px;
+  }
+
+  .safe-item-issue-history-table-wrap tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 10px;
+    border: 1px solid rgba(151, 207, 186, 0.72);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .safe-item-issue-history-table-wrap td {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 0;
+    border-bottom: 1px solid rgba(213, 226, 220, 0.8);
+  }
+
+  .safe-item-issue-history-table-wrap td::before {
+    color: var(--muted);
+    font-size: 8.5px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .safe-item-issue-history-table-wrap td:nth-child(1)::before { content: "Date / Part"; }
+  .safe-item-issue-history-table-wrap td:nth-child(2)::before { content: "Job Card / PR"; }
+  .safe-item-issue-history-table-wrap td:nth-child(3)::before { content: "Lot"; }
+  .safe-item-issue-history-table-wrap td:nth-child(4)::before { content: "Department / Process"; }
+  .safe-item-issue-history-table-wrap td:nth-child(5)::before { content: "Issue GW"; }
+  .safe-item-issue-history-table-wrap td:nth-child(6)::before { content: "Wax Stone"; }
+  .safe-item-issue-history-table-wrap td:nth-child(7)::before { content: "Non-Gold"; }
+  .safe-item-issue-history-table-wrap td:nth-child(8)::before { content: "Net Gold"; }
+  .safe-item-issue-history-table-wrap td:nth-child(9)::before { content: "Current Movement"; }
+  .safe-item-issue-history-table-wrap td:nth-child(10)::before { content: "Status / Remarks"; }
+}
+
+/* V436: finished items returned from Office or QC retain their full weight breakup in Production Shelf. */
+#production-return-dialog {
+  width: min(100vw - 18px, 1280px);
+  max-width: none;
+  height: min(100vh - 18px, 860px);
+  max-height: none;
+  overflow: hidden;
+}
+
+.production-return-form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.production-return-route,
+.production-return-weight-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.production-return-weight-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.production-return-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.production-return-totals article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(151, 207, 186, 0.72);
+  border-radius: 7px;
+  background: #f2fbf7;
+}
+
+.production-return-totals span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.production-return-totals strong {
+  color: #07594f;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.production-return-totals small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.production-return-totals.invalid article {
+  border-color: #f3a6a6;
+  background: #fff1f1;
+}
+
+.production-return-totals.invalid strong {
+  color: #a51d2d;
+}
+
+.safe-return-focus-row td {
+  background: #e4faed !important;
+  box-shadow: inset 0 2px 0 #34a46f, inset 0 -2px 0 #34a46f;
+}
+
+@media (max-width: 760px) {
+  .production-return-route,
+  .production-return-weight-grid,
+  .production-return-totals {
+    grid-template-columns: 1fr;
+  }
+}
