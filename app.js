@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v436";
+const APP_VERSION = "v437";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -131,6 +131,8 @@ let barcodeScanStatusTimer = null;
 let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
+const designImageCloudPending = new Map();
+const designImageUnsyncedIds = new Set();
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
@@ -860,9 +862,13 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
     saveState();
     render();
     showDesignCategoryInMaster(selectedCategory);
-    status.textContent = existing
+    const uploadResultText = existing
       ? "Design updated. Matching design/chart images were merged."
       : status.dataset.uploadSummary || `${imageFiles.length} design image(s) uploaded. Matching stone sheet names were assigned automatically.`;
+    const pendingCloudText = designImageUnsyncedIds.size
+      ? ` ${designImageUnsyncedIds.size} image file(s) are saved in this browser but still waiting for cloud sync. Use Repair / Sync Images in Design Master.`
+      : " Images are saved in Supabase for other laptops.";
+    status.textContent = `${uploadResultText}${pendingCloudText}`;
     if (uploadFailures.length) {
       alert(`Upload finished with ${uploadFailures.length} failed image(s).\n\n${uploadFailures.slice(0, 8).join("\n")}${uploadFailures.length > 8 ? "\nMore failed files not shown." : ""}`);
     }
@@ -889,6 +895,7 @@ document.getElementById("design-select-visible").addEventListener("click", selec
 document.getElementById("design-clear-selection").addEventListener("click", clearDesignSelection);
 document.getElementById("design-auto-crop-existing").addEventListener("click", autoCropExistingDesigns);
 document.getElementById("design-resize-clean").addEventListener("click", resizeDesignImagesAndCleanChartCopies);
+document.getElementById("design-sync-images").addEventListener("click", repairAndSyncDesignImages);
 document.getElementById("design-delete-selected").addEventListener("click", deleteSelectedDesigns);
 document.getElementById("designs").addEventListener("change", handleDesignSelectionChange);
 document.getElementById("design-category-dialog").addEventListener("change", handleDesignSelectionChange);
@@ -18586,6 +18593,7 @@ function renderDesignCard(design) {
         <figure>
           <span>Design</span>
           <img class="design-thumb" loading="lazy" decoding="async" data-design-image="${design.id}" alt="${escapeHtml(design.name)}">
+          <small class="design-image-load-status" data-design-image-status="${escapeHtml(design.id)}">Loading image...</small>
         </figure>
         ${designStoneChartPreviewHtml(design)}
       </div>
@@ -18635,6 +18643,10 @@ async function openDesignImage(designId) {
   const design = findById("designs", designId);
   if (!design) return;
   const imageData = await getDesignImage(design.id).catch(() => "");
+  if (!imageData && !design.imageData) {
+    alert("This design image is not available in Supabase or in this browser. Open Design Master on the original upload laptop and use Repair / Sync Images.");
+    return;
+  }
   const image = document.getElementById("design-image-full");
   image.src = imageData || design.imageData || "";
   document.getElementById("design-image-title").textContent = design.number || "Design Image";
@@ -18977,26 +18989,70 @@ function saveDesignImageLocal(id, imageData) {
   }));
 }
 
+function getDesignImageLocal(id) {
+  return openDesignImageDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction("images", "readonly");
+    const request = transaction.objectStore("images").get(id);
+    request.onsuccess = () => resolve(request.result || "");
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  }));
+}
+
+function listDesignImageLocalKeys() {
+  return openDesignImageDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction("images", "readonly");
+    const request = transaction.objectStore("images").getAllKeys();
+    request.onsuccess = () => resolve((request.result || []).map(String));
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  }));
+}
+
+async function saveDesignImageCloud(id, imageData) {
+  if (!supabaseClient) {
+    return { saved: false, error: new Error("Cloud sync is not connected.") };
+  }
+  try {
+    const blob = dataUrlToBlob(imageData);
+    const { error } = await supabaseClient.storage
+      .from("design-images")
+      .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
+    if (error) return { saved: false, error };
+    designImageUnsyncedIds.delete(id);
+    return { saved: true, error: null };
+  } catch (error) {
+    return { saved: false, error };
+  }
+}
+
+function queueDesignImageCloudRepair(id, imageData) {
+  if (!supabaseClient || !imageData || designImageCloudPending.has(id)) return;
+  designImageUnsyncedIds.add(id);
+  const repair = saveDesignImageCloud(id, imageData)
+    .catch(() => ({ saved: false }))
+    .finally(() => designImageCloudPending.delete(id));
+  designImageCloudPending.set(id, repair);
+}
+
 async function saveDesignImage(id, imageData) {
   designImageCache.set(id, imageData || "");
   designImagePending.delete(id);
-  let cloudSaved = false;
-  let cloudError = null;
-  if (supabaseClient) {
-    try {
-      const blob = dataUrlToBlob(imageData);
-      const { error } = await supabaseClient.storage
-        .from("design-images")
-        .upload(`${id}.jpg`, blob, { contentType: blob.type || "image/jpeg", upsert: true });
-      if (error) cloudError = error;
-      else cloudSaved = true;
-    } catch (error) {
-      cloudError = error;
-    }
-  }
+  const cloudResult = await saveDesignImageCloud(id, imageData);
+  const cloudSaved = cloudResult.saved;
+  const cloudError = cloudResult.error;
+  if (!cloudSaved) designImageUnsyncedIds.add(id);
   try {
     await saveDesignImageLocal(id, imageData);
-    return { cloudSaved, localSaved: true };
+    return { cloudSaved, localSaved: true, cloudError };
   } catch (localError) {
     if (cloudSaved) {
       console.warn("Design image saved to cloud, but local browser cache could not store it.", localError);
@@ -19058,21 +19114,27 @@ async function getDesignImage(id) {
   if (designImagePending.has(id)) return designImagePending.get(id);
   const loadPromise = (async () => {
     let imageData = "";
-  if (supabaseClient) {
-    const { data, error } = await supabaseClient.storage
-      .from("design-images")
-      .download(`${id}.jpg`);
-      if (!error && data) imageData = await blobToDataUrl(data);
-  }
+    let cloudImageFound = false;
+    if (supabaseClient) {
+      try {
+        const { data, error } = await supabaseClient.storage
+          .from("design-images")
+          .download(`${id}.jpg`);
+        if (!error && data) {
+          imageData = await blobToDataUrl(data);
+          cloudImageFound = true;
+          designImageUnsyncedIds.delete(id);
+        }
+      } catch (error) {
+        console.warn("Cloud design image could not be loaded; checking this browser.", id, error);
+      }
+    }
     if (!imageData) {
-  const db = await openDesignImageDb();
-      imageData = await new Promise((resolve, reject) => {
-    const transaction = db.transaction("images", "readonly");
-    const request = transaction.objectStore("images").get(id);
-    request.onsuccess = () => resolve(request.result || "");
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => db.close();
+      imageData = await getDesignImageLocal(id).catch((error) => {
+        console.warn("Browser design image could not be loaded.", id, error);
+        return "";
       });
+      if (imageData && supabaseClient && !cloudImageFound) queueDesignImageCloudRepair(id, imageData);
     }
     if (imageData) designImageCache.set(id, imageData);
     else designImageCache.delete(id);
@@ -19086,9 +19148,69 @@ async function getDesignImage(id) {
   }
 }
 
+async function repairAndSyncDesignImages() {
+  if (!requirePageEditPermission("designs", "repair and sync design images")) return;
+  const button = document.getElementById("design-sync-images");
+  const status = document.getElementById("design-bulk-crop-status");
+  if (!supabaseClient) {
+    alert("Cloud sync is not connected. Connect Supabase first, then use Repair / Sync Images again.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    status.textContent = "Checking images saved in this browser...";
+    const keys = await listDesignImageLocalKeys();
+    if (!keys.length) {
+      status.textContent = "No saved images were found in this browser. Run this repair on the original laptop and browser used for the image upload.";
+      alert(status.textContent);
+      return;
+    }
+    let processed = 0;
+    let synced = 0;
+    let failed = 0;
+    let firstError = null;
+    const firstKey = keys[0];
+    const firstImage = await getDesignImageLocal(firstKey);
+    const firstResult = firstImage ? await saveDesignImageCloud(firstKey, firstImage) : { saved: false, error: new Error("The first saved image is empty.") };
+    processed += 1;
+    if (firstResult.saved) synced += 1;
+    else {
+      failed += 1;
+      firstError = firstResult.error;
+      throw firstResult.error || new Error("Supabase image upload failed.");
+    }
+    status.textContent = `Repairing cloud images: ${processed} of ${keys.length} checked, ${synced} synced.`;
+    await runPreviewBatch(keys.slice(1), async (key) => {
+      const imageData = await getDesignImageLocal(key).catch(() => "");
+      const result = imageData ? await saveDesignImageCloud(key, imageData) : { saved: false, error: new Error("Empty browser image") };
+      processed += 1;
+      if (result.saved) synced += 1;
+      else {
+        failed += 1;
+        firstError ||= result.error;
+      }
+      if (processed % 10 === 0 || processed === keys.length) {
+        status.textContent = `Repairing cloud images: ${processed} of ${keys.length} checked, ${synced} synced, ${failed} failed.`;
+        await waitForUiPaint();
+      }
+    }, 4);
+    loadDesignThumbnails();
+    status.textContent = `${synced} image(s) repaired and synced to Supabase.${failed ? ` ${failed} failed: ${uploadErrorText(firstError)}.` : " Images can now open on other laptops."}`;
+    alert(status.textContent);
+  } catch (error) {
+    const message = uploadErrorText(error);
+    status.textContent = `Image repair stopped: ${message} Run supabase-schema.sql if Supabase image permission is missing.`;
+    alert(status.textContent);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function deleteDesignImage(id) {
   designImageCache.delete(id);
   designImagePending.delete(id);
+  designImageCloudPending.delete(id);
+  designImageUnsyncedIds.delete(id);
   if (supabaseClient) {
     await supabaseClient.storage.from("design-images").remove([`${id}.jpg`]);
   }
@@ -19132,11 +19254,39 @@ async function loadDesignThumbnails() {
   await runPreviewBatch(images, async (image) => {
     const imageId = image.dataset.designImage;
     const design = findById("designs", image.dataset.designImage);
+    const status = document.querySelector(`[data-design-image-status="${CSS.escape(imageId)}"]`);
     try {
       const imageData = await getDesignImage(imageId);
-      if (image.dataset.designImage === imageId) image.src = imageData || design?.imageData || "";
+      if (image.dataset.designImage === imageId) {
+        const source = imageData || design?.imageData || "";
+        if (source) {
+          image.src = source;
+          image.classList.remove("image-missing");
+          if (status) {
+            status.textContent = designImageUnsyncedIds.has(imageId) ? "Browser copy visible / cloud sync pending" : "";
+            status.classList.toggle("hidden", !designImageUnsyncedIds.has(imageId));
+          }
+        } else {
+          image.removeAttribute("src");
+          image.classList.add("image-missing");
+          image.alt = "Design image not synced";
+          if (status) {
+            status.textContent = "Image not synced";
+            status.classList.remove("hidden");
+          }
+        }
+      }
     } catch (error) {
-      if (image.dataset.designImage === imageId) image.src = design?.imageData || "";
+      if (image.dataset.designImage === imageId) {
+        const source = design?.imageData || "";
+        if (source) image.src = source;
+        else image.removeAttribute("src");
+        image.classList.toggle("image-missing", !source);
+        if (status) {
+          status.textContent = source ? "Browser copy visible / cloud sync pending" : "Image could not be loaded";
+          status.classList.remove("hidden");
+        }
+      }
     }
   });
   const stoneCharts = [...document.querySelectorAll("[data-stone-chart-image]")];

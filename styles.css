@@ -3749,6 +3749,20 @@ th {
   height: 130px;
 }
 
+.design-category-item .design-thumb.image-missing {
+  display: block;
+  background: #fff4f4;
+  border-color: #d98989;
+}
+
+.design-image-load-status {
+  min-height: 15px;
+  color: #9a4f4f;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .design-category-item .stone-chart-thumb {
   background: #fff;
   border-style: solid;
