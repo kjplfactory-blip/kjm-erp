@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v454";
+const APP_VERSION = "v455";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -4611,7 +4611,6 @@ function savedOrderItemRowHtml(item = {}) {
     <input type="hidden" name="purity" value="${escapeHtml(item.purity || "18K")}">
     <input type="hidden" name="itemPcs" value="${orderItemPcs(item.itemPcs)}">
     <input type="hidden" name="targetWeight" value="0">
-    <input type="hidden" name="remarks" value="${escapeHtml(item.remarks || "")}">
     <span class="saved-item-cell"><b>Category</b>${escapeHtml(item.category || "-")}</span>
     <span class="saved-item-cell"><b>Design</b>${escapeHtml(design)}</span>
     ${cbDetails}
@@ -4622,7 +4621,7 @@ function savedOrderItemRowHtml(item = {}) {
     <span class="saved-item-cell"><b>No. of Pcs</b>${orderItemPcs(item.itemPcs)}</span>
     <span class="saved-item-cell stone-cell"><b>Wax Stone</b>${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g</span>
     <span class="saved-item-cell stone-cell"><b>Hand Stone</b>${handStone.pcs} pcs / ${weight3(handStone.weight)}g</span>
-    <span class="saved-item-cell"><b>Remark</b>${escapeHtml(item.remarks || "-")}</span>
+    <label class="saved-item-remark"><b>Individual Item Remark</b><input name="remarks" value="${escapeHtml(item.remarks || "")}" placeholder="Remark for ${escapeHtml(design)}"></label>
     <button class="delete-btn" type="button" data-order-item-action="remove">Remove</button>
   `;
 }
@@ -5536,8 +5535,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-454", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=454", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-455", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=455", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,

@@ -2463,6 +2463,34 @@ form.active-operation-page,
   font-size: 10px;
 }
 
+.saved-item-remark {
+  display: grid;
+  grid-column: span 2;
+  gap: 5px;
+  min-width: 180px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.saved-item-remark b {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.saved-item-remark input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-color: #b7dfd4;
+  background: #ffffff;
+}
+
+.saved-item-remark input:focus {
+  border-color: #08776c;
+  background: #f4fff8;
+}
+
 .order-entry-summary {
   display: grid;
   gap: 10px;
