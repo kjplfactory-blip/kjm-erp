@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v452";
+const APP_VERSION = "v454";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -1297,6 +1297,7 @@ document.getElementById("customer-form").addEventListener("submit", (event) => {
       address: data.address,
     });
   }
+  document.getElementById("customer-search").value = "";
   resetCustomerForm();
   saveState();
   render();
@@ -1308,6 +1309,12 @@ document.getElementById("cancel-customer-edit").addEventListener("click", () => 
 });
 
 document.getElementById("customer-search").addEventListener("input", renderCustomers);
+document.getElementById("clear-customer-search").addEventListener("click", () => {
+  const search = document.getElementById("customer-search");
+  search.value = "";
+  renderCustomers();
+  search.focus();
+});
 
 document.getElementById("production-form").addEventListener("input", (event) => {
   if (event.target.name === "metalPurity") updateProductionCastingItemOptions();
@@ -5529,8 +5536,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-452", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=452", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-454", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=454", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -17526,7 +17533,8 @@ async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEF
   }
   summary.textContent = `Reading ${stoneItemInputValue(targetItemKey)} stone chart image...`;
   try {
-    const result = await Tesseract.recognize(imageData, "eng", {
+    const ocrImageData = await prepareStoneChartOcrImage(imageData);
+    const result = await Tesseract.recognize(ocrImageData, "eng", {
       logger: (progress) => {
         if (progress.status === "recognizing text") {
           summary.textContent = `Reading ${stoneItemInputValue(targetItemKey)} stone chart image... ${Math.round((progress.progress || 0) * 100)}%`;
@@ -17691,27 +17699,26 @@ function parseStoneChartText(text) {
   let currentShape = "";
   const lines = text
     .split(/\r?\n/)
-    .map((line) => line.replace(/[|_]/g, " ").replace(/\s+/g, " ").trim())
+    .map(normalizeStoneOcrLine)
     .filter(Boolean);
   lines.forEach((line) => {
     const shape = detectOcrShape(line);
     if (shape) currentShape = shape;
-    const rowMatch = line.match(/(\d+(?:[.,]\d+)?)\s*[xX×*]\s*(\d+(?:[.,]\d+)?)\s+(\d{1,4})(?:\s+(\d+(?:[.,]\d+)?))?/);
-    if (!rowMatch || !currentShape) return;
-    const left = cleanOcrNumber(rowMatch[1]);
-    const right = cleanOcrNumber(rowMatch[2]);
-    const pcs = Number(rowMatch[3]);
-    const ocrTotalWeight = cleanOcrNumber(rowMatch[4] || "");
+    const parsed = parseStoneChartOcrRow(line, currentShape);
+    if (!parsed) return;
+    const { left, right, pcs, ocrTotalWeight } = parsed;
     if (!pcs) return;
     const rawSize = `${left}*${right}`;
-    const libraryStone = findStoneByOcrFields("SW", currentShape, rawSize);
+    const rowShape = currentShape || inferOcrRoundShape(rawSize, parsed.singleDimension);
+    if (!rowShape) return;
+    const libraryStone = findStoneByOcrFields("SW", rowShape, rawSize);
     const weightPerPc = libraryStone?.weightPerPc || (ocrTotalWeight ? formatStoneWeight(Number(ocrTotalWeight) / pcs) : "");
     rows.push({
       id: crypto.randomUUID(),
       stoneType: "SW",
-      shape: libraryStone?.shape || normalizeOcrShape(currentShape),
+      shape: libraryStone?.shape || normalizeOcrShape(rowShape),
       size: libraryStone?.size || normalizeDisplaySize(rawSize),
-      code: libraryStone?.code || stoneLookupCode({ stoneType: "SW", shape: normalizeOcrShape(currentShape), size: normalizeDisplaySize(rawSize) }),
+      code: libraryStone?.code || stoneLookupCode({ stoneType: "SW", shape: normalizeOcrShape(rowShape), size: normalizeDisplaySize(rawSize) }),
       pcs,
       weightPerPc: formatStoneWeight(weightPerPc),
       totalWeight: libraryStone ? totalStoneWeight(weightPerPc, pcs) : formatStoneWeight(ocrTotalWeight) || totalStoneWeight(weightPerPc, pcs),
@@ -17720,9 +17727,115 @@ function parseStoneChartText(text) {
   return rows;
 }
 
+function normalizeStoneOcrLine(value = "") {
+  const source = String(value || "")
+    .replace(/[|_]/g, " ")
+    .replace(/\u00d7/g, "X")
+    .replace(/(\d)\s*[-:;]\s*(\d{1,2})/g, "$1.$2")
+    .replace(/\b0\s+(\d{2})\b/g, "0.$1");
+  const characters = [...source];
+  const corrected = characters.map((character, index) => {
+    const previous = characters[index - 1] || "";
+    const next = characters[index + 1] || "";
+    const numericNeighbour = /[\d.,]/.test(previous) || /[\d.,]/.test(next);
+    if (/[Oo]/.test(character) && numericNeighbour) return "0";
+    if (/[Il]/.test(character) && /\d/.test(next)) return "1";
+    return character;
+  }).join("");
+  return corrected
+    .replace(/(\d)\s*[-:;]\s*(\d{1,2})/g, "$1.$2")
+    .replace(/\b0\s+(\d{2})\b/g, "0.$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseStoneChartOcrRow(line = "", shape = "") {
+  const text = normalizeStoneOcrLine(line)
+    .replace(/\b(?:ROUND|R0UND|ROUNO|ROUMD|DIAMOND|PEAR|PAN|EMERALD|EMER|OCTO|BAGUETTE|BUGGET|MARQUISE|MAQ|OVAL|PRINCESS|STONE|SW)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const number = "((?:\\d+(?:[.,]\\d+)?|[.,]\\d+))";
+  const dimensionSeparator = "(?:[xX*kK]|\\u00d7|><|[^\\w\\s.,])";
+  const pairPatterns = [
+    new RegExp(`${number}\\s*${dimensionSeparator}\\s*${number}\\s+(\\d{1,4})(?:\\s+${number})?`),
+    new RegExp(`${number}\\s+${number}\\s+(\\d{1,4})\\s+${number}`),
+  ];
+  for (const pattern of pairPatterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const left = normalizeOcrDimension(match[1]);
+    const right = normalizeOcrDimension(match[2]);
+    const pcs = Number(cleanOcrNumber(match[3]));
+    const ocrTotalWeight = cleanOcrNumber(match[4] || "");
+    if (left && right && pcs > 0) return { left, right, pcs, ocrTotalWeight, singleDimension: false };
+  }
+  const normalizedShape = normalizeOcrShape(shape || detectOcrShape(line));
+  if (normalizedShape !== "ROUND") return null;
+  const singleMatch = text.match(new RegExp(`${number}\\s+(\\d{1,4})(?:\\s+${number})?`));
+  if (!singleMatch) return null;
+  const size = normalizeOcrDimension(singleMatch[1]);
+  const pcs = Number(cleanOcrNumber(singleMatch[2]));
+  const ocrTotalWeight = cleanOcrNumber(singleMatch[3] || "");
+  return size && pcs > 0 ? { left: size, right: size, pcs, ocrTotalWeight, singleDimension: true } : null;
+}
+
+function normalizeOcrDimension(value = "") {
+  const cleaned = cleanOcrNumber(normalizeStoneOcrLine(value));
+  if (!cleaned) return "";
+  if (["90", "090"].includes(cleaned)) return "0.90";
+  if (/^0\d{2}$/.test(cleaned)) return `0.${cleaned.slice(1)}`;
+  const number = Number(cleaned);
+  return Number.isFinite(number) && number >= 0 ? String(Number(number.toFixed(2))) : "";
+}
+
+function inferOcrRoundShape(rawSize = "", singleDimension = false) {
+  if (singleDimension) return "ROUND";
+  const parts = normalizeSizeText(rawSize).split("*");
+  if (parts.length !== 2 || Number(parts[0]) !== Number(parts[1])) return "";
+  return findStoneByOcrFields("SW", "ROUND", rawSize) ? "ROUND" : "";
+}
+
+function prepareStoneChartOcrImage(imageData = "") {
+  return new Promise((resolve) => {
+    if (!imageData) {
+      resolve(imageData);
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const scale = Math.min(3, Math.max(1, 2200 / Math.max(image.width, 1)));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        for (let index = 0; index < pixels.data.length; index += 4) {
+          const grey = (pixels.data[index] * 0.299) + (pixels.data[index + 1] * 0.587) + (pixels.data[index + 2] * 0.114);
+          const contrast = Math.max(0, Math.min(255, ((grey - 128) * 1.4) + 128));
+          pixels.data[index] = contrast;
+          pixels.data[index + 1] = contrast;
+          pixels.data[index + 2] = contrast;
+        }
+        context.putImageData(pixels, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (error) {
+        resolve(imageData);
+      }
+    };
+    image.onerror = () => resolve(imageData);
+    image.src = imageData;
+  });
+}
+
 function detectOcrShape(line) {
   const upper = line.toUpperCase();
-  if (upper.includes("ROUND")) return "ROUND";
+  if (/ROUND|R0UND|ROUNO|ROUMD|ROOND/.test(upper)) return "ROUND";
   if (upper.includes("PEAR") || upper.includes("PAN")) return "PAN";
   if (upper.includes("OCTO")) return "OCTO";
   if (upper.includes("EMERALD") || upper.includes("EMER")) return "OCTO";
@@ -19729,9 +19842,12 @@ function openDesignStoneDetails(designId) {
 }
 
 function renderCustomers() {
-  const query = document.getElementById("customer-search").value.toLowerCase();
-  const rows = state.customers
-    .filter((customer) => `${customer.name} ${customer.phone} ${customer.city} ${customer.gst} ${customer.address}`.toLowerCase().includes(query))
+  const query = document.getElementById("customer-search").value.trim().toLowerCase();
+  const customers = Array.isArray(state.customers) ? [...state.customers] : [];
+  const visibleCustomers = customers
+    .filter((customer) => `${customer.name || ""} ${customer.phone || ""} ${customer.city || ""} ${customer.gst || ""} ${customer.address || ""}`.toLowerCase().includes(query))
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "en", { sensitivity: "base", numeric: true }));
+  const rows = visibleCustomers
     .map((customer) => `
       <tr>
         <td>${escapeHtml(customer.name)}</td>
@@ -19744,6 +19860,10 @@ function renderCustomers() {
     `)
     .join("");
   document.getElementById("customers-table").innerHTML = rows || tableEmpty(6, "No customers recorded.");
+  document.getElementById("customer-master-count").textContent = customers.length;
+  document.getElementById("customer-list-summary").textContent = query
+    ? `Showing ${visibleCustomers.length} of ${customers.length} customers`
+    : `Showing all ${customers.length} customers`;
 }
 
 function editDesign(id) {
@@ -26815,6 +26935,57 @@ function seedMetalSafeFromLedger(currentState) {
   currentState.metalSafeSeededFromLedger = true;
 }
 
+function normalizeManufacturingCustomers(customers = [], orders = []) {
+  const rawCustomers = Array.isArray(customers)
+    ? customers
+    : customers && typeof customers === "object"
+      ? Object.values(customers)
+      : [];
+  const normalized = [];
+  const customerIds = new Set();
+
+  rawCustomers.forEach((record) => {
+    const source = typeof record === "string" ? { name: record } : record;
+    if (!source || typeof source !== "object") return;
+    const name = String(source.name || source.customerName || source.customer || source.partyName || "").trim();
+    if (!name) return;
+    let id = String(source.id || source.customerId || "").trim();
+    if (!id || customerIds.has(id)) id = crypto.randomUUID();
+    customerIds.add(id);
+    normalized.push({
+      ...source,
+      id,
+      name,
+      phone: String(source.phone || source.mobile || source.contact || "").trim(),
+      city: String(source.city || "").trim(),
+      gst: String(source.gst || source.gstNo || source.taxNo || "").trim(),
+      address: String(source.address || "").trim(),
+    });
+  });
+
+  const nameKeys = new Set(normalized.map((customer) => customer.name.toLocaleLowerCase("en-IN")));
+  (Array.isArray(orders) ? orders : []).forEach((order) => {
+    if (!order || typeof order !== "object") return;
+    const name = String(order.customer || order.customerName || "").trim();
+    if (!name) return;
+    const orderCustomerId = String(order.customerId || "").trim();
+    const existingById = orderCustomerId ? normalized.find((customer) => customer.id === orderCustomerId) : null;
+    if (existingById) {
+      if (!existingById.name) existingById.name = name;
+      nameKeys.add(name.toLocaleLowerCase("en-IN"));
+      return;
+    }
+    const nameKey = name.toLocaleLowerCase("en-IN");
+    if (nameKeys.has(nameKey)) return;
+    const id = orderCustomerId && !customerIds.has(orderCustomerId) ? orderCustomerId : crypto.randomUUID();
+    customerIds.add(id);
+    nameKeys.add(nameKey);
+    normalized.push({ id, name, phone: "", city: "", gst: "", address: "", restoredFromJobOrder: true });
+  });
+
+  return normalized;
+}
+
 function normalizeState(currentState) {
   if (!currentState || typeof currentState !== "object") {
     currentState = structuredClone(demoState);
@@ -26852,7 +27023,7 @@ function normalizeState(currentState) {
   currentState.dailyTallyContainers = (currentState.dailyTallyContainers || currentState.dabbaMaster || [])
     .map(normalizeDailyTallyContainer)
     .filter((container) => container.name);
-  currentState.customers = currentState.customers || [];
+  currentState.customers = normalizeManufacturingCustomers(currentState.customers, currentState.orders);
   currentState.officeCustomers = currentState.officeCustomers || [];
   currentState.vendors = (currentState.vendors || []).map((vendor) => ({
     id: vendor.id || crypto.randomUUID(),

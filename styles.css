@@ -11125,6 +11125,62 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   max-height: min(61vh, 660px);
 }
 
+#customers .panel-heading > div:first-child {
+  min-width: 180px;
+}
+
+#customers .master-count {
+  display: inline-flex;
+  min-width: 28px;
+  min-height: 24px;
+  margin-left: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e7faf1;
+  color: #08776c;
+  font-size: 12px;
+}
+
+#customers .master-list-summary {
+  display: block;
+  margin-top: 4px;
+  color: #65756f;
+}
+
+#customers .customer-master-tools {
+  display: flex;
+  min-width: min(100%, 430px);
+  gap: 8px;
+  align-items: center;
+}
+
+#customers .customer-master-tools .search {
+  flex: 1 1 240px;
+}
+
+#customers .customer-master-tools button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  #customers .panel-heading,
+  #customers .customer-master-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #customers .customer-master-tools {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #customers .customer-master-tools .search {
+    flex-basis: auto;
+  }
+}
+
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) thead th {
   position: sticky;
   top: 0;
