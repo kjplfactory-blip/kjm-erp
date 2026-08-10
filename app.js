@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v455";
+const APP_VERSION = "v456";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -23,6 +23,10 @@ const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
+const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
+const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
+const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
+const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
 const DESIGN_IMAGE_WIDTH = 1200;
@@ -123,6 +127,9 @@ let supabaseIsSaving = false;
 let supabaseIsLoading = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
+let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
+let supabaseLocalRevision = supabaseLocalDirty ? 1 : 0;
+let restoredRecentJobOrderCount = 0;
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
@@ -793,6 +800,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
     return;
   }
   const jobNumber = `JOB-${state.nextOrder}`;
+  const createdOrders = [];
   items.forEach((item) => {
     const productionNo = `PR-${state.nextOrder++}`;
     const orderRecord = {
@@ -824,10 +832,13 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
       dueDate: data.dueDate,
       urgent: data.urgent === "on",
       status: "Pending",
+      createdAt: new Date().toISOString(),
     };
     orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
     state.orders.push(orderRecord);
+    createdOrders.push(orderRecord);
   });
+  backupRecentJobOrders(createdOrders);
   event.target.reset();
   clearOrderDraft();
   setDefaultOrderDates(event.target);
@@ -3287,6 +3298,7 @@ function saveState() {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
+  markLocalSyncDirty();
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
@@ -3296,8 +3308,105 @@ function saveStateLocalOnly() {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
+  markLocalSyncDirty();
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
+}
+
+function markLocalSyncDirty() {
+  supabaseLocalDirty = true;
+  supabaseLocalRevision += 1;
+  localStorage.setItem(LOCAL_SYNC_DIRTY_STORAGE_KEY, "1");
+}
+
+function clearLocalSyncDirty() {
+  supabaseLocalDirty = false;
+  localStorage.removeItem(LOCAL_SYNC_DIRTY_STORAGE_KEY);
+}
+
+function hasUnsyncedLocalState() {
+  return Boolean(supabaseLocalDirty || supabaseSaveTimer || supabaseIsSaving);
+}
+
+function readRecentJobOrderBackups() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(RECENT_JOB_ORDER_BACKUP_KEY) || "[]");
+    const now = Date.now();
+    return (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry?.order?.id && Number(entry.protectUntil || 0) > now)
+      .sort((left, right) => Number(right.savedAt || 0) - Number(left.savedAt || 0))
+      .slice(0, RECENT_JOB_ORDER_BACKUP_LIMIT);
+  } catch (error) {
+    console.warn("Recent job-order backup could not be read.", error);
+    return [];
+  }
+}
+
+function writeRecentJobOrderBackups(entries = []) {
+  try {
+    const saved = (Array.isArray(entries) ? entries : [])
+      .filter((entry) => entry?.order?.id)
+      .sort((left, right) => Number(right.savedAt || 0) - Number(left.savedAt || 0))
+      .slice(0, RECENT_JOB_ORDER_BACKUP_LIMIT);
+    if (saved.length) {
+      localStorage.setItem(RECENT_JOB_ORDER_BACKUP_KEY, JSON.stringify(saved));
+    } else {
+      localStorage.removeItem(RECENT_JOB_ORDER_BACKUP_KEY);
+    }
+  } catch (error) {
+    console.warn("Recent job-order backup could not be saved.", error);
+  }
+}
+
+function backupRecentJobOrders(orders = []) {
+  const now = Date.now();
+  const backups = new Map(readRecentJobOrderBackups().map((entry) => [entry.order.id, entry]));
+  (Array.isArray(orders) ? orders : []).forEach((order) => {
+    if (!order?.id) return;
+    backups.set(order.id, {
+      order: structuredClone(order),
+      savedAt: now,
+      protectUntil: now + RECENT_JOB_ORDER_PROTECTION_MS,
+    });
+  });
+  writeRecentJobOrderBackups([...backups.values()]);
+}
+
+function restoreRecentJobOrderBackups(currentState = {}) {
+  currentState.orders = Array.isArray(currentState.orders) ? currentState.orders : [];
+  const backups = readRecentJobOrderBackups();
+  writeRecentJobOrderBackups(backups);
+  const orderIds = new Set(currentState.orders.map((order) => order.id).filter(Boolean));
+  const productionNumbers = new Set(currentState.orders.flatMap((order) => [order.productionNo, order.number]).filter(Boolean));
+  let restored = 0;
+  backups.forEach((entry) => {
+    const order = entry.order;
+    if (orderIds.has(order.id) || productionNumbers.has(order.productionNo) || productionNumbers.has(order.number)) return;
+    currentState.orders.push(structuredClone(order));
+    orderIds.add(order.id);
+    if (order.productionNo) productionNumbers.add(order.productionNo);
+    if (order.number) productionNumbers.add(order.number);
+    restored += 1;
+  });
+  if (restored) {
+    restoredRecentJobOrderCount += restored;
+    markLocalSyncDirty();
+  }
+  return restored;
+}
+
+function forgetRecentJobOrderBackups(orderIds = [], jobNumber = "") {
+  const ids = new Set(Array.isArray(orderIds) ? orderIds : [orderIds]);
+  const filtered = readRecentJobOrderBackups().filter((entry) =>
+    !ids.has(entry.order.id)
+    && (!jobNumber || (entry.order.jobNumber || entry.order.productionNo || entry.order.number) !== jobNumber)
+  );
+  writeRecentJobOrderBackups(filtered);
+}
+
+function clearRecentJobOrderBackups() {
+  localStorage.removeItem(RECENT_JOB_ORDER_BACKUP_KEY);
+  restoredRecentJobOrderCount = 0;
 }
 
 function clearImagePreviewCaches() {
@@ -3827,6 +3936,11 @@ async function refreshLiveData() {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
+  if (hasUnsyncedLocalState()) {
+    const saved = await syncStateToSupabase();
+    if (!saved) alert("This laptop has unsynced work. It was kept safely and was not replaced by older live data.");
+    return;
+  }
   if (supabasePendingCloudState) {
     const pending = supabasePendingCloudState;
     supabasePendingCloudState = null;
@@ -3909,10 +4023,12 @@ async function syncStateToSupabase(options = {}) {
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   supabaseIsSaving = true;
+  const savingRevision = supabaseLocalRevision;
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
   const updatedAt = new Date().toISOString();
   stampCurrentAppVersion(state, updatedAt);
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  const stateToSave = structuredClone(state);
   let error = null;
   try {
     const result = await withSupabaseTimeout(
@@ -3920,7 +4036,7 @@ async function syncStateToSupabase(options = {}) {
         .from("erp_state")
         .upsert({
           id: supabaseStateId,
-          data: state,
+          data: stateToSave,
           updated_at: updatedAt,
         }),
       "Supabase save timeout."
@@ -3938,6 +4054,10 @@ async function syncStateToSupabase(options = {}) {
     return false;
   }
   supabaseLastCloudUpdatedAt = updatedAt;
+  if (supabaseLocalRevision === savingRevision && !supabaseSaveTimer) clearLocalSyncDirty();
+  if (supabasePendingCloudState && new Date(supabasePendingCloudState.updated_at || 0).getTime() <= new Date(updatedAt).getTime()) {
+    supabasePendingCloudState = null;
+  }
   setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
   return true;
 }
@@ -3991,6 +4111,17 @@ function applyCloudStateFromRow(row = {}, options = {}) {
   if (blockOlderCloudState(row.data, options)) return false;
   const cloudUpdatedAt = row.updated_at || "";
   const isAuto = Boolean(options.auto || options.realtime);
+  if (hasUnsyncedLocalState()) {
+    if (isNewerCloudData(cloudUpdatedAt)) {
+      const pendingTime = new Date(supabasePendingCloudState?.updated_at || 0).getTime();
+      if (!supabasePendingCloudState || new Date(cloudUpdatedAt || 0).getTime() >= pendingTime) {
+        supabasePendingCloudState = { data: row.data, updated_at: cloudUpdatedAt };
+      }
+    }
+    if (!supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave();
+    setSyncStatus("saving", "Sync: Protecting Local Work", "This laptop has newly saved work. Older live data is blocked until upload finishes.");
+    return true;
+  }
   if (isAuto && !isNewerCloudData(cloudUpdatedAt)) {
     setSyncStatus("online", supabaseRealtimeChannel ? "Live Sync: Realtime" : "Live Sync: Auto");
     return false;
@@ -4009,6 +4140,10 @@ function applyCloudStateFromRow(row = {}, options = {}) {
 
 function applyPendingCloudState(source = "auto") {
   if (!supabasePendingCloudState || isUserActivelyEditing()) return false;
+  if (hasUnsyncedLocalState()) {
+    if (!supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave();
+    return false;
+  }
   const pending = supabasePendingCloudState;
   supabasePendingCloudState = null;
   if (blockOlderCloudState(pending.data, { auto: source === "auto" })) return false;
@@ -4026,7 +4161,10 @@ function queueCurrentVersionCloudSave(reason = "") {
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
   const shouldUpgradeCloudVersion = cloudStateNeedsCurrentVersionSave(cloudState);
+  restoredRecentJobOrderCount = 0;
   state = normalizeState(cloudState);
+  const restoredJobOrders = restoredRecentJobOrderCount;
+  restoredRecentJobOrderCount = 0;
   clearImagePreviewCaches();
   const appliedResetAt = stateFactoryResetAt(state);
   if (appliedResetAt) {
@@ -4051,6 +4189,9 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   }
   if (shouldUpgradeCloudVersion) {
     queueCurrentVersionCloudSave(`Loaded old data and upgraded it to ${APP_VERSION}.`);
+  } else if (restoredJobOrders) {
+    queueSupabaseSave();
+    setSyncStatus("saving", "Recovered Job Orders", `${restoredJobOrders} recently created item(s) were protected from an older cloud refresh and are being uploaded again.`);
   }
 }
 
@@ -5535,8 +5676,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-455", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=455", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-456", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=456", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -10233,6 +10374,7 @@ function clearJobCards(resetAt = new Date().toISOString()) {
     sourceLine: "",
   }];
   state.metalSafeSeededFromLedger = true;
+  clearRecentJobOrderBackups();
   closeOpenDialogs();
 }
 
@@ -10255,6 +10397,7 @@ function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
   state.metalSafeSeededFromLedger = true;
   state.nextOrder = 1001;
   state.nextLot = 201;
+  clearRecentJobOrderBackups();
   closeOpenDialogs();
 }
 
@@ -12189,6 +12332,7 @@ function addItemsToJobCard(baseOrder, data = {}) {
     return 0;
   }
   const jobNumber = baseOrder.jobNumber || baseOrder.productionNo || baseOrder.number || `JOB-${state.nextOrder}`;
+  const createdOrders = [];
   newItems.forEach((item) => {
     const design = findById("designs", item.designId);
     const productionNo = `PR-${state.nextOrder++}`;
@@ -12220,11 +12364,14 @@ function addItemsToJobCard(baseOrder, data = {}) {
       status: "Pending",
       addedToJobCard: true,
       addedAt: today(),
+      createdAt: new Date().toISOString(),
     };
     cleanItemSizeFields(orderRecord);
     orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
     state.orders.push(orderRecord);
+    createdOrders.push(orderRecord);
   });
+  backupRecentJobOrders(createdOrders);
   return newItems.length;
 }
 
@@ -12259,6 +12406,7 @@ function removeJobCardItem(orderId) {
   }
   const label = order.productionNo || order.number || order.designNumber || "this item";
   if (!confirm(`Remove ${label} from job card ${jobNumber}?`)) return;
+  forgetRecentJobOrderBackups([order.id]);
   state.orders = state.orders.filter((item) => item.id !== order.id);
   const nextOrder = state.orders.find((item) => (item.jobNumber || item.productionNo || item.number) === jobNumber);
   saveState();
@@ -19169,6 +19317,7 @@ function findJobOrderForBucket(jobNumber, bucket = "all") {
 function removeJobOrder(jobNumber) {
   if (!requireDeletePermission("delete job cards")) return;
   if (!confirm(`Delete full job card ${jobNumber}?`)) return;
+  forgetRecentJobOrderBackups([], jobNumber);
   state.orders = state.orders.filter((order) => (order.jobNumber || order.productionNo || order.number) !== jobNumber);
   saveDeletionAndRefresh();
 }
@@ -27402,7 +27551,8 @@ function normalizeState(currentState) {
   currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
   currentState.xrfTests = (currentState.xrfTests || []).map(normalizeXrfEntry);
   syncXrfWastageReturnsForState(currentState);
-  currentState.orders = currentState.orders || [];
+  currentState.orders = Array.isArray(currentState.orders) ? currentState.orders : [];
+  restoreRecentJobOrderBackups(currentState);
   currentState.orders.forEach((order) => {
     order.designId = order.designId || "";
     const design = currentState.designs.find((item) => item.id === order.designId);
