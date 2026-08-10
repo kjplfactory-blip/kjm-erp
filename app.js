@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v456";
+const APP_VERSION = "v460";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -800,6 +800,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
     return;
   }
   const jobNumber = `JOB-${state.nextOrder}`;
+  const jobCardColor = data.jobColor || "Pink";
   const createdOrders = [];
   items.forEach((item) => {
     const productionNo = `PR-${state.nextOrder++}`;
@@ -820,7 +821,7 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
       cmItemType: item.cmItemType,
       clSize: item.clSize,
       cgSize: item.cgSize,
-      color: item.color,
+      color: jobCardColor,
       purity: item.purity,
       itemPcs: 1,
       orderedPcs: Number(item.orderedPcs || 1),
@@ -1272,6 +1273,7 @@ document.querySelectorAll('form select[name="designId"]').forEach((select) => {
 });
 
 document.getElementById("order-form").addEventListener("input", (event) => {
+  if (event.target.name === "jobColor") syncCreateJobCardColor(event.currentTarget);
   if (["orderDate", "productionDays"].includes(event.target.name)) {
     updateOrderDueDate(event.currentTarget);
   }
@@ -1280,6 +1282,7 @@ document.getElementById("order-form").addEventListener("input", (event) => {
 });
 
 document.getElementById("order-form").addEventListener("change", (event) => {
+  if (event.target.name === "jobColor") syncCreateJobCardColor(event.currentTarget);
   if (["orderDate", "productionDays"].includes(event.target.name)) {
     updateOrderDueDate(event.currentTarget);
   }
@@ -2718,7 +2721,9 @@ document.getElementById("update-order-form").addEventListener("submit", (event) 
   const order = findById("orders", data.orderId);
   const customer = findById("customers", data.customerId);
   if (!order) return;
-  getJobOrders(order).forEach((jobItem) => {
+  const jobItems = getJobOrders(order);
+  const jobCardColor = data.color || order.color || "Pink";
+  jobItems.forEach((jobItem) => {
     if (customer) {
       jobItem.customerId = customer.id;
       jobItem.customer = customer.name;
@@ -2726,7 +2731,10 @@ document.getElementById("update-order-form").addEventListener("submit", (event) 
     jobItem.orderDate = data.orderDate;
     jobItem.productionDays = Number(data.productionDays);
     jobItem.dueDate = data.dueDate;
+    jobItem.color = jobCardColor;
   });
+  syncJobCardColourReferences(jobItems, jobCardColor);
+  backupRecentJobOrders(jobItems);
   saveState();
   render();
   openOrderDetail(order.id);
@@ -2754,6 +2762,11 @@ document.getElementById("item-edit-form").addEventListener("change", (event) => 
   if (event.target.name === "designId") applyDesignToItemEdit(form, event.target.value);
 });
 
+document.getElementById("item-edit-form").addEventListener("input", (event) => {
+  if (event.target.name !== "designSearch") return;
+  updateItemEditDesignOptions(event.currentTarget, event.currentTarget.designId.value);
+});
+
 document.getElementById("item-edit-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
@@ -2778,7 +2791,6 @@ document.getElementById("item-edit-form").addEventListener("submit", (event) => 
   order.clSize = data.clSize || "";
   order.cgSize = data.cgSize || "";
   order.size = data.size || "";
-  order.color = data.color || "";
   order.purity = data.purity || "18K";
   order.remarks = data.remarks || "";
   order.item = order.designNumber || order.category || order.remarks || order.item || "Job item";
@@ -4622,7 +4634,29 @@ function validateOrderDueDate(form) {
 function setDefaultOrderDates(form) {
   if (!form.orderDate.value) form.orderDate.value = isoToday();
   if (!form.productionDays.value) form.productionDays.value = MIN_PRODUCTION_DAYS;
+  if (form.jobColor && !form.jobColor.value) form.jobColor.value = "Pink";
   updateOrderDueDate(form);
+}
+
+function syncCreateJobCardColor(form = document.getElementById("order-form")) {
+  if (!form) return;
+  const color = form.jobColor?.value || "Pink";
+  form.querySelectorAll('#order-item-list [name="color"]').forEach((input) => {
+    input.value = color;
+  });
+  form.querySelectorAll("[data-order-item-color-label]").forEach((label) => {
+    label.textContent = color;
+  });
+}
+
+function syncJobCardColourReferences(jobItems = [], color = "") {
+  const orderIds = new Set(jobItems.map((item) => item.id).filter(Boolean));
+  const productionNumbers = new Set(jobItems.flatMap((item) => [item.productionNo, item.number]).filter(Boolean));
+  (state.bills || []).forEach((bill) => {
+    (bill.items || []).forEach((item) => {
+      if (orderIds.has(item.orderId) || productionNumbers.has(item.productionNo)) item.color = color;
+    });
+  });
 }
 
 function addOrderItemRow(item = {}, mode = "entry") {
@@ -4665,6 +4699,7 @@ function addOrderItemRow(item = {}, mode = "entry") {
 
 function entryOrderItemRowHtml(item = {}) {
   const selectedDesign = findById("designs", item.designId);
+  const jobCardColor = document.getElementById("order-form")?.jobColor?.value || item.color || "Pink";
   return `
     <div class="order-item-entry-head">
       <div>
@@ -4697,10 +4732,9 @@ function entryOrderItemRowHtml(item = {}) {
     <label class="normal-size-field">Size <input name="size" value="${escapeHtml(item.size || "")}" placeholder="Size"></label>
     <label class="cb-field cl-size-field">CL Size <input name="clSize" value="${escapeHtml(item.clSize || "")}" placeholder="Ladies size"></label>
     <label class="cb-field cg-size-field">CG Size <input name="cgSize" value="${escapeHtml(item.cgSize || "")}" placeholder="Gents size"></label>
-    <label>Color
+    <label class="order-item-colour-field">Job Card Colour
       <select name="color">
-        <option value="">Select color</option>
-        ${renderColorOptions(item.color)}
+        ${renderColorOptions(jobCardColor)}
       </select>
     </label>
     <label>Purity
@@ -4757,7 +4791,7 @@ function savedOrderItemRowHtml(item = {}) {
     ${cbDetails}
     ${cmDetails}
     ${normalSize}
-    <span class="saved-item-cell"><b>Color</b>${escapeHtml(item.color || "-")}</span>
+    <span class="saved-item-cell"><b>Colour</b><span data-order-item-color-label>${escapeHtml(item.color || "Pink")}</span></span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
     <span class="saved-item-cell"><b>No. of Pcs</b>${orderItemPcs(item.itemPcs)}</span>
     <span class="saved-item-cell stone-cell"><b>Wax Stone</b>${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g</span>
@@ -4976,6 +5010,7 @@ function updateOrderItemStonePreview(row) {
 function resetOrderItemRows() {
   document.getElementById("order-item-list").innerHTML = "";
   addOrderItemRow();
+  syncCreateJobCardColor();
   renderOrderEntrySummary();
 }
 
@@ -5001,6 +5036,7 @@ function captureOrderDraft() {
   if (!form) return null;
   return {
     customerId: form.customerId?.value || "",
+    jobColor: form.jobColor?.value || "Pink",
     orderDate: form.orderDate?.value || "",
     productionDays: form.productionDays?.value || "",
     dueDate: form.dueDate?.value || "",
@@ -5032,6 +5068,7 @@ function orderDraftHasWork(draft = null) {
   const changedDays = draft.productionDays && Number(draft.productionDays) !== MIN_PRODUCTION_DAYS;
   return Boolean(
     draft.customerId
+    || (draft.jobColor && draft.jobColor !== "Pink")
     || draft.urgent
     || changedDate
     || changedDays
@@ -5075,6 +5112,7 @@ function restoreOrderDraft(draft = null) {
   const list = document.getElementById("order-item-list");
   if (!form || !list || !orderDraftHasWork(draft)) return false;
   form.customerId.value = [...form.customerId.options].some((option) => option.value === draft.customerId) ? draft.customerId : "";
+  form.jobColor.value = draft.jobColor || draft.rows?.find((row) => row.item?.color)?.item?.color || "Pink";
   form.orderDate.value = draft.orderDate || isoToday();
   form.productionDays.value = draft.productionDays || MIN_PRODUCTION_DAYS;
   form.urgent.checked = Boolean(draft.urgent);
@@ -5089,6 +5127,7 @@ function restoreOrderDraft(draft = null) {
   if (entryDraft?.item) {
     restoreOrderEntryRow(entryRow, entryDraft.item);
   }
+  syncCreateJobCardColor(form);
   renderOrderEntrySummary();
   return true;
 }
@@ -5133,7 +5172,7 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="cmItemType"]').value = "";
   row.querySelector('[name="clSize"]').value = "";
   row.querySelector('[name="cgSize"]').value = "";
-  row.querySelector('[name="color"]').value = "";
+  row.querySelector('[name="color"]').value = document.getElementById("order-form")?.jobColor?.value || "Pink";
   row.querySelector('[name="purity"]').value = "18K";
   row.querySelector('[name="itemPcs"]').value = "1";
   row.querySelector('[name="remarks"]').value = "";
@@ -5676,8 +5715,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-456", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=456", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-460", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=460", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -10413,6 +10452,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   dialog.dataset.orderId = order.id;
   form.orderId.value = order.id;
   form.customerId.value = order.customerId || "";
+  form.color.value = order.color || "Pink";
   form.orderDate.value = order.orderDate;
   form.productionDays.value = order.productionDays;
   form.dueDate.value = order.dueDate;
@@ -10421,6 +10461,7 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   document.getElementById("order-dialog-summary").textContent = [
     order.jobNumber || order.number,
     `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
+    `${order.color || "Pink"} Colour`,
     jobCurrentStage(jobOrders),
     jobOrderDeliverySummary(jobOrders),
   ].filter(Boolean).join(" / ");
@@ -12247,6 +12288,8 @@ function openItemEdit(orderId) {
   const form = document.getElementById("item-edit-form");
   form.dataset.mode = "edit";
   form.orderId.value = order.id;
+  if (form.designSearch) form.designSearch.value = "";
+  form.querySelector(".item-edit-design-search")?.classList.add("hidden");
   form.category.innerHTML = renderCategoryOptions(order.category || "");
   form.designId.innerHTML = renderDesignOptions();
   const design = findById("designs", order.designId || "");
@@ -12260,6 +12303,7 @@ function openItemEdit(orderId) {
   form.clSize.value = order.clSize || "";
   form.cgSize.value = order.cgSize || "";
   form.color.value = order.color || "Pink";
+  form.color.disabled = true;
   form.purity.value = order.purity || "18K";
   form.remarks.value = order.remarks || "";
   updateItemEditCategoryFields(form);
@@ -12278,6 +12322,8 @@ function openJobCardAddItem() {
   const form = document.getElementById("item-edit-form");
   form.dataset.mode = "add";
   form.orderId.value = baseOrder.id;
+  if (form.designSearch) form.designSearch.value = "";
+  form.querySelector(".item-edit-design-search")?.classList.remove("hidden");
   form.category.innerHTML = renderCategoryOptions("");
   form.designId.innerHTML = renderDesignOptions();
   form.ringType.innerHTML = renderRingTypeOptions("");
@@ -12290,6 +12336,7 @@ function openJobCardAddItem() {
   form.clSize.value = "";
   form.cgSize.value = "";
   form.color.value = baseOrder.color || "Pink";
+  form.color.disabled = true;
   form.purity.value = baseOrder.purity || "18K";
   form.remarks.value = "";
   updateItemEditCategoryFields(form);
@@ -12297,6 +12344,7 @@ function openJobCardAddItem() {
   document.getElementById("item-edit-submit").textContent = "Add Item";
   document.getElementById("item-edit-summary").textContent = `${baseOrder.jobNumber || baseOrder.number} / ${baseOrder.customer || ""}`;
   document.getElementById("item-edit-dialog").showModal();
+  form.designSearch?.focus();
 }
 
 function itemEditDataToOrderItem(data = {}) {
@@ -12353,7 +12401,7 @@ function addItemsToJobCard(baseOrder, data = {}) {
       cmItemType: item.cmItemType || "",
       clSize: item.clSize || "",
       cgSize: item.cgSize || "",
-      color: item.color || "",
+      color: baseOrder.color || item.color || "Pink",
       purity: item.purity || baseOrder.purity || "18K",
       targetWeight: 0,
       remarks: item.remarks || "",
@@ -12416,10 +12464,16 @@ function removeJobCardItem(orderId) {
 
 function updateItemEditDesignOptions(form, selectedDesignId = "") {
   const category = form.category.value;
-  const designs = category
+  const query = String(form.designSearch?.value || "").trim();
+  const source = category
     ? sortedDesigns().filter((design) => (design.category || "Uncategorised") === category)
     : sortedDesigns();
-  const placeholder = category ? "Select design" : "Select design or category";
+  const designs = query ? source.filter((design) => designMatchesOrderSearch(design, query)) : source;
+  const placeholder = query && !designs.length
+    ? "No matching design"
+    : query
+      ? `${designs.length} matching design${designs.length === 1 ? "" : "s"}`
+      : category ? "Select design" : "Select design or category";
   form.designId.innerHTML = `<option value="">${placeholder}</option>` + designs.map((design) =>
     `<option value="${design.id}">${escapeHtml(designText(design))}</option>`
   ).join("");

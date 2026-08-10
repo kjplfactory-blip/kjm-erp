@@ -2236,13 +2236,24 @@ form.active-operation-page,
 
 .job-card-header-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.4fr) repeat(3, minmax(150px, 1fr));
+  grid-template-columns: minmax(260px, 1.4fr) repeat(4, minmax(140px, 1fr));
   gap: 12px;
   align-items: end;
 }
 
 .job-card-header-grid .field-error {
-  grid-column: 3 / 4;
+  grid-column: 4 / 5;
+}
+
+.order-item-row.entry .order-item-colour-field {
+  display: none;
+}
+
+.item-edit-job-colour select:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: #31574d;
+  background: #eef6f2;
 }
 
 .order-item-entry-head {

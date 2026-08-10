@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=456">
+  <link rel="stylesheet" href="styles.css?v=460">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v456</small>
+        <small class="app-version-badge">App v460</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v456</span>
+          <span class="app-version-badge">App v460</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -431,6 +431,15 @@
               </div>
               <div class="job-card-header-grid">
                 <label class="customer-field">Customer / Retailer <select name="customerId" required></select></label>
+                <label>Job Card Colour
+                  <select name="jobColor" required>
+                    <option>Pink</option>
+                    <option>Yellow</option>
+                    <option>White</option>
+                    <option>2 Tone</option>
+                    <option>3 Tone</option>
+                  </select>
+                </label>
                 <label>Order Date <input name="orderDate" type="date" required></label>
                 <label>Production Days <input name="productionDays" type="number" min="10" step="1" required></label>
                 <small class="field-error hidden" data-production-days-error></small>
@@ -1485,6 +1494,15 @@
         <form id="update-order-form" class="inline-form hidden">
           <input type="hidden" name="orderId">
           <label>Customer / Retailer <select name="customerId" required></select></label>
+          <label>Job Card Colour
+            <select name="color" required>
+              <option>Pink</option>
+              <option>Yellow</option>
+              <option>White</option>
+              <option>2 Tone</option>
+              <option>3 Tone</option>
+            </select>
+          </label>
           <label>Order Date <input name="orderDate" type="date" required></label>
           <label>Production Days <input name="productionDays" type="number" min="10" step="1" required></label>
           <small class="field-error hidden" data-production-days-error></small>
@@ -1553,6 +1571,9 @@
         <input type="hidden" name="orderId">
         <div class="inline-form">
           <label>Category <select name="category"></select></label>
+          <label class="wide-field item-edit-design-search">Search Design
+            <input name="designSearch" autocomplete="off" placeholder="Type design no or name">
+          </label>
           <label>Design <select name="designId"></select></label>
           <label class="cb-field">CB Ring
             <select name="ringType">
@@ -1573,7 +1594,7 @@
           <label class="normal-size-field">Size <input name="size" placeholder="Size"></label>
           <label class="cb-field cl-size-field">CL Size <input name="clSize" placeholder="Ladies size"></label>
           <label class="cb-field cg-size-field">CG Size <input name="cgSize" placeholder="Gents size"></label>
-          <label>Colour
+          <label class="item-edit-job-colour">Job Card Colour
             <select name="color">
               <option>Pink</option>
               <option>Yellow</option>
@@ -2369,7 +2390,7 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="html5-qrcode.min.js?v=2.3.8-456"></script>
-  <script src="app.js?v=456"></script>
+  <script src="html5-qrcode.min.js?v=2.3.8-460"></script>
+  <script src="app.js?v=460"></script>
 </body>
 </html>
