@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v466";
+const APP_VERSION = "v467";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -12906,7 +12906,7 @@ function startJobPrint(html, mode = "job") {
       document.addEventListener("visibilitychange", handleMobilePrintVisibility);
     }
     printArea.getBoundingClientRect();
-    if (mode === "transfer-bag") prepareTransferBagItemPages(document);
+    prepareJobPrintLayout(document, mode);
     try {
       window.print();
     } catch (error) {
@@ -12929,7 +12929,7 @@ function startJobPrint(html, mode = "job") {
   document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
   setTimeout(() => {
     if (!cleaned) {
-      if (mode === "transfer-bag") prepareTransferBagItemPages(document);
+      prepareJobPrintLayout(document, mode);
       window.print();
     }
   }, 100);
@@ -13008,6 +13008,7 @@ function openMobileJobPrintWindow(html, mode = "job") {
     const printArea = printWindow.document.getElementById("global-print-area");
     toolbar?.remove();
     printArea?.getBoundingClientRect();
+    prepareJobPrintLayout(printWindow.document, mode);
     printWindow.focus();
     printWindow.print();
   };
@@ -13016,7 +13017,6 @@ function openMobileJobPrintWindow(html, mode = "job") {
     const closeButton = printWindow.document.getElementById("mobile-print-page-close");
     printButton?.addEventListener("click", handlePrint);
     closeButton?.addEventListener("click", () => printWindow.close());
-    if (mode === "transfer-bag") prepareTransferBagItemPages(printWindow.document);
     const images = Array.from(printWindow.document.images || []);
     const imageReady = images.map((image) => image.complete
       ? Promise.resolve()
@@ -13024,8 +13024,14 @@ function openMobileJobPrintWindow(html, mode = "job") {
         image.addEventListener("load", resolve, { once: true });
         image.addEventListener("error", resolve, { once: true });
       }));
-    Promise.all(imageReady).then(enablePrint);
-    printWindow.setTimeout(enablePrint, 3000);
+    Promise.all(imageReady).then(() => {
+      prepareJobPrintLayout(printWindow.document, mode);
+      enablePrint();
+    });
+    printWindow.setTimeout(() => {
+      prepareJobPrintLayout(printWindow.document, mode);
+      enablePrint();
+    }, 3000);
   };
   if (printWindow.document.readyState === "complete") bindPrintPage();
   else printWindow.addEventListener("load", bindPrintPage, { once: true });
@@ -13896,6 +13902,41 @@ function prepareTransferBagItemPages(rootDocument = document) {
   return fitted;
 }
 
+function prepareJobPrintLayout(rootDocument = document, mode = "job") {
+  if (mode === "transfer-bag") return prepareTransferBagItemPages(rootDocument);
+  return prepareJobBagStoneLayouts(rootDocument);
+}
+
+function prepareJobBagStoneLayouts(rootDocument = document) {
+  const fitClasses = ["stone-density-compact", "stone-density-dense", "stone-density-ultra"];
+  const cards = Array.from(rootDocument.querySelectorAll(".print-job-item"));
+  let fittedCards = 0;
+  cards.forEach((card) => {
+    const details = card.querySelector(".print-stone-details");
+    if (!details) return;
+    card.classList.remove(...fitClasses);
+    details.classList.remove(...fitClasses);
+    details.dataset.stoneFit = "normal";
+    card.getBoundingClientRect();
+    const fits = () => details.clientHeight > 0
+      && details.scrollHeight <= details.clientHeight + 1
+      && card.scrollHeight <= card.clientHeight + 1;
+    if (!fits()) {
+      for (const fitClass of fitClasses) {
+        card.classList.remove(...fitClasses);
+        details.classList.remove(...fitClasses);
+        card.classList.add(fitClass);
+        details.classList.add(fitClass);
+        details.dataset.stoneFit = fitClass.replace("stone-density-", "");
+        card.getBoundingClientRect();
+        if (fits()) break;
+      }
+    }
+    fittedCards += 1;
+  });
+  return fittedCards;
+}
+
 function fitTransferBagItemPages(rootDocument = document) {
   const printRoot = rootDocument.querySelector(".transfer-bag-print");
   const firstPage = printRoot?.querySelector(".transfer-bag-detail-page:not(.transfer-bag-item-continuation-page)");
@@ -14509,7 +14550,6 @@ function printJobItemHtml(job, entry) {
   const bagItems = entry.items || [entry.item].filter(Boolean);
   const order = combinedBagPrintItem(bagItems);
   const { design, imageData } = entry;
-  const stoneDensity = printStoneDensityForOrders(bagItems);
   const designName = order.designNumber || (design ? designText(design) : "") || "-";
   const jobNumber = job.jobNumber || job.productionNo || job.number;
   const customerName = order.customer || job.customer || "";
@@ -14519,7 +14559,7 @@ function printJobItemHtml(job, entry) {
     ? order.barcodeValues
     : [{ label: "", value: order.barcode || order.productionNo || order.number }];
   return `
-    <article class="print-job-item ${stoneDensity} ${isCustomerOrder ? "customer-order-print" : ""}">
+    <article class="print-job-item ${isCustomerOrder ? "customer-order-print" : ""}">
       <div class="print-card-head">
         <div>
           <strong>KHUSHALI JEWELLS</strong>
@@ -14582,15 +14622,6 @@ function printStoneRowsForOrder(design, order = {}) {
   }));
 }
 
-function printStoneDensityForOrders(orders = []) {
-  const rowCount = (orders || []).reduce((total, itemOrder) =>
-    total + Math.max(1, productionStoneItemsForOrder(itemOrder).length), 0);
-  if (rowCount >= 22) return "stone-density-ultra";
-  if (rowCount >= 15) return "stone-density-dense";
-  if (rowCount >= 9) return "stone-density-compact";
-  return "stone-density-normal";
-}
-
 function printStoneDetailsHtml(design, order = {}, bagItems = null) {
   const sourceOrders = Array.isArray(bagItems) && bagItems.length ? bagItems : [order];
   const itemGroups = sourceOrders.map((itemOrder) => {
@@ -14626,7 +14657,6 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
   }).join("");
   const allItems = sourceOrders.flatMap((itemOrder) => printStoneRowsForOrder(design, itemOrder));
   const totals = designStoneTotals(allItems);
-  const stoneDensity = printStoneDensityForOrders(sourceOrders);
   const grandTotalRow = sourceOrders.length > 1 ? `
     <tr class="stone-total-row stone-grand-total-row">
       <td colspan="3">Bag Total</td>
@@ -14635,17 +14665,13 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
       <td>${escapeHtml(totals.weight ? weight3(totals.weight) : "")}</td>
     </tr>
   ` : "";
-  const stoneRowCount = sourceOrders.reduce((total, itemOrder) =>
-    total + Math.max(1, printStoneRowsForOrder(design, itemOrder).length), 0);
-  const blankRowCount = stoneRowCount >= 20 ? 0
-    : stoneRowCount >= 12 ? 1
-      : sourceOrders.length > 1 ? 2 : 4;
+  const blankRowCount = sourceOrders.length > 1 ? 2 : 4;
   const blankRows = Array.from({ length: blankRowCount }, () => `
     <tr class="manual-stone-row"><td></td><td></td><td></td><td></td><td></td><td></td></tr>
   `).join("");
   const itemLabels = [...new Set(sourceOrders.flatMap((itemOrder) => orderStoneItemKeys(itemOrder)).map(stoneItemInputValue))];
   return `
-    <div class="print-stone-details ${sourceOrders.length > 1 ? "multi-item" : ""} ${stoneDensity}">
+    <div class="print-stone-details ${sourceOrders.length > 1 ? "multi-item" : ""}">
       <b>Stone Details - ${escapeHtml(itemLabels.join(" + ") || "-")}</b>
       <table>
         <thead><tr><th>Item</th><th>Type</th><th>Shape</th><th>No of Pcs</th><th>Wt/Pc</th><th>Total Weight</th></tr></thead>
