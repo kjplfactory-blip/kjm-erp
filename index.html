@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=465">
+  <link rel="stylesheet" href="styles.css?v=471">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v467</small>
+        <small class="app-version-badge">App v472</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v467</span>
+          <span class="app-version-badge">App v472</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -519,7 +519,7 @@
           </button>
           <button class="action-tile" type="button" data-production-page="setting">
             <strong>Setting Manager</strong>
-            <span>Issue setting lots to setters and receive them back</span>
+            <span>Issue lots or accessories, then close returned material and loss</span>
           </button>
           <button class="action-tile" type="button" data-production-page="lots">
             <strong>Production Lots</strong>
@@ -591,6 +591,21 @@
             <p id="non-gold-remove-summary" class="dialog-note">Select a department or lot to see available non-gold material before removing.</p>
             <button class="danger-button" type="submit">Remove Non-Gold</button>
           </form>
+          <section class="panel table-panel non-gold-reconciliation-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Department GW &amp; Non-Gold Reconciliation</h2>
+                <p>GW issued - GW received / transferred out = GW remaining. Non-gold stays inside GW but is excluded from fine gold.</p>
+              </div>
+            </div>
+            <div id="production-non-gold-reconciliation-summary" class="factory-summary-grid non-gold-reconciliation-summary"></div>
+            <div class="table-wrap">
+              <table class="non-gold-reconciliation-table">
+                <thead><tr><th>Department</th><th>Karat</th><th>GW Issued</th><th>GW Received / Out</th><th>Ledger GW Remaining</th><th>Current GW</th><th>Non-Gold In GW</th><th>Net Gold</th><th>Fine Gold</th></tr></thead>
+                <tbody id="production-non-gold-reconciliation-table"></tbody>
+              </table>
+            </div>
+          </section>
           <section class="panel table-panel non-gold-history-panel">
             <div class="panel-heading"><h2>Non-Gold Movement History</h2></div>
             <div class="table-wrap">
@@ -616,27 +631,46 @@
             </form>
 
             <form id="setting-issue-form" class="form-panel">
-              <h2>Issue Lot To Setter</h2>
-              <label>Setting Lot <select name="lotId" required></select></label>
+              <h2>Issue To Setter</h2>
+              <label>Issue Type <select name="issueType">
+                <option value="lot">Job Lot</option>
+                <option value="accessory">Accessory / Direct Material</option>
+              </select></label>
+              <label id="setting-issue-lot-field">Setting Lot <select name="lotId" required></select></label>
+              <label id="setting-issue-accessory-field" class="hidden">Accessory In Setting <select name="accessoryIssueId"></select></label>
               <label>Setter <select name="setterId" required></select></label>
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
-              <label><span id="setting-issue-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <label id="setting-issue-hand-stone-field"><span id="setting-issue-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
-              <p id="setting-issue-summary" class="dialog-note">Select a lot currently in Setting Department, then select setter.</p>
+              <p id="setting-issue-summary" class="dialog-note">Select a job lot or an accessory currently in Setting Department. Accessories are used in production and require no return.</p>
               <button type="submit">Issue To Setter</button>
             </form>
 
             <form id="setting-receive-form" class="form-panel">
-              <h2>Receive From Setter</h2>
+              <h2>Setter Account Entry</h2>
+              <label>Setter <select name="setterId" required></select></label>
               <label>Pending Setter Lot <select name="entryId" required></select></label>
-              <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
-              <label>Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
-              <label><span id="setting-receive-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
-              <label>Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
-              <label>Difference (g) <input name="difference" type="number" step="0.001" readonly></label>
+              <label>Account Action <select name="settlementType">
+                <option value="close">Receive Job Lot &amp; Close</option>
+                <option value="rawa">Receive Rawa / Laser Wire / WSTG</option>
+                <option value="loss">Book Setter Loss</option>
+              </select></label>
+              <label id="setting-receive-issue-field">Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
+              <label id="setting-receive-gw-field">Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
+              <label id="setting-receive-hand-stone-field"><span id="setting-receive-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <label id="setting-receive-net-field">Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
+              <label id="setting-return-material-type-field">Returned Material <select name="returnMaterialType">
+                <option value="rawa">Rawa</option>
+                <option value="laser-wire">Laser Wire</option>
+                <option value="wastage">WSTG / Wastage</option>
+              </select></label>
+              <label id="setting-receive-rawa-field">Returned Material This Entry (g) <input name="rawaWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label id="setting-receive-loss-field">Loss This Entry (g) <input name="setterLossWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>Balance To Close (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
+              <button class="ghost-button setting-balance-loss-button" type="button" id="setting-use-balance-loss">Book Balance As Loss</button>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
-              <p id="setting-receive-summary" class="dialog-note">Select pending setter issue and enter received gross weight.</p>
-              <button type="submit">Receive From Setter</button>
+              <p id="setting-receive-summary" class="dialog-note">Select a setter, pending job lot, and account action.</p>
+              <button type="submit" id="setting-receive-submit">Receive &amp; Close Setter Lot</button>
             </form>
           </div>
 
@@ -654,17 +688,17 @@
             <div class="panel-heading"><h2>Pending With Setters</h2></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Lot</th><th>Setter</th><th>Issue GW</th><th>Hand Stone</th><th>Age</th><th>Remarks</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Job Lot</th><th>Setter</th><th>Issue GW</th><th>Hand Stone</th><th>Returned / Loss / Balance</th><th>Age</th><th>Remarks</th><th></th></tr></thead>
                 <tbody id="setting-manager-pending-table"></tbody>
               </table>
             </div>
           </section>
 
           <section class="panel table-panel setting-manager-panel">
-            <div class="panel-heading"><h2>Setter Issue / Receive History</h2></div>
+            <div class="panel-heading"><h2>Setter Issue / Account History</h2></div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Issue Date</th><th>Receive Date</th><th>Lot</th><th>Job Card</th><th>Setter</th><th>Issue GW</th><th>Receive GW</th><th>Hand Stone</th><th>Receive Net</th><th>Difference</th><th>Status</th><th>Remarks</th></tr></thead>
+                <thead><tr><th>Issue Date</th><th>Close Date</th><th>Lot / Accessory</th><th>Job Card</th><th>Setter</th><th>Issue GW</th><th>Receive GW</th><th>Hand Stone</th><th>Receive Net</th><th>Returned Material</th><th>Loss</th><th>Balance</th><th>Status</th><th>Remarks</th></tr></thead>
                 <tbody id="setting-manager-history-table"></tbody>
               </table>
             </div>
@@ -2443,7 +2477,7 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="html5-qrcode.min.js?v=2.3.8-465"></script>
-  <script src="app.js?v=465"></script>
+  <script src="html5-qrcode.min.js?v=2.3.8-472"></script>
+  <script src="app.js?v=472"></script>
 </body>
 </html>
