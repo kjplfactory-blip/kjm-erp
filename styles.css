@@ -10711,6 +10711,33 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: #e9fbf2;
 }
 
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.25fr) repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: center;
+  border-color: #9bcfb8;
+  background: #effbf5;
+  color: #244c3d;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status strong,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status span,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status b {
+  display: block;
+  min-width: 0;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status.warning {
+  border-color: #e0b66d;
+  background: #fff8e8;
+  color: #6e4c14;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status b {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 820px) {
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .non-gold-reconciliation-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10723,6 +10750,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .non-gold-reconciliation-table th,
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .non-gold-reconciliation-table td {
     padding: 6px 3px;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .transfer-non-gold-pool-status {
+    grid-template-columns: 1fr 1fr;
   }
 }
 

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v472";
+const APP_VERSION = "v474";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -40,6 +40,8 @@ const AUTO_SYNC_INTERVAL_MS = 3000;
 const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
 const SUPABASE_SAVE_DELAY_MS = 300;
 const SUPABASE_REQUEST_TIMEOUT_MS = 12000;
+const CLOUD_BACKUP_TABLE = "erp_state_backups";
+const CLOUD_BACKUP_SETUP_FILE = "ENABLE-CLOUD-SAFETY-BACKUPS.sql";
 const LOGIN_LOCATION_TIMEOUT_MS = 6000;
 const LOGIN_HISTORY_LIMIT = 500;
 const MIN_PRODUCTION_DAYS = 10;
@@ -125,6 +127,8 @@ let supabasePendingCloudState = null;
 let supabaseIsConnecting = false;
 let supabaseIsSaving = false;
 let supabaseIsLoading = false;
+let supabaseLastSafetySnapshotBucket = "";
+let pendingCloudVersionBackup = null;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
@@ -203,26 +207,7 @@ const demoState = {
   customers: [],
   officeCustomers: [],
   vendors: [],
-  factoryLedger: [{
-    id: "factory-default-factory-ledger",
-    date: today(),
-    direction: "in",
-    type: "Opening Stock",
-    vendorId: "",
-    vendorName: "Opening Stock",
-    materialType: "raw-metal",
-    purity: FACTORY_RESET_STOCK_PURITY,
-    weight: FACTORY_RESET_STOCK_WEIGHT,
-    wstgPercent: 0,
-    wastagePercent: 0,
-    baseFineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
-    wstgFineGold: 0,
-    fineGold: fineGoldWeight(FACTORY_RESET_STOCK_WEIGHT, FACTORY_RESET_STOCK_PURITY),
-    stockPosting: "Metal Safe",
-    reference: "Factory opening stock",
-    sourceType: "factory-default",
-    sourceId: "factory-default-ledger",
-  }],
+  factoryLedger: [],
   dailyTallies: [],
   dailyTallyContainers: [],
   designs: [],
@@ -232,17 +217,7 @@ const demoState = {
   safeItems: [],
   safeDepartmentIssues: [],
   safeDepartmentReturns: [],
-  metalSafeMovements: [{
-    id: "factory-default-metal-safe",
-    date: today(),
-    type: "Opening Stock",
-    direction: "in",
-    purity: FACTORY_RESET_STOCK_PURITY,
-    weight: FACTORY_RESET_STOCK_WEIGHT,
-    reference: "Factory opening stock",
-    sourceType: "factory-default",
-    sourceId: "factory-default-ledger",
-  }],
+  metalSafeMovements: [],
   metalSafeSeededFromLedger: true,
   stoneOptions: { stoneType: [], shape: [], size: [] },
   stoneLibrarySeeded: false,
@@ -258,11 +233,10 @@ const demoState = {
     { id: crypto.randomUUID(), name: "Setting Department", speciality: "Stone setting", processes: ["Stone setting"], rate: 650 },
     { id: crypto.randomUUID(), name: "Polishing Department", speciality: "Polishing", processes: ["Polishing"], rate: 280 },
   ],
-  ledger: [
-    { id: "factory-default-ledger", date: today(), type: "In", purity: FACTORY_RESET_STOCK_PURITY, weight: FACTORY_RESET_STOCK_WEIGHT, reference: "Factory opening stock" },
-  ],
+  ledger: [],
 };
 
+let stateLoadedFromFallback = false;
 let state = loadState();
 let currentUser = loadCurrentUser();
 let viewHistory = [];
@@ -781,6 +755,9 @@ document.getElementById("logout").addEventListener("click", () => {
 
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
 document.getElementById("push-live-data")?.addEventListener("click", pushLocalDataToCloud);
+document.getElementById("download-data-backup")?.addEventListener("click", downloadErpDataBackup);
+document.getElementById("restore-data-backup")?.addEventListener("click", () => document.getElementById("restore-data-backup-file")?.click());
+document.getElementById("restore-data-backup-file")?.addEventListener("change", restoreErpDataBackup);
 
 document.getElementById("reset-demo").addEventListener("click", resetFactoryInventoryToZeroFromUi);
 document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", resetFactoryInventoryToZeroFromUi);
@@ -2635,6 +2612,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   }
   const items = billItemRows(existingBill.items || []);
   const netWeight = items.reduce((total, item) => total + Number(item.netWeight || 0), 0);
+  const nonGoldStockAdjustment = buildBillNonGoldStockAdjustment(items, existingBill, data.billNo, data.billDate);
   const bill = {
     id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
     lotId: lot.id,
@@ -2647,6 +2625,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     manufacturingBillAmount: 0,
     billAmount: 0,
     items,
+    nonGoldStockAdjustment,
     netWeight,
     makingGold: 0,
     manufacturingMakingGold: 0,
@@ -2964,14 +2943,16 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   const grossReceivedWeight = Number(data.grossReceivedWeight);
   const stoneWeight = Number(data.stoneWeight || 0);
   const waxStoneWeight = Number(data.waxStoneWeight || transferWaxStoneWeight(lot));
-  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight));
-  if (stoneWeight < 0 || waxStoneWeight < 0 || stoneWeight + waxStoneWeight > grossReceivedWeight) {
-    alert("Wax stone plus hand stone cannot be more than receive gross weight.");
+  const previousProvisionalNonGoldWeight = transferProvisionalNonGoldBefore(lot, data.transferId);
+  const provisionalNonGoldWeight = Number(data.provisionalNonGoldWeight || 0);
+  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight + provisionalNonGoldWeight));
+  if (stoneWeight < 0 || waxStoneWeight < 0 || provisionalNonGoldWeight < 0 || reducedWeight > grossReceivedWeight) {
+    alert("Wax stone plus hand stone plus non-gold cannot be more than receive gross weight.");
     return;
   }
 
-  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId)));
-  const receivedWeight = Number(weight3(grossReceivedWeight - waxStoneWeight - stoneWeight));
+  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId) - previousProvisionalNonGoldWeight));
+  const receivedWeight = Number(weight3(grossReceivedWeight - reducedWeight));
   if (receivedWeight < 0) {
     alert("Net Wt cannot be less than 0.");
     return;
@@ -2998,6 +2979,8 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     waxStoneWeight,
     stoneWeight,
     handStoneWeight: stoneWeight,
+    provisionalNonGoldWeight,
+    provisionalNonGoldAddedWeight: Number(weight3(Math.max(provisionalNonGoldWeight - previousProvisionalNonGoldWeight, 0))),
     reducedWeight,
     receivedWeight,
     departmentBalance,
@@ -3025,7 +3008,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: receivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, provisional non-gold ${gram(provisionalNonGoldWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
   });
   document.getElementById("transfer-dialog").close();
   event.target.reset();
@@ -3041,8 +3024,8 @@ document.getElementById("transfer-form").addEventListener("input", (event) => {
   if (event.target.name === "fromDepartment") {
     applyProductionStoneWeightToTransfer();
   }
-  if (["transferWeight", "grossReceivedWeight", "stoneWeight"].includes(event.target.name)) {
-    updateTransferBalance();
+  if (["transferWeight", "grossReceivedWeight", "stoneWeight", "provisionalNonGoldWeight"].includes(event.target.name)) {
+    updateTransferBalance(event.target.name !== "provisionalNonGoldWeight");
   }
 });
 
@@ -3115,17 +3098,138 @@ document.getElementById("daily-tally-container-search")?.addEventListener("input
 function loadState() {
   try {
     const saved = localStorage.getItem("gold-jewellery-erp-state");
+    stateLoadedFromFallback = !saved;
     const normalized = normalizeState(saved ? JSON.parse(saved) : structuredClone(demoState));
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
   } catch (error) {
     console.warn("Saved ERP data could not be read. Starting with safe demo data.", error);
+    stateLoadedFromFallback = true;
     localStorage.removeItem("gold-jewellery-erp-state");
     const normalized = normalizeState(structuredClone(demoState));
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
     return normalized;
+  }
+}
+
+function stateBusinessProfile(source = {}) {
+  const factoryEntries = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
+  const metalEntries = (source.metalSafeMovements || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
+  const profile = {
+    orders: (source.orders || []).length,
+    lots: (source.lots || []).length,
+    designs: (source.designs || []).length,
+    catalogue: (source.catalogueItems || []).length,
+    customers: (source.customers || []).length,
+    vendors: (source.vendors || []).length,
+    bills: (source.bills || []).length,
+    safeItems: (source.safeItems || []).length,
+    melting: (source.melting || []).length,
+    xrf: (source.xrfTests || []).length,
+    factoryEntries: factoryEntries.length,
+    metalEntries: metalEntries.length,
+  };
+  profile.score = profile.orders * 2
+    + profile.lots * 8
+    + profile.designs * 5
+    + profile.catalogue * 3
+    + profile.customers
+    + profile.vendors * 2
+    + profile.bills * 8
+    + profile.safeItems * 5
+    + profile.melting * 4
+    + profile.xrf * 3
+    + profile.factoryEntries * 4
+    + profile.metalEntries * 3;
+  return profile;
+}
+
+function isFallbackOpeningState(source = {}) {
+  const hasDefaultOpening = (source.factoryLedger || []).some((entry) => entry.sourceType === "factory-default" || entry.sourceId === "factory-default-ledger")
+    || (source.metalSafeMovements || []).some((entry) => entry.sourceType === "factory-default" || entry.sourceId === "factory-default-ledger")
+    || (source.ledger || []).some((entry) => entry.id === "factory-default-ledger");
+  const profile = stateBusinessProfile(source);
+  return hasDefaultOpening
+    && profile.lots === 0
+    && profile.designs === 0
+    && profile.catalogue === 0
+    && profile.bills === 0
+    && profile.safeItems === 0
+    && profile.melting === 0
+    && profile.xrf === 0
+    && profile.factoryEntries === 0
+    && profile.metalEntries === 0;
+}
+
+function protectRicherLocalStateFromCloud(cloudState = {}, options = {}) {
+  if (!isFallbackOpeningState(cloudState) || isFallbackOpeningState(state)) return false;
+  if (factoryResetTimestamp(stateFactoryResetAt(cloudState)) > factoryResetTimestamp(stateFactoryResetAt(state))) return false;
+  const localProfile = stateBusinessProfile(state);
+  const cloudProfile = stateBusinessProfile(cloudState);
+  if (localProfile.score <= cloudProfile.score + 5) return false;
+  supabasePendingCloudState = null;
+  setSyncStatus("saving", "Recovery Copy Protected", `This laptop has more ERP data than the fallback cloud copy. Owner can use Upload Data after checking it.`);
+  if (options.manual) {
+    alert("The cloud contains fallback opening data, but this laptop has a larger ERP copy. The local copy was protected. Check the data, then Owner can click Upload Data to restore live sync.");
+  }
+  return true;
+}
+
+function downloadErpDataBackup() {
+  if (!isOwner()) {
+    alert("Only Owner can download an ERP data backup.");
+    return;
+  }
+  const exportedAt = new Date().toISOString();
+  const payload = {
+    format: "KJM-ERP-DATA-BACKUP",
+    appVersion: APP_VERSION,
+    exportedAt,
+    profile: stateBusinessProfile(state),
+    state: structuredClone(state),
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const anchor = document.createElement("a");
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = `KJM-ERP-DATA-${exportedAt.slice(0, 19).replaceAll(":", "-")}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+}
+
+async function restoreErpDataBackup(event) {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  if (!isOwner()) {
+    alert("Only Owner can restore an ERP data backup.");
+    return;
+  }
+  const password = prompt("Enter Owner password to restore this ERP backup:");
+  if (password !== userPassword("owner")) {
+    alert("Wrong Owner password. Backup was not restored.");
+    return;
+  }
+  try {
+    const parsed = JSON.parse(await file.text());
+    const backupState = parsed?.state || parsed;
+    const profile = stateBusinessProfile(backupState);
+    if (!backupState || typeof backupState !== "object" || (!profile.score && !(backupState.karigars || []).length)) {
+      throw new Error("This file does not contain a valid ERP data backup.");
+    }
+    if (!confirm(`Restore this backup on this laptop?\n\nOrders: ${profile.orders}\nLots: ${profile.lots}\nDesigns: ${profile.designs}\nSafe items: ${profile.safeItems}\nBills: ${profile.bills}\n\nAfter checking the restored data, click Upload Data to restore it to live sync.`)) return;
+    state = normalizeState(backupState);
+    stateLoadedFromFallback = false;
+    saveStateLocalOnly();
+    render();
+    setSyncStatus("saving", "Backup Restored Locally", "Check the restored data, then Owner can click Upload Data.");
+    alert("Backup restored on this laptop. Check the records, then click Upload Data to send this recovered copy to all laptops.");
+  } catch (error) {
+    alert(`Backup could not be restored. ${error.message || error}`);
   }
 }
 
@@ -3379,6 +3483,8 @@ function applyAccessControl() {
 }
 
 function saveState() {
+  stateLoadedFromFallback = false;
+  delete state.cloudRecoveryRequired;
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
@@ -3389,6 +3495,8 @@ function saveState() {
 }
 
 function saveStateLocalOnly() {
+  stateLoadedFromFallback = false;
+  delete state.cloudRecoveryRequired;
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
@@ -3831,6 +3939,22 @@ function createFetchSupabaseClient(url, anonKey) {
             return { data: null, error };
           }
         },
+        async insert(row) {
+          try {
+            const response = await supabaseFetch(tableUrl, {
+              method: "POST",
+              headers: headers({
+                "Content-Type": "application/json",
+                Prefer: "return=minimal",
+              }),
+              body: JSON.stringify(row),
+            });
+            if (!response.ok) return { data: null, error: await asError(response) };
+            return { data: null, error: null };
+          } catch (error) {
+            return { data: null, error };
+          }
+        },
       };
       return builder;
     },
@@ -4103,6 +4227,10 @@ async function syncStateToSupabase(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  if (stateLoadedFromFallback && !options.force) {
+    setSyncStatus("offline", "Fallback Data Protected", "Fresh fallback data is never uploaded automatically. Owner can use Upload Data only after verifying the local records.");
+    return false;
+  }
   attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
@@ -4114,7 +4242,29 @@ async function syncStateToSupabase(options = {}) {
   localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   const stateToSave = structuredClone(state);
   let error = null;
+  let backupFailure = null;
   try {
+    if (pendingCloudVersionBackup) {
+      const versionBackup = pendingCloudVersionBackup;
+      const versionBackupResult = await saveCloudBackupRecord(versionBackup.data, {
+        kind: "version-upgrade",
+        backupKey: versionBackup.backupKey,
+        sourceVersion: versionBackup.sourceVersion,
+        targetVersion: APP_VERSION,
+        sourceUpdatedAt: versionBackup.updatedAt,
+      });
+      if (!versionBackupResult.ok) {
+        backupFailure = versionBackupResult.error || new Error("Version backup could not be created.");
+        throw backupFailure;
+      }
+      pendingCloudVersionBackup = null;
+      supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
+    }
+    const dailyBackupResult = await saveCloudSafetySnapshotBeforeOverwrite();
+    if (!dailyBackupResult.ok) {
+      backupFailure = dailyBackupResult.error || new Error("Daily backup could not be created.");
+      throw backupFailure;
+    }
     const result = await withSupabaseTimeout(
       supabaseClient
         .from("erp_state")
@@ -4133,7 +4283,11 @@ async function syncStateToSupabase(options = {}) {
   }
   if (error) {
     console.warn("Supabase save failed", error);
-    setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), syncErrorDetail(error));
+    if (backupFailure) {
+      setSyncStatus("offline", "Sync Paused: Backup Required", cloudBackupFailureDetail(backupFailure));
+    } else {
+      setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), syncErrorDetail(error));
+    }
     scheduleSupabaseReconnect();
     return false;
   }
@@ -4144,6 +4298,94 @@ async function syncStateToSupabase(options = {}) {
   }
   setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
   return true;
+}
+
+function cloudSafetySnapshotBucket() {
+  return new Date().toISOString().slice(0, 10).replaceAll("-", "");
+}
+
+function cloudBackupVersionLabel(source = {}) {
+  return String(source.appVersion || (stateSyncBuild(source) ? `build-${stateSyncBuild(source)}` : "unknown"));
+}
+
+function cloudBackupKeyPart(value = "") {
+  return String(value || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "unknown";
+}
+
+function cloudBackupFailureDetail(error) {
+  const detail = String(error?.message || error || "Backup setup is unavailable.").replace(/\s+/g, " ").trim();
+  return `Cloud overwrite was stopped to protect ERP data. Run ${CLOUD_BACKUP_SETUP_FILE} once in Supabase. ${detail}`;
+}
+
+function isDuplicateCloudBackupError(error) {
+  const detail = String(error?.code || error?.message || error || "").toLowerCase();
+  return detail.includes("23505") || detail.includes("duplicate key") || detail.includes("already exists");
+}
+
+async function saveCloudBackupRecord(source, metadata = {}) {
+  if (!supabaseClient || !source || typeof source !== "object") {
+    return { ok: false, error: new Error("Cloud backup source is unavailable.") };
+  }
+  const sourceVersion = metadata.sourceVersion || cloudBackupVersionLabel(source);
+  const backupKey = metadata.backupKey || `${metadata.kind || "daily"}-${cloudSafetySnapshotBucket()}`;
+  const row = {
+    id: crypto.randomUUID(),
+    state_id: supabaseStateId,
+    backup_key: backupKey,
+    backup_kind: metadata.kind || "daily",
+    source_version: sourceVersion,
+    target_version: metadata.targetVersion || APP_VERSION,
+    source_updated_at: metadata.sourceUpdatedAt || null,
+    profile: stateBusinessProfile(source),
+    data: structuredClone(source),
+    created_at: new Date().toISOString(),
+  };
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient.from(CLOUD_BACKUP_TABLE).insert(row),
+      "Supabase cloud backup timeout."
+    );
+    if (!result?.error || isDuplicateCloudBackupError(result.error)) return { ok: true };
+    return { ok: false, error: result.error };
+  } catch (error) {
+    if (isDuplicateCloudBackupError(error)) return { ok: true };
+    return { ok: false, error };
+  }
+}
+
+async function saveCloudSafetySnapshotBeforeOverwrite() {
+  const bucket = cloudSafetySnapshotBucket();
+  if (!supabaseClient) return { ok: false, error: new Error("Live sync is not connected.") };
+  if (supabaseLastSafetySnapshotBucket === bucket) return { ok: true, skipped: true };
+  try {
+    const currentResult = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle(),
+      "Supabase safety snapshot read timeout."
+    );
+    if (currentResult?.error) return { ok: false, error: currentResult.error };
+    if (!currentResult?.data?.data) return { ok: true, skipped: true };
+    const currentCloudState = currentResult.data.data;
+    const sourceVersion = cloudBackupVersionLabel(currentCloudState);
+    const isVersionUpgrade = cloudStateNeedsCurrentVersionSave(currentCloudState);
+    const snapshotResult = await saveCloudBackupRecord(currentCloudState, {
+      kind: isVersionUpgrade ? "version-upgrade" : "daily",
+      backupKey: isVersionUpgrade
+        ? `version-${cloudBackupKeyPart(sourceVersion)}-before-${cloudBackupKeyPart(APP_VERSION)}`
+        : `daily-${bucket}`,
+      sourceVersion,
+      targetVersion: APP_VERSION,
+      sourceUpdatedAt: currentResult.data.updated_at || "",
+    });
+    if (snapshotResult.ok) supabaseLastSafetySnapshotBucket = bucket;
+    return snapshotResult;
+  } catch (error) {
+    console.warn("Cloud safety snapshot could not be saved. Main cloud overwrite was stopped.", error);
+    return { ok: false, error };
+  }
 }
 
 async function loadSupabaseState(options = {}) {
@@ -4185,13 +4427,26 @@ async function loadSupabaseState(options = {}) {
   if (data?.data) {
     handledCloudState = applyCloudStateFromRow(data, options);
   } else {
-    handledCloudState = await syncStateToSupabase();
+    handledCloudState = true;
+    setSyncStatus("offline", "Cloud Empty - Local Protected", "No live ERP row was found. Local data was not uploaded automatically. Owner can verify it and click Upload Data.");
   }
   if (options.initial && handledCloudState) setSyncStatus("online", "Live Sync: Auto");
   return true;
 }
 
 function applyCloudStateFromRow(row = {}, options = {}) {
+  if (isFallbackOpeningState(row.data) && (stateLoadedFromFallback || state.cloudRecoveryRequired || isFallbackOpeningState(state))) {
+    const recoveryState = structuredClone(row.data);
+    recoveryState.factoryLedger = (recoveryState.factoryLedger || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
+    recoveryState.metalSafeMovements = (recoveryState.metalSafeMovements || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
+    recoveryState.ledger = (recoveryState.ledger || []).filter((entry) => entry.id !== "factory-default-ledger");
+    recoveryState.cloudRecoveryRequired = true;
+    applyCloudState(recoveryState, row.updated_at || "", { ...options, recoveryFallback: true });
+    stateLoadedFromFallback = true;
+    setSyncStatus("offline", "Cloud Recovery Required", "Fallback opening stock was hidden. Recover from a laptop or JSON backup with the correct ERP data, then Owner can click Upload Data.");
+    return true;
+  }
+  if (protectRicherLocalStateFromCloud(row.data, options)) return true;
   if (blockOlderCloudState(row.data, options)) return false;
   const cloudUpdatedAt = row.updated_at || "";
   const isAuto = Boolean(options.auto || options.realtime);
@@ -4244,9 +4499,19 @@ function queueCurrentVersionCloudSave(reason = "") {
 
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
-  const shouldUpgradeCloudVersion = cloudStateNeedsCurrentVersionSave(cloudState);
+  const shouldUpgradeCloudVersion = !options.recoveryFallback && cloudStateNeedsCurrentVersionSave(cloudState);
+  if (shouldUpgradeCloudVersion) {
+    const sourceVersion = cloudBackupVersionLabel(cloudState);
+    pendingCloudVersionBackup = {
+      data: structuredClone(cloudState),
+      updatedAt: cloudUpdatedAt || "",
+      sourceVersion,
+      backupKey: `version-${cloudBackupKeyPart(sourceVersion)}-before-${cloudBackupKeyPart(APP_VERSION)}`,
+    };
+  }
   restoredRecentJobOrderCount = 0;
   state = normalizeState(cloudState);
+  stateLoadedFromFallback = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
   restoredRecentJobOrderCount = 0;
   clearImagePreviewCaches();
@@ -5944,8 +6209,8 @@ async function scanPhoneBarcodePhoto(file) {
 function ensurePhoneBarcodeLibrary() {
   if (typeof window.Html5Qrcode === "function") return Promise.resolve(true);
   if (phoneBarcodeLibraryPromise) return phoneBarcodeLibraryPromise;
-  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-472", document.baseURI).href;
-  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=472", document.baseURI).href;
+  const rootScannerUrl = new URL("html5-qrcode.min.js?v=2.3.8-473", document.baseURI).href;
+  const localScannerUrl = new URL("assets/html5-qrcode.min.js?v=473", document.baseURI).href;
   const scannerUrls = [
     rootScannerUrl,
     localScannerUrl,
@@ -10025,6 +10290,7 @@ function factoryPhysicalStock() {
     meltingCasting: blankFactoryStockPart("Melting / Casting In Hand"),
     xrf: blankFactoryStockPart("XRF Sample Pending"),
     nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Factory"),
+    billNonGoldAdjustment: blankFactoryStockPart("Non-Gold Applied To Production / Bill"),
   };
 
   Object.values(metalSafeBalances()).forEach((item) => {
@@ -10093,6 +10359,19 @@ function factoryPhysicalStock() {
     addFactoryStockPart(parts, "nonGoldDirect", "Direct Non-Gold In Factory", directNonGoldWeight, 0, "", 0, directNonGoldWeight);
   }
 
+  trackedNonGoldStockAllocation().allocations.forEach((allocation) => {
+    addFactoryStockPart(
+      parts,
+      "billNonGoldAdjustment",
+      "Non-Gold Applied To Production / Bill",
+      -Number(allocation.weight || 0),
+      0,
+      allocation.purity,
+      0,
+      -Number(allocation.weight || 0),
+    );
+  });
+
   const allParts = Object.values(parts);
   const grossWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.grossWeight || 0))), 0);
   const goldWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.goldWeight || 0))), 0);
@@ -10106,7 +10385,7 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
     productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight)),
     productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
@@ -13445,6 +13724,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
     partRow("nonGoldDirect", "Direct Non-Gold In Factory", "Physical only, no fine gold"),
+    partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
     { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine" },
     { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
     { label: "Factory Out Fine Ledger", fine: weight3(ledger.outFine), note: "Bill + metal/stock out" },
@@ -15309,6 +15589,136 @@ function productionNonGoldDirectDepartmentEntries() {
     .filter(({ issue }) => !issue.lotId && productionNonGoldIssueInDepartment(issue));
 }
 
+function trackedNonGoldDemandLines() {
+  return (state.lots || []).flatMap((lot) => {
+    const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id);
+    const adjustment = bill?.nonGoldStockAdjustment;
+    if (adjustment?.posted) {
+      return (adjustment.lines || []).map((line, index) => ({
+        id: `bill-ng-${bill.id || lot.id}-${index}`,
+        sourceType: "bill",
+        reference: `${bill.billNo || adjustment.billNo || "Bill"} / ${lot.orderNumber || lot.number || "-"}`,
+        date: bill.billDate || adjustment.billDate || today(),
+        createdAt: adjustment.postedAt || adjustment.updatedAt || "",
+        purity: karatLogicPurity(line.purity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"),
+        weight: Number(weight3(line.weight || nonGoldBreakdownTotal(line.breakdown))),
+        breakdown: normalizeNonGoldBreakdown(line.breakdown),
+      })).filter((line) => line.weight > 0);
+    }
+    const provisionalWeight = currentTransferProvisionalNonGold(lot);
+    if (provisionalWeight <= 0) return [];
+    const latest = (lot.transfers || []).at(-1) || {};
+    return [{
+      id: `transfer-ng-${lot.id}`,
+      sourceType: "transfer",
+      reference: `${lot.number || "Lot"} / ${lot.orderNumber || "-"}`,
+      date: latest.date || lot.issueDate || today(),
+      createdAt: latest.createdAt || lot.createdAt || "",
+      purity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"),
+      weight: Number(weight3(provisionalWeight)),
+      breakdown: { other: Number(weight3(provisionalWeight)) },
+    }];
+  });
+}
+
+function departmentNonGoldStockPools() {
+  const pools = new Map();
+  const addPool = (department = "Unassigned", purity = "", weight = 0) => {
+    const cleanWeight = Number(weight3(weight || 0));
+    if (!cleanWeight) return;
+    const departmentName = departmentDashboardHeader(department || "Unassigned");
+    const purityName = transferPurityLabel(karatLogicPurity(purity || "18K"));
+    const key = `${departmentTextKey(departmentName)}|${karatPurityKey(purityName) || purityName}`;
+    const current = pools.get(key) || { department: departmentName, purity: purityName, available: 0 };
+    current.available = Number(weight3(current.available + cleanWeight));
+    pools.set(key, current);
+  };
+  safeDepartmentIssuesInHand()
+    .filter((issue) => !issue.goldIssueLotId && !issue.lotId && !issue.jobNumber && Number(issue.nonGoldWeight || 0) > 0)
+    .forEach((issue) => addPool(issue.departmentName || issue.process, issue.purity || issue.locker, issue.nonGoldWeight));
+  productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
+    addPool(issue.department || dashboardDepartmentNameFromId(issue.departmentId), issue.purity || issue.karat, issue.weight);
+  });
+  return [...pools.values()]
+    .filter((pool) => pool.available > 0.0005)
+    .sort((left, right) => {
+      const leftPriority = isFittingNonGoldTransferSource(left.department) ? 0 : 1;
+      const rightPriority = isFittingNonGoldTransferSource(right.department) ? 0 : 1;
+      return leftPriority - rightPriority || left.department.localeCompare(right.department, undefined, { sensitivity: "base" });
+    });
+}
+
+function nonGoldPoolPositionForPurity(purity = "") {
+  const karatKey = karatPurityKey(purity);
+  const issued = departmentNonGoldStockPools()
+    .filter((pool) => karatPurityKey(pool.purity) === karatKey)
+    .reduce((total, pool) => Number(weight3(total + Number(pool.available || 0))), 0);
+  const allocation = trackedNonGoldStockAllocation();
+  const applied = allocation.allocations
+    .filter((line) => karatPurityKey(line.purity) === karatKey)
+    .reduce((total, line) => Number(weight3(total + Number(line.weight || 0))), 0);
+  const unmatched = allocation.unmatched
+    .filter((line) => karatPurityKey(line.purity) === karatKey)
+    .reduce((total, line) => Number(weight3(total + Number(line.weight || 0))), 0);
+  return {
+    purity: transferPurityLabel(karatLogicPurity(purity || "18K")),
+    issued,
+    applied,
+    remaining: Number(weight3(Math.max(issued - applied, 0))),
+    unmatched,
+  };
+}
+
+function renderTransferNonGoldPoolStatus(lot = {}, proposedWeight = 0) {
+  const status = document.getElementById("transfer-non-gold-pool-status");
+  if (!status || !lot) return;
+  const position = nonGoldPoolPositionForPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K");
+  const proposed = Number(weight3(proposedWeight || 0));
+  status.classList.toggle("warning", position.unmatched > 0.0005 || proposed > position.issued + 0.0005);
+  status.innerHTML = `
+    <strong>${escapeHtml(position.purity)} Non-Gold Pool</strong>
+    <span>Issued To Departments: ${gram(position.issued)}</span>
+    <span>Applied In Product GW / Bill: ${gram(position.applied)}</span>
+    <span>Available: ${gram(position.remaining)}</span>
+    <span>This Lot: ${gram(proposed)}</span>
+    ${position.unmatched > 0.0005 ? `<b>Unmatched: ${gram(position.unmatched)} - record the corresponding karat-wise non-gold issue.</b>` : ""}
+  `;
+}
+
+function trackedNonGoldStockAllocation() {
+  const pools = departmentNonGoldStockPools().map((pool) => ({ ...pool, remaining: pool.available }));
+  const demands = trackedNonGoldDemandLines().sort((left, right) =>
+    transferHistoryTime(left.createdAt, left.date) - transferHistoryTime(right.createdAt, right.date)
+  );
+  const allocations = [];
+  const unmatched = [];
+  demands.forEach((demand) => {
+    let remaining = Number(weight3(demand.weight || 0));
+    const demandKarat = karatPurityKey(demand.purity);
+    pools.filter((pool) => karatPurityKey(pool.purity) === demandKarat && pool.remaining > 0.0005).forEach((pool) => {
+      if (remaining <= 0.0005) return;
+      const weight = Number(weight3(Math.min(remaining, pool.remaining)));
+      if (weight <= 0) return;
+      allocations.push({
+        ...demand,
+        department: pool.department,
+        purity: pool.purity,
+        weight,
+      });
+      pool.remaining = Number(weight3(pool.remaining - weight));
+      remaining = Number(weight3(remaining - weight));
+    });
+    if (remaining > 0.0005) unmatched.push({ ...demand, weight: remaining });
+  });
+  return {
+    allocations,
+    unmatched,
+    demandWeight: Number(weight3(demands.reduce((total, line) => total + Number(line.weight || 0), 0))),
+    allocatedWeight: Number(weight3(allocations.reduce((total, line) => total + Number(line.weight || 0), 0))),
+    unmatchedWeight: Number(weight3(unmatched.reduce((total, line) => total + Number(line.weight || 0), 0))),
+  };
+}
+
 function productionNonGoldDepartmentInHandWeight(departmentName = "") {
   const target = departmentDashboardHeader(departmentName);
   const totals = departmentMetalInHand()[target];
@@ -15447,6 +15857,7 @@ function openTransferLot(lotId) {
   const existingHandStoneWeight = currentHandStoneWeight(lot);
   const handStoneWeight = productionStoneWeightForTransfer(lot) || existingHandStoneWeight;
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
+  const provisionalNonGoldWeight = currentTransferProvisionalNonGold(lot);
   form.lotId.value = lot.id;
   form.transferId.value = "";
   document.getElementById("transfer-form-title").textContent = "Transfer Job To Another Department";
@@ -15454,8 +15865,9 @@ function openTransferLot(lotId) {
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
-  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight);
-  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight, 0));
+  form.provisionalNonGoldWeight.value = weight3(provisionalNonGoldWeight);
+  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight + provisionalNonGoldWeight);
+  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight - provisionalNonGoldWeight, 0));
   form.departmentBalance.value = weight3(0);
   form.fromDepartment.value = lot.currentDepartment || lot.karigarName;
   form.toDepartment.value = "";
@@ -15490,7 +15902,8 @@ function openTransferEdit(lotId, transferId) {
   form.grossReceivedWeight.value = weight3(transfer.grossReceivedWeight);
   form.waxStoneWeight.value = weight3(transfer.waxStoneWeight);
   form.stoneWeight.value = weight3(transfer.stoneWeight);
-  form.reducedWeight.value = weight3(transfer.reducedWeight ?? Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0));
+  form.provisionalNonGoldWeight.value = weight3(transfer.provisionalNonGoldWeight || 0);
+  form.reducedWeight.value = weight3(transfer.reducedWeight ?? Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0) + Number(transfer.provisionalNonGoldWeight || 0));
   form.receivedWeight.value = weight3(transfer.receivedWeight);
   form.departmentBalance.value = weight3(transfer.departmentBalance);
   form.fromDepartment.value = transfer.fromDepartment || "";
@@ -15624,6 +16037,21 @@ function currentTransferIssueWeight(lot) {
   if (!transfers.length) return Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)));
   const latest = transfers.at(-1);
   return Number(latest.grossReceivedWeight ?? latest.receivedWeight ?? latest.transferWeight ?? lot.grossIssuedWeight ?? lot.issuedWeight ?? 0);
+}
+
+function transferProvisionalNonGoldBefore(lot = {}, beforeTransferId = "") {
+  const transfers = lot.transfers || [];
+  const transferIndex = beforeTransferId ? transfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
+  const previousTransfers = transferIndex >= 0 ? transfers.slice(0, transferIndex) : transfers;
+  return Number(weight3(previousTransfers.at(-1)?.provisionalNonGoldWeight || 0));
+}
+
+function currentTransferProvisionalNonGold(lot = {}) {
+  return transferProvisionalNonGoldBefore(lot);
+}
+
+function isFittingNonGoldTransferSource(value = "") {
+  return departmentTransferGroupName(value, value) === "Filing / Fitting";
 }
 
 function renderTransferOptions(lot) {
@@ -18922,6 +19350,14 @@ function departmentMetalInHand() {
       });
     }
   });
+  trackedNonGoldStockAllocation().allocations.forEach((allocation) => {
+    addDepartmentWeight(departments, allocation.department, {
+      gross: -Number(allocation.weight || 0),
+      nonGold: -Number(allocation.weight || 0),
+      fineGold: 0,
+      purity: allocation.purity,
+    });
+  });
   addMeltingCastingDashboardWeights(departments);
   addXrfDashboardWeights(departments);
   return Object.fromEntries(Object.entries(departments).filter(([, totals]) =>
@@ -18992,12 +19428,13 @@ function departmentCurrentLotTotals(lot) {
   const handStone = Math.max(existingHandStone, Number(plannedHandStone || 0));
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
   const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
+  const provisionalNonGold = currentTransferProvisionalNonGold(lot);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
   const metalGross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
   const waxStone = Number(weight3(lotWaxStone + linkedSafe.waxStone));
-  const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold));
+  const nonGold = Number(weight3(includedNonGold + provisionalNonGold + directNonGold + linkedSafe.nonGold));
   const gross = Number(weight3(metalGross + directNonGold + linkedSafe.gross));
-  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold, 0) + linkedSafe.gold));
+  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold - provisionalNonGold, 0) + linkedSafe.gold));
   return { gross, gold, waxStone, handStone, nonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
@@ -19390,6 +19827,7 @@ function dailyTallyStockTargets() {
     [departmentDashboardHeader("Melting / Casting")]: { source: "Melting / Casting", ...(parts.meltingCasting || {}) },
     [departmentDashboardHeader("XRF Pending")]: { source: "XRF Pending", ...(parts.xrf || {}) },
     [departmentDashboardHeader("Direct Non-Gold")]: { source: "Direct Non-Gold", ...(parts.nonGoldDirect || {}) },
+    [departmentDashboardHeader("Bill Non-Gold Adjustment")]: { source: "Bill / Production Non-Gold Adjustment", ...(parts.billNonGoldAdjustment || {}) },
     [departmentDashboardHeader("Office Item Stock")]: {
       source: "Office Stock",
       grossWeight: officeStockWeight(),
@@ -24402,6 +24840,52 @@ function billItemNonGoldBreakup(item = {}, order = {}) {
   };
 }
 
+function billAccessoryNonGoldBreakdown(item = {}) {
+  return normalizeNonGoldBreakdown({
+    stone: billNumber(item.stoneWeight ?? item.stWeight),
+    "black-beads": billNumber(item.blackBeadsWeight ?? item.bbWeight),
+    moti: billNumber(item.motiWeight ?? item.mmWeight),
+    spring: billNumber(item.springWeight),
+    other: billNumber(item.otherNonGoldWeight ?? item.otherWeight),
+  });
+}
+
+function buildBillNonGoldStockAdjustment(items = [], existingBill = {}, billNo = "", billDate = "") {
+  const completedItems = items.filter((item) => !isDiscardedItem(item) && Number(item.finalGw || 0) > 0);
+  if (!completedItems.length) {
+    return {
+      posted: false,
+      postedAt: existingBill.nonGoldStockAdjustment?.postedAt || "",
+      updatedAt: new Date().toISOString(),
+      billNo: billNo || existingBill.billNo || "",
+      billDate: billDate || existingBill.billDate || today(),
+      lines: [],
+      total: 0,
+    };
+  }
+  const groups = new Map();
+  completedItems.forEach((item) => {
+    const purity = karatLogicPurity(item.purity || "18K");
+    const key = karatPurityKey(purity) || transferPurityLabel(purity);
+    const current = groups.get(key) || { purity: transferPurityLabel(purity), breakdown: {}, weight: 0, pcs: 0 };
+    const breakdown = billAccessoryNonGoldBreakdown(item);
+    current.breakdown = addNonGoldBreakdowns(current.breakdown, breakdown);
+    current.weight = Number(weight3(current.weight + nonGoldBreakdownTotal(breakdown)));
+    current.pcs += 1;
+    groups.set(key, current);
+  });
+  const lines = [...groups.values()].filter((line) => line.weight > 0);
+  return {
+    posted: true,
+    postedAt: existingBill.nonGoldStockAdjustment?.postedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    billNo: billNo || existingBill.billNo || "",
+    billDate: billDate || existingBill.billDate || today(),
+    lines,
+    total: Number(weight3(lines.reduce((total, line) => total + line.weight, 0))),
+  };
+}
+
 function billNonGoldSummaryText(item = {}, order = {}) {
   const nonGold = billItemNonGoldBreakup(item, order);
   return [
@@ -24433,6 +24917,7 @@ function billTotals(items = []) {
     stoneWeight: total.stoneWeight + billNumber(item.stoneWeight || item.stWeight),
     springWeight: total.springWeight + billNumber(item.springWeight),
     otherNonGoldWeight: total.otherNonGoldWeight + billNumber(item.otherNonGoldWeight || item.otherWeight),
+    stockNonGoldAdjustment: total.stockNonGoldAdjustment + nonGoldBreakdownTotal(billAccessoryNonGoldBreakdown(item)),
     reducedWeight: total.reducedWeight + billNumber(item.reducedWeight),
     netWeight: total.netWeight + billNumber(item.netWeight),
   }), {
@@ -24443,6 +24928,7 @@ function billTotals(items = []) {
     stoneWeight: 0,
     springWeight: 0,
     otherNonGoldWeight: 0,
+    stockNonGoldAdjustment: 0,
     reducedWeight: 0,
     netWeight: 0,
   });
@@ -24461,6 +24947,7 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card"><span>Spring Wt (g)</span><strong>${gram(total.springWeight)}</strong></div>
     <div class="bill-total-card"><span>Other Wt (g)</span><strong>${gram(total.otherNonGoldWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>
+    <div class="bill-total-card"><span>Karat-Wise Stock NG Adj. (g)</span><strong>${gram(total.stockNonGoldAdjustment)}</strong></div>
     <div class="bill-total-card highlight"><span>Net Wt (g)</span><strong>${gram(total.netWeight)}</strong></div>
   `;
 }
@@ -25562,6 +26049,7 @@ function renderFactorySummary() {
     factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
     factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
+    factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), "Karat-wise non-gold consumed from department stock"),
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Ledger: bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
@@ -27405,7 +27893,7 @@ function openLotHistoryByNumber(lotNumber) {
 }
 
 function transferReducedWeight(transfer) {
-  return Number(transfer.reducedWeight ?? (Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0)));
+  return Number(transfer.reducedWeight ?? (Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0) + Number(transfer.provisionalNonGoldWeight || 0)));
 }
 
 function transferFineGold(transfer, lot = null) {
@@ -27673,23 +28161,32 @@ function renderHistoryTableRow(transfer, step, lotId) {
 
 function transferTitle(transfers) {
   return transfers
-    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
+    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, non-gold in GW ${gram(transfer.provisionalNonGoldWeight || 0)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
     .join("\n");
 }
 
-function updateTransferBalance() {
+function updateTransferBalance(autoNonGold = true) {
   const form = document.getElementById("transfer-form");
   const issued = Number(form.transferWeight.value || 0);
   const grossReceived = Number(form.grossReceivedWeight.value || 0);
   const waxStone = Number(form.waxStoneWeight.value || 0);
   const handStone = Number(form.stoneWeight.value || 0);
   const lot = findById("lots", form.lotId.value);
-  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value), 0);
-  const reducedWeight = waxStone + handStone;
+  const previousProvisionalNonGold = transferProvisionalNonGoldBefore(lot, form.transferId.value);
+  if (autoNonGold && form.provisionalNonGoldWeight) {
+    const fittingAddition = isFittingNonGoldTransferSource(form.fromDepartment.value)
+      ? Math.max(grossReceived - issued, 0)
+      : 0;
+    form.provisionalNonGoldWeight.value = weight3(previousProvisionalNonGold + fittingAddition);
+  }
+  const provisionalNonGold = Number(form.provisionalNonGoldWeight?.value || 0);
+  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value) - previousProvisionalNonGold, 0);
+  const reducedWeight = waxStone + handStone + provisionalNonGold;
   const netReceived = Math.max(grossReceived - reducedWeight, 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(netReceived);
   form.departmentBalance.value = weight3(issuedNet - netReceived);
+  renderTransferNonGoldPoolStatus(lot, provisionalNonGold);
 }
 
 function applyProductionStoneWeightToTransfer() {
@@ -27706,6 +28203,7 @@ function applyProductionStoneWeightToTransfer() {
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
+  form.provisionalNonGoldWeight.value = weight3(transferProvisionalNonGoldBefore(lot, form.transferId.value));
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   const handStoneSource = plannedHandStoneWeightForLot(lot) > 0 ? "job card" : "manual setting entry";
   const settingStoneNote = isSettingFromDepartment
