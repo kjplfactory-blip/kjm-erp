@@ -5947,6 +5947,7 @@ body.measuring-transfer-bag .global-print-area {
   min-height: 148.5mm;
   break-inside: avoid;
   page-break-inside: avoid;
+  overflow: hidden;
 }
 
 .print-card-head {
@@ -6089,6 +6090,7 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-section {
   display: block;
   min-height: 0;
+  overflow: hidden;
 }
 
 .print-stone-details {
@@ -6174,6 +6176,97 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-stone-details .manual-stone-row td {
   height: 3.5mm;
+}
+
+.print-job-item.stone-density-compact,
+.print-job-item.stone-density-dense,
+.print-job-item.stone-density-ultra {
+  gap: 3px;
+  padding: 4px;
+}
+
+.print-job-item.stone-density-compact .print-design-image {
+  height: 35mm;
+  max-height: 35mm;
+}
+
+.print-job-item.stone-density-dense .print-design-image {
+  height: 31mm;
+  max-height: 31mm;
+}
+
+.print-job-item.stone-density-ultra .print-design-image {
+  height: 27mm;
+  max-height: 27mm;
+}
+
+.print-stone-details.stone-density-compact,
+.print-stone-details.stone-density-dense,
+.print-stone-details.stone-density-ultra {
+  padding: 2px;
+  line-height: 1.04;
+}
+
+.print-stone-details.stone-density-compact table,
+.print-stone-details.stone-density-dense table,
+.print-stone-details.stone-density-ultra table {
+  margin-top: 1px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.print-stone-details.stone-density-compact th,
+.print-stone-details.stone-density-compact td {
+  padding: 0.8px;
+}
+
+.print-stone-details.stone-density-compact th {
+  font-size: 6px;
+}
+
+.print-stone-details.stone-density-compact td {
+  font-size: 6.7px;
+}
+
+.print-stone-details.stone-density-dense th,
+.print-stone-details.stone-density-dense td {
+  padding: 0.55px;
+}
+
+.print-stone-details.stone-density-dense b {
+  font-size: 6.6px;
+}
+
+.print-stone-details.stone-density-dense th {
+  font-size: 5.5px;
+}
+
+.print-stone-details.stone-density-dense td {
+  font-size: 6px;
+}
+
+.print-stone-details.stone-density-ultra th,
+.print-stone-details.stone-density-ultra td {
+  padding: 0.3px 0.45px;
+  line-height: 1;
+}
+
+.print-stone-details.stone-density-ultra b {
+  font-size: 6px;
+}
+
+.print-stone-details.stone-density-ultra th {
+  font-size: 5px;
+}
+
+.print-stone-details.stone-density-ultra td {
+  font-size: 5.4px;
+}
+
+.print-stone-details.stone-density-compact .manual-stone-row td,
+.print-stone-details.stone-density-dense .manual-stone-row td,
+.print-stone-details.stone-density-ultra .manual-stone-row td {
+  height: 2.3mm;
 }
 
 .print-barcode .barcode {

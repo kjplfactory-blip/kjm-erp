@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v465";
+const APP_VERSION = "v466";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -14438,13 +14438,14 @@ function setBagGroupKey(order = {}, family = "") {
   return [
     family,
     order.jobNumber || "",
-    order.customerId || order.customer || "",
     bagDesignFamilyKey(order, family),
-    order.color || "",
-    order.purity || "",
-    order.orderDate || "",
-    order.dueDate || "",
+    bagPieceOccurrenceKey(order),
   ].map((value) => String(value || "").trim().toUpperCase()).join("|");
+}
+
+function bagPieceOccurrenceKey(order = {}) {
+  const pieceIndex = Math.max(1, Math.trunc(Number(order.pieceIndex) || 1));
+  return `PIECE-${pieceIndex}`;
 }
 
 function printBagItemKeyForOrder(order = {}) {
@@ -14508,6 +14509,7 @@ function printJobItemHtml(job, entry) {
   const bagItems = entry.items || [entry.item].filter(Boolean);
   const order = combinedBagPrintItem(bagItems);
   const { design, imageData } = entry;
+  const stoneDensity = printStoneDensityForOrders(bagItems);
   const designName = order.designNumber || (design ? designText(design) : "") || "-";
   const jobNumber = job.jobNumber || job.productionNo || job.number;
   const customerName = order.customer || job.customer || "";
@@ -14517,7 +14519,7 @@ function printJobItemHtml(job, entry) {
     ? order.barcodeValues
     : [{ label: "", value: order.barcode || order.productionNo || order.number }];
   return `
-    <article class="print-job-item ${isCustomerOrder ? "customer-order-print" : ""}">
+    <article class="print-job-item ${stoneDensity} ${isCustomerOrder ? "customer-order-print" : ""}">
       <div class="print-card-head">
         <div>
           <strong>KHUSHALI JEWELLS</strong>
@@ -14580,6 +14582,15 @@ function printStoneRowsForOrder(design, order = {}) {
   }));
 }
 
+function printStoneDensityForOrders(orders = []) {
+  const rowCount = (orders || []).reduce((total, itemOrder) =>
+    total + Math.max(1, productionStoneItemsForOrder(itemOrder).length), 0);
+  if (rowCount >= 22) return "stone-density-ultra";
+  if (rowCount >= 15) return "stone-density-dense";
+  if (rowCount >= 9) return "stone-density-compact";
+  return "stone-density-normal";
+}
+
 function printStoneDetailsHtml(design, order = {}, bagItems = null) {
   const sourceOrders = Array.isArray(bagItems) && bagItems.length ? bagItems : [order];
   const itemGroups = sourceOrders.map((itemOrder) => {
@@ -14615,6 +14626,7 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
   }).join("");
   const allItems = sourceOrders.flatMap((itemOrder) => printStoneRowsForOrder(design, itemOrder));
   const totals = designStoneTotals(allItems);
+  const stoneDensity = printStoneDensityForOrders(sourceOrders);
   const grandTotalRow = sourceOrders.length > 1 ? `
     <tr class="stone-total-row stone-grand-total-row">
       <td colspan="3">Bag Total</td>
@@ -14623,12 +14635,17 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
       <td>${escapeHtml(totals.weight ? weight3(totals.weight) : "")}</td>
     </tr>
   ` : "";
-  const blankRows = Array.from({ length: Math.max(2, sourceOrders.length > 1 ? 2 : 4) }, () => `
+  const stoneRowCount = sourceOrders.reduce((total, itemOrder) =>
+    total + Math.max(1, printStoneRowsForOrder(design, itemOrder).length), 0);
+  const blankRowCount = stoneRowCount >= 20 ? 0
+    : stoneRowCount >= 12 ? 1
+      : sourceOrders.length > 1 ? 2 : 4;
+  const blankRows = Array.from({ length: blankRowCount }, () => `
     <tr class="manual-stone-row"><td></td><td></td><td></td><td></td><td></td><td></td></tr>
   `).join("");
   const itemLabels = [...new Set(sourceOrders.flatMap((itemOrder) => orderStoneItemKeys(itemOrder)).map(stoneItemInputValue))];
   return `
-    <div class="print-stone-details ${sourceOrders.length > 1 ? "multi-item" : ""}">
+    <div class="print-stone-details ${sourceOrders.length > 1 ? "multi-item" : ""} ${stoneDensity}">
       <b>Stone Details - ${escapeHtml(itemLabels.join(" + ") || "-")}</b>
       <table>
         <thead><tr><th>Item</th><th>Type</th><th>Shape</th><th>No of Pcs</th><th>Wt/Pc</th><th>Total Weight</th></tr></thead>
