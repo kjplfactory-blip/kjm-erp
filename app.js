@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v460";
+const APP_VERSION = "v465";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -784,6 +784,15 @@ document.getElementById("push-live-data")?.addEventListener("click", pushLocalDa
 
 document.getElementById("reset-demo").addEventListener("click", resetFactoryInventoryToZeroFromUi);
 document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", resetFactoryInventoryToZeroFromUi);
+
+document.getElementById("create-fitting-accessories-job")?.addEventListener("click", openFittingAccessoriesJobDialog);
+document.getElementById("close-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
+document.getElementById("cancel-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
+document.getElementById("fitting-accessories-job-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "departmentId") renderFittingAccessoriesProcessOptions();
+});
+document.getElementById("fitting-accessories-job-form")?.addEventListener("submit", createFittingAccessoriesJobCard);
+document.getElementById("fitting-accessories-narration-form")?.addEventListener("submit", updateFittingAccessoriesNarration);
 
 document.getElementById("order-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2714,6 +2723,42 @@ document.getElementById("edit-order-details").addEventListener("click", () => {
   document.getElementById("update-order-form").classList.toggle("hidden");
 });
 
+function updateFittingAccessoriesNarration(event) {
+  event.preventDefault();
+  if (!requireFittingAccessoriesManager("change fitting accessories narration")) return;
+  const data = getFormData(event.currentTarget);
+  const order = findById("orders", data.orderId);
+  if (!order || !isFittingAccessoriesOrder(order)) {
+    alert("Open a Fitting Accessories job card first.");
+    return;
+  }
+  const jobCardNarration = String(data.jobCardNarration || "").trim();
+  const itemNarration = String(data.itemNarration || "").trim();
+  if (!jobCardNarration || !itemNarration) {
+    alert("Enter both Job Card Narration and Item Narration.");
+    return;
+  }
+  const jobItems = getJobOrders(order);
+  jobItems.forEach((jobItem) => {
+    jobItem.jobCardNarration = jobCardNarration;
+    jobItem.fittingAccessoriesNarration = jobCardNarration;
+    jobItem.itemNarration = itemNarration;
+    jobItem.item = itemNarration;
+    jobItem.remarks = jobCardNarration;
+  });
+  const orderIds = new Set(jobItems.map((jobItem) => jobItem.id));
+  state.lots.filter((lot) => getLotOrderIds(lot).some((id) => orderIds.has(id))).forEach((lot) => {
+    lot.jobCardNarration = jobCardNarration;
+    lot.itemNarration = itemNarration;
+    lot.issueSourceDetail = jobCardNarration;
+  });
+  backupRecentJobOrders(jobItems);
+  saveState();
+  render();
+  openOrderDetail(order.id, false, document.getElementById("order-dialog")?.dataset.bucket || "all");
+  alert("Fitting Accessories narration updated.");
+}
+
 document.getElementById("update-order-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (!validateOrderDueDate(event.target)) return;
@@ -3157,6 +3202,16 @@ function isManagerUser() {
   return currentUserConfig()?.role === "manager";
 }
 
+function canManageFittingAccessoriesJobCards() {
+  return isOwner() || isManagerUser();
+}
+
+function requireFittingAccessoriesManager(action = "manage fitting accessories job cards") {
+  if (canManageFittingAccessoriesJobCards()) return true;
+  alert(`Only Owner or Manager can ${action}.`);
+  return false;
+}
+
 function isBillDeptUser() {
   return currentUserConfig()?.role === "bill";
 }
@@ -3290,6 +3345,7 @@ function applyAccessControl() {
   document.querySelectorAll(".setting-setter-master-only").forEach((element) => {
     element.classList.toggle("hidden", currentUser && !canManageSettingSetters());
   });
+  document.getElementById("create-fitting-accessories-job")?.classList.toggle("hidden", !canManageFittingAccessoriesJobCards());
   document.body.classList.toggle("office-readonly", currentUserConfig()?.role === "office-ops" || isSalesUser());
   document.body.classList.toggle("read-only-user", isReadOnlyUser());
   document.body.classList.toggle("qc-only-user", isBillQcOnlyMode());
@@ -4371,6 +4427,163 @@ function switchOrderPage(page) {
   document.querySelectorAll(".order-page").forEach((section) => {
     section.classList.toggle("active-order-page", section.id === `order-page-${page}`);
   });
+}
+
+function renderFittingAccessoriesDepartmentOptions(selectedId = "") {
+  const form = document.getElementById("fitting-accessories-job-form");
+  if (!form?.departmentId) return;
+  const departments = state.karigars || [];
+  form.departmentId.innerHTML = departments.length
+    ? `<option value="">Select starting department</option>${departments.map((department) => `<option value="${escapeHtml(department.id)}">${escapeHtml(department.name)} - ${escapeHtml(departmentProcessText(department))}</option>`).join("")}`
+    : '<option value="">No department available</option>';
+  if (selectedId && departments.some((department) => department.id === selectedId)) form.departmentId.value = selectedId;
+}
+
+function renderFittingAccessoriesProcessOptions(selectedProcess = "") {
+  const form = document.getElementById("fitting-accessories-job-form");
+  if (!form?.process) return;
+  const department = findById("karigars", form.departmentId.value);
+  const processes = department ? departmentProcesses(department) : [];
+  form.process.innerHTML = processes.length
+    ? `<option value="">Select starting process</option>${processes.map((process) => `<option value="${escapeHtml(process)}">${escapeHtml(process)}</option>`).join("")}`
+    : '<option value="">Select department first</option>';
+  form.process.value = selectedProcess && processes.includes(selectedProcess)
+    ? selectedProcess
+    : (processes.length === 1 ? processes[0] : "");
+}
+
+function openFittingAccessoriesJobDialog() {
+  if (!requireFittingAccessoriesManager("create fitting accessories job cards")) return;
+  const form = document.getElementById("fitting-accessories-job-form");
+  form.reset();
+  form.orderDate.value = isoToday();
+  form.purity.value = "18K";
+  form.color.value = "Pink";
+  renderFittingAccessoriesDepartmentOptions();
+  renderFittingAccessoriesProcessOptions();
+  document.getElementById("fitting-accessories-job-dialog").showModal();
+  form.jobCardNarration.focus();
+}
+
+function closeFittingAccessoriesJobDialog() {
+  document.getElementById("fitting-accessories-job-dialog")?.close();
+}
+
+function createFittingAccessoriesJobCard(event) {
+  event.preventDefault();
+  if (!requireFittingAccessoriesManager("create fitting accessories job cards")) return;
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const department = findById("karigars", data.departmentId);
+  const grossWeight = Number(weight3(data.grossWeight || 0));
+  const jobCardNarration = String(data.jobCardNarration || "").trim();
+  const itemNarration = String(data.itemNarration || "").trim();
+  if (!department) {
+    alert("Select the starting department.");
+    return;
+  }
+  if (!data.process || !departmentProcesses(department).includes(data.process)) {
+    alert("Select a process registered under the starting department.");
+    return;
+  }
+  if (grossWeight <= 0) {
+    alert("Enter a gross weight greater than zero.");
+    form.grossWeight.focus();
+    return;
+  }
+  if (!jobCardNarration || !itemNarration) {
+    alert("Enter both Job Card Narration and Item Narration.");
+    return;
+  }
+  const sequence = state.nextOrder;
+  const jobNumber = `JOB-${sequence}`;
+  const productionNo = `PR-${state.nextOrder++}`;
+  const lotNumber = `LOT-${state.nextLot++}`;
+  const stockCustomer = (state.customers || []).find((customer) => String(customer.name || "").trim().toUpperCase() === "KJPL-STOCK");
+  const orderDate = data.orderDate || isoToday();
+  const createdAt = new Date().toISOString();
+  const order = {
+    id: crypto.randomUUID(),
+    number: productionNo,
+    jobNumber,
+    productionNo,
+    barcode: productionNo,
+    customerId: stockCustomer?.id || "",
+    customer: stockCustomer?.name || "KJPL-STOCK",
+    designId: "",
+    designNumber: "FITTING ACCESSORIES",
+    category: "FITTING ACCESSORIES",
+    item: itemNarration,
+    size: "",
+    color: data.color || "Pink",
+    purity: data.purity || "18K",
+    itemPcs: 1,
+    orderedPcs: 1,
+    pieceIndex: 1,
+    targetWeight: 0,
+    remarks: jobCardNarration,
+    jobCardNarration,
+    itemNarration,
+    orderDate,
+    productionDays: MIN_PRODUCTION_DAYS,
+    dueDate: calculateDueDate(orderDate, MIN_PRODUCTION_DAYS),
+    urgent: false,
+    status: "In Production",
+    productionStoneItems: [],
+    specialJobType: "fitting-accessories",
+    fittingAccessoriesJobCard: true,
+    fittingAccessoriesNarration: jobCardNarration,
+    createdAt,
+    createdBy: currentUser?.name || currentUser?.id || "Manager",
+  };
+  const lot = {
+    id: crypto.randomUUID(),
+    number: lotNumber,
+    issueDate: today(),
+    createdAt,
+    orderId: order.id,
+    orderIds: [order.id],
+    orderNumber: jobNumber,
+    karigarId: department.id,
+    karigarName: department.name,
+    issueKarigarId: department.id,
+    issueKarigarName: department.name,
+    issueDepartment: data.process,
+    currentDepartment: data.process,
+    metalPurity: karatLogicPurity(data.purity || "18K"),
+    grossIssuedWeight: grossWeight,
+    waxStoneWeight: 0,
+    issuedWeight: grossWeight,
+    issueSourceName: "Fitting Accessories Job Card",
+    issueSourceDetail: jobCardNarration,
+    issueSourceLocker: "",
+    expectedWastage: 0,
+    finishedWeight: 0,
+    actualWastage: 0,
+    status: "Issued",
+    transfers: [],
+    fittingAccessoriesJobCard: true,
+    jobCardNarration,
+    itemNarration,
+  };
+  state.orders.push(order);
+  state.lots.unshift(lot);
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    type: "Fitting Accessories Card",
+    purity: lot.metalPurity,
+    weight: 0,
+    reference: `${jobNumber} / ${productionNo} / ${lotNumber} created in ${department.name} / ${data.process}; GW ${gram(grossWeight)}; ${jobCardNarration}. No Safe Locker stock movement booked.`,
+  });
+  backupRecentJobOrders([order]);
+  form.reset();
+  closeFittingAccessoriesJobDialog();
+  saveState();
+  render();
+  switchOrderPage("active");
+  openOrderDetail(order.id, false, "active");
+  alert(`Fitting Accessories Job Card created.\n${jobNumber} / ${productionNo} / ${lotNumber}\nGW ${gram(grossWeight)} in ${department.name} / ${data.process}.`);
 }
 
 function switchDesignPage(page) {
@@ -10462,16 +10675,40 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
     order.jobNumber || order.number,
     `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
     `${order.color || "Pink"} Colour`,
+    isFittingAccessoriesOrder(order) ? order.jobCardNarration || order.fittingAccessoriesNarration || "Fitting Accessories" : "",
     jobCurrentStage(jobOrders),
     jobOrderDeliverySummary(jobOrders),
   ].filter(Boolean).join(" / ");
   renderJobItemsDetail(jobOrders);
+  renderFittingAccessoriesNarrationForm(order);
   closeJobItemDetail();
   renderOrderLots(order);
   updateFittingItemsJobToolbar(order);
   document.getElementById("order-production-panel")?.classList.remove("hidden");
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
   if (!dialog.open) dialog.showModal();
+}
+
+function isFittingAccessoriesOrder(order = {}) {
+  return order.specialJobType === "fitting-accessories"
+    || Boolean(order.fittingAccessoriesJobCard)
+    || lotsForOrder(order).some((lot) => lot.fittingAccessoriesJobCard);
+}
+
+function renderFittingAccessoriesNarrationForm(order = {}) {
+  const form = document.getElementById("fitting-accessories-narration-form");
+  if (!form) return;
+  const isAccessoryCard = isFittingAccessoriesOrder(order);
+  form.classList.toggle("hidden", !isAccessoryCard);
+  if (!isAccessoryCard) return;
+  form.orderId.value = order.id || "";
+  form.jobCardNarration.value = order.jobCardNarration || order.fittingAccessoriesNarration || order.remarks || "";
+  form.itemNarration.value = order.itemNarration || order.item || "";
+  const canEdit = canManageFittingAccessoriesJobCards() && !isReadOnlyUser();
+  [...form.elements].forEach((control) => {
+    if (control.name === "orderId") return;
+    control.disabled = !canEdit;
+  });
 }
 
 function getJobOrders(order) {
@@ -10493,7 +10730,7 @@ function renderJobItemsDetail(orders) {
         const deliveryText = orderDeliveryText(order);
         return `
           <article class="job-item-select-card">
-            <label class="job-split-select">
+            <label class="job-split-select ${isFittingAccessoriesOrder(order) ? "hidden" : ""}">
               <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
               <span>Split</span>
             </label>
@@ -10679,10 +10916,12 @@ function fittingItemsLotForOrder(order = {}) {
 function updateFittingItemsJobToolbar(order = {}) {
   const lot = fittingItemsLotForOrder(order);
   const isFittingItemsCard = Boolean(lot);
+  const isFittingAccessoriesCard = isFittingAccessoriesOrder(order);
+  const isSpecialCard = isFittingItemsCard || isFittingAccessoriesCard;
   const canSplit = Boolean(lot && lot.status !== "Completed" && (lot.transfers || []).every((transfer) => transfer.splitAdjustment));
-  document.getElementById("add-job-card-item")?.classList.toggle("hidden", isFittingItemsCard);
-  document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isFittingItemsCard);
-  document.getElementById("split-job-items")?.classList.toggle("hidden", isFittingItemsCard);
+  document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard);
+  document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard);
+  document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard);
   document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit);
 }
 
@@ -10972,6 +11211,8 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Due Date", order.dueDate || "-")}
         ${jobItemDetailCell("Category", order.category || "-")}
         ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+        ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Job Card Narration", order.jobCardNarration || order.fittingAccessoriesNarration || order.remarks || "-") : ""}
+        ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Item Narration", order.itemNarration || order.item || "-") : ""}
         ${isSetItemCategory(order.category) ? jobItemDetailCell(setItemFieldLabel(order.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category)) : ""}
         ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
         ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
@@ -11716,12 +11957,12 @@ function jobItemTransferHistoryHtml(lots = []) {
   const rows = lots.flatMap((lot) => [
     {
       date: lot.issueDate || "-",
-      from: "Gold Issue",
-      to: lot.currentDepartment || lot.karigarName || "-",
+      from: lot.issueSourceName || "Gold Issue",
+      to: lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-",
       issue: lot.grossIssuedWeight || lot.issuedWeight || 0,
       receive: lot.grossIssuedWeight || lot.issuedWeight || 0,
       difference: 0,
-      note: lot.qcReturn ? "Repair production lot" : "First issue",
+      note: lot.qcReturn ? "Repair production lot" : (lot.issueSourceDetail || "First issue"),
     },
     ...(lot.transfers || []).map((transfer) => ({
       date: transfer.date || "-",
@@ -12285,6 +12526,14 @@ function manufacturingStageOptions(selected = "") {
 function openItemEdit(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
+  if (isFittingAccessoriesOrder(order)) {
+    if (canManageFittingAccessoriesJobCards()) {
+      alert("Use the Fitting Accessories Narration panel in this job card to change its job-card or item narration.");
+    } else {
+      alert("Only Owner or Manager can change a Fitting Accessories job card.");
+    }
+    return;
+  }
   const form = document.getElementById("item-edit-form");
   form.dataset.mode = "edit";
   form.orderId.value = order.id;
@@ -12601,7 +12850,8 @@ async function printOpenJobTransferBag() {
 async function printSingleJobItem(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
-  startJobPrint(await jobOrderPrintHtml(order, [order], { itemsPerPage: 1 }), "single");
+  const jobOrders = getJobOrders(order);
+  startJobPrint(await jobOrderPrintHtml(order, jobOrders, { itemsPerPage: 1, onlyOrderId: order.id }), "single");
 }
 
 function startJobPrint(html, mode = "job") {
@@ -12656,6 +12906,7 @@ function startJobPrint(html, mode = "job") {
       document.addEventListener("visibilitychange", handleMobilePrintVisibility);
     }
     printArea.getBoundingClientRect();
+    if (mode === "transfer-bag") prepareTransferBagItemPages(document);
     try {
       window.print();
     } catch (error) {
@@ -12677,7 +12928,10 @@ function startJobPrint(html, mode = "job") {
   document.body.classList.toggle("printing-single-item", mode === "single");
   document.body.classList.toggle("printing-transfer-bag", mode === "transfer-bag");
   setTimeout(() => {
-    if (!cleaned) window.print();
+    if (!cleaned) {
+      if (mode === "transfer-bag") prepareTransferBagItemPages(document);
+      window.print();
+    }
   }, 100);
 }
 
@@ -12762,6 +13016,7 @@ function openMobileJobPrintWindow(html, mode = "job") {
     const closeButton = printWindow.document.getElementById("mobile-print-page-close");
     printButton?.addEventListener("click", handlePrint);
     closeButton?.addEventListener("click", () => printWindow.close());
+    if (mode === "transfer-bag") prepareTransferBagItemPages(printWindow.document);
     const images = Array.from(printWindow.document.images || []);
     const imageReady = images.map((image) => image.complete
       ? Promise.resolve()
@@ -12819,7 +13074,7 @@ function requiresDirectTapForPrint() {
 
 function jobPrintModeLabel(mode = "job") {
   if (mode === "single") return "A6 / 1 Job Bag Per Page";
-  if (mode === "transfer-bag") return "A6 / 2 Transfer Bag Pages Per Job Card";
+  if (mode === "transfer-bag") return "A6 / Complete Item List + Transfer History";
   return "A4 / 4 Job Bags Per Page";
 }
 
@@ -13629,6 +13884,109 @@ function billPrintItemTableHtml(items = []) {
   `;
 }
 
+function prepareTransferBagItemPages(rootDocument = document) {
+  const body = rootDocument.body;
+  const printArea = rootDocument.querySelector(".global-print-area");
+  if (!body || !printArea) return false;
+  const wasMeasuring = body.classList.contains("measuring-transfer-bag");
+  if (!wasMeasuring) body.classList.add("measuring-transfer-bag");
+  printArea.getBoundingClientRect();
+  const fitted = fitTransferBagItemPages(rootDocument);
+  if (!wasMeasuring) body.classList.remove("measuring-transfer-bag");
+  return fitted;
+}
+
+function fitTransferBagItemPages(rootDocument = document) {
+  const printRoot = rootDocument.querySelector(".transfer-bag-print");
+  const firstPage = printRoot?.querySelector(".transfer-bag-detail-page:not(.transfer-bag-item-continuation-page)");
+  const historyPage = printRoot?.querySelector(".transfer-bag-history-page");
+  const pageTemplate = printRoot?.querySelector(".transfer-bag-continuation-template");
+  const firstSection = firstPage?.querySelector(".transfer-bag-items-section");
+  if (!printRoot || !firstPage || !historyPage || !pageTemplate || !firstSection?.clientHeight) return false;
+
+  const itemRows = Array.from(printRoot.querySelectorAll(".transfer-bag-item-table tbody tr"))
+    .filter((row) => !row.querySelector("td[colspan]"));
+  if (!itemRows.length) return false;
+
+  printRoot.querySelectorAll(".transfer-bag-item-continuation-page").forEach((page) => page.remove());
+  const firstBody = firstPage.querySelector(".transfer-bag-item-table tbody");
+  firstBody.innerHTML = "";
+
+  const itemPages = [firstPage];
+  let rowIndex = 0;
+  while (rowIndex < itemRows.length) {
+    let page = itemPages[itemPages.length - 1];
+    let body = page.querySelector(".transfer-bag-item-table tbody");
+    let addedToPage = 0;
+
+    while (rowIndex < itemRows.length) {
+      const row = itemRows[rowIndex];
+      body.appendChild(row);
+      const section = page.querySelector(".transfer-bag-items-section");
+      const overflowed = section.scrollHeight > section.clientHeight + 1;
+      if (overflowed && addedToPage > 0) {
+        row.remove();
+        break;
+      }
+      rowIndex += 1;
+      addedToPage += 1;
+      if (overflowed) break;
+    }
+
+    if (rowIndex < itemRows.length) {
+      const fragment = pageTemplate.content.cloneNode(true);
+      const continuationPage = fragment.querySelector(".transfer-bag-item-continuation-page");
+      continuationPage.querySelector(".transfer-bag-item-table tbody").innerHTML = "";
+      printRoot.insertBefore(fragment, historyPage);
+      itemPages.push(continuationPage);
+    }
+  }
+
+  const totalPages = itemPages.length + 1;
+  itemPages.forEach((page, pageIndex) => {
+    const rows = Array.from(page.querySelectorAll(".transfer-bag-item-table tbody tr"));
+    const firstItem = rows[0]?.cells?.[0]?.textContent?.trim() || "-";
+    const lastItem = rows[rows.length - 1]?.cells?.[0]?.textContent?.trim() || "-";
+    const pageNumber = pageIndex + 1;
+    const pageLabel = page.querySelector("[data-transfer-page-label]");
+    const rangeLabel = page.querySelector("[data-transfer-item-range]");
+    if (pageLabel) {
+      const suffix = pageIndex === 0
+        ? pageLabel.dataset.pageSuffix || ""
+        : `Items ${firstItem}-${lastItem}`;
+      pageLabel.textContent = `Page ${pageNumber} / ${totalPages}${suffix ? ` - ${suffix}` : ""}`;
+    }
+    if (rangeLabel) rangeLabel.textContent = `Item Details - ${firstItem} To ${lastItem} Of ${itemRows.length}`;
+  });
+
+  const historyLabel = historyPage.querySelector("[data-transfer-page-label]");
+  if (historyLabel) {
+    const suffix = historyLabel.dataset.pageSuffix || "";
+    historyLabel.textContent = `Page ${totalPages} / ${totalPages}${suffix ? ` - ${suffix}` : ""}`;
+  }
+  return true;
+}
+
+function paginateTransferBagItems(items = [], lots = []) {
+  const firstPageLimit = Math.max(4, 9 - Math.min(Math.max(lots.length, 1), 5));
+  const continuationPageLimit = 14;
+  const pages = [items.slice(0, firstPageLimit)];
+  for (let index = firstPageLimit; index < items.length; index += continuationPageLimit) {
+    pages.push(items.slice(index, index + continuationPageLimit));
+  }
+  return pages;
+}
+
+function transferBagItemTableHtml(items = [], startIndex = 0) {
+  const rows = items.map((item, index) => transferBagItemRow(item, startIndex + index)).join("");
+  return `
+    <table class="transfer-bag-table transfer-bag-item-table">
+      <thead><tr><th>#</th><th>PR No</th><th>Design</th><th>Item</th><th>Size</th><th>Color</th><th>Purity</th><th>Remark</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8">No item details</td></tr>`}</tbody>
+    </table>
+  `;
+}
+
 function jobCardTransferBagPrintHtml(job, jobOrders = []) {
   const items = jobOrders.length ? jobOrders : [job].filter(Boolean);
   const lots = lotsForJobOrders(items);
@@ -13642,7 +14000,7 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
     "transfer-bag-page",
     "transfer-bag-detail-page",
     isCustomerOrder ? "customer-order-print" : "stock-order-print",
-    items.length > 14 ? "many-items" : "",
+    lots.length > 3 ? "many-items" : "",
   ].filter(Boolean).join(" ");
   const historyPageClasses = [
     "transfer-bag-page",
@@ -13656,14 +14014,52 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
   const waxStoneTotals = productionStoneTotalsForOrders(items, "wax");
   const handStoneTotals = productionStoneTotalsForOrders(items, "hand");
   const combinedStoneWeight = Number(weight3(waxStoneTotals.weight + handStoneTotals.weight));
-  const itemRows = items.map((item, index) => transferBagItemRow(item, index)).join("");
+  const itemPages = paginateTransferBagItems(items, lots);
+  const totalPrintPages = itemPages.length + 1;
+  const firstPageItems = itemPages[0] || [];
   const lotRows = lots.length ? lots.map(transferBagLotRow).join("") : `
     <tr><td>-</td><td>Gold Not Issued</td><td>-</td><td>-</td><td>-</td></tr>
   `;
   const historyRows = transferBagHistoryRows(lots, 18).join("");
+  let printedItemCount = firstPageItems.length;
+  const continuationPages = itemPages.slice(1).map((pageItems, continuationIndex) => {
+    const pageNumber = continuationIndex + 2;
+    const firstItemNumber = printedItemCount + 1;
+    const lastItemNumber = printedItemCount + pageItems.length;
+    const itemTable = transferBagItemTableHtml(pageItems, printedItemCount);
+    printedItemCount = lastItemNumber;
+    return `
+      <section class="${detailPageClasses} transfer-bag-item-continuation-page" data-transfer-item-page>
+        <div class="transfer-bag-head">
+          <div>
+            <strong>KHUSHALI JEWELLS</strong>
+            <span>JOB CARD TRANSFER BAG - ITEM LIST CONTINUED</span>
+          </div>
+          <div>
+            <b>${escapeHtml(jobNumber)}</b>
+            <small data-transfer-page-label>Page ${pageNumber} / ${totalPrintPages} - Items ${firstItemNumber}-${lastItemNumber}</small>
+          </div>
+        </div>
+        <div class="transfer-bag-history-meta transfer-bag-continuation-meta">
+          <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
+          <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+          <span><b>Customer</b>${escapeHtml(customerName)}</span>
+          <span><b>Total Items</b>${items.length}</span>
+        </div>
+        <section class="transfer-bag-section transfer-bag-items-section">
+          <h3 data-transfer-item-range>Item Details - ${firstItemNumber} To ${lastItemNumber} Of ${items.length}</h3>
+          ${itemTable}
+        </section>
+        <div class="transfer-bag-footer">
+          <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+          <div class="transfer-bag-barcode">${barcodeSvg(jobNumber)}</div>
+        </div>
+      </section>
+    `;
+  }).join("");
   return `
     <div class="transfer-bag-print">
-      <section class="${detailPageClasses}">
+      <section class="${detailPageClasses}" data-transfer-item-page>
         <div class="transfer-bag-head">
           <div>
             <strong>KHUSHALI JEWELLS</strong>
@@ -13671,7 +14067,7 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
           </div>
           <div>
             <b>${escapeHtml(jobNumber)}</b>
-            <small>Page 1 / 2 - ${escapeHtml(new Date().toLocaleDateString("en-IN"))}</small>
+            <small data-transfer-page-label data-page-suffix="${escapeHtml(new Date().toLocaleDateString("en-IN"))}">Page 1 / ${totalPrintPages} - ${escapeHtml(new Date().toLocaleDateString("en-IN"))}</small>
           </div>
         </div>
         <div class="transfer-bag-summary">
@@ -13693,17 +14089,43 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
           </table>
         </section>
         <section class="transfer-bag-section transfer-bag-items-section">
-          <h3>Item Details</h3>
-          <table class="transfer-bag-table transfer-bag-item-table">
-            <thead><tr><th>#</th><th>PR No</th><th>Design</th><th>Item</th><th>Size</th><th>Color</th><th>Purity</th><th>Remark</th></tr></thead>
-            <tbody>${itemRows}</tbody>
-          </table>
+          <h3 data-transfer-item-range>Item Details - 1 To ${firstPageItems.length} Of ${items.length}</h3>
+          ${transferBagItemTableHtml(firstPageItems, 0)}
         </section>
         <div class="transfer-bag-footer">
           <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
           <div class="transfer-bag-barcode">${barcodeSvg(jobNumber)}</div>
         </div>
       </section>
+      ${continuationPages}
+      <template class="transfer-bag-continuation-template">
+        <section class="${detailPageClasses} transfer-bag-item-continuation-page" data-transfer-item-page>
+          <div class="transfer-bag-head">
+            <div>
+              <strong>KHUSHALI JEWELLS</strong>
+              <span>JOB CARD TRANSFER BAG - ITEM LIST CONTINUED</span>
+            </div>
+            <div>
+              <b>${escapeHtml(jobNumber)}</b>
+              <small data-transfer-page-label></small>
+            </div>
+          </div>
+          <div class="transfer-bag-history-meta transfer-bag-continuation-meta">
+            <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
+            <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+            <span><b>Customer</b>${escapeHtml(customerName)}</span>
+            <span><b>Total Items</b>${items.length}</span>
+          </div>
+          <section class="transfer-bag-section transfer-bag-items-section">
+            <h3 data-transfer-item-range></h3>
+            ${transferBagItemTableHtml([], 0)}
+          </section>
+          <div class="transfer-bag-footer">
+            <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+            <div class="transfer-bag-barcode">${barcodeSvg(jobNumber)}</div>
+          </div>
+        </section>
+      </template>
       <section class="${historyPageClasses}">
         <div class="transfer-bag-head">
           <div>
@@ -13712,7 +14134,7 @@ function jobCardTransferBagPrintHtml(job, jobOrders = []) {
           </div>
           <div>
             <b>${escapeHtml(jobNumber)}</b>
-            <small>Page 2 / 2 - ${escapeHtml(lotNumbers)}</small>
+            <small data-transfer-page-label data-page-suffix="${escapeHtml(lotNumbers)}">Page ${totalPrintPages} / ${totalPrintPages} - ${escapeHtml(lotNumbers)}</small>
           </div>
         </div>
         <div class="transfer-bag-history-meta">
@@ -13824,7 +14246,11 @@ async function jobOrderPrintHtml(order, orders, options = {}) {
     }
     return { item, design, imageData };
   }));
-  const printableGroups = groupBagPrintItems(printableItems);
+  const groupedItems = groupBagPrintItems(printableItems);
+  const selectedGroups = options.onlyOrderId
+    ? groupedItems.filter((entry) => (entry.items || [entry.item]).some((item) => item?.id === options.onlyOrderId))
+    : groupedItems;
+  const printableGroups = selectedGroups.length ? selectedGroups : groupedItems;
   const itemsPerPage = Number(options.itemsPerPage || 4);
   return `
     <div class="print-items">
@@ -13880,8 +14306,9 @@ function groupCbPrintItems(printableItems) {
 function isMatchingCbPrintPair(left, right) {
   if (!left || !right || !isCbCategory(right.category) || right.ringType !== "CG") return false;
   if (right.cbSplitFrom && right.cbSplitFrom === left.id) return true;
-  return ["jobNumber", "customerId", "designId", "category", "color", "purity", "remarks", "orderDate", "dueDate"]
-    .every((field) => String(left[field] || "") === String(right[field] || ""));
+  const leftFamily = categoryCode(left.category) === "CBR" ? "CBR" : "CB";
+  const rightFamily = categoryCode(right.category) === "CBR" ? "CBR" : "CB";
+  return leftFamily === rightFamily && setBagGroupKey(left, leftFamily) === setBagGroupKey(right, rightFamily);
 }
 
 function groupSetBagPrintItems(entries) {
@@ -13950,7 +14377,8 @@ function setBagFamilyForOrder(order = {}) {
   if (keys.some((key) => PS_ITEM_KEYS.includes(key))) return "PS";
   if (keys.some((key) => TM_ITEM_KEYS.includes(key))) return "TM";
   if (keys.some((key) => MM_ITEM_KEYS.includes(key))) return "MM";
-  return "";
+  if (keys.some((key) => ["LR", "GR"].includes(key))) return "LRGR";
+  return designSubItemBagInfo(order)?.family || "";
 }
 
 function setBagItemKeyForOrder(order = {}) {
@@ -13960,7 +14388,50 @@ function setBagItemKeyForOrder(order = {}) {
   if (family === "PS") return keys.find((key) => PS_ITEM_KEYS.includes(key)) || "";
   if (family === "TM") return keys.find((key) => TM_ITEM_KEYS.includes(key)) || "";
   if (family === "MM") return keys.find((key) => MM_ITEM_KEYS.includes(key)) || "";
-  return "";
+  if (family === "LRGR") return keys.find((key) => ["LR", "GR"].includes(key)) || "";
+  return designSubItemBagInfo(order)?.itemKey || "";
+}
+
+function designSubItemBagInfo(order = {}) {
+  const design = order.designId ? findById("designs", order.designId) : null;
+  const designKeys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || order.category)
+    .map(normalizeStoneItemKey)
+    .filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  if (designKeys.length < 2) return null;
+  const candidates = [
+    ...cmItemTypeKeys(order.cmItemType, order.category),
+    ...orderStoneItemKeys(order),
+    order.ringType,
+    order.item,
+    order.category,
+  ].map(normalizeStoneItemKey).filter(Boolean);
+  const itemText = `${order.cmItemType || ""} ${order.ringType || ""} ${order.item || ""} ${order.category || ""}`.toUpperCase();
+  const itemKey = designKeys.find((key) => candidates.includes(key))
+    || designKeys.find((key) => new RegExp(`(^|[^A-Z0-9])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Z0-9]|$)`, "i").test(itemText));
+  if (!itemKey) return null;
+  const familyIdentity = design?.id || normalizedDesignMatchKey(order.designNumber || designText(design) || order.category);
+  return { family: `DESIGN:${familyIdentity || categoryCode(order.category)}`, itemKey };
+}
+
+function bagDesignFamilyKey(order = {}, family = "") {
+  const design = order.designId ? findById("designs", order.designId) : null;
+  let value = String(order.designNumber || design?.number || design?.name || order.designId || order.category || "").trim().toUpperCase();
+  const replacements = {
+    CM: ["CME", "CMB", "CM"],
+    PS: ["PSE", "PS"],
+    TM: ["TME", "TM"],
+    MM: ["MM", "ME", "MB", "M"],
+    CB: ["CL", "CG", "CB"],
+    CBR: ["CLR", "CGR", "CBR"],
+    LRGR: ["LR", "GR"],
+  };
+  const root = family === "LRGR" ? "RING" : family;
+  const codes = replacements[family] || [];
+  if (codes.length) {
+    const pattern = new RegExp(`(^|[\\s_-])(?:${codes.join("|")})(?=([\\s_-]|\\d|$))`, "i");
+    value = value.replace(pattern, `$1${root}`);
+  }
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function setBagGroupKey(order = {}, family = "") {
@@ -13968,10 +14439,9 @@ function setBagGroupKey(order = {}, family = "") {
     family,
     order.jobNumber || "",
     order.customerId || order.customer || "",
-    order.designId || order.designNumber || "",
+    bagDesignFamilyKey(order, family),
     order.color || "",
     order.purity || "",
-    order.remarks || "",
     order.orderDate || "",
     order.dueDate || "",
   ].map((value) => String(value || "").trim().toUpperCase()).join("|");
@@ -13994,10 +14464,12 @@ function combinedBagPrintItem(items) {
   if (items.some((item) => isCbCategory(item.category))) return combinedCbPrintItem(items);
   const base = items[0];
   const itemKeys = items.map(printBagItemKeyForOrder).filter(Boolean);
+  const remarks = [...new Set(items.map((item) => String(item.remarks || "").trim()).filter(Boolean))];
   return {
     ...base,
     item: itemKeys.join("+"),
     cmItemType: itemKeys.some((key) => SET_ITEM_KEYS.includes(key)) ? itemKeys.join("+") : base.cmItemType,
+    remarks: remarks.length <= 1 ? remarks[0] || "" : "See item-wise remarks",
     productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
     number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
     bagItemLabels: itemKeys,
@@ -14015,11 +14487,13 @@ function combinedCbPrintItem(items) {
   const isCbr = categoryCode(cl.category || cg.category || "") === "CBR";
   const clLabel = isCbr ? "CLR" : "CL";
   const cgLabel = isCbr ? "CGR" : "CG";
+  const remarks = [...new Set(items.map((item) => String(item.remarks || "").trim()).filter(Boolean))];
   return {
     ...cl,
     ringType: "CL+CG",
     clSize: cl.clSize || cl.size || "",
     cgSize: cg.cgSize || cg.size || "",
+    remarks: remarks.length <= 1 ? remarks[0] || "" : "See item-wise remarks",
     productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
     number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
     bagItemLabels: [clLabel, cgLabel],
@@ -14074,7 +14548,7 @@ function printJobItemHtml(job, entry) {
       <div class="print-stone-section">
         ${printStoneDetailsHtml(design, order, bagItems)}
       </div>
-      <div class="print-barcode ${barcodeValues.length > 1 ? "combined" : ""}">
+      <div class="print-barcode ${barcodeValues.length > 1 ? "combined" : ""} ${barcodeValues.length > 2 ? "barcode-many" : ""}">
         ${barcodeValues.map((barcode) => `
           <div class="barcode-box">
             ${barcode.label ? `<b>${escapeHtml(barcode.label)}</b>` : ""}
@@ -14092,7 +14566,8 @@ function printBagItemsSummaryHtml(items = []) {
     const label = printBagItemKeyForOrder(item) || item.category || "Item";
     const productionNo = item.productionNo || item.number || "-";
     const size = soldItemSizeText(item) || item.size || item.clSize || item.cgSize || "";
-    return `${label}: ${productionNo}${size ? ` / Size ${size}` : ""}`;
+    const remark = String(item.remarks || "").trim();
+    return `${label}: ${productionNo}${size ? ` / Size ${size}` : ""}${remark ? ` / Remark ${remark}` : ""}`;
   }).join(" | ");
   return `<span class="print-wide print-bag-items"><b>Single Bag Items</b>${escapeHtml(summary)}</span>`;
 }
@@ -14178,6 +14653,12 @@ function renderOrderLots(order) {
 function updateIssueGoldFromOrderButton(jobOrders = []) {
   const button = document.getElementById("issue-from-order");
   if (!button) return;
+  if (jobOrders.some(isFittingAccessoriesOrder)) {
+    button.disabled = true;
+    button.textContent = "Accessory Lot Created";
+    button.title = "This tracking job card already has its production lot and does not require a separate Gold Issue.";
+    return;
+  }
   const pendingCount = jobOrders.filter((order) => order.status === "Pending").length;
   button.disabled = pendingCount === 0;
   button.textContent = pendingCount ? "Issue Gold" : "Gold Issued";
@@ -14927,7 +15408,7 @@ function openTransferLot(lotId) {
   setTransferCurrentNote(transferCurrentLocationHtml(lot, waxStoneWeight, settingStoneNote));
   renderTransferOptions(lot);
   if (lot.fittingItemsJobCard) applyFittingItemsTransferDefaults(lot);
-  else applyProductionFlowDefaults(lot);
+  else if (!lot.fittingAccessoriesJobCard) applyProductionFlowDefaults(lot);
   applyProductionStoneWeightToTransfer();
   applyFittingItemsTransferNarration();
   document.getElementById("transfer-dialog").showModal();
@@ -21190,7 +21671,7 @@ function renderBills() {
   const rows = state.lots
     .filter((lot) => {
       const hasBill = Boolean(lot.bill || state.bills?.some((item) => item.lotId === lot.id));
-      if (lot.fittingItemsJobCard && !hasBill) return false;
+      if ((lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) && !hasBill) return false;
       if (isBillQcOnlyMode()) return hasBill;
       return lot.status === "Completed" || hasBill;
     })
@@ -23177,7 +23658,7 @@ function billLotTraceEntries(lot = {}) {
   const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
   const issueEntry = {
     step: 1,
-    type: "Gold Issue",
+    type: lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
     date: lot.issueDate || "-",
     createdAt: lot.createdAt || "",
     from: lotIssueSourceName(lot),
@@ -26114,7 +26595,7 @@ function departmentTransferEvents() {
         createdAt: lot.createdAt || "",
         createdAtInferred: Boolean(lot.createdAtInferred),
         direction: "in",
-        type: "Gold Issue",
+        type: lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
         department: departmentTransferGroupName(firstDepartment, firstProcess),
         departmentDetail: departmentTransferDetail(firstDepartment, firstProcess),
         date: lot.issueDate || "-",

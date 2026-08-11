@@ -4689,6 +4689,49 @@ dialog::backdrop {
   box-sizing: border-box;
 }
 
+.fitting-accessories-job-card {
+  align-content: start;
+}
+
+#fitting-accessories-job-dialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  height: calc(100vh - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.fitting-accessories-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fitting-accessories-form-grid label,
+.fitting-accessories-narration-form label {
+  min-width: 0;
+}
+
+.fitting-accessories-form-grid .full-row,
+.fitting-accessories-stock-note {
+  grid-column: 1 / -1;
+}
+
+.fitting-accessories-narration-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.fitting-accessories-narration-form small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 820px) {
+  .fitting-accessories-form-grid,
+  .fitting-accessories-narration-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 #order-dialog {
   width: calc(100vw - 12px);
   max-width: none;
@@ -5834,6 +5877,18 @@ dialog::backdrop {
   display: none;
 }
 
+body.measuring-transfer-bag .global-print-area {
+  display: block !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: -200vw !important;
+  width: 105mm !important;
+  margin: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  overflow: visible !important;
+}
+
 .print-header {
   display: flex;
   justify-content: space-between;
@@ -6148,6 +6203,19 @@ dialog::backdrop {
   gap: 4px;
 }
 
+.print-barcode.combined.barcode-many {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.print-barcode.combined.barcode-many .barcode-box {
+  padding: 2px;
+}
+
+.print-barcode.combined.barcode-many .barcode {
+  height: 24px;
+}
+
 .print-barcode.combined .barcode-wrap {
   min-width: 0;
 }
@@ -6187,6 +6255,24 @@ dialog::backdrop {
 
 .transfer-bag-history-page {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.transfer-bag-item-continuation-page {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.transfer-bag-item-continuation-page .transfer-bag-items-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.transfer-bag-item-continuation-page .transfer-bag-item-table {
+  align-self: start;
+}
+
+.transfer-bag-continuation-meta span {
+  min-height: 8mm;
 }
 
 .transfer-bag-head {

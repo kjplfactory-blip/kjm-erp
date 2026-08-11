@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=460">
+  <link rel="stylesheet" href="styles.css?v=465">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v460</small>
+        <small class="app-version-badge">App v465</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v460</span>
+          <span class="app-version-badge">App v465</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -402,6 +402,10 @@
           <button class="action-tile" type="button" data-order-page="create">
             <strong>Create Job Order</strong>
             <span>Add new customer job card</span>
+          </button>
+          <button class="action-tile hidden" type="button" id="create-fitting-accessories-job">
+            <strong>Fitting Accessories Job Card</strong>
+            <span>Create a manual accessory lot for department transfers</span>
           </button>
           <button class="action-tile" type="button" data-order-page="active">
             <strong>Job Order</strong>
@@ -1468,6 +1472,48 @@
       </form>
     </dialog>
 
+    <dialog id="fitting-accessories-job-dialog">
+      <form id="fitting-accessories-job-form" class="dialog-card fitting-accessories-job-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Create Fitting Accessories Job Card</h2>
+            <p class="dialog-note">Create one production lot for accessories and move it through departments using the normal Transfer action.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-fitting-accessories-job">Close</button>
+        </div>
+        <section class="fitting-accessories-form-grid">
+          <label class="full-row">Job Card Narration <textarea name="jobCardNarration" rows="3" placeholder="Purpose or full narration for this accessory job card" required></textarea></label>
+          <label class="full-row">Item Narration <textarea name="itemNarration" rows="3" placeholder="Accessory or item details to identify during transfer" required></textarea></label>
+          <label>Gross Weight (g) <input name="grossWeight" type="number" min="0.001" step="0.001" placeholder="0.000" required></label>
+          <label>Purity
+            <select name="purity" required>
+              <option>9K</option>
+              <option>14K</option>
+              <option selected>18K</option>
+              <option>22K</option>
+            </select>
+          </label>
+          <label>Colour
+            <select name="color" required>
+              <option>Pink</option>
+              <option>Yellow</option>
+              <option>White</option>
+              <option>2 Tone</option>
+              <option>3 Tone</option>
+            </select>
+          </label>
+          <label>Order Date <input name="orderDate" type="date" required></label>
+          <label>Starting Department <select name="departmentId" required></select></label>
+          <label>Starting Process <select name="process" required></select></label>
+        </section>
+        <p class="dialog-note fitting-accessories-stock-note">This is a production tracking card. Its GW appears in the selected department, but no Safe Locker stock movement is booked.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-fitting-accessories-job">Cancel</button>
+          <button type="submit">Create Accessory Job Card</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="order-dialog">
       <div class="dialog-card order-dialog">
         <div class="dialog-header">
@@ -1508,6 +1554,13 @@
           <small class="field-error hidden" data-production-days-error></small>
           <label>Due Date <input name="dueDate" type="date" readonly required></label>
           <button type="submit">Update Job Card</button>
+        </form>
+        <form id="fitting-accessories-narration-form" class="inline-form fitting-accessories-narration-form hidden">
+          <input type="hidden" name="orderId">
+          <label>Job Card Narration <textarea name="jobCardNarration" rows="2" required></textarea></label>
+          <label>Item Narration <textarea name="itemNarration" rows="2" required></textarea></label>
+          <button type="submit">Update Narration</button>
+          <small class="dialog-note">Only Owner or Manager can change this fitting accessories narration.</small>
         </form>
         <section class="order-work-panel">
           <div class="panel-heading">
@@ -2390,7 +2443,7 @@
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="html5-qrcode.min.js?v=2.3.8-460"></script>
-  <script src="app.js?v=460"></script>
+  <script src="html5-qrcode.min.js?v=2.3.8-465"></script>
+  <script src="app.js?v=465"></script>
 </body>
 </html>
