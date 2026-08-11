@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=471">
+  <link rel="stylesheet" href="styles.css?v=479">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v474</small>
+          <small class="app-version-badge">App v479</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v474</span>
+          <span class="app-version-badge">App v479</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -594,6 +594,20 @@
             <p id="non-gold-remove-summary" class="dialog-note">Select a department or lot to see available non-gold material before removing.</p>
             <button class="danger-button" type="submit">Remove Non-Gold</button>
           </form>
+          <section class="panel table-panel non-gold-karat-pool-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Virtual Non-Gold Shelf By Karat</h2>
+                <p>Non-gold remains in a separate virtual factory shelf by karat. Department transfers stay entirely in GW, and only exact Final Bill non-gold reduces this balance.</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="non-gold-karat-pool-table">
+                <thead><tr><th>Karat</th><th>In Safe</th><th>In Production</th><th>Components</th><th>Final Bill Used</th><th>Total Factory Balance</th><th>Unmatched Bill</th></tr></thead>
+                <tbody id="production-non-gold-karat-pool-table"></tbody>
+              </table>
+            </div>
+          </section>
           <section class="panel table-panel non-gold-reconciliation-panel">
             <div class="panel-heading">
               <div>
@@ -1793,6 +1807,7 @@
         <h2 id="transfer-form-title">Transfer Job To Another Department</h2>
         <input type="hidden" name="lotId">
         <input type="hidden" name="transferId">
+        <input type="hidden" name="provisionalNonGoldWeight" value="0">
         <p id="transfer-current" class="dialog-note"></p>
         <label>New Department <select name="karigarId" required></select></label>
         <div class="transfer-entry-table">
@@ -1803,7 +1818,6 @@
                 <th>Receive GW</th>
                 <th>Wax Stone</th>
                 <th>Hand Stone From Job Card</th>
-                <th>Karat-Wise Non-Gold In GW</th>
                 <th>Reduced</th>
                 <th>Net Wt</th>
                 <th>Difference</th>
@@ -1815,14 +1829,13 @@
                 <td><input name="grossReceivedWeight" type="number" min="0" step="0.001" required></td>
                 <td><input name="waxStoneWeight" type="number" readonly value="0"></td>
                 <td><input name="stoneWeight" type="number" min="0" step="0.001" value="0"></td>
-                <td><input name="provisionalNonGoldWeight" type="number" min="0" step="0.001" value="0"></td>
                 <td><input name="reducedWeight" type="number" readonly value="0"></td>
                 <td><input name="receivedWeight" type="number" readonly required></td>
                 <td><input name="departmentBalance" type="number" readonly></td>
               </tr>
             </tbody>
           </table>
-          <p class="dialog-note">For Vinod / Fitting, Non-Gold In GW automatically captures the receive-GW increase without asking for its exact category. Reduced = Wax Stone + Hand Stone + Non-Gold. The final Bill replaces this provisional amount with exact Stone, BB, Moti, Spring and Other weights.</p>
+          <p class="dialog-note">Enter Receive GW only. Every department transfer remains in GW. Black Beads, Moti, Spring, Stone and Other non-gold are never estimated or deducted in this transfer; they remain in the separate karat-wise non-gold shelf until exact Final Bill adjustment.</p>
           <p id="transfer-non-gold-pool-status" class="dialog-note transfer-non-gold-pool-status"></p>
         </div>
         <label>From Department <input name="fromDepartment" placeholder="Casting, Filing / Fitting, Setting" required></label>
@@ -2484,6 +2497,6 @@
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
-  <script src="app.js?v=474"></script>
+  <script src="app.js?v=479"></script>
 </body>
 </html>

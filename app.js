@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v474";
+const APP_VERSION = "v479";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -24,6 +24,7 @@ const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
+const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
@@ -127,6 +128,12 @@ let supabasePendingCloudState = null;
 let supabaseIsConnecting = false;
 let supabaseIsSaving = false;
 let supabaseIsLoading = false;
+let supabaseInitialReadComplete = false;
+let supabaseCloudBaselineVerified = false;
+let supabaseVerifiedCloudProfile = null;
+let supabaseVerifiedCloudUpdatedAt = "";
+let supabaseStartupProtectionActive = false;
+let postCloudMigrationsStarted = false;
 let supabaseLastSafetySnapshotBucket = "";
 let pendingCloudVersionBackup = null;
 let supabaseLastCloudUpdatedAt = "";
@@ -2943,15 +2950,14 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   const grossReceivedWeight = Number(data.grossReceivedWeight);
   const stoneWeight = Number(data.stoneWeight || 0);
   const waxStoneWeight = Number(data.waxStoneWeight || transferWaxStoneWeight(lot));
-  const previousProvisionalNonGoldWeight = transferProvisionalNonGoldBefore(lot, data.transferId);
-  const provisionalNonGoldWeight = Number(data.provisionalNonGoldWeight || 0);
-  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight + provisionalNonGoldWeight));
-  if (stoneWeight < 0 || waxStoneWeight < 0 || provisionalNonGoldWeight < 0 || reducedWeight > grossReceivedWeight) {
-    alert("Wax stone plus hand stone plus non-gold cannot be more than receive gross weight.");
+  const provisionalNonGoldWeight = 0;
+  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight));
+  if (stoneWeight < 0 || waxStoneWeight < 0 || reducedWeight > grossReceivedWeight) {
+    alert("Wax stone plus hand stone cannot be more than receive gross weight.");
     return;
   }
 
-  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId) - previousProvisionalNonGoldWeight));
+  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId)));
   const receivedWeight = Number(weight3(grossReceivedWeight - reducedWeight));
   if (receivedWeight < 0) {
     alert("Net Wt cannot be less than 0.");
@@ -2980,7 +2986,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     stoneWeight,
     handStoneWeight: stoneWeight,
     provisionalNonGoldWeight,
-    provisionalNonGoldAddedWeight: Number(weight3(Math.max(provisionalNonGoldWeight - previousProvisionalNonGoldWeight, 0))),
+    provisionalNonGoldAddedWeight: 0,
     reducedWeight,
     receivedWeight,
     departmentBalance,
@@ -3008,7 +3014,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: receivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, provisional non-gold ${gram(provisionalNonGoldWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
   });
   document.getElementById("transfer-dialog").close();
   event.target.reset();
@@ -3024,8 +3030,8 @@ document.getElementById("transfer-form").addEventListener("input", (event) => {
   if (event.target.name === "fromDepartment") {
     applyProductionStoneWeightToTransfer();
   }
-  if (["transferWeight", "grossReceivedWeight", "stoneWeight", "provisionalNonGoldWeight"].includes(event.target.name)) {
-    updateTransferBalance(event.target.name !== "provisionalNonGoldWeight");
+  if (["transferWeight", "grossReceivedWeight", "stoneWeight"].includes(event.target.name)) {
+    updateTransferBalance();
   }
 });
 
@@ -3117,6 +3123,7 @@ function loadState() {
 function stateBusinessProfile(source = {}) {
   const factoryEntries = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
   const metalEntries = (source.metalSafeMovements || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
+  const ledgerEntries = (source.ledger || []).filter((entry) => entry.id !== "factory-default-ledger");
   const profile = {
     orders: (source.orders || []).length,
     lots: (source.lots || []).length,
@@ -3130,6 +3137,14 @@ function stateBusinessProfile(source = {}) {
     xrf: (source.xrfTests || []).length,
     factoryEntries: factoryEntries.length,
     metalEntries: metalEntries.length,
+    ledgerEntries: ledgerEntries.length,
+    safeIssues: (source.safeDepartmentIssues || []).length,
+    safeReturns: (source.safeDepartmentReturns || []).length,
+    nonGoldIssues: (source.productionNonGoldIssues || []).length,
+    settingEntries: (source.settingManagerEntries || []).length,
+    dailyTallies: (source.dailyTallies || []).length,
+    officeCustomers: (source.officeCustomers || []).length,
+    customUsers: (source.customUsers || []).length + Object.keys(source.userAccessOverrides || {}).length,
   };
   profile.score = profile.orders * 2
     + profile.lots * 8
@@ -3142,8 +3157,56 @@ function stateBusinessProfile(source = {}) {
     + profile.melting * 4
     + profile.xrf * 3
     + profile.factoryEntries * 4
-    + profile.metalEntries * 3;
+    + profile.metalEntries * 3
+    + profile.ledgerEntries * 2
+    + profile.safeIssues * 3
+    + profile.safeReturns * 3
+    + profile.nonGoldIssues * 3
+    + profile.settingEntries * 3
+    + profile.dailyTallies
+    + profile.officeCustomers
+    + profile.customUsers * 2;
   return profile;
+}
+
+function isEmptyBusinessState(source = {}) {
+  return stateBusinessProfile(source).score <= 0 && !stateFactoryResetAt(source);
+}
+
+function isSuspiciouslyReducedLocalState(cloudState = {}) {
+  if (!cloudState || typeof cloudState !== "object") return false;
+  if (factoryResetTimestamp(stateFactoryResetAt(state)) > factoryResetTimestamp(stateFactoryResetAt(cloudState))) return false;
+  const localProfile = stateBusinessProfile(state);
+  const cloudProfile = stateBusinessProfile(cloudState);
+  if (cloudProfile.score <= 5) return false;
+  if (isEmptyBusinessState(state)) return true;
+  return cloudProfile.score >= 40
+    && localProfile.score + 20 < cloudProfile.score
+    && localProfile.score < cloudProfile.score * 0.35;
+}
+
+function rememberVerifiedCloudBaseline(cloudState = {}, updatedAt = "") {
+  supabaseInitialReadComplete = true;
+  supabaseCloudBaselineVerified = Boolean(cloudState && typeof cloudState === "object");
+  supabaseVerifiedCloudProfile = supabaseCloudBaselineVerified ? stateBusinessProfile(cloudState) : null;
+  supabaseVerifiedCloudUpdatedAt = updatedAt || "";
+}
+
+function savePreCloudRecoveryCopy(reason = "startup-conflict") {
+  try {
+    localStorage.setItem(PRE_CLOUD_RECOVERY_STORAGE_KEY, JSON.stringify({
+      format: "KJM-ERP-PRE-CLOUD-RECOVERY",
+      savedAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
+      reason,
+      profile: stateBusinessProfile(state),
+      state,
+    }));
+    return true;
+  } catch (error) {
+    console.warn("The pre-cloud local recovery copy could not be stored.", error);
+    return false;
+  }
 }
 
 function isFallbackOpeningState(source = {}) {
@@ -3164,12 +3227,14 @@ function isFallbackOpeningState(source = {}) {
 }
 
 function protectRicherLocalStateFromCloud(cloudState = {}, options = {}) {
-  if (!isFallbackOpeningState(cloudState) || isFallbackOpeningState(state)) return false;
+  const unsafeCloudOpening = isFallbackOpeningState(cloudState) || isEmptyBusinessState(cloudState);
+  if (!unsafeCloudOpening || isFallbackOpeningState(state) || isEmptyBusinessState(state)) return false;
   if (factoryResetTimestamp(stateFactoryResetAt(cloudState)) > factoryResetTimestamp(stateFactoryResetAt(state))) return false;
   const localProfile = stateBusinessProfile(state);
   const cloudProfile = stateBusinessProfile(cloudState);
   if (localProfile.score <= cloudProfile.score + 5) return false;
   supabasePendingCloudState = null;
+  supabaseStartupProtectionActive = true;
   setSyncStatus("saving", "Recovery Copy Protected", `This laptop has more ERP data than the fallback cloud copy. Owner can use Upload Data after checking it.`);
   if (options.manual) {
     alert("The cloud contains fallback opening data, but this laptop has a larger ERP copy. The local copy was protected. Check the data, then Owner can click Upload Data to restore live sync.");
@@ -4125,7 +4190,10 @@ async function initializeSupabase() {
     setSyncStatus("connecting", "Sync: Connecting");
     supabaseClient = await createSupabaseClient();
     const connected = await loadSupabaseState({ initial: true });
-    if (connected) startSupabaseAutoRefresh();
+    if (connected) {
+      startSupabaseAutoRefresh();
+      runPostCloudMigrations();
+    }
     else scheduleSupabaseReconnect();
   } catch (error) {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
@@ -4136,6 +4204,16 @@ async function initializeSupabase() {
   } finally {
     supabaseIsConnecting = false;
   }
+}
+
+function runPostCloudMigrations() {
+  if (postCloudMigrationsStarted) return;
+  if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
+  if (supabaseStartupProtectionActive) return;
+  postCloudMigrationsStarted = true;
+  migrateLegacyDesignImages().catch(() => {
+    document.getElementById("design-upload-status").textContent = "Design image storage is using browser local storage fallback.";
+  });
 }
 
 async function refreshLiveData() {
@@ -4180,13 +4258,15 @@ async function pushLocalDataToCloud() {
 function startSupabaseAutoRefresh() {
   clearInterval(supabaseAutoRefreshTimer);
   if (!supabaseClient) return;
-  const realtimeStarted = startSupabaseRealtime();
+  const realtimeStarted = supabaseStartupProtectionActive ? false : startSupabaseRealtime();
   supabaseAutoRefreshTimer = setInterval(() => {
     if (document.hidden) return;
     if (applyPendingCloudState("auto")) return;
     loadSupabaseState({ auto: true });
   }, AUTO_SYNC_INTERVAL_MS);
-  setSyncStatus("online", realtimeStarted ? "Live Sync: Realtime" : "Live Sync: Auto");
+  if (!supabaseStartupProtectionActive) {
+    setSyncStatus("online", realtimeStarted ? "Live Sync: Realtime" : "Live Sync: Auto");
+  }
 }
 
 window.addEventListener("focus", () => {
@@ -4227,9 +4307,33 @@ async function syncStateToSupabase(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  if (!options.force && (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified)) {
+    setSyncStatus("connecting", "Startup Data Protected", "Cloud data must be read successfully before this laptop can save automatically.");
+    return false;
+  }
+  if (!options.force && supabaseStartupProtectionActive) {
+    setSyncStatus("offline", "Cloud Conflict Protected", "Automatic overwrite is paused because startup found empty, fallback, or recovery-required cloud data. Owner must verify and use Upload Data.");
+    return false;
+  }
   if (stateLoadedFromFallback && !options.force) {
     setSyncStatus("offline", "Fallback Data Protected", "Fresh fallback data is never uploaded automatically. Owner can use Upload Data only after verifying the local records.");
     return false;
+  }
+  if (isEmptyBusinessState(state) && !options.force) {
+    setSyncStatus("offline", "Empty Data Protected", "An empty starter state cannot overwrite live ERP data. Load live data first or use Owner Upload Data after verification.");
+    return false;
+  }
+  if (!options.force && supabaseVerifiedCloudProfile) {
+    const localProfile = stateBusinessProfile(state);
+    const cloudProfile = supabaseVerifiedCloudProfile;
+    const suspiciousReduction = cloudProfile.score >= 40
+      && localProfile.score + 20 < cloudProfile.score
+      && localProfile.score < cloudProfile.score * 0.35;
+    if (suspiciousReduction) {
+      savePreCloudRecoveryCopy("automatic-save-blocked-smaller-than-cloud");
+      setSyncStatus("offline", "Cloud Data Protected", "This laptop contains much less ERP data than the verified cloud copy, so automatic overwrite was blocked. Refresh Live Data or verify and use Owner Upload Data.");
+      return false;
+    }
   }
   attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
@@ -4292,6 +4396,9 @@ async function syncStateToSupabase(options = {}) {
     return false;
   }
   supabaseLastCloudUpdatedAt = updatedAt;
+  supabaseStartupProtectionActive = false;
+  rememberVerifiedCloudBaseline(stateToSave, updatedAt);
+  runPostCloudMigrations();
   if (supabaseLocalRevision === savingRevision && !supabaseSaveTimer) clearLocalSyncDirty();
   if (supabasePendingCloudState && new Date(supabasePendingCloudState.updated_at || 0).getTime() <= new Date(updatedAt).getTime()) {
     supabasePendingCloudState = null;
@@ -4425,16 +4532,39 @@ async function loadSupabaseState(options = {}) {
   }
   let handledCloudState = false;
   if (data?.data) {
+    rememberVerifiedCloudBaseline(data.data, data.updated_at || "");
     handledCloudState = applyCloudStateFromRow(data, options);
   } else {
+    supabaseInitialReadComplete = true;
+    supabaseCloudBaselineVerified = false;
+    supabaseVerifiedCloudProfile = null;
+    supabaseVerifiedCloudUpdatedAt = "";
+    supabaseStartupProtectionActive = true;
     handledCloudState = true;
     setSyncStatus("offline", "Cloud Empty - Local Protected", "No live ERP row was found. Local data was not uploaded automatically. Owner can verify it and click Upload Data.");
   }
-  if (options.initial && handledCloudState) setSyncStatus("online", "Live Sync: Auto");
   return true;
 }
 
 function applyCloudStateFromRow(row = {}, options = {}) {
+  rememberVerifiedCloudBaseline(row.data, row.updated_at || "");
+  if (options.initial && hasUnsyncedLocalState() && isSuspiciouslyReducedLocalState(row.data)) {
+    savePreCloudRecoveryCopy("startup-loaded-richer-cloud-copy");
+    clearTimeout(supabaseSaveTimer);
+    supabaseSaveTimer = null;
+    clearLocalSyncDirty();
+    supabasePendingCloudState = null;
+    supabaseStartupProtectionActive = false;
+    applyCloudState(row.data, row.updated_at || "", options);
+    setSyncStatus("online", "Live Data Restored", "The new version loaded the richer verified cloud copy. A local pre-cloud recovery copy was retained when browser storage allowed it.");
+    return true;
+  }
+  if (isEmptyBusinessState(row.data) && isEmptyBusinessState(state)) {
+    stateLoadedFromFallback = true;
+    supabaseStartupProtectionActive = true;
+    setSyncStatus("offline", "Empty Cloud Protected", "The live row contains no business data. It was not allowed to replace or initialize this version automatically.");
+    return true;
+  }
   if (isFallbackOpeningState(row.data) && (stateLoadedFromFallback || state.cloudRecoveryRequired || isFallbackOpeningState(state))) {
     const recoveryState = structuredClone(row.data);
     recoveryState.factoryLedger = (recoveryState.factoryLedger || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
@@ -4443,6 +4573,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     recoveryState.cloudRecoveryRequired = true;
     applyCloudState(recoveryState, row.updated_at || "", { ...options, recoveryFallback: true });
     stateLoadedFromFallback = true;
+    supabaseStartupProtectionActive = true;
     setSyncStatus("offline", "Cloud Recovery Required", "Fallback opening stock was hidden. Recover from a laptop or JSON backup with the correct ERP data, then Owner can click Upload Data.");
     return true;
   }
@@ -4490,13 +4621,6 @@ function applyPendingCloudState(source = "auto") {
   return true;
 }
 
-function queueCurrentVersionCloudSave(reason = "") {
-  if (!supabaseClient || supabaseIsSaving) return;
-  clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(() => syncStateToSupabase({ versionUpgrade: true }), SUPABASE_SAVE_DELAY_MS);
-  setSyncStatus("saving", "Sync: Upgrading Data", reason || `Old-version data loaded. Saving again as ${APP_VERSION}.`);
-}
-
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
   const shouldUpgradeCloudVersion = !options.recoveryFallback && cloudStateNeedsCurrentVersionSave(cloudState);
@@ -4512,6 +4636,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   restoredRecentJobOrderCount = 0;
   state = normalizeState(cloudState);
   stateLoadedFromFallback = false;
+  if (!options.recoveryFallback && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
   restoredRecentJobOrderCount = 0;
   clearImagePreviewCaches();
@@ -4537,10 +4662,9 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     setSyncStatus("online", "Live Sync: Auto");
   }
   if (shouldUpgradeCloudVersion) {
-    queueCurrentVersionCloudSave(`Loaded old data and upgraded it to ${APP_VERSION}.`);
+    setSyncStatus("online", "Live Data Loaded Safely", `The cloud data is from ${cloudBackupVersionLabel(cloudState)}. No automatic version write was made; the protected backup will be created before the next real user change is saved.`);
   } else if (restoredJobOrders) {
-    queueSupabaseSave();
-    setSyncStatus("saving", "Recovered Job Orders", `${restoredJobOrders} recently created item(s) were protected from an older cloud refresh and are being uploaded again.`);
+    setSyncStatus("offline", "Recovered Job Orders Locally", `${restoredJobOrders} recently created item(s) were protected. Owner must verify the records and click Upload Data; no automatic cloud overwrite was made.`);
   }
 }
 
@@ -15605,39 +15729,50 @@ function trackedNonGoldDemandLines() {
         breakdown: normalizeNonGoldBreakdown(line.breakdown),
       })).filter((line) => line.weight > 0);
     }
-    const provisionalWeight = currentTransferProvisionalNonGold(lot);
-    if (provisionalWeight <= 0) return [];
-    const latest = (lot.transfers || []).at(-1) || {};
-    return [{
-      id: `transfer-ng-${lot.id}`,
-      sourceType: "transfer",
-      reference: `${lot.number || "Lot"} / ${lot.orderNumber || "-"}`,
-      date: latest.date || lot.issueDate || today(),
-      createdAt: latest.createdAt || lot.createdAt || "",
-      purity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"),
-      weight: Number(weight3(provisionalWeight)),
-      breakdown: { other: Number(weight3(provisionalWeight)) },
-    }];
+    return [];
   });
 }
 
 function departmentNonGoldStockPools() {
   const pools = new Map();
-  const addPool = (department = "Unassigned", purity = "", weight = 0) => {
+  const addPool = (department = "Unassigned", purity = "", weight = 0, breakdownValue = {}) => {
     const cleanWeight = Number(weight3(weight || 0));
     if (!cleanWeight) return;
     const departmentName = departmentDashboardHeader(department || "Unassigned");
     const purityName = transferPurityLabel(karatLogicPurity(purity || "18K"));
     const key = `${departmentTextKey(departmentName)}|${karatPurityKey(purityName) || purityName}`;
-    const current = pools.get(key) || { department: departmentName, purity: purityName, available: 0 };
+    const current = pools.get(key) || { department: departmentName, purity: purityName, available: 0, byMaterial: {} };
     current.available = Number(weight3(current.available + cleanWeight));
+    const breakdown = normalizeNonGoldBreakdown(
+      breakdownValue,
+      "other",
+      Object.keys(breakdownValue || {}).length ? 0 : cleanWeight,
+    );
+    Object.entries(breakdown).forEach(([materialType, componentWeight]) => {
+      current.byMaterial[materialType] = Number(weight3(
+        Number(current.byMaterial[materialType] || 0) + Math.sign(cleanWeight) * Math.abs(Number(componentWeight || 0))
+      ));
+      if (Math.abs(current.byMaterial[materialType]) <= 0.0005) delete current.byMaterial[materialType];
+    });
     pools.set(key, current);
   };
   safeDepartmentIssuesInHand()
-    .filter((issue) => !issue.goldIssueLotId && !issue.lotId && !issue.jobNumber && Number(issue.nonGoldWeight || 0) > 0)
-    .forEach((issue) => addPool(issue.departmentName || issue.process, issue.purity || issue.locker, issue.nonGoldWeight));
-  productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
-    addPool(issue.department || dashboardDepartmentNameFromId(issue.departmentId), issue.purity || issue.karat, issue.weight);
+    .filter((issue) => !issue.goldIssueLotId && Number(issue.nonGoldWeight || 0) > 0)
+    .forEach((issue) => addPool(
+      issue.departmentName || issue.process,
+      issue.purity || issue.locker,
+      issue.nonGoldWeight,
+      issue.nonGoldBreakdown,
+    ));
+  productionNonGoldLedgerIssues()
+    .filter(({ issue }) => !issue.safeDepartmentIssueId && Number(issue.weight || 0) !== 0 && productionNonGoldIssueInDepartment(issue))
+    .forEach(({ issue }) => {
+    addPool(
+      issue.department || dashboardDepartmentNameFromId(issue.departmentId),
+      issue.purity || issue.karat,
+      issue.weight,
+      { [issue.materialType || "other"]: Math.abs(Number(issue.weight || 0)) },
+    );
   });
   return [...pools.values()]
     .filter((pool) => pool.available > 0.0005)
@@ -15648,9 +15783,27 @@ function departmentNonGoldStockPools() {
     });
 }
 
+function safeNonGoldShelfPools() {
+  const pools = new Map();
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemNonGoldWeight(item) > 0)
+    .forEach((item) => {
+      const purity = transferPurityLabel(karatLogicPurity(safeItemDesiredPurity(item) || item.locker || "18K"));
+      const key = karatPurityKey(purity) || purity;
+      const current = pools.get(key) || { purity, available: 0, byMaterial: {} };
+      current.available = Number(weight3(current.available + safeItemNonGoldWeight(item)));
+      current.byMaterial = addNonGoldBreakdowns(current.byMaterial, safeItemNonGoldBreakdown(item));
+      pools.set(key, current);
+    });
+  return [...pools.values()];
+}
+
 function nonGoldPoolPositionForPurity(purity = "") {
   const karatKey = karatPurityKey(purity);
-  const issued = departmentNonGoldStockPools()
+  const safeBalance = safeNonGoldShelfPools()
+    .filter((pool) => karatPurityKey(pool.purity) === karatKey)
+    .reduce((total, pool) => Number(weight3(total + Number(pool.available || 0))), 0);
+  const productionBalance = departmentNonGoldStockPools()
     .filter((pool) => karatPurityKey(pool.purity) === karatKey)
     .reduce((total, pool) => Number(weight3(total + Number(pool.available || 0))), 0);
   const allocation = trackedNonGoldStockAllocation();
@@ -15662,25 +15815,25 @@ function nonGoldPoolPositionForPurity(purity = "") {
     .reduce((total, line) => Number(weight3(total + Number(line.weight || 0))), 0);
   return {
     purity: transferPurityLabel(karatLogicPurity(purity || "18K")),
-    issued,
+    safeBalance,
+    productionBalance,
     applied,
-    remaining: Number(weight3(Math.max(issued - applied, 0))),
+    remaining: Number(weight3(Math.max(safeBalance + productionBalance - applied, 0))),
     unmatched,
   };
 }
 
-function renderTransferNonGoldPoolStatus(lot = {}, proposedWeight = 0) {
+function renderTransferNonGoldPoolStatus(lot = {}) {
   const status = document.getElementById("transfer-non-gold-pool-status");
   if (!status || !lot) return;
   const position = nonGoldPoolPositionForPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K");
-  const proposed = Number(weight3(proposedWeight || 0));
-  status.classList.toggle("warning", position.unmatched > 0.0005 || proposed > position.issued + 0.0005);
+  status.classList.toggle("warning", position.unmatched > 0.0005);
   status.innerHTML = `
-    <strong>${escapeHtml(position.purity)} Non-Gold Pool</strong>
-    <span>Issued To Departments: ${gram(position.issued)}</span>
-    <span>Applied In Product GW / Bill: ${gram(position.applied)}</span>
-    <span>Available: ${gram(position.remaining)}</span>
-    <span>This Lot: ${gram(proposed)}</span>
+    <strong>${escapeHtml(position.purity)} Virtual Non-Gold Shelf</strong>
+    <span>In Safe: ${gram(position.safeBalance)}</span>
+    <span>In Production: ${gram(position.productionBalance)}</span>
+    <span>Exact Final Bill Used: ${gram(position.applied)}</span>
+    <span>Factory Balance: ${gram(position.remaining)}</span>
     ${position.unmatched > 0.0005 ? `<b>Unmatched: ${gram(position.unmatched)} - record the corresponding karat-wise non-gold issue.</b>` : ""}
   `;
 }
@@ -15717,6 +15870,72 @@ function trackedNonGoldStockAllocation() {
     allocatedWeight: Number(weight3(allocations.reduce((total, line) => total + Number(line.weight || 0), 0))),
     unmatchedWeight: Number(weight3(unmatched.reduce((total, line) => total + Number(line.weight || 0), 0))),
   };
+}
+
+function productionNonGoldKaratPoolRows() {
+  const rows = new Map();
+  const ensureRow = (purity = "18K") => {
+    const purityName = transferPurityLabel(karatLogicPurity(purity || "18K"));
+    const key = karatPurityKey(purityName) || purityName;
+    if (!rows.has(key)) {
+      rows.set(key, {
+        purity: purityName,
+        safeBalance: 0,
+        productionBalance: 0,
+        breakdown: {},
+        billAdjusted: 0,
+        available: 0,
+        unmatched: 0,
+      });
+    }
+    return rows.get(key);
+  };
+
+  SAFE_LOCKERS.forEach(ensureRow);
+  safeNonGoldShelfPools().forEach((pool) => {
+    const row = ensureRow(pool.purity);
+    row.safeBalance = Number(weight3(row.safeBalance + Number(pool.available || 0)));
+    row.breakdown = addNonGoldBreakdowns(row.breakdown, pool.byMaterial || {});
+  });
+  departmentNonGoldStockPools().forEach((pool) => {
+    const row = ensureRow(pool.purity);
+    row.productionBalance = Number(weight3(row.productionBalance + Number(pool.available || 0)));
+    row.breakdown = addNonGoldBreakdowns(row.breakdown, pool.byMaterial || {});
+  });
+
+  const allocation = trackedNonGoldStockAllocation();
+  allocation.allocations.forEach((line) => {
+    const row = ensureRow(line.purity);
+    row.billAdjusted = Number(weight3(row.billAdjusted + Number(line.weight || 0)));
+  });
+  allocation.unmatched.forEach((line) => {
+    const row = ensureRow(line.purity);
+    row.unmatched = Number(weight3(row.unmatched + Number(line.weight || 0)));
+  });
+
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      available: Number(weight3(Math.max(row.safeBalance + row.productionBalance - row.billAdjusted, 0))),
+    }))
+    .sort((left, right) => puritySortValue(right.purity) - puritySortValue(left.purity));
+}
+
+function renderProductionNonGoldKaratPool() {
+  const table = document.getElementById("production-non-gold-karat-pool-table");
+  if (!table) return;
+  const rows = productionNonGoldKaratPoolRows();
+  table.innerHTML = rows.map((row) => `
+    <tr class="${row.unmatched > 0.0005 ? "warning-row" : ""}">
+      <td><span class="status transfer">${escapeHtml(row.purity)}</span></td>
+      <td><strong>${gram(row.safeBalance)}</strong></td>
+      <td><strong>${gram(row.productionBalance)}</strong></td>
+      <td>${escapeHtml(nonGoldBreakdownText(row.breakdown) || "-")}</td>
+      <td><strong>${gram(row.billAdjusted)}</strong></td>
+      <td><strong>${gram(row.available)}</strong></td>
+      <td>${row.unmatched > 0.0005 ? `<span class="status cancelled">${gram(row.unmatched)}</span>` : gram(0)}</td>
+    </tr>
+  `).join("") || tableEmpty(7, "No karat-wise non-gold balance recorded yet.");
 }
 
 function productionNonGoldDepartmentInHandWeight(departmentName = "") {
@@ -15857,7 +16076,6 @@ function openTransferLot(lotId) {
   const existingHandStoneWeight = currentHandStoneWeight(lot);
   const handStoneWeight = productionStoneWeightForTransfer(lot) || existingHandStoneWeight;
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
-  const provisionalNonGoldWeight = currentTransferProvisionalNonGold(lot);
   form.lotId.value = lot.id;
   form.transferId.value = "";
   document.getElementById("transfer-form-title").textContent = "Transfer Job To Another Department";
@@ -15865,9 +16083,9 @@ function openTransferLot(lotId) {
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
-  form.provisionalNonGoldWeight.value = weight3(provisionalNonGoldWeight);
-  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight + provisionalNonGoldWeight);
-  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight - provisionalNonGoldWeight, 0));
+  form.provisionalNonGoldWeight.value = weight3(0);
+  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight);
+  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight, 0));
   form.departmentBalance.value = weight3(0);
   form.fromDepartment.value = lot.currentDepartment || lot.karigarName;
   form.toDepartment.value = "";
@@ -15902,10 +16120,13 @@ function openTransferEdit(lotId, transferId) {
   form.grossReceivedWeight.value = weight3(transfer.grossReceivedWeight);
   form.waxStoneWeight.value = weight3(transfer.waxStoneWeight);
   form.stoneWeight.value = weight3(transfer.stoneWeight);
-  form.provisionalNonGoldWeight.value = weight3(transfer.provisionalNonGoldWeight || 0);
-  form.reducedWeight.value = weight3(transfer.reducedWeight ?? Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0) + Number(transfer.provisionalNonGoldWeight || 0));
-  form.receivedWeight.value = weight3(transfer.receivedWeight);
-  form.departmentBalance.value = weight3(transfer.departmentBalance);
+  const reducedWeight = transferReducedWeight(transfer);
+  const receivedWeight = Number(weight3(Math.max(Number(transfer.grossReceivedWeight || 0) - reducedWeight, 0)));
+  const issuedNetWeight = Number(weight3(Math.max(Number(transfer.transferWeight || 0) - Number(transfer.waxStoneWeight || 0) - currentHandStoneWeight(lot, transfer.id), 0)));
+  form.provisionalNonGoldWeight.value = weight3(0);
+  form.reducedWeight.value = weight3(reducedWeight);
+  form.receivedWeight.value = weight3(receivedWeight);
+  form.departmentBalance.value = weight3(issuedNetWeight - receivedWeight);
   form.fromDepartment.value = transfer.fromDepartment || "";
   form.reason.value = transfer.reason || "";
   setTransferCurrentNote(`
@@ -16040,10 +16261,7 @@ function currentTransferIssueWeight(lot) {
 }
 
 function transferProvisionalNonGoldBefore(lot = {}, beforeTransferId = "") {
-  const transfers = lot.transfers || [];
-  const transferIndex = beforeTransferId ? transfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
-  const previousTransfers = transferIndex >= 0 ? transfers.slice(0, transferIndex) : transfers;
-  return Number(weight3(previousTransfers.at(-1)?.provisionalNonGoldWeight || 0));
+  return 0;
 }
 
 function currentTransferProvisionalNonGold(lot = {}) {
@@ -19428,13 +19646,12 @@ function departmentCurrentLotTotals(lot) {
   const handStone = Math.max(existingHandStone, Number(plannedHandStone || 0));
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
   const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
-  const provisionalNonGold = currentTransferProvisionalNonGold(lot);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
   const metalGross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
   const waxStone = Number(weight3(lotWaxStone + linkedSafe.waxStone));
-  const nonGold = Number(weight3(includedNonGold + provisionalNonGold + directNonGold + linkedSafe.nonGold));
+  const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold));
   const gross = Number(weight3(metalGross + directNonGold + linkedSafe.gross));
-  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold - provisionalNonGold, 0) + linkedSafe.gold));
+  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold, 0) + linkedSafe.gold));
   return { gross, gold, waxStone, handStone, nonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
@@ -21521,7 +21738,7 @@ async function migrateLegacyDesignImages() {
     await saveDesignImage(design.id, normalizedImage || design.imageData);
     delete design.imageData;
   }
-  saveState();
+  saveStateLocalOnly();
   render();
 }
 
@@ -21676,6 +21893,7 @@ function productionNonGoldEntries() {
 function renderProductionNonGoldTable() {
   const table = document.getElementById("production-non-gold-table");
   if (!table) return;
+  renderProductionNonGoldKaratPool();
   const rows = productionNonGoldEntries().map(({ lot, issue }) => `
     <tr>
       <td>${escapeHtml(issue.date || "-")}</td>
@@ -27893,7 +28111,7 @@ function openLotHistoryByNumber(lotNumber) {
 }
 
 function transferReducedWeight(transfer) {
-  return Number(transfer.reducedWeight ?? (Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || 0) + Number(transfer.provisionalNonGoldWeight || 0)));
+  return Number(weight3(Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || transfer.handStoneWeight || 0)));
 }
 
 function transferFineGold(transfer, lot = null) {
@@ -28161,32 +28379,25 @@ function renderHistoryTableRow(transfer, step, lotId) {
 
 function transferTitle(transfers) {
   return transfers
-    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, non-gold in GW ${gram(transfer.provisionalNonGoldWeight || 0)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
+    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
     .join("\n");
 }
 
-function updateTransferBalance(autoNonGold = true) {
+function updateTransferBalance() {
   const form = document.getElementById("transfer-form");
   const issued = Number(form.transferWeight.value || 0);
   const grossReceived = Number(form.grossReceivedWeight.value || 0);
   const waxStone = Number(form.waxStoneWeight.value || 0);
   const handStone = Number(form.stoneWeight.value || 0);
   const lot = findById("lots", form.lotId.value);
-  const previousProvisionalNonGold = transferProvisionalNonGoldBefore(lot, form.transferId.value);
-  if (autoNonGold && form.provisionalNonGoldWeight) {
-    const fittingAddition = isFittingNonGoldTransferSource(form.fromDepartment.value)
-      ? Math.max(grossReceived - issued, 0)
-      : 0;
-    form.provisionalNonGoldWeight.value = weight3(previousProvisionalNonGold + fittingAddition);
-  }
-  const provisionalNonGold = Number(form.provisionalNonGoldWeight?.value || 0);
-  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value) - previousProvisionalNonGold, 0);
-  const reducedWeight = waxStone + handStone + provisionalNonGold;
+  if (form.provisionalNonGoldWeight) form.provisionalNonGoldWeight.value = weight3(0);
+  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value), 0);
+  const reducedWeight = waxStone + handStone;
   const netReceived = Math.max(grossReceived - reducedWeight, 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(netReceived);
   form.departmentBalance.value = weight3(issuedNet - netReceived);
-  renderTransferNonGoldPoolStatus(lot, provisionalNonGold);
+  renderTransferNonGoldPoolStatus(lot);
 }
 
 function applyProductionStoneWeightToTransfer() {
@@ -28203,7 +28414,7 @@ function applyProductionStoneWeightToTransfer() {
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
-  form.provisionalNonGoldWeight.value = weight3(transferProvisionalNonGoldBefore(lot, form.transferId.value));
+  form.provisionalNonGoldWeight.value = weight3(0);
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   const handStoneSource = plannedHandStoneWeightForLot(lot) > 0 ? "job card" : "manual setting entry";
   const settingStoneNote = isSettingFromDepartment
@@ -29289,6 +29500,38 @@ function normalizeLotIssueWeights(currentState, lot) {
   const issuedWeight = hasGrossIssue
     ? Number(lot.issuedWeight || 0)
     : Number(weight3(Math.max(grossIssuedWeight - waxStoneWeight, 0)));
+  let previousHandStoneWeight = Number(lot.initialHandStoneWeight || 0);
+  const normalizedTransfers = transfers.map((transfer) => {
+    const transferWaxStoneWeight = Number(transfer.waxStoneWeight ?? waxStoneWeight);
+    const handStoneWeight = Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? previousHandStoneWeight);
+    const grossReceivedWeight = Number(transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transfer.transferWeight ?? 0);
+    const transferWeight = Number(transfer.transferWeight || 0);
+    const reducedWeight = Number(weight3(transferWaxStoneWeight + handStoneWeight));
+    const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
+    const issuedNetWeight = Number(weight3(Math.max(transferWeight - transferWaxStoneWeight - previousHandStoneWeight, 0)));
+    const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+    const differencePurity = karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "");
+    previousHandStoneWeight = Math.max(previousHandStoneWeight, handStoneWeight);
+    return {
+      id: transfer.id || crypto.randomUUID(),
+      ...transfer,
+      transferWeight,
+      grossReceivedWeight,
+      waxStoneWeight: transferWaxStoneWeight,
+      stoneWeight: handStoneWeight,
+      handStoneWeight,
+      provisionalNonGoldWeight: 0,
+      provisionalNonGoldAddedWeight: 0,
+      reducedWeight,
+      receivedWeight,
+      departmentBalance,
+      differencePurity,
+      differenceFineGold: fineGoldWeight(departmentBalance, differencePurity),
+      balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || ""),
+      fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || ""),
+      toDepartment: mergedProductionDepartmentName(transfer.toDepartment || ""),
+    };
+  });
   return {
     transfers: [],
     ...lot,
@@ -29298,25 +29541,7 @@ function normalizeLotIssueWeights(currentState, lot) {
     issueKarigarName: lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName || "",
     issueDepartment: mergedProductionDepartmentName(lot.issueDepartment || firstTransfer.fromDepartment || lot.currentDepartment || lot.karigarName || ""),
     metalPurity,
-    transfers: transfers.map((transfer) => ({
-      id: transfer.id || crypto.randomUUID(),
-      ...transfer,
-      grossReceivedWeight: transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transfer.transferWeight ?? 0,
-      waxStoneWeight: transfer.waxStoneWeight ?? waxStoneWeight,
-      stoneWeight: transfer.stoneWeight ?? 0,
-      handStoneWeight: transfer.handStoneWeight ?? transfer.stoneWeight ?? 0,
-      reducedWeight: transfer.reducedWeight ?? Number(transfer.waxStoneWeight ?? waxStoneWeight) + Number(transfer.stoneWeight ?? 0),
-      receivedWeight: transfer.receivedWeight ?? transfer.transferWeight ?? 0,
-      departmentBalance: transfer.departmentBalance ?? 0,
-      differencePurity: karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || ""),
-      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "")),
-      balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || ""),
-      fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || ""),
-      toDepartment: mergedProductionDepartmentName(transfer.toDepartment || ""),
-    })).map((transfer) => ({
-      ...transfer,
-      differenceFineGold: fineGoldWeight(transfer.departmentBalance ?? 0, transfer.differencePurity || metalPurity || primaryOrder?.purity || 0),
-    })),
+    transfers: normalizedTransfers,
     currentDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || ""),
     issueDate: lot.issueDate || "",
     grossIssuedWeight,
@@ -29522,11 +29747,9 @@ function escapeHtml(value) {
 initializeOperationTiles();
 applyLoginState();
 render();
-migrateLegacyDesignImages().catch(() => {
-  document.getElementById("design-upload-status").textContent = "Design image storage is using browser local storage fallback.";
-});
 restoreOrderDraftOrReset();
 resetMeltingSources();
 updateMeltingCalculation();
 resetXrfForm();
 initializeSupabase();
+if (!supabaseSettings.url || !supabaseSettings.anonKey) runPostCloudMigrations();
