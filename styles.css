@@ -6570,6 +6570,62 @@ body.measuring-transfer-bag .global-print-area {
   }
 }
 
+.app-update-banner {
+  position: fixed;
+  z-index: 100000;
+  right: 18px;
+  bottom: 18px;
+  display: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: min(560px, calc(100vw - 36px));
+  padding: 14px 16px;
+  border: 1px solid #6baa78;
+  border-radius: 8px;
+  background: #f3fff5;
+  color: #173f25;
+  box-shadow: 0 12px 34px rgb(21 64 37 / 22%);
+}
+
+.app-update-banner.visible {
+  display: grid;
+}
+
+.app-update-banner div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.app-update-banner strong {
+  font-size: 14px;
+}
+
+.app-update-banner span {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.app-update-banner button {
+  min-height: 36px;
+  padding: 8px 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .app-update-banner {
+    right: 10px;
+    bottom: 10px;
+    grid-template-columns: 1fr;
+    width: calc(100vw - 20px);
+  }
+
+  .app-update-banner button {
+    width: 100%;
+  }
+}
+
 .print-barcode.combined .barcode {
   width: 100%;
   height: 28px;

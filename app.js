@@ -10,9 +10,14 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v491";
+const APP_VERSION = "v492";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
+const APP_VERSION_MANIFEST_FILE = "app-version.json";
+const APP_VERSION_CHECK_INTERVAL_MS = 20000;
+const APP_VERSION_INITIAL_CHECK_DELAY_MS = 2500;
+const APP_VERSION_RETRY_DELAY_MS = 1500;
+const APP_VERSION_SYNC_WAIT_MS = 20000;
 const BARCODE_SCAN_RESET_MS = 140;
 const BARCODE_SCAN_MIN_LENGTH = 3;
 const OWNER_CURRENT_PASSWORD = "@N170726";
@@ -123,6 +128,149 @@ function stampCurrentAppVersion(currentState = state, savedAt = "") {
   return currentState;
 }
 
+function isHostedErpPage() {
+  return ["http:", "https:"].includes(window.location.protocol);
+}
+
+function appVersionManifestUrl() {
+  const url = new URL(APP_VERSION_MANIFEST_FILE, document.baseURI);
+  url.searchParams.set("_erp_check", String(Date.now()));
+  return url.toString();
+}
+
+function appUpdateHasUnsafeOpenEditor() {
+  if (document.querySelector("dialog[open]")) return true;
+  const active = document.activeElement;
+  if (!active || !["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return false;
+  if (!active.getClientRects().length) return false;
+  return !active.closest("#order-form");
+}
+
+function ensureAppUpdateBanner() {
+  let banner = document.getElementById("app-update-banner");
+  if (banner) return banner;
+  banner = document.createElement("section");
+  banner.id = "app-update-banner";
+  banner.className = "app-update-banner";
+  banner.setAttribute("role", "status");
+  banner.setAttribute("aria-live", "polite");
+  banner.innerHTML = `
+    <div>
+      <strong id="app-update-title">NEW ERP VERSION READY</strong>
+      <span id="app-update-message">SAVING THIS LAPTOP BEFORE AUTOMATIC UPDATE.</span>
+    </div>
+    <button type="button" id="app-update-now">UPDATE NOW</button>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector("#app-update-now")?.addEventListener("click", () => {
+    attemptAutomaticAppReload({ forceEditor: true });
+  });
+  return banner;
+}
+
+function showAppUpdateBanner(message = "SAVING THIS LAPTOP BEFORE AUTOMATIC UPDATE.", readyToReload = false) {
+  const banner = ensureAppUpdateBanner();
+  const version = appVersionPendingUpdate?.version || "NEW VERSION";
+  const title = banner.querySelector("#app-update-title");
+  const detail = banner.querySelector("#app-update-message");
+  const button = banner.querySelector("#app-update-now");
+  if (title) title.textContent = `${version} ERP UPDATE READY`;
+  if (detail) detail.textContent = message;
+  if (button) {
+    button.disabled = appVersionReloadStarted;
+    button.textContent = readyToReload ? "UPDATING..." : "UPDATE NOW";
+  }
+  banner.classList.add("visible");
+}
+
+function scheduleAutomaticAppReload() {
+  window.setTimeout(() => attemptAutomaticAppReload(), APP_VERSION_RETRY_DELAY_MS);
+}
+
+async function attemptAutomaticAppReload(options = {}) {
+  if (!appVersionPendingUpdate || appVersionReloadStarted || appVersionReloadAttempting) return;
+  appVersionReloadAttempting = true;
+  try {
+    saveOrderDraft();
+    if (!options.forceEditor && appUpdateHasUnsafeOpenEditor()) {
+      showAppUpdateBanner("UPDATE WILL CONTINUE AUTOMATICALLY AFTER THE OPEN FORM OR POPUP IS CLOSED.");
+      scheduleAutomaticAppReload();
+      return;
+    }
+
+    const waitingTime = Date.now() - appVersionPendingSince;
+    if (hasUnsyncedLocalState() && waitingTime < APP_VERSION_SYNC_WAIT_MS) {
+      showAppUpdateBanner("SAVING THE LATEST DATA BEFORE AUTOMATIC UPDATE.");
+      const canTryCloudSave = supabaseClient
+        && supabaseInitialReadComplete
+        && supabaseCloudBaselineVerified
+        && !supabaseStartupProtectionActive
+        && !supabaseIsSaving
+        && Date.now() - appVersionLastSyncAttemptAt >= APP_VERSION_RETRY_DELAY_MS;
+      if (canTryCloudSave) {
+        appVersionLastSyncAttemptAt = Date.now();
+        await syncStateToSupabase({ versionUpgrade: true });
+      }
+      if (hasUnsyncedLocalState()) {
+        scheduleAutomaticAppReload();
+        return;
+      }
+    }
+
+    saveOrderDraft();
+    persistStateToBrowser({ context: "ERP update" });
+    appVersionReloadStarted = true;
+    showAppUpdateBanner("DATA IS SAFE. OPENING THE NEW ERP VERSION NOW.", true);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("_erp_version", String(appVersionPendingUpdate.build));
+    window.setTimeout(() => window.location.replace(nextUrl.toString()), 700);
+  } finally {
+    appVersionReloadAttempting = false;
+  }
+}
+
+async function checkForAppVersionUpdate() {
+  if (!isHostedErpPage() || appVersionCheckInProgress || appVersionReloadStarted) return false;
+  appVersionCheckInProgress = true;
+  try {
+    const response = await fetch(appVersionManifestUrl(), {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+    });
+    if (!response.ok) throw new Error(`Version check returned ${response.status}.`);
+    const manifest = await response.json();
+    const nextBuild = Number(manifest.build || appVersionBuild(manifest.version));
+    if (!Number.isFinite(nextBuild) || nextBuild <= APP_BUILD) return false;
+    appVersionPendingUpdate = {
+      version: String(manifest.version || `v${nextBuild}`),
+      build: nextBuild,
+    };
+    if (!appVersionPendingSince) appVersionPendingSince = Date.now();
+    showAppUpdateBanner("NEW VERSION FOUND. PREPARING THIS LAPTOP FOR AUTOMATIC UPDATE.");
+    attemptAutomaticAppReload();
+    return true;
+  } catch (error) {
+    console.warn("Automatic ERP version check is temporarily unavailable.", error);
+    return false;
+  } finally {
+    appVersionCheckInProgress = false;
+  }
+}
+
+function startAppVersionAutoRefresh() {
+  if (!isHostedErpPage()) return;
+  clearInterval(appVersionCheckTimer);
+  window.setTimeout(checkForAppVersionUpdate, APP_VERSION_INITIAL_CHECK_DELAY_MS);
+  appVersionCheckTimer = window.setInterval(() => {
+    if (!document.hidden) checkForAppVersionUpdate();
+  }, APP_VERSION_CHECK_INTERVAL_MS);
+  window.addEventListener("focus", checkForAppVersionUpdate);
+  window.addEventListener("online", checkForAppVersionUpdate);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkForAppVersionUpdate();
+  });
+}
+
 let supabaseClient = null;
 let supabaseSaveTimer = null;
 let supabaseAutoRefreshTimer = null;
@@ -145,6 +293,13 @@ let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
 let supabaseLocalRevision = supabaseLocalDirty ? 1 : 0;
+let appVersionCheckTimer = null;
+let appVersionCheckInProgress = false;
+let appVersionPendingUpdate = null;
+let appVersionPendingSince = 0;
+let appVersionReloadAttempting = false;
+let appVersionReloadStarted = false;
+let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
@@ -7240,8 +7395,8 @@ function getLotOrderIds(lot) {
   return lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
 }
 
-function getLotOrders(lot) {
-  return getLotOrderIds(lot).map((id) => findById("orders", id)).filter(Boolean);
+function getLotOrders(lot, sourceState = state) {
+  return getLotOrderIds(lot).map((id) => (sourceState?.orders || []).find((order) => order.id === id)).filter(Boolean);
 }
 
 function billableOrderIdsForLot(lot = {}, bill = {}) {
@@ -12775,15 +12930,16 @@ function jobItemTransferHistoryHtml(lots = []) {
   `;
 }
 
-function productionStoneDesignForOrder(order = {}) {
-  const directDesign = order.designId ? findById("designs", order.designId) : null;
+function productionStoneDesignForOrder(order = {}, sourceState = state) {
+  const designs = sourceState?.designs || [];
+  const directDesign = order.designId ? designs.find((design) => design.id === order.designId) || null : null;
   if (directDesign?.stoneItems?.length) return directDesign;
   const references = [
     order.designNumber,
     String(order.designNumber || "").split(" - ")[0],
     order.designNo,
   ].map(normalizedDesignMatchKey).filter(Boolean);
-  const matches = (state.designs || []).filter((design) => {
+  const matches = designs.filter((design) => {
     const designReferences = [design.number, design.name, designText(design)]
       .map(normalizedDesignMatchKey)
       .filter(Boolean);
@@ -15616,8 +15772,8 @@ function productionStoneItemsForOrder(order) {
   return items.map((item) => productionStoneItemWithMasterData(item));
 }
 
-function buildProductionStoneItemsForOrder(order = {}, design = null) {
-  const sourceDesign = design || productionStoneDesignForOrder(order);
+function buildProductionStoneItemsForOrder(order = {}, design = null, sourceState = state) {
+  const sourceDesign = design || productionStoneDesignForOrder(order, sourceState);
   return designStoneItemsForOrder(sourceDesign, order).map(productionStoneItemFromDesignStone);
 }
 
@@ -16609,9 +16765,9 @@ function factoryStockHoldingLot(lot = {}) {
   return lot.status !== "Completed" || Boolean(lot.fittingItemsJobCard && lot.fittingItemsIssuedToFitting);
 }
 
-function plannedHandStoneWeightForLot(lot) {
+function plannedHandStoneWeightForLot(lot, sourceState = state) {
   if (!lot) return 0;
-  return Number(weight3(productionStoneTotalsForOrders(getLotOrders(lot), "hand").weight || 0));
+  return Number(weight3(productionStoneTotalsForOrderList(sourceState, getLotOrders(lot, sourceState), "hand").weight || 0));
 }
 
 function productionStoneWeightForTransfer(lot) {
@@ -16620,10 +16776,10 @@ function productionStoneWeightForTransfer(lot) {
   return plannedWeight > 0 ? plannedWeight : Number(weight3(lot.manualHandStoneWeight || 0));
 }
 
-function transferWaxStoneWeight(lot) {
+function transferWaxStoneWeight(lot, sourceState = state) {
   return Number(weight3(Math.max(
     Number(lot.waxStoneWeight || 0),
-    Number(productionStoneTotalsForOrders(getLotOrders(lot), "wax").weight || 0),
+    Number(productionStoneTotalsForOrderList(sourceState, getLotOrders(lot, sourceState), "wax").weight || 0),
   )));
 }
 
@@ -16640,9 +16796,9 @@ function isSettingDepartment(value = "") {
   return String(value || "").trim().toLowerCase().includes("setting");
 }
 
-function currentTransferIssueWeight(lot) {
+function currentTransferIssueWeight(lot, sourceState = state) {
   const transfers = lot.transfers || [];
-  if (!transfers.length) return Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)));
+  if (!transfers.length) return Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot, sourceState)));
   const latest = transfers.at(-1);
   return Number(latest.grossReceivedWeight ?? latest.receivedWeight ?? latest.transferWeight ?? lot.grossIssuedWeight ?? lot.issuedWeight ?? 0);
 }
@@ -22627,11 +22783,11 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const setter = (currentState.settingSetters || []).find((item) => item.id === entry.setterId) || {};
   const entryType = entry.entryType === "Accessory" || entry.sourceIssueId ? "Accessory" : "Lot";
   const isAccessory = entryType === "Accessory";
-  const issueGw = Number(weight3(entry.issueGw ?? entry.transferWeight ?? entry.weight ?? currentTransferIssueWeight(lot)));
+  const issueGw = Number(weight3(entry.issueGw ?? entry.transferWeight ?? entry.weight ?? currentTransferIssueWeight(lot, currentState)));
   const receiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
   const hasReceive = !isAccessory && receiveGwValue !== undefined && receiveGwValue !== null && String(receiveGwValue) !== "";
   const receiveGw = hasReceive ? Number(weight3(receiveGwValue)) : "";
-  const plannedHandStoneWeight = isAccessory ? 0 : plannedHandStoneWeightForLot(lot);
+  const plannedHandStoneWeight = isAccessory ? 0 : plannedHandStoneWeightForLot(lot, currentState);
   const handStoneWeight = isAccessory
     ? 0
     : Number(weight3(entry.handStoneWeight ?? (plannedHandStoneWeight > 0 ? plannedHandStoneWeight : lot.manualHandStoneWeight || 0)));
@@ -30093,7 +30249,7 @@ function normalizeState(currentState) {
       ? normalizedProductionStoneItems
       : hasProductionStoneOverride
         ? []
-        : buildProductionStoneItemsForOrder(order, design);
+        : buildProductionStoneItemsForOrder(order, design, currentState);
     order.productionStoneOverride = hasProductionStoneOverride;
     order.productionStoneUpdatedAt = order.productionStoneUpdatedAt || "";
     if (!order.customerId && order.customer) {
@@ -30406,4 +30562,5 @@ resetMeltingSources();
 updateMeltingCalculation();
 resetXrfForm();
 initializeSupabase();
+startAppVersionAutoRefresh();
 if (!supabaseSettings.url || !supabaseSettings.anonKey) runPostCloudMigrations();
