@@ -5345,6 +5345,100 @@ dialog::backdrop {
   line-height: 1.1;
 }
 
+#bill-dialog .bill-design-view-button {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-color: #7fc6b5;
+  background: #effbf7;
+  color: #075e52;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#bill-dialog .bill-design-view-button:hover,
+#bill-dialog .bill-design-view-button:focus-visible {
+  border-color: #0b7a75;
+  background: #d9f4eb;
+  color: #063f39;
+}
+
+.bill-design-hover-preview {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  overflow: hidden;
+  border: 2px solid #68bba9;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 22px 55px rgba(7, 63, 57, 0.28);
+  pointer-events: none;
+}
+
+.bill-design-hover-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: #0b514c;
+}
+
+.bill-design-hover-heading strong {
+  font-size: 13px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.bill-design-hover-heading small {
+  flex: 0 0 auto;
+  margin: 0;
+  color: #647b76;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.bill-design-hover-media {
+  display: grid;
+  min-height: 285px;
+  max-height: 355px;
+  aspect-ratio: 105 / 148;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #cee3de;
+  border-radius: 6px;
+  background: #f6fbf9;
+}
+
+.bill-design-hover-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.bill-design-hover-media span {
+  max-width: 220px;
+  padding: 18px;
+  color: #607570;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.bill-design-hover-help {
+  margin: 0;
+  color: #52706b;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
 #bill-dialog .bill-item-table small {
   color: #6b7d7a;
   margin-top: 1px;
@@ -6112,14 +6206,15 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-stone-details {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: 1px;
   border: 1px solid #d1d5db;
   padding: 3px;
   font-size: 8px;
   line-height: 1.16;
   box-sizing: border-box;
-  height: 100%;
+  height: auto;
+  align-self: start;
   overflow: hidden;
 }
 
@@ -6132,9 +6227,9 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-stone-details table {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
-  align-self: stretch;
+  align-self: start;
   border-collapse: collapse;
   margin-top: 0;
   table-layout: fixed;
@@ -6152,7 +6247,7 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-details th {
   background: #f3f4f6;
   color: #111827;
-  font-size: 7px;
+  font-size: 8px;
   text-transform: uppercase;
 }
 
@@ -6162,20 +6257,20 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-stone-details.multi-item {
   padding: 3px;
-  font-size: 7.5px;
+  font-size: 8px;
 }
 
 .print-stone-details.multi-item b {
-  font-size: 7.5px;
+  font-size: 8px;
 }
 
 .print-stone-details.multi-item th {
-  font-size: 6.5px;
+  font-size: 8px;
 }
 
 .print-stone-details.multi-item td {
   padding: 1.5px;
-  font-size: 7.2px;
+  font-size: 8px;
 }
 
 .print-stone-details .stone-item-total-row td {

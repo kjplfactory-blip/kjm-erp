@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=481">
+  <link rel="stylesheet" href="styles.css?v=485">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v482</small>
+          <small class="app-version-badge">App v485</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v482</span>
+          <span class="app-version-badge">App v485</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1898,6 +1898,17 @@
           </table>
           <p class="dialog-note">Stone Wt is automatic from job card stone data. BB Wt = BB No x BB Type weight per pc. Net Wt = Final GW - BB Wt - Moti Wt - Stone Wt - Spring Wt - Other Wt.</p>
         </div>
+        <div id="bill-design-hover-preview" class="bill-design-hover-preview hidden" role="tooltip" aria-hidden="true">
+          <div class="bill-design-hover-heading">
+            <strong id="bill-design-hover-title">Design Image</strong>
+            <small id="bill-design-hover-reference">Loading</small>
+          </div>
+          <div class="bill-design-hover-media">
+            <img id="bill-design-hover-image" class="hidden" alt="Bill item design preview">
+            <span id="bill-design-hover-message">Loading design image...</span>
+          </div>
+          <small class="bill-design-hover-help">Click View Design for full-screen verification</small>
+        </div>
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-bill">Cancel</button>
           <button class="ghost-button" type="button" id="print-bill">Print Bill A6</button>
@@ -2497,6 +2508,6 @@
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
-  <script src="app.js?v=482"></script>
+  <script src="app.js?v=485"></script>
 </body>
 </html>

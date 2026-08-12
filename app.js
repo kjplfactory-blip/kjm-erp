@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v482";
+const APP_VERSION = "v485";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -170,6 +170,7 @@ const designImageCache = new Map();
 const designImagePending = new Map();
 const designImageCloudPending = new Map();
 const designImageUnsyncedIds = new Set();
+let billDesignHoverRequest = 0;
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
@@ -2584,10 +2585,41 @@ document.getElementById("cancel-production-return")?.addEventListener("click", (
 document.getElementById("bill-form").addEventListener("input", updateBillAmount);
 document.getElementById("bill-form").addEventListener("change", updateBillAmount);
 
+document.getElementById("bill-form").addEventListener("pointerover", (event) => {
+  const button = event.target.closest?.("[data-bill-design-preview]");
+  if (!button || button.contains(event.relatedTarget)) return;
+  showBillDesignHoverPreview(button);
+});
+
+document.getElementById("bill-form").addEventListener("pointerout", (event) => {
+  const button = event.target.closest?.("[data-bill-design-preview]");
+  if (!button || button.contains(event.relatedTarget)) return;
+  hideBillDesignHoverPreview();
+});
+
+document.getElementById("bill-form").addEventListener("focusin", (event) => {
+  const button = event.target.closest?.("[data-bill-design-preview]");
+  if (button) showBillDesignHoverPreview(button);
+});
+
+document.getElementById("bill-form").addEventListener("focusout", (event) => {
+  if (event.target.closest?.("[data-bill-design-preview]")) hideBillDesignHoverPreview();
+});
+
+document.getElementById("bill-form").addEventListener("click", async (event) => {
+  const button = event.target.closest?.("[data-bill-design-preview]");
+  if (!button) return;
+  event.preventDefault();
+  hideBillDesignHoverPreview();
+  await openBillDesignImage(button.dataset.billDesignPreview || "");
+});
+
 document.getElementById("bill-form").addEventListener("submit", (event) => {
   event.preventDefault();
   saveBillFromForm(true);
 });
+
+document.getElementById("bill-dialog").addEventListener("close", hideBillDesignHoverPreview);
 
 document.getElementById("bill-qc-ok").addEventListener("click", () => {
   if (!canEditQcStatus()) {
@@ -2693,6 +2725,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
 }
 
 document.getElementById("cancel-bill").addEventListener("click", () => {
+  hideBillDesignHoverPreview();
   document.getElementById("bill-dialog").close();
 });
 
@@ -14571,14 +14604,24 @@ function prepareJobBagStoneLayouts(rootDocument = document) {
   let fittedCards = 0;
   cards.forEach((card) => {
     const details = card.querySelector(".print-stone-details");
+    const section = card.querySelector(".print-stone-section");
+    const barcode = card.querySelector(".print-barcode");
     if (!details) return;
     card.classList.remove(...fitClasses);
     details.classList.remove(...fitClasses);
     details.dataset.stoneFit = "normal";
     card.getBoundingClientRect();
-    const fits = () => details.clientHeight > 0
-      && details.scrollHeight <= details.clientHeight + 1
-      && card.scrollHeight <= card.clientHeight + 1;
+    const fits = () => {
+      const detailsRect = details.getBoundingClientRect();
+      const barcodeRect = barcode?.getBoundingClientRect();
+      const staysInsideSection = !section || details.scrollHeight <= section.clientHeight + 1;
+      const staysAboveBarcode = !barcodeRect?.height || detailsRect.bottom <= barcodeRect.top - 1;
+      return details.clientHeight > 0
+        && details.scrollHeight <= details.clientHeight + 1
+        && staysInsideSection
+        && staysAboveBarcode
+        && card.scrollHeight <= card.clientHeight + 1;
+    };
     if (!fits()) {
       for (const fitClass of fitClasses) {
         card.classList.remove(...fitClasses);
@@ -25437,6 +25480,84 @@ function billItemSizeText(item = {}, order = {}) {
   return String(item.size || "").trim() || billOrderDefaultSize(order);
 }
 
+function billDesignForOrder(order = {}) {
+  return productionStoneDesignForOrder(order);
+}
+
+function billOrderForPreview(orderId = "") {
+  return findById("orders", orderId) || null;
+}
+
+function positionBillDesignHoverPreview(button, preview) {
+  const rect = button.getBoundingClientRect();
+  const margin = 10;
+  const previewWidth = Math.min(320, Math.max(window.innerWidth - (margin * 2), 220));
+  const previewHeight = Math.min(440, Math.max(window.innerHeight - (margin * 2), 300));
+  let left = rect.right + margin;
+  if (left + previewWidth > window.innerWidth - margin) left = rect.left - previewWidth - margin;
+  left = Math.max(margin, Math.min(left, window.innerWidth - previewWidth - margin));
+  const top = Math.max(margin, Math.min(rect.top - 18, window.innerHeight - previewHeight - margin));
+  preview.style.left = `${left}px`;
+  preview.style.top = `${top}px`;
+  preview.style.width = `${previewWidth}px`;
+  preview.style.maxHeight = `${previewHeight}px`;
+}
+
+async function showBillDesignHoverPreview(button) {
+  const orderId = button?.dataset?.billDesignPreview || "";
+  const order = billOrderForPreview(orderId);
+  const design = billDesignForOrder(order || {});
+  const preview = document.getElementById("bill-design-hover-preview");
+  const image = document.getElementById("bill-design-hover-image");
+  const title = document.getElementById("bill-design-hover-title");
+  const reference = document.getElementById("bill-design-hover-reference");
+  const message = document.getElementById("bill-design-hover-message");
+  if (!preview || !image || !title || !reference || !message) return;
+
+  const requestId = ++billDesignHoverRequest;
+  preview.dataset.orderId = orderId;
+  title.textContent = billOrderDesignCode(order || {}) || "Design Image";
+  reference.textContent = [order?.productionNo || order?.number, order?.category].filter(Boolean).join(" / ") || "Bill item";
+  image.src = "";
+  image.classList.add("hidden");
+  message.textContent = design ? "Loading design image..." : "Design Master image is not linked to this item.";
+  message.classList.remove("hidden");
+  preview.classList.remove("hidden");
+  preview.setAttribute("aria-hidden", "false");
+  positionBillDesignHoverPreview(button, preview);
+  if (!design) return;
+
+  const imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
+  if (requestId !== billDesignHoverRequest || preview.dataset.orderId !== orderId || preview.classList.contains("hidden")) return;
+  if (!imageData && !design.imageData) {
+    message.textContent = "Design image is not available on cloud or this laptop.";
+    return;
+  }
+  image.src = imageData || design.imageData || "";
+  image.alt = `${billOrderDesignCode(order || {}) || designText(design) || "Design"} preview`;
+  image.classList.remove("hidden");
+  message.classList.add("hidden");
+}
+
+function hideBillDesignHoverPreview() {
+  billDesignHoverRequest += 1;
+  const preview = document.getElementById("bill-design-hover-preview");
+  if (!preview) return;
+  preview.classList.add("hidden");
+  preview.setAttribute("aria-hidden", "true");
+  delete preview.dataset.orderId;
+}
+
+async function openBillDesignImage(orderId = "") {
+  const order = billOrderForPreview(orderId);
+  const design = billDesignForOrder(order || {});
+  if (!order || !design) {
+    alert("No matching Design Master image is linked to this Bill item.");
+    return;
+  }
+  await openDesignImage(design.id);
+}
+
 function renderBillItems(lot, bill = {}) {
   const body = document.getElementById("bill-item-table");
   if (!body) return;
@@ -25466,6 +25587,7 @@ function renderBillItems(lot, bill = {}) {
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}</small>
+          <button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
