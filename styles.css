@@ -3567,6 +3567,45 @@ th {
   letter-spacing: 1px;
 }
 
+.qr-code-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 0;
+  color: #111827;
+  background: #ffffff;
+}
+
+.qr-code-canvas {
+  display: block;
+  width: 96px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  padding: 4px;
+  box-sizing: border-box;
+  background: #ffffff;
+  image-rendering: pixelated;
+}
+
+.qr-code-canvas canvas,
+.qr-code-canvas img,
+.qr-code-canvas svg,
+.qr-code-canvas table {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+
+.qr-code-wrap small {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .standard-code128-wrap .code128-barcode {
   width: 200px;
   max-width: 100%;
@@ -3614,6 +3653,17 @@ th {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.generated-code-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  gap: 18px;
+}
+
+.generated-code-pair .qr-code-canvas {
+  width: 180px;
 }
 
 .barcode-readable-text {
@@ -5817,6 +5867,22 @@ dialog::backdrop {
   max-width: 220px;
 }
 
+.job-item-code-pair {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 112px;
+  align-items: center;
+  gap: 12px;
+  width: min(360px, 100%);
+}
+
+.job-item-code-pair .job-item-barcode {
+  max-width: none;
+}
+
+.job-item-code-pair .qr-code-canvas {
+  width: 112px;
+}
+
 .job-item-barcode .barcode-wrap,
 .job-item-barcode .barcode {
   width: 100%;
@@ -6210,7 +6276,8 @@ body.measuring-transfer-bag .global-print-area {
   gap: 1px;
   border: 1px solid #d1d5db;
   padding: 3px;
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 17.6px;
   line-height: 1.16;
   box-sizing: border-box;
   height: auto;
@@ -6221,7 +6288,8 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-details b {
   display: block;
   color: #6b7280;
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 17.6px;
   text-transform: uppercase;
 }
 
@@ -6247,30 +6315,32 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-details th {
   background: #f3f4f6;
   color: #111827;
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 17.6px;
   text-transform: uppercase;
 }
 
 .print-stone-details td {
-  font-size: 12px;
+  font-family: inherit;
+  font-size: 17.6px;
 }
 
 .print-stone-details.multi-item {
   padding: 3px;
-  font-size: 12px;
+  font-size: 17.6px;
 }
 
 .print-stone-details.multi-item b {
-  font-size: 12px;
+  font-size: 17.6px;
 }
 
 .print-stone-details.multi-item th {
-  font-size: 12px;
+  font-size: 17.6px;
 }
 
 .print-stone-details.multi-item td {
   padding: 1.5px;
-  font-size: 12px;
+  font-size: 17.6px;
 }
 
 .print-stone-details .stone-item-total-row td {
@@ -6296,6 +6366,9 @@ body.measuring-transfer-bag .global-print-area {
   height: 3.5mm;
 }
 
+.print-job-item.stone-space-compact,
+.print-job-item.stone-space-dense,
+.print-job-item.stone-space-ultra,
 .print-job-item.stone-density-compact,
 .print-job-item.stone-density-dense,
 .print-job-item.stone-density-ultra {
@@ -6303,16 +6376,19 @@ body.measuring-transfer-bag .global-print-area {
   padding: 4px;
 }
 
+.print-job-item.stone-space-compact .print-design-image,
 .print-job-item.stone-density-compact .print-design-image {
   height: 35mm;
   max-height: 35mm;
 }
 
+.print-job-item.stone-space-dense .print-design-image,
 .print-job-item.stone-density-dense .print-design-image {
   height: 31mm;
   max-height: 31mm;
 }
 
+.print-job-item.stone-space-ultra .print-design-image,
 .print-job-item.stone-density-ultra .print-design-image {
   height: 27mm;
   max-height: 27mm;
@@ -6339,11 +6415,15 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details.stone-density-compact th {
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .print-stone-details.stone-density-compact td {
-  font-size: 10px;
+  font-size: 14px;
+}
+
+.print-stone-details.stone-density-compact b {
+  font-size: 14px;
 }
 
 .print-stone-details.stone-density-dense th,
@@ -6352,15 +6432,15 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details.stone-density-dense b {
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .print-stone-details.stone-density-dense th {
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .print-stone-details.stone-density-dense td {
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .print-stone-details.stone-density-ultra th,
@@ -6370,15 +6450,15 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details.stone-density-ultra b {
-  font-size: 6px;
+  font-size: 8px;
 }
 
 .print-stone-details.stone-density-ultra th {
-  font-size: 5px;
+  font-size: 7px;
 }
 
 .print-stone-details.stone-density-ultra td {
-  font-size: 5.4px;
+  font-size: 8px;
 }
 
 .print-stone-details.stone-density-compact .manual-stone-row td,
@@ -6395,6 +6475,33 @@ body.measuring-transfer-bag .global-print-area {
 .print-barcode .barcode {
   width: 185px;
   height: 34px;
+}
+
+.print-code-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14mm;
+  align-items: center;
+  gap: 2mm;
+  width: 100%;
+  min-width: 0;
+}
+
+.print-code-pair .barcode-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.print-code-pair .barcode {
+  width: 100%;
+}
+
+.print-code-pair .qr-code-wrap {
+  width: 14mm;
+}
+
+.print-code-pair .qr-code-canvas {
+  width: 14mm;
+  padding: 0.7mm;
 }
 
 .barcode-box {
@@ -6434,6 +6541,33 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-barcode.combined .barcode-wrap {
   min-width: 0;
+}
+
+.print-barcode.combined .print-code-pair {
+  grid-template-columns: minmax(0, 1fr) 12mm;
+  gap: 1mm;
+}
+
+.print-barcode.combined .print-code-pair .qr-code-wrap,
+.print-barcode.combined .print-code-pair .qr-code-canvas {
+  width: 12mm;
+}
+
+.print-barcode.combined.barcode-many .print-code-pair {
+  grid-template-columns: minmax(0, 1fr) 11mm;
+  gap: 0.7mm;
+}
+
+.print-barcode.combined.barcode-many .print-code-pair .qr-code-wrap,
+.print-barcode.combined.barcode-many .print-code-pair .qr-code-canvas {
+  width: 11mm;
+}
+
+@media (max-width: 620px) {
+  .generated-code-pair,
+  .job-item-code-pair {
+    grid-template-columns: 1fr;
+  }
 }
 
 .print-barcode.combined .barcode {

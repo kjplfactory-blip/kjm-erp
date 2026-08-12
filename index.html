@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=490">
+  <link rel="stylesheet" href="styles.css?v=491">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v490</small>
+          <small class="app-version-badge">App v491</small>
           </div>
         </div>
         <label>User
@@ -103,16 +103,16 @@
           <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
         </div>
         <div class="top-actions">
-          <div class="top-action-group scanner-group" aria-label="Barcode scanner">
+          <div class="top-action-group scanner-group" aria-label="Barcode and QR scanner">
             <label class="global-scan-label">
-              <span>Scan Barcode</span>
-              <input id="global-barcode-scan" class="global-barcode-input" placeholder="Scan PR / HUID / barcode" autocomplete="off">
+              <span>Scan Barcode / QR</span>
+              <input id="global-barcode-scan" class="global-barcode-input" placeholder="Scan PR / HUID / barcode / QR" autocomplete="off">
             </label>
             <button id="focus-barcode-scan" class="ghost-button" type="button">Camera Scan</button>
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v490</span>
+          <span class="app-version-badge">App v491</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -476,7 +476,7 @@
           <section class="panel table-panel">
             <div class="panel-heading">
               <h2>Job Orders</h2>
-              <input id="barcode-scan" class="search" placeholder="Scan / enter barcode">
+              <input id="barcode-scan" class="search" placeholder="Scan barcode / QR / PR">
             </div>
             <div class="table-wrap">
               <table>
@@ -1724,11 +1724,11 @@
       <div class="dialog-card barcode-generator-dialog">
         <div class="dialog-header">
           <div>
-            <h2>Phone Barcode Generator</h2>
+            <h2>Phone Barcode & QR Generator</h2>
             <p id="barcode-generator-summary" class="dialog-note"></p>
           </div>
           <div class="row-actions">
-            <button type="button" id="print-generated-barcode">Print Barcode</button>
+            <button type="button" id="print-generated-barcode">Print Barcode + QR</button>
             <button class="ghost-button" type="button" id="close-barcode-generator">Close</button>
           </div>
         </div>
@@ -1740,8 +1740,8 @@
       <div class="dialog-card camera-scanner-dialog">
         <div class="dialog-header">
           <div>
-            <h2 id="product-camera-title">Scan Product Barcode</h2>
-            <p id="product-camera-note" class="dialog-note">Point the rear camera at the ERP barcode. Scanning only displays product details and does not change any data.</p>
+            <h2 id="product-camera-title">Scan Product Barcode / QR</h2>
+            <p id="product-camera-note" class="dialog-note">Point the rear camera at the ERP barcode or QR code. Scanning only displays product details and does not change any data.</p>
           </div>
           <div class="row-actions">
             <button class="ghost-button hidden" type="button" id="scan-another-product">Scan Another</button>
@@ -2512,6 +2512,7 @@
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
-  <script src="app.js?v=490"></script>
+  <script src="qrcode.min.js?v=1.0.0-491"></script>
+  <script src="app.js?v=491"></script>
 </body>
 </html>

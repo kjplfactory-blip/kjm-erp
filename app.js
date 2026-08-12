@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v490";
+const APP_VERSION = "v491";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -165,6 +165,8 @@ let phoneBarcodeScanSession = 0;
 let phoneBarcodeResultLocked = false;
 let phoneBarcodeLibraryPromise = null;
 let phoneBarcodeScanMode = "view";
+let pendingQrLookupTimer = null;
+let pendingQrLookupAttempts = 0;
 let activeJobPrintCleanup = null;
 const designImageCache = new Map();
 const designImagePending = new Map();
@@ -3427,6 +3429,7 @@ function applyLoginState() {
   renderLoginUserOptions();
   applyAccessControl();
   renderLoginUsers();
+  openItemFromQrLink();
 }
 
 function currentUserConfig() {
@@ -6475,11 +6478,11 @@ function updatePhoneBarcodeDialogText() {
   const isCatalogue = phoneBarcodeScanMode === "catalogue";
   const title = document.getElementById("product-camera-title");
   const note = document.getElementById("product-camera-note");
-  if (title) title.textContent = isCatalogue ? "Scan & Add Client Selection" : "Scan Product Barcode";
+  if (title) title.textContent = isCatalogue ? "Scan & Add Client Selection" : "Scan Product Barcode / QR";
   if (note) {
     note.textContent = isCatalogue
       ? "Each successful scan adds the matching catalogue design with its Design No. and PR No. Scan the same PR again to increase its quantity. Nothing is saved to ERP stock or orders."
-      : "Point the rear camera at the ERP barcode. Scanning only displays product details and does not change any data.";
+      : "Point the rear camera at the ERP barcode or QR code. Scanning only displays product details and does not change any data.";
   }
 }
 
@@ -6515,7 +6518,7 @@ async function startPhoneBarcodeCamera() {
   const scannerOptions = formats.length ? { formatsToSupport: formats } : {};
   const scanner = new window.Html5Qrcode("product-camera-reader", scannerOptions);
   phoneBarcodeScanner = scanner;
-  setPhoneBarcodeCameraStatus("Allow camera permission, then place the full barcode inside the green scanning area.", "scanning");
+  setPhoneBarcodeCameraStatus("Allow camera permission, then place the full barcode or QR code inside the green scanning area.", "scanning");
 
   try {
     await scanner.start(
@@ -6537,7 +6540,7 @@ async function startPhoneBarcodeCamera() {
       return;
     }
     phoneBarcodeScannerActive = true;
-    setPhoneBarcodeCameraStatus("Camera active. Hold the barcode steady and fill the scanning area.", "scanning");
+    setPhoneBarcodeCameraStatus("Camera active. Hold the barcode or QR code steady inside the scanning area.", "scanning");
   } catch (error) {
     if (session !== phoneBarcodeScanSession) return;
     phoneBarcodeScanner = null;
@@ -6603,7 +6606,7 @@ async function scanPhoneBarcodePhoto(file) {
   } catch (error) {
     phoneBarcodeScanner = null;
     try { scanner.clear(); } catch (clearError) {}
-    showPhoneBarcodeScanError("No supported ERP barcode was found in that photo. Retake it in good light with the complete barcode visible.");
+    showPhoneBarcodeScanError("No supported ERP barcode or QR code was found in that photo. Retake it in good light with the complete code visible.");
   }
 }
 
@@ -6730,7 +6733,7 @@ function renderPhoneBarcodeProduct(value) {
 
 function findPhoneBarcodeProduct(value) {
   const query = normalizeBarcodeText(value);
-  if (!query) return { ok: false, message: "Scan a barcode or enter a PR / HUID number." };
+  if (!query) return { ok: false, message: "Scan a barcode / QR code or enter a PR / HUID number." };
   if (!currentUser) return { ok: false, message: "Login before scanning a product barcode." };
   const order = findOrderByBarcode(query);
   const officeEntry = findOfficeEntryByBarcode(query);
@@ -6946,7 +6949,7 @@ function openProductByBarcode(value) {
 
   if (order) return { ok: false, message: "This login cannot open Job Order details." };
   if (officeEntry) return { ok: false, message: "This login cannot open Office item details." };
-  return { ok: false, message: "No product found for this barcode." };
+  return { ok: false, message: "No product found for this barcode or QR code." };
 }
 
 function findOrderByBarcode(value) {
@@ -7107,6 +7110,77 @@ function barcodeCodeMatches(query, candidates, code) {
 
 function barcodeSvg(value) {
   return code128BarcodeSvg(value, { maxLength: 60, compact: true });
+}
+
+function itemQrLookupValue(value = "") {
+  const code = barcodeSafeText(value, 60);
+  if (!code) return "";
+  if (/^https?:$/i.test(location.protocol)) {
+    const url = new URL(location.href);
+    url.hash = "";
+    url.search = "";
+    if (/\/index\.html$/i.test(url.pathname)) url.pathname = url.pathname.replace(/index\.html$/i, "");
+    url.searchParams.set("pr", code);
+    return url.href;
+  }
+  return `KJM ERP | PR:${code}`;
+}
+
+function qrCodeHtml(value, options = {}) {
+  const code = barcodeSafeText(value, 60);
+  if (!code) return "";
+  const payload = options.raw ? String(value || "") : itemQrLookupValue(code);
+  const label = options.label === false ? "" : `<small>${escapeHtml(code)}</small>`;
+  return `<div class="qr-code-wrap" data-qr-value="${escapeHtml(payload)}" aria-label="QR code for ${escapeHtml(code)}"><span class="qr-code-canvas"></span>${label}</div>`;
+}
+
+function renderQrCodes(rootDocument = document) {
+  const QrConstructor = rootDocument.defaultView?.QRCode || window.QRCode;
+  if (typeof QrConstructor !== "function") return 0;
+  const correctLevel = QrConstructor.CorrectLevel?.L ?? 1;
+  let rendered = 0;
+  rootDocument.querySelectorAll("[data-qr-value]").forEach((holder) => {
+    if (holder.dataset.qrRendered === "true") return;
+    const target = holder.querySelector(".qr-code-canvas") || holder;
+    target.innerHTML = "";
+    try {
+      new QrConstructor(target, {
+        text: holder.dataset.qrValue || "",
+        width: 160,
+        height: 160,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel,
+      });
+      holder.dataset.qrRendered = "true";
+      rendered += 1;
+    } catch (error) {
+      holder.dataset.qrRendered = "error";
+    }
+  });
+  return rendered;
+}
+
+function openItemFromQrLink() {
+  if (!currentUser || !/^https?:$/i.test(location.protocol)) return false;
+  const url = new URL(location.href);
+  const value = url.searchParams.get("pr") || url.searchParams.get("barcode") || "";
+  if (!value) return false;
+  const hasLocalMatch = Boolean(findOrderByBarcode(value) || findOfficeEntryByBarcode(value));
+  if (!hasLocalMatch && supabaseSettings.url && !supabaseInitialReadComplete && pendingQrLookupAttempts < 60) {
+    pendingQrLookupAttempts += 1;
+    window.clearTimeout(pendingQrLookupTimer);
+    pendingQrLookupTimer = window.setTimeout(openItemFromQrLink, 500);
+    return false;
+  }
+  window.clearTimeout(pendingQrLookupTimer);
+  pendingQrLookupTimer = null;
+  pendingQrLookupAttempts = 0;
+  url.searchParams.delete("pr");
+  url.searchParams.delete("barcode");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  setTimeout(() => openScannedBarcode(value), 0);
+  return true;
 }
 
 const code128Patterns = [
@@ -11868,6 +11942,7 @@ function openJobItemDetail(orderId) {
   if (!panel || !detail) return;
   panel.classList.remove("hidden");
   detail.innerHTML = jobItemDetailHtml(order);
+  renderQrCodes(detail);
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -11891,7 +11966,10 @@ function jobItemDetailHtml(order) {
           <span>${escapeHtml(order.customer || "-")} / ${escapeHtml(order.jobNumber || order.number || "-")}</span>
           <span class="status ${statusClass(order.status || currentStage)}">${escapeHtml(currentStage)}</span>
         </div>
-        <div class="job-item-barcode">${barcodeSvg(order.barcode || order.productionNo || order.number)}</div>
+        <div class="job-item-code-pair">
+          <div class="job-item-barcode">${barcodeSvg(order.barcode || order.productionNo || order.number)}</div>
+          ${qrCodeHtml(order.barcode || order.productionNo || order.number)}
+        </div>
       </div>
       <div class="job-item-detail-grid">
         ${jobItemDetailCell("Current Production Stage", currentStage)}
@@ -11939,7 +12017,7 @@ function jobItemDetailHtml(order) {
       ${jobItemTransferHistoryHtml(lotEntries)}
       <div class="row-actions job-item-detail-actions">
         <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
-        <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Phone Barcode</button>
+        <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
         <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
         <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
@@ -12032,8 +12110,9 @@ function itemBarcodeGeneratorHtml(order = {}) {
   const payload = details.productionNo || order.barcode || order.number || "";
   return `
     <section class="barcode-generator-card">
-      <div class="generated-barcode-box">
+      <div class="generated-barcode-box generated-code-pair">
         ${code128BarcodeSvg(payload, { maxLength: 60 })}
+        ${qrCodeHtml(payload)}
       </div>
       <div class="barcode-readable-text">
         <b>Scanner lookup code:</b>
@@ -12049,6 +12128,7 @@ function openItemBarcodeGenerator(orderId) {
   if (!order) return;
   document.getElementById("barcode-generator-summary").textContent = `${order.productionNo || order.number} / ${order.customer || "-"} / ${order.designNumber || designLabel(order.designId) || "-"}`;
   document.getElementById("barcode-generator-content").innerHTML = itemBarcodeGeneratorHtml(order);
+  renderQrCodes(document.getElementById("barcode-generator-content"));
   document.getElementById("barcode-generator-dialog").showModal();
 }
 
@@ -12057,6 +12137,8 @@ function printGeneratedBarcode() {
   if (!content.trim()) return;
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = `<section class="barcode-print-document">${content}</section>`;
+  printArea.querySelectorAll("[data-qr-value]").forEach((node) => delete node.dataset.qrRendered);
+  renderQrCodes(printArea);
   setPrintPageSize("barcode");
   document.body.classList.add("printing-barcode");
   const cleanup = () => {
@@ -13555,6 +13637,7 @@ function startJobPrint(html, mode = "job") {
   if (typeof activeJobPrintCleanup === "function") activeJobPrintCleanup();
   const printArea = getGlobalPrintArea();
   printArea.innerHTML = html;
+  renderQrCodes(printArea);
   setPrintPageSize(mode);
   const mobilePrint = requiresDirectTapForPrint();
   let cleaned = false;
@@ -13652,6 +13735,7 @@ function openMobileJobPrintWindow(html, mode = "job") {
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>Job Bag Print - ${escapeHtml(layoutLabel)}</title>
           <link rel="stylesheet" href="${escapeHtml(styleUrl)}">
+          <script src="${escapeHtml(new URL(`qrcode.min.js?v=1.0.0-${APP_BUILD}`, window.location.href).href)}"><\/script>
           <style>
             html, body { margin: 0 !important; min-height: 100%; background: #eef4f1 !important; }
             body.mobile-job-print-page { display: block !important; width: auto !important; overflow: auto !important; }
@@ -13712,6 +13796,7 @@ function openMobileJobPrintWindow(html, mode = "job") {
   const bindPrintPage = () => {
     const printButton = printWindow.document.getElementById("mobile-print-page-print");
     const closeButton = printWindow.document.getElementById("mobile-print-page-close");
+    renderQrCodes(printWindow.document);
     printButton?.addEventListener("click", handlePrint);
     closeButton?.addEventListener("click", () => printWindow.close());
     const images = Array.from(printWindow.document.images || []);
@@ -15313,7 +15398,10 @@ function printJobItemHtml(job, entry) {
         ${barcodeValues.map((barcode) => `
           <div class="barcode-box">
             ${barcode.label ? `<b>${escapeHtml(barcode.label)}</b>` : ""}
-            ${barcodeSvg(barcode.value)}
+            <div class="print-code-pair">
+              ${barcodeSvg(barcode.value)}
+              ${qrCodeHtml(barcode.value, { label: false })}
+            </div>
           </div>
         `).join("")}
       </div>
