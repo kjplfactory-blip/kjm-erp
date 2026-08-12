@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v492";
+const APP_VERSION = "v493";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -7091,20 +7091,44 @@ function openOrderByBarcode(value) {
 
 function openProductByBarcode(value) {
   const query = normalizeBarcodeText(value);
-  if (!query) return { ok: false, message: "Scan barcode or enter production number." };
+  if (!query) return { ok: false, message: "Scan a code or enter Job Card / production number." };
   if (!currentUser) return { ok: false, message: "Login before scanning barcode." };
 
+  const jobCardOrder = findJobCardByExactSearch(query);
   const order = findOrderByBarcode(query);
   const officeEntry = findOfficeEntryByBarcode(query);
   const preferOffice = officeEntry && shouldOpenOfficeBarcode(query);
 
+  if (jobCardOrder && canOpenScannedJobDetails()) return openWholeJobCardFromHeaderSearch(jobCardOrder);
   if (preferOffice && canOpenScannedOfficeEntry(officeEntry)) return openOfficeEntryFromBarcode(officeEntry);
   if (order && canOpenScannedJobDetails()) return openJobOrderFromBarcode(order);
   if (officeEntry && canOpenScannedOfficeEntry(officeEntry)) return openOfficeEntryFromBarcode(officeEntry);
 
+  if (jobCardOrder) return { ok: false, message: "This login cannot open Job Order details." };
   if (order) return { ok: false, message: "This login cannot open Job Order details." };
   if (officeEntry) return { ok: false, message: "This login cannot open Office item details." };
-  return { ok: false, message: "No product found for this barcode or QR code." };
+  return { ok: false, message: "No Job Card or product found for this search." };
+}
+
+function jobCardSearchKey(value = "") {
+  const text = normalizeBarcodeText(value);
+  if (!text || /[|?&=\/]/.test(text)) return "";
+  return text
+    .replace(/^JOB\s*CARD\s*[:#-]?\s*/i, "")
+    .replace(/^JOB\s*[:#-]?\s*/i, "")
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function findJobCardByExactSearch(value) {
+  const searchKey = jobCardSearchKey(value);
+  if (!searchKey) return null;
+  return (state.orders || []).find((order) => {
+    const jobNumber = String(order.jobNumber || "").trim();
+    if (!jobNumber) return false;
+    const fullKey = normalizeBarcodeText(jobNumber).replace(/[^A-Z0-9]/g, "");
+    const numberKey = fullKey.replace(/^JOBCARD/, "").replace(/^JOB/, "");
+    return searchKey === fullKey || searchKey === numberKey;
+  }) || null;
 }
 
 function findOrderByBarcode(value) {
@@ -7172,6 +7196,17 @@ function openJobOrderFromBarcode(order) {
   openOrderDetail(order.id, false, bucket);
   setTimeout(() => openJobItemDetail(order.id), 0);
   return { ok: true, type: "job", label: order.productionNo || order.number || order.jobNumber || "job item" };
+}
+
+function openWholeJobCardFromHeaderSearch(order) {
+  closeDialogsForBarcode("order-dialog");
+  switchView("orders");
+  openOrderDetail(order.id, false, "all");
+  return {
+    ok: true,
+    type: "job-card",
+    label: `${order.jobNumber || order.number || "Job Card"} current status`,
+  };
 }
 
 function openOfficeEntryFromBarcode(entry) {
@@ -7307,6 +7342,15 @@ function renderQrCodes(rootDocument = document) {
         colorLight: "#ffffff",
         correctLevel,
       });
+      const canvases = [...target.querySelectorAll("canvas")];
+      const fallbacks = [...target.querySelectorAll("img, svg, table")];
+      if (canvases.length) {
+        canvases.slice(1).forEach((node) => node.remove());
+        fallbacks.forEach((node) => node.remove());
+      } else {
+        fallbacks.slice(1).forEach((node) => node.remove());
+      }
+      target.classList.toggle("qr-fallback-only", !canvases.length && fallbacks.length > 0);
       holder.dataset.qrRendered = "true";
       rendered += 1;
     } catch (error) {

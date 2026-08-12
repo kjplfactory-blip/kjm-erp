@@ -3587,10 +3587,22 @@ th {
   image-rendering: pixelated;
 }
 
-.qr-code-canvas canvas,
+.qr-code-canvas canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+
 .qr-code-canvas img,
 .qr-code-canvas svg,
 .qr-code-canvas table {
+  display: none !important;
+}
+
+.qr-code-canvas.qr-fallback-only img,
+.qr-code-canvas.qr-fallback-only svg,
+.qr-code-canvas.qr-fallback-only table {
   display: block !important;
   width: 100% !important;
   height: 100% !important;
