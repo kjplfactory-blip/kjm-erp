@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v487";
+const APP_VERSION = "v490";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -14606,6 +14606,7 @@ function prepareJobPrintLayout(rootDocument = document, mode = "job") {
 }
 
 function prepareJobBagStoneLayouts(rootDocument = document) {
+  const spaceClasses = ["stone-space-compact", "stone-space-dense", "stone-space-ultra"];
   const fitClasses = ["stone-density-compact", "stone-density-dense", "stone-density-ultra"];
   const cards = Array.from(rootDocument.querySelectorAll(".print-job-item"));
   let fittedCards = 0;
@@ -14614,22 +14615,32 @@ function prepareJobBagStoneLayouts(rootDocument = document) {
     const section = card.querySelector(".print-stone-section");
     const barcode = card.querySelector(".print-barcode");
     if (!details) return;
+    card.classList.remove(...spaceClasses);
     card.classList.remove(...fitClasses);
     details.classList.remove(...fitClasses);
     details.dataset.stoneFit = "normal";
     card.getBoundingClientRect();
     const fits = () => {
       const detailsRect = details.getBoundingClientRect();
+      const sectionRect = section?.getBoundingClientRect();
       const barcodeRect = barcode?.getBoundingClientRect();
-      const staysInsideSection = !section || details.scrollHeight <= section.clientHeight + 1;
-      const staysAboveBarcode = !barcodeRect?.height || detailsRect.bottom <= barcodeRect.top - 1;
-      return details.clientHeight > 0
-        && details.scrollHeight <= details.clientHeight + 1
-        && staysInsideSection
-        && staysAboveBarcode
-        && card.scrollHeight <= card.clientHeight + 1;
+      const lowerBoundary = Math.min(
+        sectionRect?.bottom || Number.POSITIVE_INFINITY,
+        barcodeRect?.height ? barcodeRect.top - 1 : Number.POSITIVE_INFINITY,
+      );
+      return detailsRect.height > 0 && detailsRect.bottom <= lowerBoundary + 1;
     };
     if (!fits()) {
+      for (const spaceClass of spaceClasses) {
+        card.classList.remove(...spaceClasses);
+        card.classList.add(spaceClass);
+        details.dataset.stoneFit = `full-size-${spaceClass.replace("stone-space-", "")}`;
+        card.getBoundingClientRect();
+        if (fits()) break;
+      }
+    }
+    if (!fits()) {
+      card.classList.remove(...spaceClasses);
       for (const fitClass of fitClasses) {
         card.classList.remove(...fitClasses);
         details.classList.remove(...fitClasses);

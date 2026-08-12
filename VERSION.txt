@@ -1,0 +1,632 @@
+KHUSHALI JEWELLS MANUFACTURING
+App version: v490
+Updated: 2026-08-12 IST
+Job Bag design-image area increased to 125% of its previous size: 38.75 mm wide by 48.75 mm high in normal mode.
+Design images continue to use contain fitting, preserving their proportions without cropping or stretching.
+Existing compact fallback heights remain available automatically when a large stone chart needs more room above the barcode.
+Every new Design upload is now preserved separately as a protected Master Image before the 4x6 display image is created.
+Design Master now provides View Master Image, Crop Design Image, and Crop Stone Chart as separate actions.
+The same Master Image can be reused for one Design Image crop and multiple item-wise Stone Chart crops without overwriting the original.
+Older uploaded designs automatically preserve their current full image as Master Image when cropping is opened for the first time.
+Reset Crop always returns to the complete Master Image; reuploading can optionally replace the stored Master while retaining existing crops until new crops are saved.
+Design deletion and merge now include Master Image storage, while image repair/sync automatically includes master copies.
+Job Bag stone-chart headings, column labels, row details, and totals are now 200% of the previous size: 17.6px in normal mode, including combined multi-item bags.
+Job Bag fitting now preserves the full 17.6px stone font first and reclaims image space before considering any stone-text reduction.
+Only stone tables that still exceed their actual space above the barcode shrink, using readable 14px, 11px, and 8px fallback levels.
+Job Bag stone-detail boxes now keep their natural content height instead of stretching through all unused page space.
+Normal-size stone rows remain unchanged when they fit; compact, dense, and ultra-compact sizing is applied only when the chart would cross its available area above the barcode.
+Added View Design to every item row inside Make Bill, View Bill, and QC Check.
+Hovering or keyboard-focusing View Design shows the matching Design Master image beside the row; leaving the control closes the preview.
+Clicking View Design opens the existing full-screen design image viewer for product verification.
+Bill design previews reuse the Design Master cloud/browser image and do not create duplicate image storage.
+Missing or unlinked design images show a clear message without affecting Bill weights or saving.
+Job Order Save now performs an immediate Supabase cloud write before showing the final confirmation.
+The Save Job Order button remains disabled with a clear saving status until the cloud attempt finishes, preventing duplicate submissions.
+Successful saves explicitly confirm both laptop and Supabase cloud storage; interrupted saves explicitly remain protected locally and queue an automatic cloud retry.
+Verified the live Supabase row is readable and updateable and currently contains 396 production items, including JOB-1393 with PR-1393 through PR-1402.
+Added ENABLE-APP-VERSION-GUARD.sql to stop an older ERP website from overwriting a cloud row already saved by a newer app version.
+The version guard changes no ERP records during setup and gives old laptops a clear Update Required sync message.
+Fixed Job Order saving so the form clears only after the complete new order is confirmed in browser storage.
+If browser storage is full or unavailable, the attempted Job Order is rolled back and the filled form remains open.
+Added a clear Job Order number and item-count success confirmation after local save.
+Completed the direct Supabase fallback with conditional PATCH support and returned-row handling.
+Restored optional version and daily backup attempts before cloud saves; a missing optional backup table no longer blocks normal live ERP saving.
+Valid existing ERP data is no longer removed or replaced with starter data when browser storage cannot rewrite an upgraded copy.
+Cloud-applied data and sync timestamps now handle full browser storage without crashing the application.
+Verified JavaScript parsing, event-listener bindings, inline actions, duplicate HTML IDs, required local assets, startup data protection, and direct cloud read/update/upsert behavior.
+READ-ONLY-CLOUD-DATA-CHECK.sql no longer directly queries erp_state_backups, so it works safely even when the backup table has not been created.
+The read-only check now reports live_table_exists and backup_table_exists before showing the live ERP record counts.
+Added READ-CLOUD-BACKUPS-AFTER-SETUP.sql for listing backup profiles only after backup_table_exists is true.
+Removed the automatic cloud write that previously ran only because an older cloud app version was loaded.
+Running the cloud-backup setup can no longer unlock a pending version-only overwrite; old-version cloud data is loaded without being written back automatically.
+Legacy design-image migration and recent-job recovery now remain local until an actual user save or an Owner-confirmed Upload Data action.
+ENABLE-CLOUD-SAFETY-BACKUPS.sql now snapshots the current live erp_state row inside the setup transaction and never updates, deletes, truncates, or replaces erp_state.
+Added READ-ONLY-CLOUD-DATA-CHECK.sql to inspect the live row and all available backup profiles without changing any data.
+Every production department transfer is now recorded only in Gross Weight; no BB, Moti, Spring, Stone, or Other non-gold weight is automatically guessed from a receive-GW increase.
+Added a Virtual Non-Gold Shelf By Karat showing In Safe, In Production, component breakup, exact Final Bill usage, total factory balance, and unmatched bill weight.
+Actual non-gold Safe issues and direct Production issues move into the corresponding 9K, 14K, 18K, or 22K virtual shelf and remain traceable there across department transfers.
+Only exact item-wise non-gold entered in Final Bill consumes the karat-wise virtual shelf; provisional transfer demand has been removed.
+Factory fine-gold calculations continue to exclude wax stone, hand stone, BB, Moti, Spring, Stone, and Other non-gold from GW.
+Older transfer entries are automatically recalculated without their former provisional non-gold estimate, while their real issue, return, and bill records are preserved.
+Added a mandatory startup cloud-read lock so a newly uploaded version cannot automatically save before the existing Supabase row has been read successfully.
+An empty starter state can no longer overwrite live ERP data automatically, including empty states without the older 4 kg fallback marker.
+If a laptop copy is drastically smaller than the verified cloud copy, automatic overwrite is blocked and a pre-cloud recovery copy is retained when browser storage permits it.
+During initial startup, a suspiciously reduced local copy is replaced by the richer verified cloud copy instead of resetting the live database.
+Legacy design-image migration now starts only after the first cloud read completes, removing the migration-before-sync overwrite race.
+Protected, empty, or recovery-required cloud states remain visibly blocked instead of incorrectly changing the status to Live Sync.
+All Job Lot department movements remain entered and recorded in Gross Weight; Vinod / Fitting does not need to provide exact BB, Moti, Spring, Stone, or Other weight during transfer.
+The transfer form now makes Auto WIP Non-Gold read-only and calculates it internally from a positive Fitting receive-GW change.
+Added a visible Cumulative Non-Gold Pool By Karat table with Issued To Departments, Components Issued, Auto WIP Allocation, Final Bill Adjusted, Available Balance, and Unmatched.
+The karat pool retains the complete issued balance, such as 11.990 g BB issued to Vinod, and uses only an internal WIP allocation while the product is in production.
+Final Bill automatically replaces the WIP estimate with exact Stone, BB, Moti, Spring, and Other weights; BB weight remains BB count multiplied by the selected per-100-piece type.
+Final Bill non-gold is automatically allocated against the matching 9K, 14K, 18K, or 22K cumulative pool without changing the GW transfer history.
+Added mandatory automatic cloud backup before every app-version upgrade is allowed to overwrite the main ERP cloud row.
+Added one append-only erp_state_backups table for protected version-upgrade and daily backup records.
+Website users can insert and read backup records but cannot edit, delete, or truncate an existing backup.
+The first cloud save of each UTC day preserves the previous live ERP state before saving the day's changes.
+If backup creation fails or the backup table is not configured, cloud overwrite is paused and the laptop copy remains local until setup is repaired.
+Version backup detection also works when an unsynced laptop reconnects without first loading the older cloud version.
+Updated ENABLE-CLOUD-SAFETY-BACKUPS.sql, ENABLE-LIVE-SYNC.sql, supabase-schema.sql, and FIX-SUPABASE-PERMISSIONS.sql with the automatic-backup setup.
+Vinod / Fitting transfers continue entirely in GW; exact BB, Moti, Stone, Spring, or Other breakup is not required during the department transfer.
+Added a visible karat-wise non-gold pool to Transfer: Issued To Departments, Applied In Product GW / Bill, Available, This Lot, and Unmatched.
+The Vinod / Fitting GW increase remains the provisional non-gold amount, and the final Bill replaces it with exact Stone, BB, Moti, Spring, and Other weights.
+Final Bill non-gold stock adjustment now includes Stone as well as BB, Moti, Spring, and Other.
+Fresh or unreadable browser storage now starts at zero instead of showing a misleading 4000.000 g opening stock.
+Fallback data is never uploaded to Supabase automatically, and a richer local ERP copy is protected from a fallback cloud copy.
+The earlier hourly safety-row approach is replaced by the v475 append-only version and daily backup table.
+ENABLE-CLOUD-SAFETY-BACKUPS.sql now performs the complete v475 automatic-backup setup.
+Owner now has Backup Data and Restore Backup commands for downloadable JSON recovery copies.
+Added a karat-wise Department GW & Non-Gold Reconciliation table to Production > Issue Non-Gold.
+The table follows GW Issued - GW Received / Transferred Out = Ledger GW Remaining and compares it with current department GW.
+Current department GW now visibly separates total non-gold, net gold, and fine gold; wax stone, hand stone, and other non-gold stay inside GW but never inflate fine gold.
+Direct department non-gold Issue and Remove movements now participate in department transfer totals and reconciliation.
+Stopped a Safe shelf issue from appearing twice in department movement totals when that same issue already created the Job Lot Gold Issue entry.
+Changed Receive Rawa to Receive Rawa / Laser Wire / WSTG in Setter Account Entry.
+Added a Returned Material dropdown with Rawa, Laser Wire, and WSTG / Wastage choices.
+Each material remains separately identified in pending setter rows and Setter Account History while their combined weight reduces the setter balance.
+Receive Job Lot & Close also allows one selected returned-material type to be included in the final zero-balance entry.
+Older saved Rawa entries automatically remain classified as Rawa without changing their weight or setter balance.
+Setter Account Entry now starts with a Setter dropdown and shows only that setter's pending job lots in the Pending Setter Lot dropdown.
+Added an Account Action dropdown with Receive Job Lot & Close, Receive Returned Material, and Book Setter Loss.
+Rawa and loss can be posted separately and cumulatively against the selected setter lot without closing the job lot.
+Each separate rawa/loss posting records its date, amount, and remarks in Setter Account History.
+Pending setter rows now show total Rawa, total Loss, and the remaining Balance for each lot.
+After earlier rawa/loss postings, Receive Job Lot defaults to only the remaining account weight plus protected hand-stone weight.
+Final lot receipt still requires Issue GW - Receive Net - Total Rawa - Total Loss = 0.000 g before closing.
+Setter summary cards and the Pending With Setters total now use current unaccounted balance rather than original issue GW.
+Setting Manager accessory and direct-material issues are now issue-only: once issued to a setter they are marked Used In Job / No Return and never appear in the Receive list.
+Previously saved accessory entries are automatically migrated to the same Used / No Return status and remain deducted from their original Setting accessory balance.
+Close Setter Lot now records Receive GW, protected/manual Hand Stone, Receive Net, Rawa Returned, Setter Loss, and final Balance for each individual setter issue.
+Setter reconciliation uses Issue GW - Receive Net - Rawa - Loss = Balance and requires Balance 0.000 g before the lot can close.
+Added Book Balance As Loss for one-click loss posting after returned rawa is entered.
+Setter summary cards now show each setter's open lot count and GW to reconcile, or Balance 0.000 g when fully closed.
+Setter Account History now shows Rawa, Loss, Balance, and Used / No Return accessory status without creating false accessory receipts.
+Setting Manager can now issue accessories and direct materials such as Laser Wire to a setter without selecting or creating a Job Card.
+Issue To Setter now has Job Lot and Accessory / Direct Material modes. Accessory mode lists unlinked material currently held in Setting Department and supports full or partial GW issue.
+Accessory issues reserve only the entered GW and prevent issue above the available Setting balance.
+Job Lot setter issue and hand-stone calculations remain unchanged.
+Job Bag stone details now use the complete printable area above the barcode line instead of leaving unused space.
+Every bag starts at the normal, most readable stone-table size. The browser measures that specific A6 bag and applies Compact, Dense, or Ultra only when its table would cross the barcode boundary.
+Short stone charts remain large and readable; only overflowing charts reduce row padding, font size, image height, and finally unused manual rows as required.
+The same measured fitting runs for A4 four-bag printing, individual A6 printing, desktop printing, and mobile/tablet print-only pages.
+Job Bag printing now pairs subcategory items by their saved piece number, so each repeated set prints as one complete bag.
+Verified against live Job Card 1376: its 50 M items and 50 ME items now print as 50 M+ME bags instead of separate M and ME bags.
+The same piece-wise one-bag rule applies to CB/CBR, CM, PS, TM, MM, LR/GR, and custom Design Master sub-item families.
+Dense stone charts now automatically reduce row padding and type size, remove unnecessary manual blank rows, and slightly reduce the design-image area so all stone details stay on one A6 bag page.
+Job Bag printing now combines every related sub-item of the same design into one physical bag.
+CB and CBR bags combine CL + CG or CLR + CGR, while CM, PS, TM, MM, and ring families combine CM/CME/CMB, PS/PSE, TM/TME, M/ME/MB, and LR/GR respectively.
+Older separately named designs such as CM-373, CME-373, and CMB-373 are normalised to one design family for printing without modifying their saved job-card data.
+Design Master categories with custom multi-item keys also use the same one-design/one-bag rule when the saved job item identifies the matching sub-item.
+Each combined bag prints every sub-item PR number, size, individual remark, barcode, stone rows, individual stone total, and a final combined bag stone total.
+Different item remarks no longer separate a valid family into multiple bags; the print shows item-wise remarks and uses a clear combined remark indicator.
+Repeated quantities remain separate complete bags, and unrelated design numbers never merge even when they share the same category.
+The individual A6 Print This Item command now finds and prints the complete related bag family for the selected item.
+Three-item sets use a compact three-column barcode row so all barcodes remain within the A6 bag area.
+Added a manager/owner-only Fitting Accessories Job Card tile under Job Orders.
+The new full-screen form records manual job-card narration, item narration, GW, karat, colour, date, starting department, and a registered department process.
+Creating the card generates a normal JOB number, PR barcode, and LOT number so the accessory lot can use standard department transfer, completion, lot history, online history, and transfer-bag workflows.
+Fitting Accessories cards show their current department and weight immediately, keep manual narration visible in item details, and allow Owner or Manager to update both narration fields.
+The first movement is identified as Fitting Accessories Job Card instead of Gold Issue, and the original starting process remains visible after later transfers.
+Accessory cards do not auto-select the normal jewellery production route, cannot add or split design items, do not request a second gold issue, and stay out of the Bill queue.
+No Safe Locker stock movement is booked when this manual tracking card is created; the form states this clearly before saving.
+Fixed desktop Transfer Bag pagination where the hidden print area prevented real A6 row measurement and left unnecessary empty space.
+Transfer Bag pages are now measured off-screen at their true printed size before printing, then filled until the next item row would touch or cross the bottom divider above the barcode.
+The same corrected boundary measurement is used by desktop, mobile/tablet print-only, and mobile fallback printing.
+Transfer Bag item pages now measure the actual available A6 print area and fill each page with as many complete item rows as will fit.
+The next item page is created only when the following row would overflow, including when remarks make a row taller.
+Dynamic full-page fitting works in desktop printing, the mobile/tablet print-only window, and the mobile fallback print flow.
+Transfer Bag printing now continues the complete item list across additional A6 pages whenever it does not fit on the first details page.
+Item serial numbers remain continuous on every continuation page, with the job card, lot, customer, and total-item reference repeated clearly.
+The Transfer History / GW sheet is always printed only after the final item-list page, and all pages show the correct page number and total.
+Add Item To Job Card now opens with a Search Design box focused and ready for typing.
+Typing any part of the design number or name instantly filters the Design dropdown while respecting the selected category.
+The search resets each time Add Item opens and remains hidden during ordinary individual-item editing.
+Built directly from the restored v456 source without changing its Supabase startup, refresh, reset, or data-protection logic.
+Create Job Order now has one Job Card Colour selection that applies to every design, sub-item, piece, and production number in that job card.
+Job Card Edit now changes the colour of every item in the complete job card together.
+Individual item editing shows the job-card colour as locked so one item cannot accidentally receive a different colour.
+New items added later to an existing job card automatically inherit that job card's colour.
+Fixed newly created job orders disappearing when realtime or auto-refresh received an older cloud snapshot before the local save finished uploading.
+Unsynced local changes now use a persistent sync lock that survives browser refresh and blocks older cloud data until the upload is confirmed.
+New job-order items are protected by a 48-hour local safety backup and are automatically restored and uploaded again if a stale live snapshot omits them.
+Manual live refresh also protects unsynced work instead of replacing it, while intentional job-card deletion and factory reset correctly clear the related safety backups.
+Create Job Order now keeps an editable Individual Item Remark box on every row after Add Item is pressed.
+Multiple selected designs and expanded CL, CG, CM, CME, CMB, M, ME, MB, PS, PSE, TM, and TME items can each have a different saved remark.
+Individual remark changes remain in the job-card draft and are saved against the correct production item.
+Customer Master now normalises older customer records and restores missing manufacturing customers from existing job cards.
+Customer Master always shows the full saved total, an accurate filtered result count, alphabetical names, and a Clear Search button.
+Saving or editing a customer clears any old search filter so the newly saved name is immediately visible.
+Stone-chart OCR now reliably recognises ROUND 0.90 rows, including O.9O, 090, .90, 0 90, and missing-X OCR variants.
+ROUND rows containing only one size value are treated as equal 0.90 X 0.90 dimensions and matched to Stone Master.
+Stone-chart images are automatically upscaled, converted to grayscale, and contrast-enhanced before OCR so small dimension text is clearer.
+Fuzzy ROUND headings such as R0UND, ROUNO, ROUMD, and ROOND are recognised while the original editable OCR rows remain available for correction.
+Create Job Order category MM now offers M, ME, and MB as selectable sub-items, including every two-item combination and all three together.
+Each selected MM sub-item expands into its own job item and unique production number while remaining under the same job card.
+MM design defaults, stone-chart item matching, older job compatibility, and combined bag printing now use the same M / ME / MB family.
+Catalogue client order items now have an editable quantity with a default of 1.
+Scanning the same PR again increases its quantity instead of adding a duplicate line or blocking the scan.
+Client order selection and printed/PDF summaries now show item lines, individual quantities, and total pieces.
+New Client / Clear resets the temporary selection, quantities, and client details so the same exhibition samples can be used for the next customer.
+Catalogue Client Order Selection now has Scan & Add Product using the phone camera.
+Every successful catalogue scan automatically adds the matching product to the temporary client selection without creating or changing ERP orders or stock.
+Selected catalogue products show both Design No. and PR No.; repeated scanning of the same PR increases its order quantity.
+The catalogue scanner matches the scanned production design to the corresponding uploaded catalogue image and reports clearly when that image is missing.
+Multiple products, including different PR numbers for the same design, can be scanned into one client selection using Scan Another.
+Printed and PDF catalogue customer summaries now include Design No. and PR No. for every selected product.
+Fixed the camera opening without recognising ERP barcodes.
+All old custom barcode drawings are now replaced by standards-compliant Code 128 barcodes readable by phone cameras and handheld scanners.
+Every Code 128 barcode now has a white background and the required quiet space on both sides for reliable detection.
+Phone Barcode Generator now encodes the short unique production number instead of an excessively dense full product description.
+New job cards, item tags, hallmark tags, transfer bags, item details, and combined CB barcodes now use the scanner-readable format.
+Fixed the Camera Scanner Could Not Load error on the live website.
+The scanner engine is now included beside index.html as html5-qrcode.min.js so it is uploaded with the normal root ERP files.
+Camera Scan automatically retries the root scanner, the assets copy, jsDelivr, and unpkg before reporting a loading problem.
+All scanner and app file links now use v448 cache refresh values so browsers do not keep the incomplete v447 files.
+Camera Scan now opens the phone rear camera and reads ERP CODE 128, CODE 39, QR, EAN-13, and EAN-8 barcodes.
+Scanned products open in a full-screen, read-only detail viewer and do not create or change any customer order, transfer, stock, bill, or office entry.
+The scanner shows design image, PR and job numbers, customer, product details, current stage and department, bill/QC/HUID status, and complete gold/non-gold weights.
+Scan Barcode Photo and manual PR/HUID/barcode entry are available when camera permission is blocked or the barcode is saved as a phone image.
+The official scanner library is included inside the ERP package, so camera decoding does not depend on a third-party script loading while the app is in use.
+View Stone Chart now uses GENERAL automatically when it is the only saved chart; GENERAL remains skipped whenever item-specific charts exist.
+Stone Library size matching now treats reversed two-dimensional sizes as equivalent, including 2*4, 4*2, 2 X 4, and 4 X 2.
+Dimension sizes are normalised to one numeric order for library lookup, production stone matching, generated stone codes, OCR, and duplicate detection.
+Stone Master add/edit, lookup cards, the 100-row library list, and production entries now retrieve the same matching stone regardless of dimension order.
+Free-text Stone Library search also finds reversed dimensions, so searching 4*2 returns a saved 2*4 stone.
+Adding a reversed duplicate size updates the existing matching Stone Master record instead of creating a second equivalent entry.
+View Stone Chart now opens immediately without asking the user to type or choose a chart option.
+GENERAL stone charts are always excluded from viewing and from the available-chart action check.
+When multiple item-specific charts exist, all charts open together in one labelled full-screen gallery.
+When no item chart exists, the saved main stone-chart source is used automatically; otherwise the app clearly reports that no item-specific chart is saved.
+Opened Design Master images now use a true A6-proportion 105:148 frame inside the full-screen Design Details window.
+The full-screen design view now lists every saved stone row with item, code, type, shape, size, pieces, weight per piece, and total weight.
+Stone-row totals show total rows, total pieces, and combined stone weight.
+Stone details use compact vertical cards with no horizontal scrolling, while all design actions remain available on the same screen.
+The separate View Design image preview also uses A6 proportions; Stone Chart previews retain their natural chart proportions.
+Design-specific action bars were removed from the main Design Master and category tile screens.
+View, Crop, Stone Details, Edit, Merge, Remove Chart, and Delete now appear only after opening an individual design.
+The main Design Master retains only search, image repair, bulk processing, selection, and bulk deletion controls.
+Clicking any Design Master image tile now opens a full-screen Design Details window.
+The Design Details window shows the large design image, category, design items, saved stone charts, stone-row count, and Stone Entry status.
+All design actions are available together: View Design, Crop Stone Chart, View Stone Chart, Stone Details, Edit, Merge, Remove Chart, and Delete.
+Closing Stone Details or Crop Stone Chart returns to the same design details screen and category.
+The corner checkbox remains separate for bulk selection and does not open the design.
+Every Design Master image tile now has a separate read-only Stone Entry checkbox.
+The Stone Entry checkbox is green and checked when saved stone rows exist, and amber and unchecked when stone entry is still pending.
+The status includes the saved stone-row count and does not interfere with the bulk-selection checkbox.
+Design Master category and search tiles now show only the design image and design number; stone-chart previews and individual action rows were removed from every tile.
+Clicking a design tile highlights it and enables one shared action bar for View Design, Crop Stone Chart, View Stone Chart, Stone Details, Edit, Merge, Remove Chart, and Delete.
+View Stone Chart and Remove Chart stay disabled until the selected design has a saved stone chart.
+Bulk-selection checkboxes remain available in the image corner for Select All and Delete Selected operations.
+The shared design action bar remains visible while browsing long categories and becomes compact on mobile screens.
+Delete actions now remove the deleted row, tile, or card from the visible page immediately after the data is saved.
+The delete refresh keeps the user on the same active tile or full-screen page instead of requiring Back and Open again.
+Open Design category, Job Card, Lot History, Office, Safe item history, Melting view, and Department Transfer History screens are rebuilt after deletion.
+When the record currently being viewed is deleted, its stale dialog closes automatically; related pages remain open and refreshed.
+Safe Locker entries, Melting/Casting entries, customers/designs/departments, catalogue images, transfer rows, Stone Master rows, Daily Tally rows, Job Cards, setters, and XRF entries use the refreshed delete flow.
+Fixed Design Master previews when Supabase image loading fails: the app now always checks the image saved in the current browser.
+Found and exposed the real sync condition: design records can exist while their separate Supabase design-image files are missing.
+New Repair / Sync Images action uploads older browser-held design, stone-chart, and catalogue images to Supabase with live progress and clear failure details.
+Images found only in the browser are automatically queued for cloud repair when viewed, while offline image access remains available.
+New uploads retain their browser copy but now track cloud failures instead of silently reporting a fully synced image.
+Design cards show Loading, Image Not Synced, or Browser Copy / Cloud Sync Pending status instead of an unexplained blank preview.
+Confirmed the live Supabase bucket accepts reads but currently rejects image writes under row-level security; FIX-DESIGN-IMAGE-SYNC.sql repairs the missing storage write policy.
+FIX-SUPABASE-PERMISSIONS.sql now repairs both the ERP data table and the separate design-image storage bucket.
+QC Failed items now return first to the matching karat Production Shelf instead of going directly into a net-weight-only repair lot.
+Each returned finished-item shelf entry preserves Return GW, Stone, Black Beads, Moti, Spring, Other Non-Gold, total non-gold, and Net Gold separately.
+Office Main and Owner can open any eligible Office item and use Return To Production Shelf with a reason, remarks, and editable returned weight breakup.
+An Office item retains its original Factory Out audit entry and receives a matching internal Office Return / Factory In entry for net gold; a Bill/QC failure that never left the factory does not create a duplicate Factory In.
+Returned items disappear from Office holding, appear in Repair / QC Failed with their Production Shelf location, and remain linked to the original Bill, Job Card, PR, and source lot.
+Issuing the returned shelf item to its Job Card creates the repair production lot and links it back to the original failed bill item for later final bill and QC completion.
+Returned shelf items have Remove Non-Gold / Melt: net gold is issued to Melting while Stone, Black Beads, Moti, Spring, and Other components are recovered as separate non-gold shelf entries.
+Return metadata, factory-return linkage, shelf movement linkage, recovered component IDs, and melting linkage persist through live sync and old/new app versions.
+Every Safe Locker shelf entry that has been issued now shows a Part Issues button, including fully issued entries.
+Part Issue History keeps each partial issue against its original shelf item and shows date/time, Job Card, PR, lot, destination department/process, Issue GW, Wax Stone, non-gold breakdown, and Net Gold.
+The history summary shows total issued weights and the shelf item's current remaining GW, with newest partial issue first.
+Each job-linked part issue shows the lot's current department, status, and transfer count; Open Movement opens the complete individual lot transfer history.
+Bill items now show an editable Size field for Job Card categories that use size, including BR, LR, GR, CB, and CBR.
+The Size field automatically takes the individual Job Card item size; CB/CBR ladies and gents items use their corresponding CL/CLR or CG/CGR size.
+If the Job Card size is blank, the bill user can enter it manually. Manager and Owner can correct the saved size when editing a generated bill under the existing bill permissions.
+Bill size is item-specific and does not modify the Job Card. It is retained in old/new bill data and shown in Bill view, Packing List, tags, Hallmark tags, and Office item details.
+Issuing a Safe Locker shelf item to a Gold Pending Job Card now creates the production Gold Issue lot automatically and places it in the selected department/process.
+Issuing a shelf item to an existing production Job Card + Department now transfers that lot to the selected department when its current department or process differs.
+The created lot records shelf source, karat purity, issue GW, Wax Stone, Hand Stone, Other non-gold, and Net Gold while the linked Job Card items move to In Production.
+The promoted shelf issue is shown once as the normal Gold Issue in online, department, and individual lot history; duplicate direct-shelf stock and history counting is prevented.
+Gold Issue history now displays the full GW - Wax - Hand - Other = Net Gold calculation.
+Existing saved shelf issues that are linked to an active Job Card and still held in a department are upgraded automatically: a missing Gold Issue lot is created, or the existing lot is moved to the recorded department when that issue is its latest movement.
+Returned, completed, or superseded historical movements are left unchanged so old production is not reopened or moved backward.
+Safe Locker partial issue can now identify Stone, Black Beads, Moti, Spring, or another known component from an older generic Other / Combination non-gold balance.
+For GW 35.450 g and Stone 8.636 g, the issue gold is 26.814 g; an available Other balance of 19.541 g is reduced to 10.905 g without changing total gold accounting.
+Category reclassification is limited to Safe issue consumption; saved issue history records the issued component under its newly identified category.
+Trace Existing Stone now supports Whole Job Card / All PR Items when a Job Card contains multiple semi-finished products.
+Wax and Hand stone are totalled across every PR in the selected Job Card, matched against the entered Stone weight, and saved as one trace without modifying or duplicating any PR stone plan.
+Selecting an individual PR is now required only for Add Missing To Wax, Hand, or Wax + Hand.
+Safe Locker issue now traces Wax Stone and Hand Stone directly from the selected PR item's saved Job Card stone details.
+When entered Stone exactly matches the Job Card's Wax, Hand, or combined total, Trace Existing is selected and filled automatically without duplicating the Job Card stone weight.
+The issue form now lists completed production stages and automatically selects the latest completed stage; the user can select an earlier completed stage when correcting the physical trace.
+The selected completed stage, traced Wax/Hand split, and total Stone weight are saved in issue and transfer history.
+Add Missing To Wax, Hand, or Wax + Hand remains available when the physical stone is genuinely absent from the Job Card details.
+Manual Job Card stone adjustment now supports Wax only, Hand only, or a Wax + Hand split for the selected PR item.
+For a combined adjustment, the entered Stone weight must exactly equal Wax Stone portion + Hand Stone portion at three-decimal precision.
+Both portions create separate traceable production stone rows and update the corresponding Wax and Hand totals, transfer calculations, and history.
+Job Card details and the Safe shelf issue window now show completed production stages and the current stage.
+When a Safe shelf issue is linked to a Job Card, manually entered Stone weight can be assigned to Wax Stone or Hand Stone for the selected PR item.
+The adjustment is stored only in that Job Card item's production stone plan, updates Wax/Hand totals and later transfer calculations, and does not modify Design Master or Stone Master.
+Safe shelf items can now be issued to a Job Card or Job Card + Department in multiple small lots, including a partial issue with zero non-gold.
+Each issue deducts its own GW, wax stone, non-gold category weights, and gold weight from the remaining shelf balance; combined entries cannot exceed the original shelf stock.
+The shelf issue form now clearly labels non-gold as optional for each partial entry and shows the remaining balance used for cumulative validation.
+Issue Metal To Job Card now lists eligible casting batches and related gold-bearing shelf items from the selected karat Safe.
+Plain Rod, Wastage/Scrap, Ghiss/remelting stock, non-gold-only items, and shelf items containing unallocated non-gold are excluded from the Job Card source dropdown.
+The dropdown and issue summary now identify the selected shelf source type, colour, purity, GW, wax stone, and available NT.
+Added Move Casting Item To Wastage in Safe Locker, available from combined casting shelf cards, shelf history rows, and the Safe Locker toolbar.
+The operation accepts Wastage GW and Stone Weight, subtracts both from the selected casting balance, and calculates reusable Wastage Gold / NT as GW minus Stone.
+Transferred wastage is collected automatically by the source karat and selected colour; mixed-colour casting items can be split repeatedly into Yellow, Rose, White, Green, 2 Tone, 3 Tone, or Mixed wastage pools.
+Tracked wax/non-gold stone is reduced from the source item. Additional entered stone is recorded as newly identified stone so factory GW stays constant and fine-gold stock is corrected.
+Dashboard department tiles now show Gross Weight (GW) as the large bold primary value.
+Net Weight is shown in the smaller summary row alongside Other and Fine weight.
+Dashboard Non-Gold is now one Total Non-Gold In Factory value instead of a department-only value.
+The factory-wide non-gold total includes Safe Locker, production lots, bill-pending stock, safe items issued within the factory, and direct non-gold holdings without double-counting transfers.
+Opening the dashboard Non-Gold tile now opens Factory Summary, where a dedicated Total Non-Gold In Factory card shows the consolidated weight.
+Item Safe Locker is now one vertically scrolling workspace, allowing Non-Gold Summary, Collective Wastage, and Add Entry to scroll upward and reveal the full shelf ledger.
+Added View Shelf History and Back To Add Entry buttons for quick movement between entry controls and history.
+Safe Entry History now has a clear section heading, a larger viewing area, sticky column headings, readable wrapped details, and compact row action buttons.
+The shelf ledger fits the full available width without requiring left-to-right page scrolling.
+Safe Locker Add and Issue now use checkboxes for Stone, Black Beads, Moti, Spring, and Other instead of requiring a hard-coded combination dropdown.
+Any one or multiple non-gold components can be selected, each with its own weight field and an automatic combined non-gold total.
+Mixed non-gold component weights remain separated in Safe stock, job-card item allocation, production totals, department holding, and transfer history.
+Partial issues reduce the selected component balances individually; remaining shelf stock keeps the correct component-wise balance.
+Old Combination / Mixed Non-Gold entries remain compatible and can be allocated into the required component weights when issued.
+Weight Unknown remains available for one component; mixed combinations require individual weights so category totals stay accurate.
+Job-card stone recovery now falls back to the matching Design Number when an older job points to a replaced or re-uploaded Design Master ID.
+Get Stone Data From Design Master now reads late-added design stone rows for older job cards and applies current Stone Master code, Wt/Pc, and total weight.
+Single-sub-item designs also recover their only available stone plan when an older job item has no matching saved sub-item key.
+Safe Locker Issue now lists every job card still in production, including Gold Pending jobs and Gold Issued active lots.
+Gold Issued choices show the lot and current department; Gold Pending choices allow department selection before issue.
+Non-gold Shelf issues now open with Job Card + Department selected when production jobs are available.
+Added Combination / Mixed Non-Gold to Safe stock and issue category dropdowns, and new Non-Gold Item entries default to this combined category.
+Pending-job accessory issues remain in factory and department holding, then attach to the lot automatically after gold is issued.
+Production Stone Entry now has separate Get Stone Data From Stone Master and Get Stone Data From Design Master actions.
+Stone Master matching is case-insensitive and automatically fills missing Wt/Pc, code, and total weight on job-card stone rows.
+Get Stone Data From Design Master reloads stone rows added after the job card was created, then applies current Stone Master weights without changing Design Master.
+Safe Locker non-gold issue can now be assigned to a specific semi-finished Product / PR or to the whole Job Card / Lot.
+The selected production number is retained in Safe Locker issue history and its non-gold allocation is shown on the individual job item.
+Safe Locker issue now offers Department Only, Job Card Only, and Job Card + Department destinations.
+Job Card Only automatically uses the active lot's current department; Job Card + Department keeps the department selectable.
+Job-linked shelf non-gold appears in the job-card non-gold total, production non-gold history, department holding, and transfer history without double-counting physical stock.
+Safe Locker now accepts Non-Gold Item stock with Stone, Black Beads, Moti, Spring, and Other categories.
+Non-gold shelf entries use physical GW, optional known non-gold weight, and automatic Gold / NT weight.
+Leaving Known Non-Gold Weight blank for a Non-Gold Item treats its full GW as non-gold while marking the weight as not separately known.
+Safe Locker shows category-wise non-gold physical GW and keeps it excluded from fine-gold calculation.
+Safe-to-Department issue now asks for non-gold category and weight, with a Weight Unknown option that transfers the physical GW without creating fine gold.
+Department holding and transfer history now preserve the issued non-gold category, physical GW, non-gold reduction, and remaining gold weight.
+Department receipt supports Stone, Black Beads, Moti, Spring, and Other non-gold material and restores it to the selected Safe Locker category.
+Factory Summary now separates Total Factory Weight, Total Non-Gold, Net Gold Weight, and Fine Gold so non-gold material never receives a karat fine calculation.
+Melting Conversion now includes an Add Ghiss From Safe button and a dedicated Ghiss From Safe Locker source type.
+The Ghiss dropdown shows only available Ghiss stock, grouped by karat and colour with its current weight.
+Melting issue validation, Safe Locker reduction, edit, delete/correction return, and melting history now preserve the Ghiss category.
+Previously entered shelf rows containing Ghiss in their item name or source are automatically recognized in the new Melting Conversion Ghiss dropdown.
+Selecting a Safe Locker card now keeps that karat selected instead of clearing the shelf filter when the same card is clicked again.
+The Add To Safe Locker field is synchronized on every Safe Locker render, so selecting 18K always fills 18K and remains selected after saving an entry.
+Added Ghiss as a separate Kind option in Add To Safe.
+Ghiss entries display as Ghiss in the shelf list and remain included in collective wastage available for remelting.
+Selecting 9K, 14K, 18K or 22K in the Item Safe Locker filter now automatically selects the same Locker in the Add To Safe form.
+Clicking a locker card applies the same automatic Add To Safe locker selection.
+After saving a shelf entry, the form resets but keeps the currently filtered locker instead of returning to the default 22K.
+Clearing the All Lockers filter does not overwrite the current Add To Safe locker selection.
+Opening Item Safe Lockers now hides the main Safe operation tiles so the active shelf workspace uses the full screen.
+The four large locker-summary tiles inside Item Safe Lockers are hidden while working in the shelf-entry view.
+Item Safe Lockers now expands to the full available width instead of leaving space for the hidden Metal Safe panel.
+The shelf-entry table has a larger dedicated viewing area sized to keep approximately 5 to 10 entries visible at once.
+Shelf entries use a slightly larger, clearer font and row spacing while retaining the compact no-sideways-scroll layout.
+The shelf-entry table now owns its vertical scrollbar, with sticky column headings that remain visible while scrolling.
+Collective Wastage and casting shelf summaries have compact independent scrolling so they no longer push the entry list off screen.
+The Add To Safe fields fit in one row on wide screens and adapt to four or two columns on smaller screens.
+Daily Stock Tally now compares ERP Net GW with physical net weight instead of comparing against ERP gross weight.
+Physical Net Weight is calculated automatically as Total Physical Weight minus the selected Dabba / Container weight.
+The automatic formula is ERP Net GW minus Physical Net Weight equals Loss.
+When physical net weight is higher than ERP Net GW, the excess is shown separately as Gain.
+The editable manual loss/gain field has been removed; Calculated Loss and Calculated Gain are read-only system results.
+Daily tally summary and history now show Physical Net Weight, ERP Net GW, signed difference, Calculated Loss and Calculated Gain consistently.
+Previously saved daily tally entries are normalized to the same ERP-net comparison rule when loaded.
+Calculated tally loss/gain remains an audit record and does not silently alter live department or factory stock.
+Safe Locker shelf rows now include a Delete Entry button for correcting wrong shelf postings.
+Only Owner and Manager can delete shelf entries, following the ERP-wide delete permission.
+Deleting a manual shelf entry removes it after a detailed weight confirmation.
+Deleting a shelf entry returned from a department also reverses its linked department receipt, restoring that weight to department holding and removing the matching transfer-history record.
+Shelf entries already issued fully or partly to a department are protected until their linked department movement is corrected.
+Factory In, Melting/Casting, XRF, discarded-product and opening-stock shelf entries are protected and direct the user to correct the original source record, preventing mismatched factory stock, loss or vendor balances.
+Safe Locker row actions wrap compactly so Issue, Move Out and Delete remain visible without sideways scrolling.
+Safe Locker Collective Wastage tiles are reduced to approximately 30% of their previous footprint.
+Collective Wastage remains grouped karat-wise and colour-wise with GW, fine weight, entry count, and Use For Melting access.
+The full Item Safe Locker panel now scrolls vertically, so Collective Wastage can move upward and the shelf entries below remain accessible.
+Daily Stock Tally now accepts a signed Daily Loss / Gain entry for every department tally.
+Enter a negative value to book department loss and a positive value to book department gain.
+Daily Tally calculates Unexplained Difference as Physical Difference minus Booked Loss / Gain.
+Daily Tally summary now shows total booked loss, total booked gain, net booked adjustment, and remaining unexplained difference.
+Daily Tally history displays the booked signed adjustment and unexplained balance for each department entry.
+A reason in Remarks is required whenever a non-zero daily loss or gain is booked.
+Daily loss/gain booking is an audit record and does not silently alter live factory or department stock.
+Casting Receive can now create a special Fitting Items job card directly from the received Casting Item GW.
+The manually entered Casting Wax Stone weight is carried into the generated job card unchanged, and Net Gold is GW minus Wax Stone.
+The generated card receives its own Job Card number, Production number, barcode, and Lot number.
+Creating the card converts the received Safe Locker line into production stock, preventing the same metal from being counted twice.
+Fitting Items cards are internal stock cards and never appear for billing.
+Transferring a Fitting Items card to a Fitting or Vinod department automatically completes the source card with narration Fitting Items.
+The completed source card remains included in factory and destination-department holdings because its metal is physically being used for fitting work.
+Fitting Items cards can be split before transfer by entering Split GW and Split Wax Stone.
+Each split receives a new JOB-S number, Production number, barcode, and Lot number while preserving total GW, Wax Stone, and Net Gold.
+Correcting or deleting the final fitting transfer reopens the special card and clears its old completion date and narration.
+Setting Manager now accepts manual hand-set stone weight for a lot that has no hand-stone plan in its job card.
+Job-card hand-stone weight remains automatic and protected whenever it is available.
+Manual hand-stone weight can be entered while issuing to a setter and confirmed or corrected while receiving from that setter.
+Receive Net Wt is calculated as Receive GW minus Hand Stone, and Difference is Receive Net Wt minus Issue GW.
+Manual hand-stone weight is saved on the lot and automatically carried into its next production transfer from Setting.
+Pending setter entries and setter history now identify whether hand-stone weight came from the Job Card or a Manual entry.
+Invalid negative hand-stone weights and hand-stone weights above Receive GW are blocked.
+FIX-SUPABASE-PERMISSIONS.sql now fully repairs the erp_state table grants and RLS policy without deleting or replacing ERP data.
+The repair covers both Supabase browser roles: anon and authenticated.
+The SQL returns four permission checks; all four must show true after it is run in Supabase SQL Editor.
+ENABLE-LIVE-SYNC.sql and supabase-schema.sql now create matching policies for both browser roles.
+ERP sync errors now explicitly tell the user to run FIX-SUPABASE-PERMISSIONS.sql when a permission or RLS error is detected.
+Create Job Order's Multiple Designs In Same Category box is now a click-to-add picker and no longer requires the Ctrl key.
+Each clicked design is stored immediately and appears as a selected-design chip below the picker.
+Selected designs stay saved while searching or refreshing the visible design list.
+An already-added design is disabled in the picker to prevent accidental duplicates.
+Clicking the cross on a chip removes only that design and makes it selectable again.
+Create Job Order now shows set-item combinations for PS and TM designs.
+PS supports PS, PSE, and PS + PSE; TM supports TM, TME, and TM + TME.
+Every selected set component is saved as an individual job item with its own production number and barcode.
+The same set selector is available while adding or editing items on an existing job card.
+Stone-plan lookup, item details, barcode details, print labels, and combined bag grouping now understand PS/PSE and TM/TME item families.
+Hallmarking now recognizes CME, PSE, TME, and short item codes ending with E as earrings.
+Earring items show separate HUID 1 and HUID 2 fields in Hallmarking.
+Hallmarking receipt is blocked until both earring HUID values are entered, and every HUID remains globally unique.
+The earring detection is calculated from saved item and job-card details, so it also applies to previously created orders.
+Safe Locker now shows all available remelting wastage as collective pools grouped by karat and gold colour.
+For example, every active 18K Rose wastage entry is combined into one visible 18K Rose pool, while 18K Yellow and other karat-colour combinations remain separate.
+Each pool shows available net wastage, gross weight, approximate fine gold, source-entry count, and material categories such as Wastage, Rava, Tree Cut, and Scrap / Dust.
+Original Safe Locker entries and their history remain unchanged and traceable; collective pools are calculated live from active stock.
+Each collective pool has a Use For Melting button that opens Melting Conversion with the correct wastage source selected.
+Melting's Wastage From Safe dropdown now lists karat-and-colour pools separately and deducts only the selected pool.
+Melting issue edit, deletion, and correction preserve the original wastage karat and colour when material is restored.
+Safe Locker item history now displays the Colour column correctly and keeps all eleven table columns aligned.
+Hallmarking Department now includes an All Categories dropdown built from the live issued-item categories.
+Hallmarking batches can be sorted by Newest HM Batch, Oldest HM Batch, Category A-Z, or Category Z-A.
+Category filtering works together with the live Hallmarking search inside the batch list and an opened HM batch.
+Every Hallmarking batch tile now shows its category or combined category list.
+Clear Filters restores all Hallmarking items and the newest-batch-first order in one click.
+Hallmarking Department now has a live search bar on both its batch-tile screen and inside an opened HM batch.
+Search matches HM batch, Bill No, Job Card, PR number, customer, design, category, purity, and HUID.
+Multiple search terms can be combined, and the result counter updates immediately without closing the Hallmarking window.
+Office Non Hallmarked stock is now grouped into batch tiles by Bill No.
+Opening a Bill batch shows only that batch's items, with Select All, Clear Selection, and individual item selection.
+Issuing any selected subset creates one new sequential HM batch; unselected items remain in their original Bill batch.
+Hallmarking and Hallmarked batch views now include batch-scoped Select All controls and complete item weight details.
+Hallmarking returns remain tied to the same HM batch, with HUID validation before receipt.
+Office batch screens refresh immediately after issue, return, or sales transfer, so moved items no longer remain visually stale.
+Bill printing is now always fixed to A6 landscape with zero page margin and a one-page maximum layout.
+The Khushali Jewells logo is included in a horizontal logo-and-title bill header.
+The Bill print layout is compacted into one A6 page without changing Packing List or tag print layouts.
+The Bill action is labelled Print Bill A6 so the required paper size is clear.
+The Bill list now shows Lot GW separately from Finished Net weight for every completed lot.
+Opening Make Bill, View Bill, or QC Check now shows a complete Lot Movement Trace above the bill fields.
+The trace includes Gold Issue and every department transfer with date, time, From, To, Issue GW, Receive GW, Net Wt, and Difference.
+Bill transfer entries are identified as To Bill, and the full trace is arranged newest-first for time-based tracking.
+The trace header always shows current Lot GW, Lot Net, total entry count, and latest movement time.
+Bill / QC now includes an All Items QC OK button above the item table.
+The bulk action applies QC OK to every item currently shown in the bill and saves all statuses in one click.
+Transfer QC OK To Office remains a separate final action so the QC result can be reviewed before factory-out movement.
+The bulk QC action follows existing permissions and is available only to QC, Office Main, and Owner.
+Old transfer records now receive a stable historical timestamp based on their saved date and original sequence, allowing all old entries to be rearranged newest-first.
+Transfer histories now display both the saved date and time for job-card transfers, department IN/OUT, Gold Issue, and direct Safe Locker movements.
+Exact timestamps already stored in newer records are preserved; only missing historical times are reconstructed.
+New entries now always appear at the top of Online Transfer History, department IN/OUT history, and individual job-card transfer history.
+New job lots and transfers store an exact timestamp so multiple movements made on the same date remain in the correct order.
+Existing history without an exact timestamp falls back to its saved date and original sequence.
+All production transfers now use standard karat purity: 9K / 38.50%, 14K / 58.50%, 18K / 75.00%, and 22K / 91.60%.
+Previous transfer values such as 74.90% are normalized to 18K / 75.00%, and their fine-gold calculations are recomputed on load.
+True Melting batches preserve and display the exact target purity entered by the user.
+Melting output stock, Casting batches, Safe Locker issues, job-card transfers, transfer bags, and department histories use karat logic.
+Manufacturing Loss remains available in the department receipt dropdown, is posted to department loss history, and is removed from stock.
+Filing / Fitting and Paper Filing now use separate department groups, dashboard identities, and transfer-history tiles.
+Paper Filing is detected before the general Filing rule, so new and existing Paper Filing transfers no longer appear in Filing history.
+Online Transfer History now visibly includes every job-card gold issue and department transfer.
+Lot number and job-card number are shown together, searchable, and open the complete job-card transfer history.
+Department receipts now provide Manufacturing Loss in the returned-item Type dropdown and a direct Add Manufacturing Loss button.
+Loss lines are stored in department loss history, reduce department stock, include fine-gold loss, and create no Safe Locker item.
+The separate automatic difference field is now reserved for Tar/Pata Manufacturing receipts with a selected issue.
+Items received from melting now use standard karat issue purity: 9K / 38.50%, 14K / 58.50%, 18K / 75.00%, and 22K / 91.60%.
+Previously received and issued melting stock is normalized to the same karat logic when the data loads.
+Tar/Pata Manufacturing receipts now calculate manufacturing loss automatically from the selected issue.
+Manufacturing loss equals issued remaining GW minus the total GW of all returned items.
+Other departments continue to use the manual department-loss field.
+Individual Department Transfer History now uses the same separate, color-coded FROM and TO columns as Online Transfer History.
+Every department IN row shows the outside source in FROM and the opened department in TO.
+Every department OUT row shows the opened department in FROM and the receiving department, Safe Locker, or Department Loss in TO.
+Both IN and OUT tables retain GW, Net Wt, Difference, Fine Gold, and Remarks alongside the direction columns.
+The nine-column department history layout is compacted to remain visible without sideways scrolling.
+Empty IN and OUT tables now span the corrected nine-column layout.
+Online Transfer History now has separate From Department / Source and To Department / Destination columns.
+Removed the repeated combined A-to-B movement text that made transfer direction difficult to read.
+FROM cells use a soft red treatment and TO cells use a soft green treatment with clear FROM and TO labels.
+Gold issue, normal department transfer, accessory issue, department receipt, receipt with loss, and loss-only rows all use the new direction layout.
+Department master name and registered process are shown together where useful, such as Vinod / Fitting.
+Loss-only rows now show Department Loss as the destination instead of incorrectly implying receipt into Safe Locker.
+Column widths are compacted to keep all transfer weights visible without sideways scrolling.
+Fixed Department History showing zero IN/OUT rows while the dashboard department GW holding changed.
+Dashboard department names are now resolved to the same history group used by their registered manufacturing process.
+Vinod/Filer/Fitting entries correctly open under Filing / Fitting, and Pre Polish/Polish entries open under their shared history group.
+Custom department names whose process is Fitting, Filing, Pre Polish, or Polish now use the correct merged history automatically.
+Previously saved accessory issues, receipts, and loss entries become visible without data conversion or re-entry.
+Issue and Receive actions opened from a merged Department History still select the real Department Master record.
+Every accessory or Safe Locker issue now creates its own ISSUE TO DEPT row in Online Transfer History and Department IN History.
+Every department receipt now creates its own RECEIVE FROM DEPT row in Online Transfer History and Department OUT History.
+Receipt with loss is labelled RECEIVE + LOSS, while a loss-only entry is labelled LOSS BOOKED.
+Dashboard Recent Transfer History uses the same explicit movement labels so every issue, receipt, and loss is easy to identify.
+History search now matches Issue To Dept, Receive From Dept, Receive + Loss, and Loss Booked wording.
+Every individual Department History now has Issue Accessory and Receive / Book Loss buttons in its header.
+Every dashboard department tile now also provides Issue Accessory alongside Receive / Book Loss.
+Issue Accessory opens the available Safe Locker inventory selector with department and process selection.
+Accessories, rods, chains, gold balls, springs, wastage, and other Safe Locker items can be issued fully or partially to a department.
+Partial issue keeps the remaining GW, wax stone, and net weight in Safe Locker and moves only the entered weight to department holding.
+Accessory issues appear immediately as Department IN entries, Online Transfer History entries, dashboard recent history, and live department holding.
+Receive / Book Loss continues to support partial or full department returns into the selected purity Safe Locker.
+Added Loss Only to the receipt-type dropdown; it requires a loss weight and cannot create a received Safe Locker item.
+The open Department History refreshes immediately after issue, receipt, or loss booking.
+Every department dashboard tile now has Receive / Book Loss, including departments without a direct Safe Locker issue.
+Department receipt material choices now include Wastage, Rava, Laser Wire, Tar, Patta, Rod, Chain, Gold Ball, Spring, Manufactured Accessory, and Other.
+The receipt form records department, related holding/item, material, destination locker, purity, received GW, wax stone, net weight, department loss, and remarks.
+Department reduction is received net weight plus booked loss; only physically received material is added to Safe Locker.
+Booked department loss updates department holding, karat-wise Department OUT history, fine-gold loss, factory physical/fine stock, and Reports.
+General department receipts and shelf-linked partial receipts are both supported without double-counting factory stock.
+Direct Safe Locker issues to departments now appear in Online Transfer History, dashboard recent history, and individual Department IN history.
+Direct shelf-issued gold, wax stone, and net weight continue to appear in the selected department's live holding.
+Safe Locker and eligible department cards now provide Receive Wstg / Accessory controls for material returned from any department.
+Department receipt supports wastage, manufactured accessories, rods/metal, and other material with purity, destination locker, GW, wax stone, net weight, and remarks.
+Partial department receipts reduce only the received weight; full receipt closes the department holding and restores the material to Safe Locker.
+Department receipts appear as Department OUT history entries and are included in Online Transfer History.
+Safe Locker is compacted so substantially more inventory entries remain visible on screen.
+Purity summaries, receive controls, casting shelf cards, table rows, and action buttons now use reduced vertical space.
+The Safe Locker item table has its own vertical scroll with a sticky heading and remains free of sideways scrolling.
+Print Bill now uses a strict one-page A6 landscape layout with fixed page height and page-break protection.
+Customer, job, lot, order type, office, item count, and purity details now fit in one compact row on the printed Bill.
+Weight-category rows, totals, remarks, and signature lines are compacted to remain fully visible on the same page.
+Packing List and Factory Summary print layouts are unchanged.
+View Bill spacing is reduced further across every section, with smaller headers, summary, totals, item rows, fields, and action controls.
+All seven non-gold fields now fit in one row per item on wide screens, reducing each bill item row substantially.
+Non-gold fields wrap to four columns on tablets and two columns on mobile so entries remain usable without wasting desktop space.
+View Bill now uses a compact full-screen layout with reduced spacing between the title, summary, bill fields, totals, item rows, and action buttons.
+All nine bill totals fit in one row on wide screens, five columns on tablets, and three columns on mobile screens.
+Bill item rows, non-gold fields, inputs, and the sticky action bar use less vertical space while keeping all details readable and editable.
+Open Job Order now shows Job Lot Current Status at the top, immediately below the job-order header.
+Current stage, department, lot number, current GW, transfers, and Issue Gold are visible before Job Items and Item Details.
+Mobile and tablet Job Bag printing now opens a completely separate print-only page containing the bag and no ERP dashboard or forms.
+The print-only page waits for design images, then enables its own direct Print / Save PDF button for reliable phone and tablet printing.
+The print toolbar is physically removed before printing, leaving only the Job Bag document in the print page.
+If a browser blocks the print-only tab, the previous isolated in-page mobile print method remains available as the automatic fallback.
+Mobile and tablet Job Bag printing now temporarily removes the ERP screen from the printable document, so only the bag can be captured.
+The isolated print body is rendered and measured before the device print sheet opens, fixing browsers that previously printed the whole ERP page.
+The complete ERP screen and all open job-order data are restored automatically after printing or cancelling the device print sheet.
+Tablet and mobile Job Bag printing now uses a Print Ready confirmation with a direct Print / Save PDF tap that mobile browsers allow.
+The confirmation shows the selected A4, A6, or Transfer Bag paper layout before opening the device print screen.
+Desktop Job Bag printing remains one-click, and the existing bag paper sizes and page counts are unchanged.
+Production Stone Entry now shows only compact 20px production numbers with checkboxes for matching design numbers.
+The production-number selector is completely hidden when that design number appears only once in the job card.
+The Create Job Order multiple-design selector has been restored to its previous full width.
+Production Stone Entry now lists matching-design items from the same job card by production number.
+Create Job Order now includes No. of Pcs for every item, with 1 pc selected by default.
+Each requested piece is saved as an individually tracked item with its own production number and barcode.
+Multiple-design, CB pair, and CM set quantities are expanded correctly and their stone totals include every piece.
+Job-card Bag and Transfer Bag print layouts are now reduced uniformly to 95% and centered on their existing paper areas.
+A4 four-up Job Cards, A6 single-item Job Cards, and the two-page A6 Transfer Bag keep their current paper sizes and page counts.
+Transfer Bag page 1 now shows Wax Stone total weight, Hand Stone total weight, and combined Total Stone weight with piece counts.
+Production Stone Entry now preserves Shape and Size when Type changes, so SW / ROUND / 1.1 can become RED / ROUND / 1.1 by changing only Type.
+Changing Type, Shape, or Size automatically refreshes stone code, wt/pc, and total weight from Stone Master.
+When a new colour/type has no exact master entry, Production Stone Entry reuses the matching Shape + Size weight and saves the missing combination to Stone Master with the job-item plan.
+Changing stone Size automatically reapplies Wax up to 2 mm or Hand above 2 mm and updates the manufacturing stage.
+Dashboard now has an XRF Pending GW tile showing the total sample weight currently with XRF; Open goes directly to XRF Issue / Return.
+All Departments now includes an always-visible XRF Department card with live pending GW and karat-wise fine-gold detail.
+Saving an XRF Return automatically removes that sample from the dashboard XRF pending holding.
+XRF Issue / Return casting dropdown now shows saved casting batches first with their XRF issue weight and Pending Return / Returned status.
+Selecting a casting batch automatically captures and locks the XRF sample weight recorded during Casting Receive.
+Receive Selected XRF now opens the full receive window directly with casting batch, karat, colour, issue date, and issue weight prefilled.
+Casting Receive now stores XRF Sample Weight inside the receive breakup as the authoritative value; older entries continue to use their linked XRF record.
+Linked casting XRF entries cannot be issued twice from the XRF form. Manual issue remains available only for unlinked Casting Tree WSTG sources.
+Casting Receive now issues XRF automatically whenever XRF Sample Weight is greater than zero; the separate checkbox has been removed.
+XRF sample can now be deducted only from that casting batch's Tree Cut weight, never from general casting wastage.
+Casting Receive shows Tree Cut Shelf Balance After XRF before saving and automatically creates an XRF Shelf Out record plus the linked XRF Issue / Return entry.
+XRF Return continues to post 99.9 Touch Puliya into Metal Safe and untreated wastage into the matching karat/colour safe shelf.
+Editing and re-saving Casting Receive or XRF entries now removes the previous linked XRF Shelf Out before rebuilding it, preventing duplicate shelf-out records.
+Daily tally container selection is now department-aware and automatically shows only the saved containers for the selected main department.
+Vinod tally now uses karat logic: select 9K, 14K, 18K, or 22K to compare only that karat holding and automatically use the matching Vinod container weight.
+Filer and other departments remain total-GW tallies across all karats. Their container master entries are saved without karat separation.
+Container Master now saves Main Department and, for Vinod, Karat alongside each reusable dabba/container weight.
+Added Dabba / Container Master inside Daily Stock Tally. Save a dabba, box, tray, bag, packet, or other container once with its empty weight.
+Daily tally now has a reusable container dropdown. Selecting a saved container automatically fills the readonly dabba weight and deducts it from physical GW.
+Container Master supports search, add, edit, and controlled delete. Historical tally entries keep the container name and weight used at the time of entry.
+Daily Stock Tally redesigned with a cleaner professional entry layout, clearer ERP comparison, compact summary cards, and a seven-column history table.
+Daily Stock Tally now lists only main Department Master names, plus system Casting and Melting departments. Registered process names and stock locations are no longer shown in the selector.
+Added Daily Stock Tally tab for daily department and stock physical tally.
+Daily Stock Tally saves date-wise entries with Department / Stock, tally mode, total physical weight, dabba/box weight, auto tally GW, ERP expected GW, ERP net gold, ERP fine gold, and difference.
+Daily Stock Tally uses dashboard department holding and factory stock logic for expected ERP weight, so physical count can be compared with live ERP holding.
+Daily Stock Tally includes search, edit, and history table. Editing requires page access; deleting tally entries follows ERP delete control for Owner or Manager.
+Designs, Stone Library, and Catalogue now have full page-level permission: any non-read-only user with access to that page can add, edit, delete, crop, upload, clear, and manage that page data.
+Other ERP delete actions remain restricted to Owner or Manager, and Reset remains Owner-only.
+Design tab and Design Stone Entry edits now work for any user whose login has Designs access. Stone Master edit now works for any user whose login has Stone Library access.
+For modules outside Designs, Stone Library, and Catalogue, delete actions remain restricted to Owner or Manager, and Reset remains Owner-only.
+Design Upload now has a Sub Items field. Category defaults auto-fill common lists like CB = CL, CG and CM = CM, CME, CMB, but the list can be edited and is saved with each design.
+Design Master, Stone Entry, Crop Chart, Create Job Order, and Job Card Edit now use the saved design sub-item list where available.
+Online Transfer History and Department Transfer History are now fully separated into two different full-screen popups: Online opens only the lot transfer table, and Department opens only department-wise tiles/details.
+Transfer History now keeps Department and Moved From/To as plain one-line values; only Remarks opens a hover popup, and Department Wise history remains a separate tile/detail view.
+Transfer Bag page 2 now uses columns From Dept, To Dept, Date, Transfer GWT, and Sign.
+Transfer Bag page 2 now has taller transfer-history rows and fewer blank lines, giving more space between lines for handwritten GW entries.
+Transfer Bag now prints as two A6 pages: page 1 for full job card, lot, and item details; page 2 for transfer history and manual GW writing space.
+Transfer Bag now uses the same stock/customer order logic as job-card print: KJPL-STOCK is stock, other orders show customer-order labeling, and customer orders are highlighted in pink.
+Added a separate Job Card Transfer Bag print button. It prints one A6 transfer bag per job card with job/lot summary, all item details, and manual transfer-history rows for GW writing.
+Transfer History now shows only the two tiles first; selecting Online Transfer History or Department Transfer History opens the selected detail in a full-screen popup.
+Online Transfer History now uses compact one-line rows, with remarks shown as a popup when hovering or focusing a history entry.
+Dashboard Recent Transfer History now shows each transfer in one line with remarks available on hover/focus.
+Dashboard Pending Job Orders and Recent Transfer History now open in fixed scroll panels, and recent transfers show more rows inside the dashboard.
+Department Transfer History popup now has full-page vertical scrolling, giving more room to move up/down and improve IN/OUT visibility.
+Department Transfer History IN/OUT rows now show both Lot number and Job Card number in the same column.
+Department Transfer History view now has a cleaner IN / OUT split layout, sticky table headers, compact rows, visible entry counts, and enough table height to show about 10 entries at a time before scrolling.
+Department Transfer History popup now shows karat-wise bifurcation for each department, including IN GW, IN Net, OUT GW, OUT Net, Reduced, and Fine Gold.
+Added Demo View Only login: user demo / password demo123. Demo can view ERP screens but cannot submit, save, edit, delete, upload, issue, receive, transfer, reset, print, or otherwise change ERP data.
+Dashboard department cards now show karat-wise holding details in a hover/focus popup, and the popup disappears automatically when the cursor leaves the department card.
+Escape key now works as Back: it closes the open popup first, then returns from the current tile page to the tile screen, then goes back to the previous main page when possible.
+Job-card print now has separate Print A4 and Print A6 buttons: A4 prints 4 bags per page, A6 prints 1 bag/item per A6 page.
+Production Stone Entry now automatically changes Manufacturing Stage when Setting Type is switched: Wax -> Wax, Hand -> Setting.
+Job-card print now shows individual stone total for each item, plus bag total when multiple items are printed together.
+Job-card print layout now moves the design image higher, compresses item details, and gives more usable space to stone details.
+Job-card print now makes one single bag for multi-item set categories such as CB/CBR and CM-family items, with individual PR barcodes and item-wise stone details inside the same bag.
+Dashboard Factory Stock is now the first tile and shows Total Wt + Net Fine in the same tile.
+Dashboard now shows Total Factory Stock weight and Net Factory Fine Stock.
+Factory Summary now calculates physical stock by location: Metal Safe, Safe Shelf, Production Lots, Bill Pending, direct department issues, Melting/Casting in hand, XRF pending, and direct non-gold.
+Factory Summary print now includes Gross Wt, Net Wt, Fine, Party Fine Balance, and Net Factory Fine Stock like the Excel stock sheet logic.
+Delete permission is now restricted to Owner and Manager for saved ERP records.
+Reset functions are protected as Owner-only even if called from a hidden/direct path.
+Always-visible company logo moved to the bottom-right corner so the left/top workspace stays usable.
+Hidden top header no longer reserves empty left-side space for the old logo position.
+Job Card Edit now has Add Item, using the same job card customer/date and creating new PR/barcode numbers.
+Open any job-card item and use Remove Item to remove unused pending items from that job card.
+Create Job Card design search now keeps selected designs while you clear the search and search/select another design.
+Selected designs now show as removable chips under the multiple-design selector.
+Customer Master Edit now opens the customer form automatically, fills the selected customer, and returns to Customer Master after update.
+Department transfer history From/To department column now stays in one line, with full department/process detail shown on hover/focus popup.
+Karat purity logic now uses 18K = 75%, 14K = 58.5%, 9K = 38.5%, and 22K = 91.6% for transfer and dashboard fine-gold calculations.
+Dashboard department purity split now shows karat with mapped percentage, for example 18K / 75.00%.
+Department transfer history remarks now stay in one line, with full remark shown on hover/focus popup.
+Job-card Production Stone Entry now allows manual Wt/Pc when Stone Master has no weight.
+Manual Wt/Pc entered on a job-card item is saved back to Stone Master for that Type + Shape + Size when the master weight is missing.
+Job-card Production Stone Entry now saves item-level stone changes only on that production item.
+Design Master stone chart remains the reference and is not changed when a job-card item stone plan is edited.
+Production Stone Entry now allows editing item, type, shape, size, pcs, wax/hand setting, and manufacturing stage.
+Stone code, weight per pc, and total stone weight recalculate from Stone Library while editing the job-card item.
+Added Add Stone Row and Reset From Design Master buttons in Production Stone Entry.
+Dashboard department cards now show purity-wise GW / Other / Net W clearly.
+Casting receive can issue XRF directly from Tree WSTG and shows casting loss calculation note.
+Bill/QC flow now lets QC users transfer QC OK items to Office and send QC Failed items back to Production.
+Factory Out by bill now posts only QC OK items actually transferred to Office.
+Final Bill and Packing List print only QC OK items transferred to Office.
+Office Hallmarking now opens HM lots as batch tiles with lot-wise item view, Select All, and lot-wise receive.
+If the website shows text starting "const currency", the website is opening app.js instead of index.html. Upload index.html as the home page and keep app.js as a separate file beside it.
+If the website does not show App v429, the latest files were not uploaded or the browser/server cache is still serving old files.
