@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=485">
+  <link rel="stylesheet" href="styles.css?v=487">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -14,7 +14,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v485</small>
+          <small class="app-version-badge">App v487</small>
           </div>
         </div>
         <label>User
@@ -112,7 +112,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v485</span>
+          <span class="app-version-badge">App v487</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -238,7 +238,7 @@
               <option value="TM, TME"></option>
               <option value="LR, GR"></option>
             </datalist>
-            <p id="design-upload-status" class="dialog-note">Design images are saved in 4x6 size. If the same image contains a stone chart, use Crop Chart From Design in Design Master instead of uploading the chart again.</p>
+            <p id="design-upload-status" class="dialog-note">Every upload is preserved as the Master Image. Crop the display Design Image and item-wise Stone Charts separately from that master.</p>
             <button id="design-submit" type="submit">Upload Design(s)</button>
             <button id="cancel-design-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
           </form>
@@ -2364,6 +2364,7 @@
             <div class="design-detail-facts">
               <div><span>Category</span><strong id="design-detail-category">-</strong></div>
               <div><span>Design Items</span><strong id="design-detail-items">-</strong></div>
+              <div><span>Master Image</span><strong id="design-detail-master">Checking...</strong></div>
               <div><span>Stone Charts</span><strong id="design-detail-charts">-</strong></div>
               <div><span>Stone Details</span><strong id="design-detail-stone-count">-</strong></div>
             </div>
@@ -2381,6 +2382,8 @@
               </div>
               <div class="design-selected-actions">
                 <button type="button" data-design-master-action="view" disabled>View Design</button>
+                <button type="button" class="ghost-button" data-design-master-action="view-master" disabled>View Master Image</button>
+                <button type="button" data-design-master-action="crop-design" disabled>Crop Design Image</button>
                 <button type="button" data-design-master-action="crop" disabled>Crop Stone Chart</button>
                 <button type="button" data-design-master-action="chart" disabled>View Stone Chart</button>
                 <button type="button" data-design-master-action="stone-details" disabled>Stone Details</button>
@@ -2443,8 +2446,8 @@
       <div class="dialog-card stone-crop-dialog">
         <div class="dialog-header">
           <div>
-            <h2>Crop Stone Chart</h2>
-            <p id="stone-crop-summary" class="dialog-note">Select the chart area from the uploaded image and save it to the matching design.</p>
+            <h2 id="stone-crop-title">Crop From Master Image</h2>
+            <p id="stone-crop-summary" class="dialog-note">Select an area from the preserved master image.</p>
           </div>
           <button class="ghost-button" type="button" id="close-stone-crop">Close</button>
         </div>
@@ -2452,13 +2455,14 @@
           <div class="stone-crop-tools">
             <label>Image File <select id="stone-crop-source"></select></label>
             <label>Save To Design <select id="stone-crop-design"></select></label>
-            <label>Save To Item / Chart <select id="stone-crop-item-key"></select></label>
-            <label>Reupload Full Image <input id="stone-crop-reupload" type="file" accept="image/*"></label>
+            <label id="stone-crop-item-field">Save To Item / Chart <select id="stone-crop-item-key"></select></label>
+            <label>Reupload / Replace Master <input id="stone-crop-reupload" type="file" accept="image/*"></label>
             <p id="stone-crop-status" class="dialog-note ocr-quality-note">Drag on the image to mark the stone chart area.</p>
             <div class="stone-crop-actions">
               <button class="ghost-button" type="button" id="auto-detect-stone-chart">Auto Detect Chart</button>
               <button class="ghost-button" type="button" id="manual-stone-crop">Manual Crop</button>
               <button class="ghost-button" type="button" id="reset-stone-crop">Reset Crop</button>
+              <button type="button" id="save-cropped-design-image">Save Crop As Design Image</button>
               <button type="button" id="save-cropped-stone-chart">Save Crop To Stone Chart</button>
               <button class="ghost-button" type="button" id="read-cropped-stone-chart">Save Crop & Read OCR</button>
             </div>
@@ -2508,6 +2512,6 @@
     <script src="stone-library-data.js?v=33"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
-  <script src="app.js?v=485"></script>
+  <script src="app.js?v=487"></script>
 </body>
 </html>
