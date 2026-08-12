@@ -6086,7 +6086,7 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-card-body {
   display: grid;
-  grid-template-columns: 31mm minmax(0, 1fr);
+  grid-template-columns: 38.75mm minmax(0, 1fr);
   gap: 5px;
   align-items: start;
   min-height: 0;
@@ -6095,8 +6095,8 @@ body.measuring-transfer-bag .global-print-area {
 .print-design-image {
   align-self: start;
   min-height: 0;
-  height: 39mm;
-  max-height: 39mm;
+  height: 48.75mm;
+  max-height: 48.75mm;
   display: grid;
   place-items: center;
   border: 1px solid #d1d5db;
@@ -6210,7 +6210,7 @@ body.measuring-transfer-bag .global-print-area {
   gap: 1px;
   border: 1px solid #d1d5db;
   padding: 3px;
-  font-size: 8px;
+  font-size: 12px;
   line-height: 1.16;
   box-sizing: border-box;
   height: auto;
@@ -6221,7 +6221,7 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-details b {
   display: block;
   color: #6b7280;
-  font-size: 8px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -6247,30 +6247,30 @@ body.measuring-transfer-bag .global-print-area {
 .print-stone-details th {
   background: #f3f4f6;
   color: #111827;
-  font-size: 8px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
 .print-stone-details td {
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .print-stone-details.multi-item {
   padding: 3px;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .print-stone-details.multi-item b {
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .print-stone-details.multi-item th {
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .print-stone-details.multi-item td {
   padding: 1.5px;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .print-stone-details .stone-item-total-row td {
@@ -6339,11 +6339,11 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details.stone-density-compact th {
-  font-size: 6px;
+  font-size: 9px;
 }
 
 .print-stone-details.stone-density-compact td {
-  font-size: 6.7px;
+  font-size: 10px;
 }
 
 .print-stone-details.stone-density-dense th,
@@ -6352,15 +6352,15 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details.stone-density-dense b {
-  font-size: 6.6px;
+  font-size: 8px;
 }
 
 .print-stone-details.stone-density-dense th {
-  font-size: 5.5px;
+  font-size: 7px;
 }
 
 .print-stone-details.stone-density-dense td {
-  font-size: 6px;
+  font-size: 8px;
 }
 
 .print-stone-details.stone-density-ultra th,
