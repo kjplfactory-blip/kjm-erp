@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v479";
+const APP_VERSION = "v482";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const BARCODE_SCAN_RESET_MS = 140;
@@ -110,6 +110,10 @@ function cloudStateNeedsCurrentVersionSave(cloudState = {}) {
   return stateSyncBuild(cloudState) < SYNC_SCHEMA_VERSION;
 }
 
+function cloudStateRequiresNewerApp(cloudState = {}) {
+  return stateSyncBuild(cloudState) > APP_BUILD;
+}
+
 function stampCurrentAppVersion(currentState = state, savedAt = "") {
   if (!currentState || typeof currentState !== "object") return currentState;
   currentState.appVersion = APP_VERSION;
@@ -136,6 +140,7 @@ let supabaseStartupProtectionActive = false;
 let postCloudMigrationsStarted = false;
 let supabaseLastSafetySnapshotBucket = "";
 let pendingCloudVersionBackup = null;
+let cloudBackupUnavailable = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
@@ -778,7 +783,7 @@ document.getElementById("fitting-accessories-job-form")?.addEventListener("chang
 document.getElementById("fitting-accessories-job-form")?.addEventListener("submit", createFittingAccessoriesJobCard);
 document.getElementById("fitting-accessories-narration-form")?.addEventListener("submit", updateFittingAccessoriesNarration);
 
-document.getElementById("order-form").addEventListener("submit", (event) => {
+document.getElementById("order-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!validateOrderDueDate(event.target)) return;
   const data = getFormData(event.target);
@@ -792,9 +797,16 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
     alert("Press Add Item first. Only added items will be saved in the job card.");
     return;
   }
-  const jobNumber = `JOB-${state.nextOrder}`;
+  const startingNextOrder = state.nextOrder;
+  const jobNumber = `JOB-${startingNextOrder}`;
   const jobCardColor = data.jobColor || "Pink";
   const createdOrders = [];
+  const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
+  const submitButtonLabel = submitButton?.textContent || "Save Job Order";
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Saving Job Order...";
+  }
   items.forEach((item) => {
     const productionNo = `PR-${state.nextOrder++}`;
     const orderRecord = {
@@ -832,14 +844,37 @@ document.getElementById("order-form").addEventListener("submit", (event) => {
     state.orders.push(orderRecord);
     createdOrders.push(orderRecord);
   });
+  const savedLocally = saveState({ alertOnFailure: true, context: `Job Order ${jobNumber}` });
+  if (!savedLocally) {
+    const createdIds = new Set(createdOrders.map((order) => order.id));
+    state.orders = state.orders.filter((order) => !createdIds.has(order.id));
+    state.nextOrder = startingNextOrder;
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = submitButtonLabel;
+    }
+    return;
+  }
   backupRecentJobOrders(createdOrders);
+  if (submitButton) submitButton.textContent = "Saving To Cloud...";
+  const savedToCloud = await saveJobOrderToCloudNow();
   event.target.reset();
   clearOrderDraft();
   setDefaultOrderDates(event.target);
   resetOrderItemRows();
-  saveState();
   render();
   switchOrderPage("active");
+  if (submitButton) {
+    submitButton.disabled = false;
+    submitButton.textContent = submitButtonLabel;
+  }
+  if (savedToCloud) {
+    alert(`${jobNumber} saved successfully with ${createdOrders.length} item${createdOrders.length === 1 ? "" : "s"}.\n\nSaved on this laptop and confirmed in Supabase cloud.`);
+  } else {
+    const syncMessage = document.getElementById("sync-status")?.textContent || "Cloud save pending";
+    const syncDetail = document.getElementById("sync-detail")?.textContent || "The app will retry automatically.";
+    alert(`${jobNumber} is saved safely on this laptop with ${createdOrders.length} item${createdOrders.length === 1 ? "" : "s"}.\n\nCloud save is pending; do not create the same Job Order again.\n${syncMessage}\n${syncDetail}`);
+  }
 });
 
 document.getElementById("design-form").addEventListener("submit", async (event) => {
@@ -3102,20 +3137,45 @@ document.getElementById("daily-tally-container-cancel")?.addEventListener("click
 document.getElementById("daily-tally-container-search")?.addEventListener("input", renderDailyTallyContainers);
 
 function loadState() {
+  let saved = null;
   try {
-    const saved = localStorage.getItem("gold-jewellery-erp-state");
-    stateLoadedFromFallback = !saved;
-    const normalized = normalizeState(saved ? JSON.parse(saved) : structuredClone(demoState));
-    rememberFactoryResetMarker(stateFactoryResetAt(normalized));
-    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
-    return normalized;
+    saved = localStorage.getItem("gold-jewellery-erp-state");
   } catch (error) {
-    console.warn("Saved ERP data could not be read. Starting with safe demo data.", error);
+    console.warn("Browser storage could not be read. Starting with protected local fallback data.", error);
+  }
+
+  if (!saved) {
     stateLoadedFromFallback = true;
-    localStorage.removeItem("gold-jewellery-erp-state");
     const normalized = normalizeState(structuredClone(demoState));
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
-    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
+    try {
+      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
+    } catch (error) {
+      console.warn("Starter data could not be stored in this browser. Existing ERP storage was not changed.", error);
+    }
+    return normalized;
+  }
+
+  try {
+    const normalized = normalizeState(JSON.parse(saved));
+    stateLoadedFromFallback = false;
+    rememberFactoryResetMarker(stateFactoryResetAt(normalized));
+    try {
+      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
+    } catch (error) {
+      console.warn("The valid saved ERP was loaded, but its upgraded copy could not be rewritten because browser storage is full. The original saved copy was kept.", error);
+    }
+    return normalized;
+  } catch (error) {
+    console.warn("Saved ERP data could not be parsed. The original browser copy was preserved and was not replaced.", error);
+    try {
+      sessionStorage.setItem("gold-jewellery-erp-unreadable-recovery", saved);
+    } catch (recoveryError) {
+      console.warn("The unreadable ERP copy could not be duplicated into session recovery storage.", recoveryError);
+    }
+    stateLoadedFromFallback = true;
+    const normalized = normalizeState(structuredClone(demoState));
+    rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     return normalized;
   }
 }
@@ -3192,20 +3252,27 @@ function rememberVerifiedCloudBaseline(cloudState = {}, updatedAt = "") {
   supabaseVerifiedCloudUpdatedAt = updatedAt || "";
 }
 
-function savePreCloudRecoveryCopy(reason = "startup-conflict") {
+function savePreCloudRecoveryCopy(reason = "startup-conflict", source = state, cloudUpdatedAt = "") {
+  const payload = JSON.stringify({
+    format: "KJM-ERP-PRE-CLOUD-RECOVERY",
+    savedAt: new Date().toISOString(),
+    cloudUpdatedAt,
+    appVersion: APP_VERSION,
+    reason,
+    profile: stateBusinessProfile(source),
+    state: source,
+  });
   try {
-    localStorage.setItem(PRE_CLOUD_RECOVERY_STORAGE_KEY, JSON.stringify({
-      format: "KJM-ERP-PRE-CLOUD-RECOVERY",
-      savedAt: new Date().toISOString(),
-      appVersion: APP_VERSION,
-      reason,
-      profile: stateBusinessProfile(state),
-      state,
-    }));
+    localStorage.setItem(PRE_CLOUD_RECOVERY_STORAGE_KEY, payload);
     return true;
   } catch (error) {
-    console.warn("The pre-cloud local recovery copy could not be stored.", error);
-    return false;
+    try {
+      sessionStorage.setItem(PRE_CLOUD_RECOVERY_STORAGE_KEY, payload);
+      return true;
+    } catch (sessionError) {
+      console.warn("The pre-cloud local recovery copy could not be stored.", error, sessionError);
+      return false;
+    }
   }
 }
 
@@ -3547,38 +3614,85 @@ function applyAccessControl() {
   applyReadOnlyControls();
 }
 
-function saveState() {
-  stateLoadedFromFallback = false;
-  delete state.cloudRecoveryRequired;
-  attachLocalFactoryResetMarkerToState();
-  stampCurrentAppVersion(state);
-  rememberFactoryResetMarker(stateFactoryResetAt(state));
-  markLocalSyncDirty();
-  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-  supabaseLastLocalChangeAt = Date.now();
-  queueSupabaseSave();
+function persistStateToBrowser(options = {}) {
+  try {
+    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+    return true;
+  } catch (error) {
+    const context = options.context ? `${options.context} ` : "ERP data ";
+    const detail = String(error?.message || error || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
+    console.error(`${context}could not be saved on this laptop.`, error);
+    setSyncStatus("offline", "Save Failed - Local Storage", detail);
+    if (options.alertOnFailure) {
+      alert(`${context}could not be saved on this laptop. The form has been kept open, and no incomplete job order was created.\n\n${detail}`);
+    }
+    return false;
+  }
 }
 
-function saveStateLocalOnly() {
+function saveState(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
+  if (!persistStateToBrowser(options)) return false;
   markLocalSyncDirty();
-  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
   supabaseLastLocalChangeAt = Date.now();
+  queueSupabaseSave();
+  return true;
+}
+
+function saveStateLocalOnly(options = {}) {
+  stateLoadedFromFallback = false;
+  delete state.cloudRecoveryRequired;
+  attachLocalFactoryResetMarkerToState();
+  stampCurrentAppVersion(state);
+  rememberFactoryResetMarker(stateFactoryResetAt(state));
+  if (!persistStateToBrowser(options)) return false;
+  markLocalSyncDirty();
+  supabaseLastLocalChangeAt = Date.now();
+  return true;
 }
 
 function markLocalSyncDirty() {
   supabaseLocalDirty = true;
   supabaseLocalRevision += 1;
-  localStorage.setItem(LOCAL_SYNC_DIRTY_STORAGE_KEY, "1");
+  try {
+    localStorage.setItem(LOCAL_SYNC_DIRTY_STORAGE_KEY, "1");
+  } catch (error) {
+    console.warn("The local sync marker could not be stored, but the ERP data copy was saved.", error);
+  }
 }
 
 function clearLocalSyncDirty() {
   supabaseLocalDirty = false;
   localStorage.removeItem(LOCAL_SYNC_DIRTY_STORAGE_KEY);
+}
+
+async function saveJobOrderToCloudNow() {
+  try {
+    if (!supabaseClient && !supabaseIsConnecting) await initializeSupabase();
+
+    const readyDeadline = Date.now() + Math.min(SUPABASE_REQUEST_TIMEOUT_MS, 12000);
+    while ((supabaseIsConnecting || supabaseIsLoading || supabaseIsSaving) && Date.now() < readyDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (!supabaseLocalDirty && !supabaseSaveTimer && !supabaseIsSaving) return true;
+    if (!supabaseClient || !supabaseInitialReadComplete || !supabaseCloudBaselineVerified || supabaseStartupProtectionActive) {
+      if (supabaseClient) queueSupabaseSave();
+      return false;
+    }
+
+    const saved = await syncStateToSupabase({ immediateJobSave: true });
+    if (!saved && supabaseClient) queueSupabaseSave();
+    return saved;
+  } catch (error) {
+    console.warn("Immediate Job Order cloud save failed; automatic retry remains active.", error);
+    if (supabaseClient) queueSupabaseSave();
+    return false;
+  }
 }
 
 function hasUnsyncedLocalState() {
@@ -3988,18 +4102,22 @@ function createFetchSupabaseClient(url, anonKey) {
             return { data: null, error };
           }
         },
+        update(row) {
+          return createWriteBuilder("PATCH", row);
+        },
         async upsert(row) {
           try {
             const response = await supabaseFetch(`${tableUrl}?on_conflict=id`, {
               method: "POST",
               headers: headers({
                 "Content-Type": "application/json",
-                Prefer: "resolution=merge-duplicates,return=minimal",
+                Prefer: "resolution=merge-duplicates,return=representation",
               }),
               body: JSON.stringify(row),
             });
             if (!response.ok) return { data: null, error: await asError(response) };
-            return { data: null, error: null };
+            const rows = await response.json().catch(() => []);
+            return { data: Array.isArray(rows) ? rows[0] || null : rows, error: null };
           } catch (error) {
             return { data: null, error };
           }
@@ -4021,6 +4139,39 @@ function createFetchSupabaseClient(url, anonKey) {
           }
         },
       };
+      function createWriteBuilder(method, row) {
+        const writeQuery = { select: "*", filters: {} };
+        const writeBuilder = {
+          select(columns) {
+            writeQuery.select = columns || "*";
+            return writeBuilder;
+          },
+          eq(column, value) {
+            writeQuery.filters[column] = `eq.${value}`;
+            return writeBuilder;
+          },
+          async maybeSingle() {
+            const params = new URLSearchParams({ select: writeQuery.select });
+            Object.entries(writeQuery.filters).forEach(([column, value]) => params.set(column, value));
+            try {
+              const response = await supabaseFetch(`${tableUrl}?${params.toString()}`, {
+                method,
+                headers: headers({
+                  "Content-Type": "application/json",
+                  Prefer: "return=representation",
+                }),
+                body: JSON.stringify(row),
+              });
+              if (!response.ok) return { data: null, error: await asError(response) };
+              const rows = await response.json().catch(() => []);
+              return { data: Array.isArray(rows) ? rows[0] || null : rows, error: null };
+            } catch (error) {
+              return { data: null, error };
+            }
+          },
+        };
+        return writeBuilder;
+      }
       return builder;
     },
     storage: {
@@ -4103,6 +4254,7 @@ function setSyncStatus(status, message, detail = "") {
 
 function syncStatusForError(error, fallback) {
   const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("older erp app version") || message.includes("app version downgrade")) return "Sync: Update Required";
   if (message.includes("timeout") || message.includes("abort") || message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
     return "Sync: Internet Error";
   }
@@ -4119,6 +4271,9 @@ function syncStatusForError(error, fallback) {
 function syncErrorDetail(error) {
   const detail = String(error?.message || error || "").replace(/\s+/g, " ").trim();
   const normalized = detail.toLowerCase();
+  if (normalized.includes("older erp app version") || normalized.includes("app version downgrade")) {
+    return `This laptop is using an older ERP version and cannot replace newer cloud data. Open the latest ERP website and try again. ${detail}`;
+  }
   if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
     return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
   }
@@ -4301,6 +4456,70 @@ function flushSupabaseSave() {
   syncStateToSupabase({ keepalive: true });
 }
 
+async function prepareSafeCloudOverwrite(localState = state, options = {}) {
+  let result;
+  try {
+    result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle(),
+      "Supabase pre-save safety check timeout."
+    );
+  } catch (error) {
+    return { ok: false, error };
+  }
+  if (result?.error) return { ok: false, error: result.error };
+  const row = result?.data || null;
+  if (!row?.data) {
+    if (options.force) return { ok: true, row: null };
+    return { ok: false, error: new Error("The live ERP row is missing. Automatic save was stopped; Owner must verify and use Upload Data.") };
+  }
+
+  const baselineUpdatedAt = supabaseVerifiedCloudUpdatedAt || supabaseLastCloudUpdatedAt || "";
+  const liveTime = new Date(row.updated_at || 0).getTime();
+  const baselineTime = new Date(baselineUpdatedAt || 0).getTime();
+  if (!options.force && baselineTime && Math.abs(liveTime - baselineTime) > 250) {
+    supabasePendingCloudState = { data: row.data, updated_at: row.updated_at || "" };
+    return { ok: false, error: new Error("Another laptop changed the live ERP after this page loaded. Your Job Order remains saved on this laptop; refresh and reconcile before uploading.") };
+  }
+
+  const localProfile = stateBusinessProfile(localState);
+  const cloudProfile = stateBusinessProfile(row.data);
+  const suspiciousReduction = cloudProfile.score >= 40
+    && localProfile.score + 20 < cloudProfile.score
+    && localProfile.score < cloudProfile.score * 0.35;
+  if (!options.force && suspiciousReduction) {
+    return { ok: false, error: new Error("This laptop contains much less ERP data than the current live row. Cloud overwrite was blocked.") };
+  }
+  if (!savePreCloudRecoveryCopy("before-cloud-overwrite", row.data, row.updated_at || "")) {
+    console.warn("A second browser recovery copy could not be stored. The conditional cloud save can still continue without replacing newer data from another laptop.");
+  }
+  return { ok: true, row };
+}
+
+async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow = null) {
+  if (!currentRow) {
+    return withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .upsert({ id: supabaseStateId, data: stateToSave, updated_at: updatedAt }),
+      "Supabase save timeout."
+    );
+  }
+  return withSupabaseTimeout(
+    supabaseClient
+      .from("erp_state")
+      .update({ data: stateToSave, updated_at: updatedAt })
+      .eq("id", supabaseStateId)
+      .eq("updated_at", currentRow.updated_at)
+      .select("updated_at")
+      .maybeSingle(),
+    "Supabase save timeout."
+  );
+}
+
 async function syncStateToSupabase(options = {}) {
   if (!supabaseClient) {
     setSyncStatus("offline", "Sync: Offline");
@@ -4343,10 +4562,13 @@ async function syncStateToSupabase(options = {}) {
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
   const updatedAt = new Date().toISOString();
   stampCurrentAppVersion(state, updatedAt);
-  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  try {
+    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  } catch (error) {
+    console.warn("The latest cloud-save timestamp could not be written to browser storage. Cloud synchronization will still continue.", error);
+  }
   const stateToSave = structuredClone(state);
   let error = null;
-  let backupFailure = null;
   try {
     if (pendingCloudVersionBackup) {
       const versionBackup = pendingCloudVersionBackup;
@@ -4357,29 +4579,20 @@ async function syncStateToSupabase(options = {}) {
         targetVersion: APP_VERSION,
         sourceUpdatedAt: versionBackup.updatedAt,
       });
-      if (!versionBackupResult.ok) {
-        backupFailure = versionBackupResult.error || new Error("Version backup could not be created.");
-        throw backupFailure;
-      }
-      pendingCloudVersionBackup = null;
-      supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
+      if (versionBackupResult.ok) pendingCloudVersionBackup = null;
+      else console.warn("The optional version backup could not be added, so the main conditional ERP save continued.", versionBackupResult.error);
     }
     const dailyBackupResult = await saveCloudSafetySnapshotBeforeOverwrite();
     if (!dailyBackupResult.ok) {
-      backupFailure = dailyBackupResult.error || new Error("Daily backup could not be created.");
-      throw backupFailure;
+      console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
     }
-    const result = await withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .upsert({
-          id: supabaseStateId,
-          data: stateToSave,
-          updated_at: updatedAt,
-        }),
-      "Supabase save timeout."
-    );
+    const preflight = await prepareSafeCloudOverwrite(stateToSave, options);
+    if (!preflight.ok) throw preflight.error;
+    const result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
     error = result?.error || null;
+    if (!error && preflight.row && !result?.data) {
+      error = new Error("Another laptop saved data during this upload. Your local Job Order is protected and the cloud row was not overwritten.");
+    }
   } catch (caughtError) {
     error = caughtError;
   } finally {
@@ -4387,11 +4600,7 @@ async function syncStateToSupabase(options = {}) {
   }
   if (error) {
     console.warn("Supabase save failed", error);
-    if (backupFailure) {
-      setSyncStatus("offline", "Sync Paused: Backup Required", cloudBackupFailureDetail(backupFailure));
-    } else {
-      setSyncStatus("offline", syncStatusForError(error, "Sync: Save Failed"), syncErrorDetail(error));
-    }
+    setSyncStatus("offline", syncStatusForError(error, "Sync: Save Protected"), syncErrorDetail(error));
     scheduleSupabaseReconnect();
     return false;
   }
@@ -4429,7 +4638,14 @@ function isDuplicateCloudBackupError(error) {
   return detail.includes("23505") || detail.includes("duplicate key") || detail.includes("already exists");
 }
 
+function isCloudBackupSetupUnavailable(error) {
+  const detail = String(error?.code || error?.message || error || "").toLowerCase();
+  return detail.includes("erp_state_backups")
+    && (detail.includes("does not exist") || detail.includes("schema cache") || detail.includes("permission denied") || detail.includes("42501") || detail.includes("42p01"));
+}
+
 async function saveCloudBackupRecord(source, metadata = {}) {
+  if (cloudBackupUnavailable) return { ok: true, skipped: true };
   if (!supabaseClient || !source || typeof source !== "object") {
     return { ok: false, error: new Error("Cloud backup source is unavailable.") };
   }
@@ -4453,9 +4669,19 @@ async function saveCloudBackupRecord(source, metadata = {}) {
       "Supabase cloud backup timeout."
     );
     if (!result?.error || isDuplicateCloudBackupError(result.error)) return { ok: true };
+    if (isCloudBackupSetupUnavailable(result.error)) {
+      cloudBackupUnavailable = true;
+      console.warn(`Optional cloud backups are unavailable. Run ${CLOUD_BACKUP_SETUP_FILE} later to enable them; live ERP saving will continue.`, result.error);
+      return { ok: true, skipped: true };
+    }
     return { ok: false, error: result.error };
   } catch (error) {
     if (isDuplicateCloudBackupError(error)) return { ok: true };
+    if (isCloudBackupSetupUnavailable(error)) {
+      cloudBackupUnavailable = true;
+      console.warn(`Optional cloud backups are unavailable. Run ${CLOUD_BACKUP_SETUP_FILE} later to enable them; live ERP saving will continue.`, error);
+      return { ok: true, skipped: true };
+    }
     return { ok: false, error };
   }
 }
@@ -4548,6 +4774,16 @@ async function loadSupabaseState(options = {}) {
 
 function applyCloudStateFromRow(row = {}, options = {}) {
   rememberVerifiedCloudBaseline(row.data, row.updated_at || "");
+  if (cloudStateRequiresNewerApp(row.data)) {
+    const newerVersion = String(row.data?.appVersion || `build ${stateSyncBuild(row.data)}`);
+    supabaseStartupProtectionActive = true;
+    if (options.initial && !isEmptyBusinessState(row.data)) {
+      applyCloudState(row.data, row.updated_at || "", { ...options, newerCloudReadOnly: true });
+      supabaseStartupProtectionActive = true;
+    }
+    setSyncStatus("offline", "Update Required", `Cloud data uses ${newerVersion}. Data can be viewed, but this older app cannot save. Open the latest ERP version.`);
+    return true;
+  }
   if (options.initial && hasUnsyncedLocalState() && isSuspiciouslyReducedLocalState(row.data)) {
     savePreCloudRecoveryCopy("startup-loaded-richer-cloud-copy");
     clearTimeout(supabaseSaveTimer);
@@ -4636,7 +4872,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   restoredRecentJobOrderCount = 0;
   state = normalizeState(cloudState);
   stateLoadedFromFallback = false;
-  if (!options.recoveryFallback && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
+  if (!options.recoveryFallback && !options.newerCloudReadOnly && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
   restoredRecentJobOrderCount = 0;
   clearImagePreviewCaches();
@@ -4646,7 +4882,9 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     setFactoryResetProtection(false);
   }
   supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
-  localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+  if (!persistStateToBrowser()) {
+    console.warn("The cloud data is active in memory, but browser storage is full. Download an Owner data backup after checking the records.");
+  }
   render();
   restoreOrderDraftOrReset(orderDraft);
   resetMeltingSources();
