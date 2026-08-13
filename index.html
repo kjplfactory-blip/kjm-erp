@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=494">
+  <link rel="stylesheet" href="styles.css?v=498">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v494</small>
+          <small class="app-version-badge">App v498</small>
           </div>
         </div>
         <label>User
@@ -115,7 +115,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v494</span>
+          <span class="app-version-badge">App v498</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -911,10 +911,18 @@
 
           <form id="factory-out-form" class="form-panel factory-out-panel">
             <h2>Factory Out</h2>
+            <label class="factory-out-bill-selector">Completed Bill / Office Transfer
+              <select name="billId">
+                <option value="">Manual metal / stock factory out</option>
+              </select>
+            </label>
+            <p id="factory-out-bill-status" class="dialog-note">Select a completed bill to capture every bill weight automatically.</p>
+            <div id="factory-out-bill-summary" class="factory-out-bill-summary hidden"></div>
             <label>Vendor / Party <select name="vendorId" required></select></label>
             <label>Out Type
               <select name="materialType">
-                <option value="raw-metal">Metal Out From Metal Safe</option>
+                <option value="bill">Bill / Office Transfer</option>
+                <option value="raw-metal" selected>Metal Out From Metal Safe</option>
                 <option value="casting-item">Rod / Casting Item Out</option>
                 <option value="wastage">Wastage / Scrap Out</option>
                 <option value="other">Other Shelf Stock Out</option>
@@ -925,7 +933,7 @@
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label>Reference / Bill / Memo <input name="reference" placeholder="Bill no, return memo, metal out" required></label>
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
-            <button type="submit">Add Factory Out</button>
+            <button type="submit" id="factory-out-submit">Add Factory Out</button>
           </form>
         </div>
 
@@ -2516,6 +2524,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=494"></script>
+  <script src="app.js?v=498"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v494";
+const APP_VERSION = "v498";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2194,6 +2194,10 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
 document.getElementById("factory-out-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
+  if (data.billId) {
+    saveSelectedBillFactoryOut(event.target, data);
+    return;
+  }
   const vendor = findById("vendors", data.vendorId);
   const weight = Number(data.weight || 0);
   if (!vendor) {
@@ -2217,13 +2221,39 @@ document.getElementById("factory-out-form").addEventListener("submit", (event) =
   event.target.reset();
   event.target.purity.value = "99.5%";
   event.target.wstgPercent.value = "0";
+  applyFactoryOutBillSelection("");
   saveState();
   render();
+});
+
+document.querySelector('#factory-out-form select[name="billId"]')?.addEventListener("change", (event) => {
+  applyFactoryOutBillSelection(event.target.value);
 });
 
 document.getElementById("cancel-vendor-edit").addEventListener("click", resetVendorForm);
 document.getElementById("vendor-search").addEventListener("input", renderFactory);
 document.getElementById("factory-ledger-search").addEventListener("input", renderFactory);
+document.getElementById("factory-ledger-table")?.addEventListener("pointerover", (event) => {
+  const trigger = event.target.closest(".factory-reference-hover");
+  if (trigger) showFactoryReferenceTooltip(trigger);
+});
+document.getElementById("factory-ledger-table")?.addEventListener("pointermove", (event) => {
+  const trigger = event.target.closest(".factory-reference-hover");
+  if (trigger) positionFactoryReferenceTooltip(trigger);
+});
+document.getElementById("factory-ledger-table")?.addEventListener("pointerout", (event) => {
+  const trigger = event.target.closest(".factory-reference-hover");
+  if (trigger && !trigger.contains(event.relatedTarget)) hideFactoryReferenceTooltip();
+});
+document.getElementById("factory-ledger-table")?.addEventListener("focusin", (event) => {
+  const trigger = event.target.closest(".factory-reference-hover");
+  if (trigger) showFactoryReferenceTooltip(trigger);
+});
+document.getElementById("factory-ledger-table")?.addEventListener("focusout", (event) => {
+  const trigger = event.target.closest(".factory-reference-hover");
+  if (trigger && !trigger.contains(event.relatedTarget)) hideFactoryReferenceTooltip();
+});
+document.querySelector(".factory-ledger-panel .table-wrap")?.addEventListener("scroll", hideFactoryReferenceTooltip);
 document.getElementById("print-factory-summary").addEventListener("click", printFactorySummary);
 document.getElementById("factory-entry-edit-form").addEventListener("submit", saveFactoryLedgerEdit);
 document.getElementById("cancel-factory-entry-edit").addEventListener("click", () => {
@@ -2872,6 +2902,9 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     makingGold: 0,
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
+    factoryOutWstgPercent: factoryWstgPercent(existingBill.factoryOutWstgPercent || 0),
+    factoryOutPostedAt: existingBill.factoryOutPostedAt || "",
+    factoryOutUpdatedAt: existingBill.factoryOutUpdatedAt || "",
     remarks: data.remarks || "",
   };
   state.bills = state.bills || [];
@@ -4274,6 +4307,16 @@ function isSupabaseTimeoutError(error) {
   return detail.includes("supabase_timeout") || detail.includes("timeout") || detail.includes("abort");
 }
 
+function isSupabaseDatabaseUnavailableError(error) {
+  const detail = `${error?.code || ""} ${error?.status || ""} ${error?.message || error || ""}`.toLowerCase();
+  return detail.includes("pgrst000")
+    || detail.includes("pgrst001")
+    || detail.includes("pgrst002")
+    || detail.includes("pgrst003")
+    || (detail.includes("503") && detail.includes("schema cache"))
+    || detail.includes("could not query the database for the schema cache");
+}
+
 async function fetchSupabaseStateRow(columns = "data,updated_at", timeoutMs = SUPABASE_FULL_LOAD_TIMEOUT_MS) {
   if (!window.fetch) return { data: null, error: new Error("Browser fetch is not available.") };
   const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
@@ -4293,13 +4336,17 @@ async function fetchSupabaseStateRow(columns = "data,updated_at", timeoutMs = SU
     });
     if (!response.ok) {
       let detail = "";
+      let payload = null;
       try {
-        const body = await response.json();
-        detail = body.message || body.error || JSON.stringify(body);
+        payload = await response.json();
+        detail = payload.message || payload.error || JSON.stringify(payload);
       } catch {
         detail = await response.text().catch(() => "");
       }
-      return { data: null, error: new Error(detail || `${response.status} ${response.statusText}`) };
+      const responseError = new Error(detail || `${response.status} ${response.statusText}`);
+      responseError.code = payload?.code || `HTTP_${response.status}`;
+      responseError.status = response.status;
+      return { data: null, error: responseError };
     }
     const rows = await response.json();
     return { data: Array.isArray(rows) ? rows[0] || null : rows, error: null };
@@ -4325,13 +4372,17 @@ function createFetchSupabaseClient(url, anonKey) {
   });
   const asError = async (response) => {
     let details = "";
+    let payload = null;
     try {
-      const data = await response.json();
-      details = data.message || data.error || JSON.stringify(data);
+      payload = await response.json();
+      details = payload.message || payload.error || JSON.stringify(payload);
     } catch {
       details = await response.text().catch(() => "");
     }
-    return new Error(details || `${response.status} ${response.statusText}`);
+    const error = new Error(details || `${response.status} ${response.statusText}`);
+    error.code = payload?.code || `HTTP_${response.status}`;
+    error.status = response.status;
+    return error;
   };
   return {
     from(table) {
@@ -4513,6 +4564,7 @@ function setSyncStatus(status, message, detail = "") {
 function syncStatusForError(error, fallback) {
   const message = String(error?.message || error || "").toLowerCase();
   if (message.includes("older erp app version") || message.includes("app version downgrade")) return "Sync: Update Required";
+  if (isSupabaseDatabaseUnavailableError(error)) return "Sync: Database Unavailable";
   if (message.includes("timeout") || message.includes("abort") || message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
     return "Sync: Internet Error";
   }
@@ -4531,6 +4583,9 @@ function syncErrorDetail(error) {
   const normalized = detail.toLowerCase();
   if (normalized.includes("older erp app version") || normalized.includes("app version downgrade")) {
     return `This laptop is using an older ERP version and cannot replace newer cloud data. Open the latest ERP website and try again. ${detail}`;
+  }
+  if (isSupabaseDatabaseUnavailableError(error)) {
+    return `Supabase database API is unavailable. Retrying every 15 seconds; local ERP data remains protected. If it continues, run RECOVER-PGRST002-SCHEMA-CACHE.sql in Supabase. ${detail}`;
   }
   if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
     return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
@@ -5008,7 +5063,9 @@ async function loadSupabaseState(options = {}) {
   }
   if (error) {
     console.warn("Supabase load failed", error);
-    if (isSupabaseTimeoutError(error)) {
+    if (isSupabaseDatabaseUnavailableError(error)) {
+      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds; no local ERP data was cleared or replaced.");
+    } else if (isSupabaseTimeoutError(error)) {
       setSyncStatus("connecting", "Database Waking - Local Safe", "Supabase has not replied yet. Retrying automatically; no local ERP data was cleared or replaced.");
     } else {
       setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), syncErrorDetail(error));
@@ -5043,7 +5100,10 @@ async function pollSupabaseStateRevision() {
     supabaseIsPollingRevision = false;
   }
   if (result?.error) {
-    if (isSupabaseTimeoutError(result.error)) {
+    if (isSupabaseDatabaseUnavailableError(result.error)) {
+      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds without changing local ERP data.");
+      scheduleSupabaseReconnect();
+    } else if (isSupabaseTimeoutError(result.error)) {
       setSyncStatus("connecting", "Cloud Slow - Local Safe", "Background cloud check timed out. Retrying automatically without changing local data.");
     } else {
       setSyncStatus("offline", syncStatusForError(result.error, "Sync: Check Failed"), syncErrorDetail(result.error));
@@ -10838,6 +10898,78 @@ function billFactoryVendorName(source, lot = {}, bill = {}) {
   return manufacturingOfficeDestinationLabel(customerName);
 }
 
+function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
+  const entries = (bill.items || []).map((item, index) => {
+    const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
+    const finalGw = Number(item.finalGw || 0);
+    const stoneWeight = Number(item.stoneWeight ?? item.stWeight ?? 0);
+    const blackBeadsWeight = Number(item.blackBeadsWeight ?? item.bbWeight ?? 0);
+    const motiWeight = Number(item.motiWeight ?? item.mmWeight ?? 0);
+    const springWeight = Number(item.springWeight || 0);
+    const otherNonGoldWeight = Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0);
+    const componentNonGold = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + springWeight + otherNonGoldWeight));
+    const reducedWeight = Number(item.reducedWeight ?? componentNonGold);
+    const netWeight = Number(item.netWeight ?? Math.max(finalGw - reducedWeight, 0));
+    const purity = item.purity || order.purity || lot.metalPurity || "18K";
+    const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
+    return {
+      item,
+      order,
+      finalGw,
+      stoneWeight,
+      blackBeadsWeight,
+      motiWeight,
+      springWeight,
+      otherNonGoldWeight,
+      reducedWeight,
+      netWeight,
+      purity,
+      productionNo,
+    };
+  }).filter(({ item, netWeight }) => isFactoryOutBillItem(item) && !item.discardStatus && netWeight > 0);
+  const add = (field) => Number(weight3(entries.reduce((total, entry) => total + Number(entry[field] || 0), 0)));
+  const purities = [...new Set(entries.map((entry) => entry.purity).filter(Boolean))];
+  const totalFineGold = Number(weight3(entries.reduce((total, entry) => total + fineGoldWeight(entry.netWeight, entry.purity), 0)));
+  return {
+    entries,
+    pieces: entries.length,
+    finalGw: add("finalGw"),
+    stoneWeight: add("stoneWeight"),
+    blackBeadsWeight: add("blackBeadsWeight"),
+    motiWeight: add("motiWeight"),
+    springWeight: add("springWeight"),
+    otherNonGoldWeight: add("otherNonGoldWeight"),
+    reducedWeight: add("reducedWeight"),
+    netWeight: add("netWeight"),
+    totalFineGold,
+    purities,
+    purityText: purities.length === 1 ? purities[0] : `Mixed ${purities.join(" / ")}`,
+    productionNos: entries.map((entry) => entry.productionNo).filter(Boolean),
+  };
+}
+
+function isBillFactoryOutPosted(bill = {}) {
+  return Boolean(bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
+}
+
+function completedBillFactoryOutRecords(source = state, options = {}) {
+  return (source.bills || []).map((bill) => {
+    const lot = (source.lots || []).find((item) => item.id === bill.lotId);
+    if (!bill?.id || !lot) return null;
+    if (!options.includePosted && isBillFactoryOutPosted(bill)) return null;
+    const totals = billFactoryOutWeightSummary(source, bill, lot);
+    return totals.pieces ? { bill, lot, totals } : null;
+  }).filter(Boolean).sort((a, b) => {
+    const aDate = new Date(a.bill.factoryOutUpdatedAt || a.bill.billDate || 0).getTime() || 0;
+    const bDate = new Date(b.bill.factoryOutUpdatedAt || b.bill.billDate || 0).getTime() || 0;
+    return bDate - aDate || String(b.bill.billNo || "").localeCompare(String(a.bill.billNo || ""), undefined, { numeric: true });
+  });
+}
+
+function completedBillFactoryOutRecord(billId = "") {
+  return completedBillFactoryOutRecords().find(({ bill }) => bill.id === billId) || null;
+}
+
 function findOrCreateVendorByNameInState(source, name = "") {
   const cleanName = String(name || "").trim() || "Unknown Party";
   source.vendors = source.vendors || [];
@@ -10902,33 +11034,27 @@ function syncFactoryOutLedgerForState(source) {
   source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill");
   (source.bills || []).forEach((bill) => {
     if (!bill?.id) return;
+    if (!isBillFactoryOutPosted(bill)) return;
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!lot) return;
     const customerName = billCustomerNameForState(source, lot, bill);
     const orderType = manufacturingOrderTypeLabel(customerName);
     const officeDestination = billFactoryVendorName(source, lot, bill);
     const vendor = findOrCreateVendorByNameInState(source, officeDestination);
-    const billItems = (bill.items || []).map((item, index) => {
-      const netWeight = Number(item.netWeight || 0);
-      const finalGw = Number(item.finalGw || 0);
-      const reducedWeight = Number(item.reducedWeight || 0);
-      const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
-      const purity = item.purity || order.purity || lot.metalPurity || "18K";
-      const productionNo = item.productionNo || order.productionNo || order.jobNumber || `Item ${index + 1}`;
-      return { item, order, netWeight, finalGw, reducedWeight, purity, productionNo };
-    }).filter(({ item, netWeight }) => isFactoryOutBillItem(item) && !item.discardStatus && netWeight > 0);
-    if (!billItems.length) return;
-    const totalNetWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.netWeight)), 0);
-    const totalGrossWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.finalGw)), 0);
-    const totalNonGoldWeight = billItems.reduce((total, entry) => Number(weight3(total + entry.reducedWeight)), 0);
-    const totalFineGold = billItems.reduce((total, entry) => Number(weight3(total + fineGoldWeight(entry.netWeight, entry.purity))), 0);
-    const purities = [...new Set(billItems.map((entry) => entry.purity).filter(Boolean))];
-    const productionNos = billItems.map((entry) => entry.productionNo).filter(Boolean);
-    const pcs = billItems.length;
+    const totals = billFactoryOutWeightSummary(source, bill, lot);
+    if (!totals.pieces) return;
+    const totalNetWeight = totals.netWeight;
+    const totalGrossWeight = totals.finalGw;
+    const totalNonGoldWeight = totals.reducedWeight;
+    const totalFineGold = totals.totalFineGold;
+    const productionNos = totals.productionNos;
+    const pcs = totals.pieces;
     const jobNumber = lot.orderNumber || bill.jobNumber || "";
     const lotNumber = lot.number || "";
     const billNo = bill.billNo || "Bill";
-    const purityText = purities.length === 1 ? purities[0] : `Mixed ${purities.join(" / ")}`;
+    const purityText = totals.purityText;
+    const billWstgPercent = factoryWstgPercent(bill.factoryOutWstgPercent || 0);
+    const billWstgFineGold = Number(weight3(totalNetWeight * (billWstgPercent / 100)));
     const reference = [
       billNo,
       jobNumber ? `Job ${jobNumber}` : "",
@@ -10948,11 +11074,19 @@ function syncFactoryOutLedgerForState(source) {
       materialType: "bill",
       purity: purityText,
       weight: Number(weight3(totalNetWeight)),
-      wstgPercent: 0,
-      wastagePercent: 0,
+      grossWeight: Number(weight3(totalGrossWeight)),
+      stoneWeight: totals.stoneWeight,
+      blackBeadsWeight: totals.blackBeadsWeight,
+      motiWeight: totals.motiWeight,
+      springWeight: totals.springWeight,
+      otherNonGoldWeight: totals.otherNonGoldWeight,
+      totalNonGoldWeight: Number(weight3(totalNonGoldWeight)),
+      netWeight: Number(weight3(totalNetWeight)),
+      wstgPercent: billWstgPercent,
+      wastagePercent: billWstgPercent,
       baseFineGold: totalFineGold,
-      wstgFineGold: 0,
-      fineGold: totalFineGold,
+      wstgFineGold: billWstgFineGold,
+      fineGold: Number(weight3(totalFineGold + billWstgFineGold)),
       stockPosting: "Factory Out By Bill - Whole Job Order",
       reference,
       remarks: [
@@ -10960,6 +11094,7 @@ function syncFactoryOutLedgerForState(source) {
         orderType,
         `Destination ${officeDestination}`,
         `Bill GW ${gram(totalGrossWeight)} - Non-Gold ${gram(totalNonGoldWeight)} = Factory Out Net ${gram(totalNetWeight)}`,
+        `Stone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}`,
         prText,
         isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : "",
       ].filter(Boolean).join(" | "),
@@ -27167,7 +27302,9 @@ function renderMetalSafe() {
 }
 
 function renderFactory() {
+  syncFactoryOutForBill();
   renderFactoryVendorOptions();
+  renderFactoryBillOutOptions();
   renderFactorySummary();
   renderVendorBalances();
   renderFactoryLedger();
@@ -27182,6 +27319,147 @@ function renderFactoryVendorOptions() {
       : '<option value="">Add vendor first</option>';
     select.value = vendors.some((vendor) => vendor.id === selected) ? selected : "";
   });
+}
+
+function factoryOutBillSummaryHtml(record) {
+  if (!record) return "";
+  const { bill, lot, totals } = record;
+  const cards = [
+    ["Items", totals.pieces],
+    ["GW", gram(totals.finalGw)],
+    ["Stone", gram(totals.stoneWeight)],
+    ["BB", gram(totals.blackBeadsWeight)],
+    ["Moti", gram(totals.motiWeight)],
+    ["Spring", gram(totals.springWeight)],
+    ["Other", gram(totals.otherNonGoldWeight)],
+    ["Total Non-Gold", gram(totals.reducedWeight)],
+    ["Net Weight", gram(totals.netWeight)],
+  ];
+  return `
+    <div class="factory-out-bill-heading">
+      <div><strong>${escapeHtml(bill.billNo || "Bill")}</strong><span>${escapeHtml(lot.orderNumber || lot.number || "-")} / ${escapeHtml(totals.purityText || "-")}</span></div>
+      <span class="status completed">Office Transfer</span>
+    </div>
+    <div class="factory-out-bill-weight-grid">
+      ${cards.map(([label, value], index) => `<div class="${index === cards.length - 1 ? "highlight" : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+    </div>
+  `;
+}
+
+function setFactoryOutBillLocked(form, locked) {
+  if (!form) return;
+  ["vendorId", "materialType"].forEach((name) => {
+    if (form.elements[name]) form.elements[name].disabled = locked;
+  });
+  ["purity", "weight", "reference", "remarks"].forEach((name) => {
+    if (form.elements[name]) form.elements[name].readOnly = locked;
+  });
+  form.classList.toggle("bill-factory-out-mode", locked);
+}
+
+function renderFactoryBillOutOptions() {
+  const form = document.getElementById("factory-out-form");
+  const select = form?.elements.billId;
+  if (!form || !select) return;
+  const selected = select.value;
+  const records = completedBillFactoryOutRecords();
+  select.innerHTML = [
+    '<option value="">Manual metal / stock factory out</option>',
+    ...records.map(({ bill, lot, totals }) => {
+      const wstg = factoryWstgPercent(bill.factoryOutWstgPercent || 0);
+      const status = wstg ? ` / WSTG ${wstg.toFixed(2)}%` : "";
+      return `<option value="${escapeHtml(bill.id)}">${escapeHtml(bill.billNo || "Bill")} / ${escapeHtml(lot.orderNumber || lot.number || "-")} / ${totals.pieces} pcs / Net ${gram(totals.netWeight)}${escapeHtml(status)}</option>`;
+    }),
+  ].join("");
+  select.value = records.some(({ bill }) => bill.id === selected) ? selected : "";
+  if (select.value) applyFactoryOutBillSelection(select.value, { fromRender: true });
+  const status = document.getElementById("factory-out-bill-status");
+  if (!select.value && status) {
+    status.textContent = records.length
+      ? `${records.length} completed bill${records.length === 1 ? " is" : "s are"} ready. Select a Bill No to capture all weights.`
+      : "Completed bills will appear here after QC OK items are transferred to Office.";
+  }
+}
+
+function applyFactoryOutBillSelection(billId = "", options = {}) {
+  const form = document.getElementById("factory-out-form");
+  if (!form) return;
+  const summaryPanel = document.getElementById("factory-out-bill-summary");
+  const status = document.getElementById("factory-out-bill-status");
+  const submit = document.getElementById("factory-out-submit");
+  const record = billId ? completedBillFactoryOutRecord(billId) : null;
+  if (!record) {
+    setFactoryOutBillLocked(form, false);
+    summaryPanel?.classList.add("hidden");
+    if (!options.fromRender) {
+      form.vendorId.value = "";
+      form.materialType.value = "raw-metal";
+      form.purity.value = "99.5%";
+      form.wstgPercent.value = "0";
+      form.weight.value = "";
+      form.reference.value = "";
+      form.remarks.value = "";
+      if (status) status.textContent = "Manual mode: enter metal or stock Factory Out details.";
+    }
+    if (submit) submit.textContent = "Add Factory Out";
+    return;
+  }
+
+  const { bill, lot, totals } = record;
+  const vendorName = billFactoryVendorName(state, lot, bill);
+  const vendor = findVendorByName(vendorName) || findOrCreateVendorByName(vendorName);
+  const ledgerEntry = (state.factoryLedger || []).find((entry) => entry.sourceType === "bill" && entry.sourceId === bill.id);
+  form.vendorId.value = vendor.id;
+  form.materialType.value = "bill";
+  form.purity.value = totals.purityText;
+  form.wstgPercent.value = factoryWstgPercent(ledgerEntry?.wstgPercent ?? bill.factoryOutWstgPercent ?? 0);
+  form.weight.value = weight3(totals.netWeight);
+  form.reference.value = [bill.billNo, lot.orderNumber ? `Job ${lot.orderNumber}` : "", lot.number ? `Lot ${lot.number}` : ""].filter(Boolean).join(" / ");
+  form.remarks.value = bill.remarks || "";
+  setFactoryOutBillLocked(form, true);
+  if (summaryPanel) {
+    summaryPanel.innerHTML = factoryOutBillSummaryHtml(record);
+    summaryPanel.classList.remove("hidden");
+  }
+  if (status) status.textContent = "Bill weights are locked to the saved bill. Enter WSTG percentage manually, then save this Factory Out.";
+  if (submit) submit.textContent = "Save Bill Factory Out";
+}
+
+function saveSelectedBillFactoryOut(form, data = {}) {
+  const record = completedBillFactoryOutRecord(data.billId);
+  if (!record) {
+    alert("This bill is not available for Factory Out. Confirm that its QC OK items were transferred to Office.");
+    renderFactoryBillOutOptions();
+    return false;
+  }
+  const { bill, lot, totals } = record;
+  const wstgPercent = factoryWstgPercent(data.wstgPercent || 0);
+  bill.factoryOutWstgPercent = wstgPercent;
+  bill.factoryOutPostedAt = new Date().toISOString();
+  bill.factoryOutUpdatedAt = new Date().toISOString();
+  lot.bill = bill;
+  const billIndex = (state.bills || []).findIndex((item) => item.id === bill.id || item.lotId === bill.lotId);
+  if (billIndex >= 0) state.bills[billIndex] = bill;
+  syncFactoryOutForBill();
+  const ledgerEntry = (state.factoryLedger || []).find((entry) => entry.sourceType === "bill" && entry.sourceId === bill.id);
+  if (!ledgerEntry) {
+    alert("Factory Out could not be linked to this bill.");
+    return false;
+  }
+  ledgerEntry.wstgPercent = wstgPercent;
+  ledgerEntry.wastagePercent = wstgPercent;
+  ledgerEntry.wstgFineGold = Number(weight3(totals.netWeight * (wstgPercent / 100)));
+  ledgerEntry.fineGold = Number(weight3(Number(ledgerEntry.baseFineGold || totals.totalFineGold) + ledgerEntry.wstgFineGold));
+  ledgerEntry.manualFactoryEdit = false;
+  ledgerEntry.editedAt = new Date().toISOString();
+  saveState();
+  render();
+  if (form?.elements.billId) form.elements.billId.value = "";
+  applyFactoryOutBillSelection("", { fromRender: true });
+  const status = document.getElementById("factory-out-bill-status");
+  if (status) status.textContent = `${bill.billNo || "Bill"} is posted and removed from the pending dropdown. Open Factory Ledger to view it.`;
+  alert(`${bill.billNo || "Bill"} saved in Factory Out and removed from the pending dropdown.\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
+  return true;
 }
 
 function renderFactorySummary() {
@@ -27265,13 +27543,67 @@ function factoryLedgerReferenceHtml(entry = {}) {
   const prText = productionNos.length
     ? `PR ${productionNos.slice(0, 6).join(", ")}${productionNos.length > 6 ? ` +${productionNos.length - 6} more` : ""}`
     : "";
+  const billWeightText = entry.sourceType === "bill"
+    ? `GW ${gram(entry.grossWeight || 0)} / Stone ${gram(entry.stoneWeight || 0)} / BB ${gram(entry.blackBeadsWeight || 0)} / Moti ${gram(entry.motiWeight || 0)} / Spring ${gram(entry.springWeight || 0)} / Other ${gram(entry.otherNonGoldWeight || 0)} / Non-Gold ${gram(entry.totalNonGoldWeight || 0)} / Net ${gram(entry.netWeight ?? entry.weight ?? 0)}`
+    : "";
+  const fullReference = [
+    entry.reference || "-",
+    details,
+    entry.orderType ? `${entry.orderType}${entry.officePartyName ? ` / To ${entry.officePartyName}` : ""}` : "",
+    prText,
+    billWeightText,
+    entry.remarks || "",
+  ].filter(Boolean).join("\n");
+  const oneLineReference = [entry.reference || "-", details, entry.orderType || ""].filter(Boolean).join(" / ").replace(/\s+/g, " ");
   return `
-    ${escapeHtml(entry.reference || "-")}
-    ${details ? `<br><small>${escapeHtml(details)}</small>` : ""}
-    ${entry.orderType ? `<br><small>${escapeHtml(entry.orderType)}${entry.officePartyName ? ` / To ${escapeHtml(entry.officePartyName)}` : ""}</small>` : ""}
-    ${prText ? `<br><small>${escapeHtml(prText)}</small>` : ""}
-    ${entry.remarks ? `<br><small>${escapeHtml(entry.remarks)}</small>` : ""}
+    <span class="factory-reference-hover" tabindex="0" data-factory-reference="${encodeURIComponent(fullReference)}" aria-label="Full factory reference">
+      <span class="factory-reference-inline">${escapeHtml(oneLineReference)}</span>
+    </span>
   `;
+}
+
+function ensureFactoryReferenceTooltip() {
+  let tooltip = document.getElementById("factory-reference-tooltip");
+  if (tooltip) return tooltip;
+  tooltip = document.createElement("div");
+  tooltip.id = "factory-reference-tooltip";
+  tooltip.className = "factory-reference-tooltip hidden";
+  tooltip.setAttribute("role", "tooltip");
+  document.body.appendChild(tooltip);
+  return tooltip;
+}
+
+function positionFactoryReferenceTooltip(trigger) {
+  const tooltip = document.getElementById("factory-reference-tooltip");
+  if (!trigger || !tooltip || tooltip.classList.contains("hidden")) return;
+  const margin = 12;
+  const gap = 8;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(520, Math.max(window.innerWidth - (margin * 2), 240));
+  tooltip.style.width = `${width}px`;
+  let left = Math.max(margin, Math.min(rect.left, window.innerWidth - tooltip.offsetWidth - margin));
+  let top = rect.bottom + gap;
+  if (top + tooltip.offsetHeight > window.innerHeight - margin) top = rect.top - tooltip.offsetHeight - gap;
+  top = Math.max(margin, Math.min(top, window.innerHeight - tooltip.offsetHeight - margin));
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function showFactoryReferenceTooltip(trigger) {
+  const tooltip = ensureFactoryReferenceTooltip();
+  let fullText = "";
+  try {
+    fullText = decodeURIComponent(trigger.dataset.factoryReference || "");
+  } catch {
+    fullText = trigger.textContent || "";
+  }
+  tooltip.textContent = fullText || "-";
+  tooltip.classList.remove("hidden");
+  positionFactoryReferenceTooltip(trigger);
+}
+
+function hideFactoryReferenceTooltip() {
+  document.getElementById("factory-reference-tooltip")?.classList.add("hidden");
 }
 
 function factoryLedgerActionsHtml(entry = {}) {
@@ -27324,7 +27656,7 @@ function renderFactoryLedger() {
         <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
         <td>${entry.direction === "out" ? "-" : "+"}${gram(fine.fineGold)}<br><small>Base ${gram(fine.baseFineGold)}</small></td>
         <td>${escapeHtml(factoryStockPosting(entry))}</td>
-        <td>${factoryLedgerReferenceHtml(entry)}</td>
+        <td class="factory-reference-cell">${factoryLedgerReferenceHtml(entry)}</td>
         <td>${factoryLedgerActionsHtml(entry)}</td>
       </tr>
         `;

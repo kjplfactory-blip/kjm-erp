@@ -629,6 +629,141 @@ button:hover {
   margin-bottom: 18px;
 }
 
+.factory-out-bill-selector,
+.factory-out-bill-summary,
+#factory-out-bill-status {
+  grid-column: 1 / -1;
+}
+
+.factory-out-bill-selector select {
+  border-color: #8dcdb8;
+  background: #f4fbf8;
+  font-weight: 800;
+}
+
+.factory-out-bill-summary {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #9bcfbe;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f0fbf6, #ffffff);
+}
+
+.factory-out-bill-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.factory-out-bill-heading div,
+.factory-out-bill-weight-grid > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.factory-out-bill-heading strong {
+  color: #0b5c4b;
+  font-size: 17px;
+}
+
+.factory-out-bill-heading span,
+.factory-out-bill-weight-grid span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.factory-out-bill-weight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 7px;
+}
+
+.factory-out-bill-weight-grid > div {
+  padding: 8px;
+  border: 1px solid #d6e8e0;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.factory-out-bill-weight-grid > div.highlight {
+  border-color: #0f766e;
+  background: #eaf8f2;
+}
+
+.factory-out-bill-weight-grid strong {
+  color: #173e37;
+  font-size: 14px;
+}
+
+.bill-factory-out-mode input[readonly],
+.bill-factory-out-mode select:disabled {
+  color: #31524b;
+  border-color: #c7ded5;
+  background: #edf5f1;
+  opacity: 1;
+}
+
+.factory-ledger-bill-weights {
+  color: #0f5d50;
+  font-weight: 800;
+}
+
+.factory-reference-cell {
+  position: relative;
+  overflow: hidden;
+}
+
+.factory-reference-hover,
+.factory-reference-inline {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.factory-reference-hover {
+  cursor: help;
+  outline: 0;
+}
+
+.factory-reference-inline {
+  overflow: hidden;
+  color: #234a42;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factory-reference-hover:hover .factory-reference-inline,
+.factory-reference-hover:focus .factory-reference-inline {
+  color: #087768;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.factory-reference-tooltip {
+  position: fixed;
+  z-index: 2500;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid #8fc8b7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #183d36;
+  box-shadow: 0 18px 48px rgba(10, 55, 47, 0.24);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .safe-casting-shelf-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
