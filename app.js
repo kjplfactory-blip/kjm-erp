@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v498";
+const APP_VERSION = "v499";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2191,11 +2191,11 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
   render();
 });
 
-document.getElementById("factory-out-form").addEventListener("submit", (event) => {
+document.getElementById("factory-out-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
   if (data.billId) {
-    saveSelectedBillFactoryOut(event.target, data);
+    await saveSelectedBillFactoryOut(event.target, data);
     return;
   }
   const vendor = findById("vendors", data.vendorId);
@@ -3905,7 +3905,7 @@ function clearLocalSyncDirty() {
   localStorage.removeItem(LOCAL_SYNC_DIRTY_STORAGE_KEY);
 }
 
-async function saveJobOrderToCloudNow() {
+async function saveCurrentStateToCloudNow(options = {}) {
   try {
     if (!supabaseClient && !supabaseIsConnecting) await initializeSupabase();
 
@@ -3920,14 +3920,18 @@ async function saveJobOrderToCloudNow() {
       return false;
     }
 
-    const saved = await syncStateToSupabase({ immediateJobSave: true });
+    const saved = await syncStateToSupabase({ immediateSave: true, saveContext: options.context || "ERP update" });
     if (!saved && supabaseClient) queueSupabaseSave();
     return saved;
   } catch (error) {
-    console.warn("Immediate Job Order cloud save failed; automatic retry remains active.", error);
+    console.warn(`Immediate ${options.context || "ERP"} cloud save failed; automatic retry remains active.`, error);
     if (supabaseClient) queueSupabaseSave();
     return false;
   }
+}
+
+async function saveJobOrderToCloudNow() {
+  return saveCurrentStateToCloudNow({ context: "Job Order" });
 }
 
 function hasUnsyncedLocalState() {
@@ -4759,13 +4763,24 @@ function queueSupabaseSave() {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
-  setSyncStatus("saving", "Sync: Saving");
+  if (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified || supabaseStartupProtectionActive) {
+    setSyncStatus("connecting", "Cloud Save Pending - Local Safe", "The update is saved on this laptop and will upload immediately after the protected cloud baseline is available.");
+  } else {
+    setSyncStatus("saving", "Sync: Saving");
+  }
   clearTimeout(supabaseSaveTimer);
-  supabaseSaveTimer = setTimeout(syncStateToSupabase, SUPABASE_SAVE_DELAY_MS);
+  const queuedTimer = setTimeout(() => {
+    if (supabaseSaveTimer !== queuedTimer) return;
+    supabaseSaveTimer = null;
+    syncStateToSupabase();
+  }, SUPABASE_SAVE_DELAY_MS);
+  supabaseSaveTimer = queuedTimer;
 }
 
 function flushSupabaseSave() {
   if (!supabaseClient || !supabaseSaveTimer) return;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
   syncStateToSupabase({ keepalive: true });
 }
 
@@ -10608,6 +10623,7 @@ function addFactoryLedgerEntry(entry = {}) {
   const ledgerEntry = {
     id: entry.id || crypto.randomUUID(),
     date: entry.date || today(),
+    createdAt: entry.createdAt || new Date().toISOString(),
     direction: entry.direction || "in",
     type: entry.type || (entry.direction === "out" ? "Factory Out" : "Factory In"),
     vendorId: entry.vendorId || "",
@@ -11067,6 +11083,8 @@ function syncFactoryOutLedgerForState(source) {
     const baseEntry = {
       id: `bill-${bill.id}`,
       date: bill.billDate || today(),
+      createdAt: bill.factoryOutPostedAt || bill.factoryOutUpdatedAt || new Date().toISOString(),
+      updatedAt: bill.factoryOutUpdatedAt || bill.factoryOutPostedAt || "",
       direction: "out",
       type: "Bill / Factory Out",
       vendorId: vendor.id,
@@ -27425,7 +27443,7 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
   if (submit) submit.textContent = "Save Bill Factory Out";
 }
 
-function saveSelectedBillFactoryOut(form, data = {}) {
+async function saveSelectedBillFactoryOut(form, data = {}) {
   const record = completedBillFactoryOutRecord(data.billId);
   if (!record) {
     alert("This bill is not available for Factory Out. Confirm that its QC OK items were transferred to Office.");
@@ -27433,6 +27451,12 @@ function saveSelectedBillFactoryOut(form, data = {}) {
     return false;
   }
   const { bill, lot, totals } = record;
+  const submit = document.getElementById("factory-out-submit");
+  const originalSubmitText = submit?.textContent || "Save Bill Factory Out";
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = "Saving Factory Out...";
+  }
   const wstgPercent = factoryWstgPercent(data.wstgPercent || 0);
   bill.factoryOutWstgPercent = wstgPercent;
   bill.factoryOutPostedAt = new Date().toISOString();
@@ -27444,6 +27468,10 @@ function saveSelectedBillFactoryOut(form, data = {}) {
   const ledgerEntry = (state.factoryLedger || []).find((entry) => entry.sourceType === "bill" && entry.sourceId === bill.id);
   if (!ledgerEntry) {
     alert("Factory Out could not be linked to this bill.");
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = originalSubmitText;
+    }
     return false;
   }
   ledgerEntry.wstgPercent = wstgPercent;
@@ -27452,13 +27480,33 @@ function saveSelectedBillFactoryOut(form, data = {}) {
   ledgerEntry.fineGold = Number(weight3(Number(ledgerEntry.baseFineGold || totals.totalFineGold) + ledgerEntry.wstgFineGold));
   ledgerEntry.manualFactoryEdit = false;
   ledgerEntry.editedAt = new Date().toISOString();
-  saveState();
+  const savedLocally = saveState({ alertOnFailure: true, context: `${bill.billNo || "Bill"} Factory Out` });
+  if (!savedLocally) {
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = originalSubmitText;
+    }
+    return false;
+  }
   render();
   if (form?.elements.billId) form.elements.billId.value = "";
-  applyFactoryOutBillSelection("", { fromRender: true });
+  applyFactoryOutBillSelection("");
   const status = document.getElementById("factory-out-bill-status");
-  if (status) status.textContent = `${bill.billNo || "Bill"} is posted and removed from the pending dropdown. Open Factory Ledger to view it.`;
-  alert(`${bill.billNo || "Bill"} saved in Factory Out and removed from the pending dropdown.\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
+  if (status) status.textContent = `${bill.billNo || "Bill"} is saved on this laptop. Confirming live sync...`;
+  const savedToCloud = await saveCurrentStateToCloudNow({ context: `${bill.billNo || "Bill"} Factory Out` });
+  if (submit) {
+    submit.disabled = false;
+    submit.textContent = "Add Factory Out";
+  }
+  if (savedToCloud) {
+    if (status) status.textContent = `${bill.billNo || "Bill"} is posted, synced, and removed from the pending dropdown. Open Factory Ledger to view it.`;
+    alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
+  } else {
+    const syncMessage = document.getElementById("sync-status")?.textContent || "Cloud save pending";
+    const syncDetail = document.getElementById("sync-detail")?.textContent || "The app will retry automatically.";
+    if (status) status.textContent = `${bill.billNo || "Bill"} is saved safely on this laptop. Cloud sync is pending and will retry automatically.`;
+    alert(`${bill.billNo || "Bill"} is saved safely on this laptop and removed from its pending dropdown.\n\nCloud sync is pending. Do not bill it again.\n${syncMessage}\n${syncDetail}\n\nGW ${gram(totals.finalGw)} / Net ${gram(totals.netWeight)}`);
+  }
   return true;
 }
 
@@ -27615,9 +27663,18 @@ function factoryLedgerActionsHtml(entry = {}) {
   `;
 }
 
+function factoryLedgerTimestamp(entry = {}) {
+  const timestamp = Date.parse(entry.updatedAt || entry.createdAt || entry.editedAt || "");
+  if (Number.isFinite(timestamp)) return timestamp;
+  const dateParts = String(entry.date || "").match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!dateParts) return 0;
+  return new Date(Number(dateParts[3]), Number(dateParts[2]) - 1, Number(dateParts[1])).getTime();
+}
+
 function renderFactoryLedger() {
   const query = (document.getElementById("factory-ledger-search")?.value || "").trim().toLowerCase();
   const rows = [...(state.factoryLedger || [])]
+    .sort((left, right) => factoryLedgerTimestamp(right) - factoryLedgerTimestamp(left))
     .filter((entry) => {
       if (!query) return true;
       return [
