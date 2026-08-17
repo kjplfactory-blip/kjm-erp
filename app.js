@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v500";
+const APP_VERSION = "v501";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -4022,7 +4022,11 @@ function mergeConcurrentSyncValues(baseValue, localValue, remoteValue, baseHasVa
   if (baseHasValue && localHasValue && syncValuesEqual(localValue, baseValue)) return remoteHasValue ? structuredClone(remoteValue) : undefined;
   if (baseHasValue && remoteHasValue && syncValuesEqual(remoteValue, baseValue)) return localHasValue ? structuredClone(localValue) : undefined;
   if (localHasValue && remoteHasValue && syncValuesEqual(localValue, remoteValue)) return structuredClone(localValue);
-  if (!localHasValue) return undefined;
+  // A field missing from both the shared baseline and this laptop is a
+  // concurrent addition made by the other laptop, not a local deletion.
+  if (!localHasValue) {
+    return !baseHasValue && remoteHasValue ? structuredClone(remoteValue) : undefined;
+  }
   if (!remoteHasValue) return structuredClone(localValue);
 
   const localIsObject = localValue && typeof localValue === "object" && !Array.isArray(localValue);
