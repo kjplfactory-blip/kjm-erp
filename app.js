@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v499";
+const APP_VERSION = "v500";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -29,6 +29,7 @@ const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
+const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
 const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
@@ -289,6 +290,7 @@ let supabaseInitialReadComplete = false;
 let supabaseCloudBaselineVerified = false;
 let supabaseVerifiedCloudProfile = null;
 let supabaseVerifiedCloudUpdatedAt = "";
+let supabaseVerifiedCloudState = null;
 let supabaseStartupProtectionActive = false;
 let postCloudMigrationsStarted = false;
 let supabaseLastSafetySnapshotBucket = "";
@@ -413,6 +415,8 @@ const demoState = {
 
 let stateLoadedFromFallback = false;
 let state = loadState();
+let pendingSyncMutations = loadPendingSyncMutations();
+let lastLocallyPersistedState = structuredClone(state);
 let currentUser = loadCurrentUser();
 let viewHistory = [];
 let restoringViewFromHistory = false;
@@ -3484,6 +3488,7 @@ function rememberVerifiedCloudBaseline(cloudState = {}, updatedAt = "") {
   supabaseCloudBaselineVerified = Boolean(cloudState && typeof cloudState === "object");
   supabaseVerifiedCloudProfile = supabaseCloudBaselineVerified ? stateBusinessProfile(cloudState) : null;
   supabaseVerifiedCloudUpdatedAt = updatedAt || "";
+  supabaseVerifiedCloudState = supabaseCloudBaselineVerified ? structuredClone(cloudState) : null;
 }
 
 function savePreCloudRecoveryCopy(reason = "startup-conflict", source = state, cloudUpdatedAt = "") {
@@ -3591,6 +3596,7 @@ async function restoreErpDataBackup(event) {
     state = normalizeState(backupState);
     stateLoadedFromFallback = false;
     saveStateLocalOnly();
+    supabaseStartupProtectionActive = true;
     render();
     setSyncStatus("saving", "Backup Restored Locally", "Check the restored data, then Owner can click Upload Data.");
     alert("Backup restored on this laptop. Check the records, then click Upload Data to send this recovered copy to all laptops.");
@@ -3865,6 +3871,292 @@ function persistStateToBrowser(options = {}) {
   }
 }
 
+function emptyPendingSyncMutations() {
+  return { version: 1, serial: 0, arrays: {}, values: {} };
+}
+
+function loadPendingSyncMutations() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCAL_SYNC_MUTATION_STORAGE_KEY) || "null");
+    if (!saved || saved.version !== 1 || typeof saved !== "object") return emptyPendingSyncMutations();
+    return {
+      version: 1,
+      serial: Number(saved.serial || 0),
+      arrays: saved.arrays && typeof saved.arrays === "object" ? saved.arrays : {},
+      values: saved.values && typeof saved.values === "object" ? saved.values : {},
+    };
+  } catch (error) {
+    console.warn("The pending cloud-change list could not be read. A fresh list was started without changing ERP data.", error);
+    return emptyPendingSyncMutations();
+  }
+}
+
+function persistPendingSyncMutations() {
+  try {
+    if (!pendingSyncMutationsHasChanges()) {
+      localStorage.removeItem(LOCAL_SYNC_MUTATION_STORAGE_KEY);
+      return true;
+    }
+    localStorage.setItem(LOCAL_SYNC_MUTATION_STORAGE_KEY, JSON.stringify(pendingSyncMutations));
+    return true;
+  } catch (error) {
+    console.warn("The pending cloud-change list could not be stored separately. The main local ERP copy remains saved.", error);
+    return false;
+  }
+}
+
+function pendingSyncMutationsHasChanges(journal = pendingSyncMutations) {
+  return Boolean(
+    Object.keys(journal?.values || {}).length
+    || Object.values(journal?.arrays || {}).some((entries) => Object.keys(entries || {}).length)
+  );
+}
+
+function syncValuesEqual(left, right) {
+  if (left === right) return true;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch (error) {
+    return false;
+  }
+}
+
+function syncArrayItemKey(item = {}) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+  return item.id === undefined || item.id === null || item.id === "" ? "" : String(item.id);
+}
+
+function syncArraySupportsRecordMerge(previous = [], current = []) {
+  const items = [...previous, ...current];
+  return items.length === 0 || items.every((item) => Boolean(syncArrayItemKey(item)));
+}
+
+function recordPendingValueMutation(key, previousHasKey, previousValue, currentHasKey, currentValue, serial) {
+  const prior = pendingSyncMutations.values[key];
+  const baseHasKey = prior ? Boolean(prior.baseHasKey) : previousHasKey;
+  const baseValue = prior ? prior.baseValue : structuredClone(previousValue);
+  if (baseHasKey === currentHasKey && (!currentHasKey || syncValuesEqual(baseValue, currentValue))) {
+    delete pendingSyncMutations.values[key];
+    return;
+  }
+  pendingSyncMutations.values[key] = {
+    serial,
+    baseHasKey,
+    baseValue,
+    currentHasKey,
+    value: currentHasKey ? structuredClone(currentValue) : undefined,
+  };
+}
+
+function recordPendingArrayMutations(key, previous = [], current = [], serial) {
+  const changes = pendingSyncMutations.arrays[key] || {};
+  const previousMap = new Map(previous.map((item) => [syncArrayItemKey(item), item]));
+  const currentMap = new Map(current.map((item) => [syncArrayItemKey(item), item]));
+  const ids = new Set([...previousMap.keys(), ...currentMap.keys()]);
+  ids.forEach((id) => {
+    const previousHasItem = previousMap.has(id);
+    const currentHasItem = currentMap.has(id);
+    const previousItem = previousMap.get(id);
+    const currentItem = currentMap.get(id);
+    if (previousHasItem === currentHasItem && (!currentHasItem || syncValuesEqual(previousItem, currentItem))) return;
+    const prior = changes[id];
+    const baseHasItem = prior ? Boolean(prior.baseHasItem) : previousHasItem;
+    const baseItem = prior ? prior.baseItem : structuredClone(previousItem);
+    if (baseHasItem === currentHasItem && (!currentHasItem || syncValuesEqual(baseItem, currentItem))) {
+      delete changes[id];
+      return;
+    }
+    changes[id] = {
+      serial,
+      operation: currentHasItem ? "upsert" : "delete",
+      baseHasItem,
+      baseItem,
+      value: currentHasItem ? structuredClone(currentItem) : undefined,
+    };
+  });
+  if (Object.keys(changes).length) pendingSyncMutations.arrays[key] = changes;
+  else delete pendingSyncMutations.arrays[key];
+}
+
+function capturePendingSyncMutations(previousState = {}, currentState = {}) {
+  if (!previousState || !currentState) return false;
+  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "cloudRecoveryRequired"]);
+  const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
+  const changedKeys = [...keys].filter((key) => !ignoredKeys.has(key) && !syncValuesEqual(previousState[key], currentState[key]));
+  if (!changedKeys.length) return false;
+  const serial = Number(pendingSyncMutations.serial || 0) + 1;
+  pendingSyncMutations.serial = serial;
+  changedKeys.forEach((key) => {
+    const previousHasKey = Object.prototype.hasOwnProperty.call(previousState, key);
+    const currentHasKey = Object.prototype.hasOwnProperty.call(currentState, key);
+    const previousValue = previousState[key];
+    const currentValue = currentState[key];
+    if (Array.isArray(previousValue) && Array.isArray(currentValue) && syncArraySupportsRecordMerge(previousValue, currentValue)) {
+      recordPendingArrayMutations(key, previousValue, currentValue, serial);
+      return;
+    }
+    recordPendingValueMutation(key, previousHasKey, previousValue, currentHasKey, currentValue, serial);
+  });
+  persistPendingSyncMutations();
+  return true;
+}
+
+function syncRecordTimestamp(record = {}) {
+  if (!record || typeof record !== "object") return 0;
+  const fields = [
+    "updatedAt", "editedAt", "factoryOutUpdatedAt", "factoryOutPostedAt", "lastSavedAt", "createdAt",
+    "productionReturnIsoDate", "hallmarkReceiveIsoDate", "hallmarkIssueIsoDate", "loginAt",
+  ];
+  return fields.reduce((latest, field) => {
+    const timestamp = Date.parse(record[field] || "");
+    return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
+  }, 0);
+}
+
+function nestedSyncArrayItemKey(item = {}) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+  return String(item.id || item.productionNo || item.orderId || item.itemKey || item.lookupCode || item.code || "");
+}
+
+function mergeConcurrentSyncValues(baseValue, localValue, remoteValue, baseHasValue = true, localHasValue = true, remoteHasValue = true) {
+  if (baseHasValue && localHasValue && syncValuesEqual(localValue, baseValue)) return remoteHasValue ? structuredClone(remoteValue) : undefined;
+  if (baseHasValue && remoteHasValue && syncValuesEqual(remoteValue, baseValue)) return localHasValue ? structuredClone(localValue) : undefined;
+  if (localHasValue && remoteHasValue && syncValuesEqual(localValue, remoteValue)) return structuredClone(localValue);
+  if (!localHasValue) return undefined;
+  if (!remoteHasValue) return structuredClone(localValue);
+
+  const localIsObject = localValue && typeof localValue === "object" && !Array.isArray(localValue);
+  const remoteIsObject = remoteValue && typeof remoteValue === "object" && !Array.isArray(remoteValue);
+  const baseIsObject = baseValue && typeof baseValue === "object" && !Array.isArray(baseValue);
+  if (localIsObject && remoteIsObject) {
+    const merged = {};
+    const keys = new Set([
+      ...Object.keys(baseIsObject ? baseValue : {}),
+      ...Object.keys(localValue),
+      ...Object.keys(remoteValue),
+    ]);
+    keys.forEach((key) => {
+      const baseHas = baseIsObject && Object.prototype.hasOwnProperty.call(baseValue, key);
+      const localHas = Object.prototype.hasOwnProperty.call(localValue, key);
+      const remoteHas = Object.prototype.hasOwnProperty.call(remoteValue, key);
+      const value = mergeConcurrentSyncValues(baseValue?.[key], localValue[key], remoteValue[key], baseHas, localHas, remoteHas);
+      if (localHas || (remoteHas && value !== undefined)) merged[key] = value;
+    });
+    return merged;
+  }
+
+  if (Array.isArray(localValue) && Array.isArray(remoteValue)) {
+    const combined = [...localValue, ...remoteValue];
+    const primitiveValues = combined.every((item) => item === null || !["object", "function"].includes(typeof item));
+    if (primitiveValues && Array.isArray(baseValue)) {
+      const locallyRemoved = baseValue.filter((baseItem) => !localValue.some((item) => syncValuesEqual(item, baseItem)));
+      const mergedValues = remoteValue.filter((remoteItem) => !locallyRemoved.some((item) => syncValuesEqual(item, remoteItem)));
+      localValue.forEach((localItem) => {
+        if (!mergedValues.some((item) => syncValuesEqual(item, localItem))) mergedValues.push(structuredClone(localItem));
+      });
+      return mergedValues;
+    }
+    const supportsKeyedMerge = combined.length > 0 && combined.every((item) => Boolean(nestedSyncArrayItemKey(item)));
+    if (!supportsKeyedMerge) return structuredClone(localValue);
+    const baseArray = Array.isArray(baseValue) ? baseValue : [];
+    const baseMap = new Map(baseArray.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const localMap = new Map(localValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const remoteMap = new Map(remoteValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const order = [...localMap.keys(), ...remoteMap.keys().filter((id) => !localMap.has(id))];
+    return order.map((id) => mergeConcurrentSyncValues(
+      baseMap.get(id), localMap.get(id), remoteMap.get(id), baseMap.has(id), localMap.has(id), remoteMap.has(id)
+    )).filter((item) => item !== undefined);
+  }
+
+  const localTime = syncRecordTimestamp(localValue);
+  const remoteTime = syncRecordTimestamp(remoteValue);
+  if (remoteTime > localTime) return structuredClone(remoteValue);
+  return structuredClone(localValue);
+}
+
+function applyPendingSyncMutationsToCloud(cloudState = {}, journal = pendingSyncMutations, maxSerial = Infinity) {
+  const merged = structuredClone(cloudState || {});
+  Object.entries(journal?.values || {}).forEach(([key, change]) => {
+    if (Number(change.serial || 0) > maxSerial) return;
+    if (!change.currentHasKey) {
+      delete merged[key];
+      return;
+    }
+    if (["nextOrder", "nextLot"].includes(key)) {
+      merged[key] = Math.max(Number(merged[key] || 0), Number(change.value || 0));
+      return;
+    }
+    const remoteHasKey = Object.prototype.hasOwnProperty.call(merged, key);
+    merged[key] = mergeConcurrentSyncValues(
+      change.baseValue, change.value, merged[key], Boolean(change.baseHasKey), true, remoteHasKey
+    );
+  });
+
+  Object.entries(journal?.arrays || {}).forEach(([key, entries]) => {
+    const target = Array.isArray(merged[key]) ? [...merged[key]] : [];
+    Object.entries(entries || {})
+      .filter(([, change]) => Number(change.serial || 0) <= maxSerial)
+      .sort((left, right) => Number(left[1].serial || 0) - Number(right[1].serial || 0))
+      .forEach(([id, change]) => {
+        const index = target.findIndex((item) => syncArrayItemKey(item) === id);
+        if (change.operation === "delete") {
+          if (index >= 0) target.splice(index, 1);
+          return;
+        }
+        const remoteHasItem = index >= 0;
+        const remoteItem = remoteHasItem ? target[index] : undefined;
+        const nextItem = mergeConcurrentSyncValues(
+          change.baseItem, change.value, remoteItem, Boolean(change.baseHasItem), true, remoteHasItem
+        );
+        if (index >= 0) target[index] = nextItem;
+        else target.unshift(nextItem);
+      });
+    merged[key] = target;
+  });
+  return merged;
+}
+
+function mergeLegacyDirtyState(cloudState = {}, localState = {}) {
+  const merged = structuredClone(cloudState || {});
+  Object.entries(localState || {}).forEach(([key, localValue]) => {
+    if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "cloudRecoveryRequired"].includes(key)) return;
+    const remoteValue = merged[key];
+    if (["nextOrder", "nextLot"].includes(key)) {
+      merged[key] = Math.max(Number(remoteValue || 0), Number(localValue || 0));
+      return;
+    }
+    if (Array.isArray(localValue) && Array.isArray(remoteValue) && syncArraySupportsRecordMerge(localValue, remoteValue)) {
+      const target = [...remoteValue];
+      localValue.forEach((localItem) => {
+        const id = syncArrayItemKey(localItem);
+        const index = target.findIndex((item) => syncArrayItemKey(item) === id);
+        if (index < 0) target.unshift(structuredClone(localItem));
+        else if (!syncValuesEqual(target[index], localItem)) {
+          target[index] = mergeConcurrentSyncValues(undefined, localItem, target[index], false, true, true);
+        }
+      });
+      merged[key] = target;
+      return;
+    }
+    merged[key] = mergeConcurrentSyncValues(undefined, localValue, remoteValue, false, true, Object.prototype.hasOwnProperty.call(merged, key));
+  });
+  return merged;
+}
+
+function prunePendingSyncMutations(savedSerial) {
+  Object.keys(pendingSyncMutations.values || {}).forEach((key) => {
+    if (Number(pendingSyncMutations.values[key]?.serial || 0) <= savedSerial) delete pendingSyncMutations.values[key];
+  });
+  Object.keys(pendingSyncMutations.arrays || {}).forEach((key) => {
+    const entries = pendingSyncMutations.arrays[key] || {};
+    Object.keys(entries).forEach((id) => {
+      if (Number(entries[id]?.serial || 0) <= savedSerial) delete entries[id];
+    });
+    if (!Object.keys(entries).length) delete pendingSyncMutations.arrays[key];
+  });
+  persistPendingSyncMutations();
+}
+
 function saveState(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
@@ -3872,6 +4164,8 @@ function saveState(options = {}) {
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   if (!persistStateToBrowser(options)) return false;
+  capturePendingSyncMutations(lastLocallyPersistedState, state);
+  lastLocallyPersistedState = structuredClone(state);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
@@ -3885,6 +4179,8 @@ function saveStateLocalOnly(options = {}) {
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   if (!persistStateToBrowser(options)) return false;
+  capturePendingSyncMutations(lastLocallyPersistedState, state);
+  lastLocallyPersistedState = structuredClone(state);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   return true;
@@ -4734,6 +5030,7 @@ function startSupabaseAutoRefresh() {
   supabaseAutoRefreshTimer = setInterval(() => {
     if (document.hidden) return;
     if (applyPendingCloudState("auto")) return;
+    if (retryPendingLocalCloudSave()) return;
     pollSupabaseStateRevision();
   }, AUTO_SYNC_INTERVAL_MS);
   if (!supabaseStartupProtectionActive) {
@@ -4741,9 +5038,23 @@ function startSupabaseAutoRefresh() {
   }
 }
 
+function retryPendingLocalCloudSave() {
+  if (!supabaseLocalDirty || !supabaseClient || supabaseIsSaving || supabaseSaveTimer) return false;
+  if (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified || supabaseStartupProtectionActive) return false;
+  queueSupabaseSave();
+  return true;
+}
+
 window.addEventListener("focus", () => {
   if (applyPendingCloudState("auto")) return;
+  if (retryPendingLocalCloudSave()) return;
   if (supabaseClient) pollSupabaseStateRevision();
+});
+
+window.addEventListener("online", () => {
+  if (retryPendingLocalCloudSave()) return;
+  if (supabaseClient) pollSupabaseStateRevision();
+  else initializeSupabase();
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -4752,6 +5063,7 @@ document.addEventListener("visibilitychange", () => {
     return;
   }
   if (applyPendingCloudState("auto")) return;
+  if (retryPendingLocalCloudSave()) return;
   if (supabaseClient) pollSupabaseStateRevision();
 });
 
@@ -4808,12 +5120,21 @@ async function prepareSafeCloudOverwrite(localState = state, options = {}) {
   const baselineUpdatedAt = supabaseVerifiedCloudUpdatedAt || supabaseLastCloudUpdatedAt || "";
   const liveTime = new Date(row.updated_at || 0).getTime();
   const baselineTime = new Date(baselineUpdatedAt || 0).getTime();
-  if (!options.force && baselineTime && Math.abs(liveTime - baselineTime) > 250) {
-    supabasePendingCloudState = { data: row.data, updated_at: row.updated_at || "" };
-    return { ok: false, error: new Error("Another laptop changed the live ERP after this page loaded. Your Job Order remains saved on this laptop; refresh and reconcile before uploading.") };
+  const liveChangedSinceBaseline = Boolean(baselineTime && Math.abs(liveTime - baselineTime) > 250);
+  const journalHasChanges = pendingSyncMutationsHasChanges();
+  let stateToSave = localState;
+  let mergedConcurrentData = false;
+  if (!options.force && journalHasChanges) {
+    stateToSave = applyPendingSyncMutationsToCloud(row.data, pendingSyncMutations, options.savingMutationSerial ?? Infinity);
+    mergedConcurrentData = liveChangedSinceBaseline || !syncValuesEqual(stateToSave, localState);
+  } else if (!options.force && supabaseLocalDirty && (liveChangedSinceBaseline || !syncValuesEqual(localState, row.data))) {
+    stateToSave = mergeLegacyDirtyState(row.data, localState);
+    mergedConcurrentData = true;
   }
+  stampCurrentAppVersion(stateToSave, options.updatedAt || "");
+  syncFactoryOutLedgerForState(stateToSave);
 
-  const localProfile = stateBusinessProfile(localState);
+  const localProfile = stateBusinessProfile(stateToSave);
   const cloudProfile = stateBusinessProfile(row.data);
   const suspiciousReduction = cloudProfile.score >= 40
     && localProfile.score + 20 < cloudProfile.score
@@ -4824,7 +5145,7 @@ async function prepareSafeCloudOverwrite(localState = state, options = {}) {
   if (!savePreCloudRecoveryCopy("before-cloud-overwrite", row.data, row.updated_at || "")) {
     console.warn("A second browser recovery copy could not be stored. The conditional cloud save can still continue without replacing newer data from another laptop.");
   }
-  return { ok: true, row };
+  return { ok: true, row, stateToSave, mergedConcurrentData };
 }
 
 async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow = null) {
@@ -4887,6 +5208,7 @@ async function syncStateToSupabase(options = {}) {
   supabaseSaveTimer = null;
   supabaseIsSaving = true;
   const savingRevision = supabaseLocalRevision;
+  const savingMutationSerial = Number(pendingSyncMutations.serial || 0);
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
   const updatedAt = new Date().toISOString();
   stampCurrentAppVersion(state, updatedAt);
@@ -4895,7 +5217,8 @@ async function syncStateToSupabase(options = {}) {
   } catch (error) {
     console.warn("The latest cloud-save timestamp could not be written to browser storage. Cloud synchronization will still continue.", error);
   }
-  const stateToSave = structuredClone(state);
+  let stateToSave = structuredClone(state);
+  let mergedConcurrentData = false;
   let error = null;
   try {
     if (pendingCloudVersionBackup) {
@@ -4914,12 +5237,22 @@ async function syncStateToSupabase(options = {}) {
     if (!dailyBackupResult.ok) {
       console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
     }
-    const preflight = await prepareSafeCloudOverwrite(stateToSave, options);
-    if (!preflight.ok) throw preflight.error;
-    const result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
-    error = result?.error || null;
-    if (!error && preflight.row && !result?.data) {
-      error = new Error("Another laptop saved data during this upload. Your local Job Order is protected and the cloud row was not overwritten.");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const preflight = await prepareSafeCloudOverwrite(stateToSave, {
+        ...options,
+        updatedAt,
+        savingMutationSerial,
+      });
+      if (!preflight.ok) throw preflight.error;
+      stateToSave = preflight.stateToSave || stateToSave;
+      mergedConcurrentData = mergedConcurrentData || Boolean(preflight.mergedConcurrentData);
+      stampCurrentAppVersion(stateToSave, updatedAt);
+      const result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
+      error = result?.error || null;
+      if (error || !preflight.row || result?.data) break;
+      if (attempt === 2) {
+        error = new Error("Another laptop saved repeatedly during this upload. This laptop data remains protected and automatic retry will continue.");
+      }
     }
   } catch (caughtError) {
     error = caughtError;
@@ -4935,12 +5268,23 @@ async function syncStateToSupabase(options = {}) {
   supabaseLastCloudUpdatedAt = updatedAt;
   supabaseStartupProtectionActive = false;
   rememberVerifiedCloudBaseline(stateToSave, updatedAt);
+  prunePendingSyncMutations(savingMutationSerial);
+  if (supabaseLocalRevision === savingRevision) {
+    state = normalizeState(stateToSave);
+    lastLocallyPersistedState = structuredClone(state);
+    try {
+      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+    } catch (storageError) {
+      console.warn("The merged live ERP was saved to cloud but could not be duplicated in browser storage.", storageError);
+    }
+    if (mergedConcurrentData) render();
+  }
   runPostCloudMigrations();
-  if (supabaseLocalRevision === savingRevision && !supabaseSaveTimer) clearLocalSyncDirty();
+  if (supabaseLocalRevision === savingRevision && !supabaseSaveTimer && !pendingSyncMutationsHasChanges()) clearLocalSyncDirty();
   if (supabasePendingCloudState && new Date(supabasePendingCloudState.updated_at || 0).getTime() <= new Date(updatedAt).getTime()) {
     supabasePendingCloudState = null;
   }
-  setSyncStatus("online", `Live Sync: Saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+  setSyncStatus("online", `${mergedConcurrentData ? "Live Sync: Merged" : "Live Sync: Saved"} ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
   return true;
 }
 
@@ -5097,6 +5441,7 @@ async function loadSupabaseState(options = {}) {
     supabaseCloudBaselineVerified = false;
     supabaseVerifiedCloudProfile = null;
     supabaseVerifiedCloudUpdatedAt = "";
+    supabaseVerifiedCloudState = null;
     supabaseStartupProtectionActive = true;
     handledCloudState = true;
     setSyncStatus("offline", "Cloud Empty - Local Protected", "No live ERP row was found. Local data was not uploaded automatically. Owner can verify it and click Upload Data.");
@@ -5245,6 +5590,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   if (!persistStateToBrowser()) {
     console.warn("The cloud data is active in memory, but browser storage is full. Download an Owner data backup after checking the records.");
   }
+  lastLocallyPersistedState = structuredClone(state);
   render();
   restoreOrderDraftOrReset(orderDraft);
   resetMeltingSources();
