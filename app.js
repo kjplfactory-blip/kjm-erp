@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v501";
+const APP_VERSION = "v502";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2198,8 +2198,14 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
 document.getElementById("factory-out-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
-  if (data.billId) {
-    await saveSelectedBillFactoryOut(event.target, data);
+  const selectedBillId = selectedFactoryOutBillId(event.target, data);
+  if (selectedBillId) {
+    await saveSelectedBillFactoryOut(event.target, { ...data, billId: selectedBillId });
+    return;
+  }
+  if (event.target.classList.contains("bill-factory-out-mode")) {
+    alert("The selected Bill No could not be confirmed. Select the bill again; no manual Factory Out was created.");
+    renderFactoryBillOutOptions();
     return;
   }
   const vendor = findById("vendors", data.vendorId);
@@ -11333,7 +11339,8 @@ function completedBillFactoryOutRecords(source = state, options = {}) {
 }
 
 function completedBillFactoryOutRecord(billId = "") {
-  return completedBillFactoryOutRecords().find(({ bill }) => bill.id === billId) || null;
+  const lookupId = String(billId || "");
+  return completedBillFactoryOutRecords().find(({ bill }) => String(bill.id || "") === lookupId) || null;
 }
 
 function findOrCreateVendorByNameInState(source, name = "") {
@@ -11390,7 +11397,27 @@ function mergeFactoryBillLedgerEdit(baseEntry = {}, editEntry = {}) {
   return merged;
 }
 
+function restoreBillPostingMarkersFromLedger(source) {
+  const bills = source.bills || [];
+  const lots = source.lots || [];
+  (source.factoryLedger || []).forEach((entry) => {
+    if (entry.sourceType !== "bill") return;
+    const billId = String(entry.sourceId || entry.billId || "");
+    if (!billId) return;
+    const bill = bills.find((item) => String(item.id || "") === billId);
+    if (!bill || isBillFactoryOutPosted(bill)) return;
+    const recoveredAt = entry.updatedAt || entry.createdAt || entry.editedAt || new Date().toISOString();
+    bill.factoryOutWstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent ?? 0);
+    bill.factoryOutPostingId = entry.factoryOutPostingId || `recovered-${billId}`;
+    bill.factoryOutPostedAt = recoveredAt;
+    bill.factoryOutUpdatedAt = recoveredAt;
+    const lot = lots.find((item) => String(item.id || "") === String(bill.lotId || entry.lotId || ""));
+    if (lot) lot.bill = { ...(lot.bill || {}), ...bill };
+  });
+}
+
 function syncFactoryOutLedgerForState(source) {
+  restoreBillPostingMarkersFromLedger(source);
   const manualBillEdits = new Map();
   (source.factoryLedger || []).forEach((entry) => {
     if (entry.sourceType === "bill" && entry.manualFactoryEdit) {
@@ -11469,6 +11496,7 @@ function syncFactoryOutLedgerForState(source) {
       sourceType: "bill",
       sourceId: bill.id,
       sourceLine: "job-order",
+      factoryOutPostingId: bill.factoryOutPostingId || "",
       billId: bill.id,
       billNo,
       lotId: lot.id,
@@ -27725,6 +27753,12 @@ function setFactoryOutBillLocked(form, locked) {
   form.classList.toggle("bill-factory-out-mode", locked);
 }
 
+function selectedFactoryOutBillId(form, data = {}) {
+  const visibleId = String(form?.elements?.billId?.value || data.billId || "").trim();
+  const retainedId = String(form?.dataset?.selectedBillId || "").trim();
+  return visibleId || retainedId;
+}
+
 function renderFactoryBillOutOptions() {
   const form = document.getElementById("factory-out-form");
   const select = form?.elements.billId;
@@ -27739,7 +27773,7 @@ function renderFactoryBillOutOptions() {
       return `<option value="${escapeHtml(bill.id)}">${escapeHtml(bill.billNo || "Bill")} / ${escapeHtml(lot.orderNumber || lot.number || "-")} / ${totals.pieces} pcs / Net ${gram(totals.netWeight)}${escapeHtml(status)}</option>`;
     }),
   ].join("");
-  select.value = records.some(({ bill }) => bill.id === selected) ? selected : "";
+  select.value = records.some(({ bill }) => String(bill.id || "") === String(selected || "")) ? selected : "";
   if (select.value) applyFactoryOutBillSelection(select.value, { fromRender: true });
   const status = document.getElementById("factory-out-bill-status");
   if (!select.value && status) {
@@ -27757,6 +27791,7 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
   const submit = document.getElementById("factory-out-submit");
   const record = billId ? completedBillFactoryOutRecord(billId) : null;
   if (!record) {
+    form.dataset.selectedBillId = "";
     setFactoryOutBillLocked(form, false);
     summaryPanel?.classList.add("hidden");
     if (!options.fromRender) {
@@ -27774,9 +27809,13 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
   }
 
   const { bill, lot, totals } = record;
+  form.dataset.selectedBillId = String(bill.id || "");
+  if (form.elements.billId) form.elements.billId.value = String(bill.id || "");
   const vendorName = billFactoryVendorName(state, lot, bill);
   const vendor = findVendorByName(vendorName) || findOrCreateVendorByName(vendorName);
-  const ledgerEntry = (state.factoryLedger || []).find((entry) => entry.sourceType === "bill" && entry.sourceId === bill.id);
+  const ledgerEntry = (state.factoryLedger || []).find((entry) => (
+    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === String(bill.id || "")
+  ));
   form.vendorId.value = vendor.id;
   form.materialType.value = "bill";
   form.purity.value = totals.purityText;
@@ -27793,14 +27832,83 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
   if (submit) submit.textContent = "Save Bill Factory Out";
 }
 
+function captureBillFactoryOutTransactionState() {
+  return structuredClone({
+    bills: state.bills || [],
+    lots: state.lots || [],
+    factoryLedger: state.factoryLedger || [],
+    vendors: state.vendors || [],
+  });
+}
+
+function restoreBillFactoryOutTransactionState(snapshot = {}) {
+  state.bills = structuredClone(snapshot.bills || []);
+  state.lots = structuredClone(snapshot.lots || []);
+  state.factoryLedger = structuredClone(snapshot.factoryLedger || []);
+  state.vendors = structuredClone(snapshot.vendors || []);
+}
+
+function billFactoryOutTransactionIsComplete(billId = "", source = state) {
+  const lookupId = String(billId || "");
+  const bill = (source.bills || []).find((item) => String(item.id || "") === lookupId);
+  if (!bill || !isBillFactoryOutPosted(bill)) return false;
+  const linkedEntries = (source.factoryLedger || []).filter((entry) => (
+    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === lookupId
+  ));
+  return linkedEntries.length === 1;
+}
+
+function reapplyBillFactoryOutTransaction(transaction = {}) {
+  const billId = String(transaction.bill?.id || "");
+  if (!billId) return false;
+  const billIndex = (state.bills || []).findIndex((item) => String(item.id || "") === billId);
+  if (billIndex >= 0) state.bills[billIndex] = structuredClone(transaction.bill);
+  else state.bills = [structuredClone(transaction.bill), ...(state.bills || [])];
+  const lotId = String(transaction.lot?.id || "");
+  const lotIndex = (state.lots || []).findIndex((item) => String(item.id || "") === lotId);
+  if (lotIndex >= 0) state.lots[lotIndex] = structuredClone(transaction.lot);
+  state.factoryLedger = (state.factoryLedger || []).filter((entry) => !(
+    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === billId
+  ));
+  if (transaction.ledgerEntry) state.factoryLedger.unshift(structuredClone(transaction.ledgerEntry));
+  syncFactoryOutForBill();
+  return billFactoryOutTransactionIsComplete(billId);
+}
+
+async function verifyBillFactoryOutInCloud(billId = "") {
+  if (!supabaseClient) return false;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle(),
+      "Factory Out cloud verification timeout."
+    );
+    if (result?.error || !result?.data?.data) return false;
+    const verified = billFactoryOutTransactionIsComplete(billId, result.data.data);
+    if (verified) {
+      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
+      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
+    }
+    return verified;
+  } catch (error) {
+    console.warn("Factory Out cloud read-back could not be completed.", error);
+    return false;
+  }
+}
+
 async function saveSelectedBillFactoryOut(form, data = {}) {
-  const record = completedBillFactoryOutRecord(data.billId);
+  const billId = selectedFactoryOutBillId(form, data);
+  const record = completedBillFactoryOutRecord(billId);
   if (!record) {
     alert("This bill is not available for Factory Out. Confirm that its QC OK items were transferred to Office.");
     renderFactoryBillOutOptions();
     return false;
   }
   const { bill, lot, totals } = record;
+  const rollbackSnapshot = captureBillFactoryOutTransactionState();
   const submit = document.getElementById("factory-out-submit");
   const originalSubmitText = submit?.textContent || "Save Bill Factory Out";
   if (submit) {
@@ -27808,15 +27916,21 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
     submit.textContent = "Saving Factory Out...";
   }
   const wstgPercent = factoryWstgPercent(data.wstgPercent || 0);
+  const postedAt = new Date().toISOString();
+  const postingId = bill.factoryOutPostingId || crypto.randomUUID();
   bill.factoryOutWstgPercent = wstgPercent;
-  bill.factoryOutPostedAt = new Date().toISOString();
-  bill.factoryOutUpdatedAt = new Date().toISOString();
+  bill.factoryOutPostingId = postingId;
+  bill.factoryOutPostedAt = postedAt;
+  bill.factoryOutUpdatedAt = postedAt;
   lot.bill = bill;
   const billIndex = (state.bills || []).findIndex((item) => item.id === bill.id || item.lotId === bill.lotId);
   if (billIndex >= 0) state.bills[billIndex] = bill;
   syncFactoryOutForBill();
-  const ledgerEntry = (state.factoryLedger || []).find((entry) => entry.sourceType === "bill" && entry.sourceId === bill.id);
+  const ledgerEntry = (state.factoryLedger || []).find((entry) => (
+    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === String(bill.id || "")
+  ));
   if (!ledgerEntry) {
+    restoreBillFactoryOutTransactionState(rollbackSnapshot);
     alert("Factory Out could not be linked to this bill.");
     if (submit) {
       submit.disabled = false;
@@ -27829,9 +27943,23 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
   ledgerEntry.wstgFineGold = Number(weight3(totals.netWeight * (wstgPercent / 100)));
   ledgerEntry.fineGold = Number(weight3(Number(ledgerEntry.baseFineGold || totals.totalFineGold) + ledgerEntry.wstgFineGold));
   ledgerEntry.manualFactoryEdit = false;
-  ledgerEntry.editedAt = new Date().toISOString();
+  ledgerEntry.factoryOutPostingId = postingId;
+  ledgerEntry.editedAt = postedAt;
+  if (!billFactoryOutTransactionIsComplete(bill.id)) {
+    restoreBillFactoryOutTransactionState(rollbackSnapshot);
+    alert("Factory Out validation failed. No bill or ledger data was changed.");
+    render();
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = originalSubmitText;
+    }
+    return false;
+  }
+  const intendedTransaction = structuredClone({ bill, lot, ledgerEntry });
   const savedLocally = saveState({ alertOnFailure: true, context: `${bill.billNo || "Bill"} Factory Out` });
   if (!savedLocally) {
+    restoreBillFactoryOutTransactionState(rollbackSnapshot);
+    render();
     if (submit) {
       submit.disabled = false;
       submit.textContent = originalSubmitText;
@@ -27844,11 +27972,16 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
   const status = document.getElementById("factory-out-bill-status");
   if (status) status.textContent = `${bill.billNo || "Bill"} is saved on this laptop. Confirming live sync...`;
   const savedToCloud = await saveCurrentStateToCloudNow({ context: `${bill.billNo || "Bill"} Factory Out` });
+  const cloudVerified = savedToCloud && await verifyBillFactoryOutInCloud(bill.id);
+  if (!cloudVerified) {
+    if (!billFactoryOutTransactionIsComplete(bill.id)) reapplyBillFactoryOutTransaction(intendedTransaction);
+    saveState({ alertOnFailure: false, context: `${bill.billNo || "Bill"} Factory Out retry` });
+  }
   if (submit) {
     submit.disabled = false;
     submit.textContent = "Add Factory Out";
   }
-  if (savedToCloud) {
+  if (cloudVerified) {
     if (status) status.textContent = `${bill.billNo || "Bill"} is posted, synced, and removed from the pending dropdown. Open Factory Ledger to view it.`;
     alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
   } else {
