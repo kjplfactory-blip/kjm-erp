@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v502";
+const APP_VERSION = "v504";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -471,6 +471,7 @@ const operationTileConfigs = {
     { id: "summary", title: "Factory Summary", description: "Total factory fine stock, factory in/out, and vendor balance", selector: "#factory-summary-grid" },
     { id: "vendor", title: "Vendor Master", description: "Add or edit vendor and party details", selector: "#vendor-form" },
     { id: "in", title: "Factory In", description: "Add vendor metal or other stock into factory", selector: "#factory-in-form" },
+    { id: "repair-in", title: "Repair Item Factory In", description: "Scan an item QR and return its GW, non-gold, and party balance to factory", selector: ".repair-factory-in-panel" },
     { id: "out", title: "Factory Out", description: "Send bill, metal, rod, wastage, or stock out of factory", selector: "#factory-out-form" },
     { id: "vendors", title: "Vendor Balance", description: "Check current payable or receivable metal by party", selector: ".vendor-balance-panel" },
     { id: "ledger", title: "Factory Ledger", description: "View every factory in and bill factory out entry", selector: ".factory-ledger-panel" },
@@ -996,6 +997,7 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
       size: item.size,
       ringType: item.ringType,
       cmItemType: item.cmItemType,
+      designSubItemType: item.designSubItemType,
       clSize: item.clSize,
       cgSize: item.cgSize,
       color: jobCardColor,
@@ -1388,6 +1390,7 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
   }
   if (event.target.name === "ringType") updateOrderItemCategoryFields(row);
   if (event.target.name === "cmItemType") updateOrderItemCategoryFields(row);
+  if (event.target.name === "designSubItemType") updateOrderItemCategoryFields(row);
   if (event.target.name === "designId") {
     const selectedDesignId = event.target.value;
     const hasSearchText = Boolean(row.querySelector('[name="designSearch"]')?.value.trim());
@@ -1433,6 +1436,10 @@ document.getElementById("focus-barcode-scan")?.addEventListener("click", () => {
   openPhoneBarcodeScanner();
 });
 
+document.getElementById("open-repair-factory-in-scanner")?.addEventListener("click", () => {
+  openRepairFactoryInScanner();
+});
+
 document.getElementById("scan-another-product")?.addEventListener("click", () => {
   startPhoneBarcodeCamera();
 });
@@ -1463,6 +1470,12 @@ document.getElementById("product-barcode-photo")?.addEventListener("change", (ev
   const file = event.target.files?.[0];
   event.target.value = "";
   if (file) scanPhoneBarcodePhoto(file);
+});
+
+document.getElementById("product-camera-result")?.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-repair-factory-in-key]");
+  if (!button) return;
+  openRepairFactoryInFromScan(button.dataset.repairFactoryInKey || "");
 });
 
 document.addEventListener("keydown", handleHardwareBarcodeScan, true);
@@ -6301,6 +6314,11 @@ function entryOrderItemRowHtml(item = {}) {
         ${renderCmItemTypeOptions(item.cmItemType || defaultCmItemTypeForDesign(selectedDesign, item.category), designOrderCmKeys(selectedDesign, item.category), item.category)}
       </select>
     </label>
+    <label class="design-subitem-field"><span>Sub Item / Combination</span>
+      <select name="designSubItemType">
+        ${renderDesignSubItemTypeOptions(item.designSubItemType, designOrderGenericItemKeys(selectedDesign, item.category))}
+      </select>
+    </label>
     <label class="normal-size-field">Size <input name="size" value="${escapeHtml(item.size || "")}" placeholder="Size"></label>
     <label class="cb-field cl-size-field">CL Size <input name="clSize" value="${escapeHtml(item.clSize || "")}" placeholder="Ladies size"></label>
     <label class="cb-field cg-size-field">CG Size <input name="cgSize" value="${escapeHtml(item.cgSize || "")}" placeholder="Gents size"></label>
@@ -6342,6 +6360,9 @@ function savedOrderItemRowHtml(item = {}) {
   const cmDetails = isSetItemCategory(item.category)
     ? `<span class="saved-item-cell"><b>${escapeHtml(setItemFieldLabel(item.category))}</b>${escapeHtml(cmItemTypeLabel(item.cmItemType || defaultCmItemTypeForCategory(item.category), item.category))}</span>`
     : "";
+  const genericSubItemDetails = item.designSubItemType
+    ? `<span class="saved-item-cell"><b>Sub Item</b>${escapeHtml(designSubItemTypeLabel(item.designSubItemType))}</span>`
+    : "";
   const normalSize = needsNormalSize(item.category)
     ? `<span class="saved-item-cell"><b>Size</b>${escapeHtml(item.size || "-")}</span>`
     : "";
@@ -6352,6 +6373,7 @@ function savedOrderItemRowHtml(item = {}) {
     <input type="hidden" name="size" value="${escapeHtml(item.size || "")}">
     <input type="hidden" name="ringType" value="${escapeHtml(item.ringType || "")}">
     <input type="hidden" name="cmItemType" value="${escapeHtml(item.cmItemType || "")}">
+    <input type="hidden" name="designSubItemType" value="${escapeHtml(item.designSubItemType || "")}">
     <input type="hidden" name="clSize" value="${escapeHtml(item.clSize || "")}">
     <input type="hidden" name="cgSize" value="${escapeHtml(item.cgSize || "")}">
     <input type="hidden" name="color" value="${escapeHtml(item.color || "")}">
@@ -6362,6 +6384,7 @@ function savedOrderItemRowHtml(item = {}) {
     <span class="saved-item-cell"><b>Design</b>${escapeHtml(design)}</span>
     ${cbDetails}
     ${cmDetails}
+    ${genericSubItemDetails}
     ${normalSize}
     <span class="saved-item-cell"><b>Colour</b><span data-order-item-color-label>${escapeHtml(item.color || "Pink")}</span></span>
     <span class="saved-item-cell"><b>Purity</b>${escapeHtml(item.purity || "18K")}</span>
@@ -6413,6 +6436,14 @@ function designOrderCmKeys(design = null, category = "") {
   return [...new Set(keys)].length ? [...new Set(keys)] : familyKeys;
 }
 
+function designOrderGenericItemKeys(design = null, category = "") {
+  const resolvedCategory = design?.category || category;
+  if (isCbCategory(resolvedCategory) || isSetItemCategory(resolvedCategory)) return [];
+  return normalizeDesignItemKeys(design?.itemKeys || [], resolvedCategory)
+    .map(normalizeStoneItemKey)
+    .filter((key, index, list) => key && key !== DEFAULT_STONE_ITEM_KEY && list.indexOf(key) === index);
+}
+
 function itemKeyCombinations(keys = []) {
   const cleanKeys = [...new Set(keys.filter(Boolean))];
   const combinations = [];
@@ -6456,6 +6487,32 @@ function renderCmItemTypeOptions(selected = "", keys = CM_ITEM_KEYS, category = 
   })];
   if (selected && !options.some(([value]) => value === selected)) options.push([selected, cmItemTypeLabel(selected, category)]);
   return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function renderDesignSubItemTypeOptions(selected = "", keys = []) {
+  const itemKeys = [...new Set(keys.map(normalizeStoneItemKey).filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY))];
+  const combinations = itemKeys.length <= 8
+    ? itemKeyCombinations(itemKeys)
+    : [...itemKeys.map((key) => [key]), itemKeys];
+  const options = [["", "Select sub item"], ...combinations.map((combo) => {
+    const value = combo.join("+");
+    return [value, combo.map(stoneItemInputValue).join(" + ")];
+  })];
+  if (selected && !options.some(([value]) => value === selected)) options.push([selected, designSubItemTypeLabel(selected)]);
+  return options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function designSubItemTypeKeys(value = "", design = null, category = "") {
+  const allowedKeys = designOrderGenericItemKeys(design, category);
+  return String(value || "")
+    .split("+")
+    .map(normalizeStoneItemKey)
+    .filter((key, index, list) => allowedKeys.includes(key) && list.indexOf(key) === index);
+}
+
+function designSubItemTypeLabel(value = "") {
+  const keys = String(value || "").split("+").map(normalizeStoneItemKey).filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  return keys.length ? keys.map(stoneItemInputValue).join(" + ") : "-";
 }
 
 function cmItemTypeKeys(value = "", category = "") {
@@ -6511,9 +6568,12 @@ function updateOrderItemCategoryFields(row) {
   const design = findById("designs", row.querySelector('[name="designId"]')?.value || "");
   const ringSelect = row.querySelector('[name="ringType"]');
   const cmSelect = row.querySelector('[name="cmItemType"]');
+  const subItemSelect = row.querySelector('[name="designSubItemType"]');
   const ringType = ringSelect.value;
   const showCb = isCbCategory(category);
   const showCm = isSetItemCategory(category);
+  const genericItemKeys = designOrderGenericItemKeys(design, category);
+  const showGenericSubItems = !showCb && !showCm && genericItemKeys.length > 0;
   const showNormalSize = needsNormalSize(category);
   if (showCb) {
     ringSelect.innerHTML = renderRingTypeOptions(ringType, designOrderRingKeys(design, category));
@@ -6524,9 +6584,16 @@ function updateOrderItemCategoryFields(row) {
     cmSelect.innerHTML = renderCmItemTypeOptions(cmType, designOrderCmKeys(design, category), category);
     cmSelect.value = [...cmSelect.options].some((option) => option.value === cmType) ? cmType : defaultCmItemTypeForDesign(design, category);
   }
+  if (showGenericSubItems) {
+    const selectedSubItems = designSubItemTypeKeys(subItemSelect.value, design, category);
+    const subItemType = selectedSubItems.length ? selectedSubItems.join("+") : genericItemKeys[0];
+    subItemSelect.innerHTML = renderDesignSubItemTypeOptions(subItemType, genericItemKeys);
+    subItemSelect.value = subItemType;
+  }
   const activeRingTypeForVisibility = ringSelect.value;
   row.querySelectorAll(".cb-field").forEach((field) => field.classList.toggle("hidden", !showCb));
   row.querySelectorAll(".cm-field").forEach((field) => field.classList.toggle("hidden", !showCm));
+  row.querySelectorAll(".design-subitem-field").forEach((field) => field.classList.toggle("hidden", !showGenericSubItems));
   row.querySelectorAll("[data-set-item-label]").forEach((label) => {
     label.textContent = setItemFieldLabel(category);
   });
@@ -6547,6 +6614,7 @@ function updateOrderItemCategoryFields(row) {
   } else if (!cmSelect.value) {
     cmSelect.value = defaultCmItemTypeForDesign(design, category);
   }
+  if (!showGenericSubItems) subItemSelect.value = "";
   if (!showNormalSize) row.querySelector('[name="size"]').value = "";
   updateOrderItemStonePreview(row);
 }
@@ -6626,6 +6694,7 @@ function orderDraftItemHasWork(item = {}) {
     || item.category
     || item.ringType
     || item.cmItemType
+    || item.designSubItemType
     || item.clSize
     || item.cgSize
     || item.size
@@ -6742,6 +6811,7 @@ function clearOrderEntryRow(row) {
   row.querySelector('[name="category"]').value = "";
   row.querySelector('[name="ringType"]').value = "";
   row.querySelector('[name="cmItemType"]').value = "";
+  row.querySelector('[name="designSubItemType"]').value = "";
   row.querySelector('[name="clSize"]').value = "";
   row.querySelector('[name="cgSize"]').value = "";
   row.querySelector('[name="color"]').value = document.getElementById("order-form")?.jobColor?.value || "Pink";
@@ -6779,7 +6849,21 @@ function getOrderFormItems(form) {
 }
 
 function expandOrderItemCombinations(item) {
-  return expandCmSetItem(item).flatMap(expandCbBothRingItem);
+  return expandDesignSubItems(item).flatMap(expandCmSetItem).flatMap(expandCbBothRingItem);
+}
+
+function expandDesignSubItems(item) {
+  if (!item) return [];
+  const design = item.designId ? findById("designs", item.designId) : null;
+  const availableKeys = designOrderGenericItemKeys(design, item.category);
+  if (!availableKeys.length) return [item];
+  const selectedKeys = designSubItemTypeKeys(item.designSubItemType, design, item.category);
+  const keys = selectedKeys.length ? selectedKeys : [availableKeys[0]];
+  return keys.map((key) => ({
+    ...item,
+    designSubItemType: key,
+    item: key,
+  }));
 }
 
 function orderItemPcs(value = 1) {
@@ -6836,6 +6920,7 @@ function getOrderItemFromRow(row) {
     item: row.querySelector('[name="item"]')?.value || "",
     ringType: row.querySelector('[name="ringType"]')?.value || "",
     cmItemType: row.querySelector('[name="cmItemType"]')?.value || "",
+    designSubItemType: row.querySelector('[name="designSubItemType"]')?.value || "",
     clSize: row.querySelector('[name="clSize"]')?.value || "",
     cgSize: row.querySelector('[name="cgSize"]')?.value || "",
     size: row.querySelector('[name="size"]')?.value || "",
@@ -6848,7 +6933,7 @@ function getOrderItemFromRow(row) {
 }
 
 function hasOrderItemDetails(item) {
-  return Boolean(item?.designId || item?.designIds?.length || item?.category || item?.ringType || item?.cmItemType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
+  return Boolean(item?.designId || item?.designIds?.length || item?.category || item?.ringType || item?.cmItemType || item?.designSubItemType || item?.clSize || item?.cgSize || item?.size || item?.color || item?.remarks);
 }
 
 function renderOrderEntrySummary() {
@@ -7148,16 +7233,43 @@ function openCatalogueBarcodeScanner() {
   startPhoneBarcodeCamera();
 }
 
+function canReceiveRepairFactoryIn() {
+  return Boolean(currentUser && (canEditOfficeWeights() || canEditPageData("factory")));
+}
+
+function openRepairFactoryInScanner() {
+  if (!canReceiveRepairFactoryIn()) {
+    alert("This login cannot receive repair items into Factory.");
+    return;
+  }
+  phoneBarcodeScanMode = "repair-factory-in";
+  updatePhoneBarcodeDialogText();
+  const dialog = document.getElementById("product-camera-scanner-dialog");
+  if (!dialog.open) dialog.showModal();
+  startPhoneBarcodeCamera();
+}
+
 function updatePhoneBarcodeDialogText() {
   const isCatalogue = phoneBarcodeScanMode === "catalogue";
+  const isRepairFactoryIn = phoneBarcodeScanMode === "repair-factory-in";
   const title = document.getElementById("product-camera-title");
   const note = document.getElementById("product-camera-note");
-  if (title) title.textContent = isCatalogue ? "Scan & Add Client Selection" : "Scan Product Barcode / QR";
-  if (note) {
-    note.textContent = isCatalogue
-      ? "Each successful scan adds the matching catalogue design with its Design No. and PR No. Scan the same PR again to increase its quantity. Nothing is saved to ERP stock or orders."
-      : "Point the rear camera at the ERP barcode or QR code. Scanning only displays product details and does not change any data.";
+  const badge = document.getElementById("product-camera-mode-badge");
+  if (title) {
+    title.textContent = isRepairFactoryIn
+      ? "Scan Repair Item For Factory In"
+      : isCatalogue
+        ? "Scan & Add Client Selection"
+        : "Scan Product Barcode / QR";
   }
+  if (note) {
+    note.textContent = isRepairFactoryIn
+      ? "Scan the item's ERP QR code, verify its bill weights and non-gold breakup, then confirm Factory In. The item shelf, repair status, Factory Ledger, and corresponding party balance are saved together."
+      : isCatalogue
+        ? "Each successful scan adds the matching catalogue design with its Design No. and PR No. Scan the same PR again to increase its quantity. Nothing is saved to ERP stock or orders."
+        : "Point the rear camera at the ERP barcode or QR code. Scanning only displays product details and does not change any data.";
+  }
+  if (badge) badge.textContent = isRepairFactoryIn ? "Repair Factory In" : isCatalogue ? "Client Selection" : "View Only";
 }
 
 async function startPhoneBarcodeCamera() {
@@ -7384,6 +7496,9 @@ function renderPhoneBarcodeProduct(value) {
   if (phoneBarcodeScanMode === "catalogue") {
     match.catalogueSelectionResult = addScannedProductToCatalogueSelection(match);
   }
+  if (phoneBarcodeScanMode === "repair-factory-in") {
+    match.repairFactoryInResult = repairFactoryInScanAssessment(match);
+  }
   const selectionResult = match.catalogueSelectionResult;
   if (selectionResult?.ok) {
     setPhoneBarcodeCameraStatus(
@@ -7394,6 +7509,13 @@ function renderPhoneBarcodeProduct(value) {
     );
   } else if (selectionResult) {
     setPhoneBarcodeCameraStatus(selectionResult.message, "error");
+  } else if (match.repairFactoryInResult) {
+    setPhoneBarcodeCameraStatus(
+      match.repairFactoryInResult.ok
+        ? `${match.label} is ready for Repair Factory In review.`
+        : match.repairFactoryInResult.message,
+      match.repairFactoryInResult.ok ? "success" : "error"
+    );
   } else {
     setPhoneBarcodeCameraStatus(`Product found: ${match.label}`, "success");
   }
@@ -7448,12 +7570,23 @@ function phoneBarcodeProductHtml(match) {
   const officeLocation = officeEntry ? officeItemLocation(billItem) : "-";
   const imageAlt = designText(design) || order.designNumber || "Design image";
   const selectionResult = match.catalogueSelectionResult;
+  const repairResult = match.repairFactoryInResult;
   return `
     <article class="camera-product-card">
       ${selectionResult ? `
         <div class="camera-catalogue-result ${selectionResult.ok ? "success" : "error"}">
           <strong>${selectionResult.ok ? (selectionResult.quantityIncreased ? "Quantity Increased" : "Added To Client Selection") : "Not Added To Client Selection"}</strong>
           <span>${escapeHtml(selectionResult.ok ? `Design No. ${selectionResult.designNo} / PR No. ${selectionResult.productionNo} / Qty ${selectionResult.quantity}` : selectionResult.message)}</span>
+        </div>
+      ` : ""}
+      ${repairResult ? `
+        <div class="camera-catalogue-result ${repairResult.ok ? "success" : "error"}">
+          <strong>${repairResult.ok ? "Ready For Repair Factory In" : "Repair Factory In Blocked"}</strong>
+          <span>${escapeHtml(repairResult.message)}</span>
+          ${repairResult.ok ? `
+            <span>Party: ${escapeHtml(repairResult.partyName || "-")} / GW ${gram(repairResult.weights.grossWeight)} / Non-Gold ${gram(repairResult.weights.nonGoldWeight)} / Net Gold ${gram(repairResult.weights.netWeight)}</span>
+            <button type="button" data-repair-factory-in-key="${escapeHtml(repairResult.key)}">Review &amp; Receive Into Factory</button>
+          ` : ""}
         </div>
       ` : ""}
       <div class="camera-product-hero">
@@ -7466,7 +7599,7 @@ function phoneBarcodeProductHtml(match) {
           <h3>${escapeHtml(order.productionNo || billItem.productionNo || order.number || "-")}</h3>
           <p>${escapeHtml(order.designNumber || designText(design) || "-")} / ${escapeHtml(order.category || design.category || "Uncategorised")}</p>
           <span class="status ${statusClass(currentStage)}">${escapeHtml(currentStage || "-")}</span>
-          <span class="camera-read-only-badge">Details Only</span>
+          <span class="camera-read-only-badge">${repairResult ? "Repair Factory In" : "Details Only"}</span>
         </div>
       </div>
       <section class="camera-detail-section">
@@ -7517,9 +7650,43 @@ function phoneBarcodeProductHtml(match) {
           ${jobItemDetailCell("Lot Current GW", lot.number ? gram(currentTransferIssueWeight(lot)) : "-")}
         </div>
       </section>
-      <p class="camera-product-readonly-note">This scan is view only. No customer order, transfer, stock movement, or ERP entry has been created.</p>
+      <p class="camera-product-readonly-note">${repairResult ? "No stock or ledger entry is created until Review & Receive is confirmed in the weight window." : "This scan is view only. No customer order, transfer, stock movement, or ERP entry has been created."}</p>
     </article>
   `;
+}
+
+function repairFactoryInScanAssessment(match = {}) {
+  if (!canReceiveRepairFactoryIn()) return { ok: false, message: "This login cannot receive repair items into Factory." };
+  const found = match.officeEntry;
+  if (!found?.lot || !found?.bill || !found?.item) {
+    return { ok: false, message: "The QR matches a Job Card, but no completed bill item was found for Factory In." };
+  }
+  const { lot, bill, item } = found;
+  if (item.productionReturnSafeItemId && findById("safeItems", item.productionReturnSafeItemId)) {
+    return { ok: false, message: "This item is already recorded in the Production Shelf. A second Factory In is blocked." };
+  }
+  if (isDiscardedItem(item) || item.saleStatus === "Sold" || item.hallmarkStatus === "Issued") {
+    return { ok: false, message: "This item cannot be received while sold, discarded, or currently with Hallmarking." };
+  }
+  const weights = productionReturnWeightSummary(item);
+  if (weights.grossWeight <= 0) {
+    return { ok: false, message: "The saved bill has no Final GW. Enter the item weights in Bill before Repair Factory In." };
+  }
+  const party = productionReturnFactoryParty(lot, bill);
+  return {
+    ok: true,
+    key: officeItemKey(lot.id, item),
+    partyName: party.name,
+    weights,
+    message: `Verify all weights before posting ${item.productionNo || match.label} to the ${safeLockerForPurity(item.purity || match.order?.purity || lot.metalPurity || "18K")} Production Shelf.`,
+  };
+}
+
+async function openRepairFactoryInFromScan(key = "") {
+  if (!key) return;
+  await stopPhoneBarcodeScanner();
+  document.getElementById("product-camera-scanner-dialog")?.close();
+  openProductionReturnDialog(key, { sourceMode: "repair-factory-in" });
 }
 
 async function loadPhoneBarcodeDesignImage(design = {}) {
@@ -10961,7 +11128,7 @@ function findOrCreateVendorByName(name = "") {
     name: cleanName,
     phone: "",
     city: "",
-    remarks: "Auto-created from bill factory out",
+    remarks: "Auto-created from bill factory movement",
   };
   state.vendors = state.vendors || [];
   state.vendors.unshift(vendor);
@@ -10998,6 +11165,25 @@ function addFactoryLedgerEntry(entry = {}) {
     sourceType: entry.sourceType || "",
     sourceId: entry.sourceId || "",
     sourceLine: entry.sourceLine || "",
+    billId: entry.billId || "",
+    billNo: entry.billNo || "",
+    lotId: entry.lotId || "",
+    lotNumber: entry.lotNumber || "",
+    jobNumber: entry.jobNumber || "",
+    productionNos: Array.isArray(entry.productionNos) ? [...entry.productionNos] : [],
+    pcs: Number(entry.pcs || 0),
+    customerName: entry.customerName || "",
+    originalPartyName: entry.originalPartyName || entry.customerName || "",
+    officePartyName: entry.officePartyName || entry.vendorName || "",
+    orderType: entry.orderType || "",
+    grossWeight: Number(weight3(entry.grossWeight ?? weight)),
+    stoneWeight: Number(weight3(entry.stoneWeight || 0)),
+    blackBeadsWeight: Number(weight3(entry.blackBeadsWeight || 0)),
+    motiWeight: Number(weight3(entry.motiWeight || 0)),
+    springWeight: Number(weight3(entry.springWeight || 0)),
+    otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight || 0)),
+    totalNonGoldWeight: Number(weight3(entry.totalNonGoldWeight || 0)),
+    netWeight: Number(weight3(entry.netWeight ?? weight)),
   };
   state.factoryLedger.unshift(ledgerEntry);
   return ledgerEntry;
@@ -12807,6 +12993,7 @@ function jobItemDetailHtml(order) {
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Job Card Narration", order.jobCardNarration || order.fittingAccessoriesNarration || order.remarks || "-") : ""}
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Item Narration", order.itemNarration || order.item || "-") : ""}
         ${isSetItemCategory(order.category) ? jobItemDetailCell(setItemFieldLabel(order.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category)) : ""}
+        ${order.designSubItemType ? jobItemDetailCell("Sub Item", designSubItemTypeLabel(order.designSubItemType)) : ""}
         ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
         ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
         ${jobItemDetailCell("Colour", order.color || "-")}
@@ -18712,6 +18899,11 @@ function designStoneItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
 function orderStoneItemKeys(order = {}) {
   const category = categoryCode(order.category || "");
   const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
+  const selectedDesignSubItems = String(order.designSubItemType || "")
+    .split("+")
+    .map(normalizeStoneItemKey)
+    .filter((key, index, list) => key && key !== DEFAULT_STONE_ITEM_KEY && list.indexOf(key) === index);
+  if (selectedDesignSubItems.length) return selectedDesignSubItems;
   const selectedCmKeys = cmItemTypeKeys(order.cmItemType, order.category);
   if (selectedCmKeys.length) return selectedCmKeys;
   const isCbrOrder = category === "CBR" || /\bCBR\b/.test(itemText);
@@ -25236,6 +25428,23 @@ function productionReturnWeightSummary(item = {}, overrides = {}) {
   return { grossWeight, nonGoldBreakdown, nonGoldWeight, netWeight };
 }
 
+function productionReturnFactoryParty(lot = {}, bill = {}, options = {}) {
+  const billId = String(bill.id || "");
+  const originalFactoryOut = (state.factoryLedger || []).find((entry) => (
+    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === billId
+  ));
+  const fallbackName = billFactoryVendorName(state, lot, bill);
+  const preferredName = originalFactoryOut?.vendorName || fallbackName || "KJPL Office";
+  let vendor = originalFactoryOut?.vendorId ? findById("vendors", originalFactoryOut.vendorId) : null;
+  if (!vendor) vendor = findVendorByName(preferredName);
+  if (!vendor && options.create) vendor = findOrCreateVendorByName(preferredName);
+  return {
+    id: vendor?.id || originalFactoryOut?.vendorId || "",
+    name: vendor?.name || preferredName,
+    originalPartyName: billCustomerNameForState(state, lot, bill),
+  };
+}
+
 function productionReturnSafeItem({ lot = {}, bill = {}, item = {}, order = {}, weights = {}, reason = "", remarks = "", fromOffice = false } = {}) {
   const purity = item.purity || order.purity || lot.metalPurity || "18K";
   const locker = safeLockerForPurity(purity);
@@ -25275,6 +25484,9 @@ function productionReturnSafeItem({ lot = {}, bill = {}, item = {}, order = {}, 
     returnReason: reason,
     returnRemarks: remarks,
     returnedFromOffice: fromOffice,
+    returnVendorId: item.returnVendorId || "",
+    returnVendorName: item.returnVendorName || "",
+    returnOriginalPartyName: item.returnOriginalPartyName || "",
   };
 }
 
@@ -25289,14 +25501,35 @@ function addOfficeProductionReturnLedger(safeItem = {}) {
     direction: "in",
     type: "Office Return / Factory In",
     materialType: "bill-return",
+    vendorId: safeItem.returnVendorId || "",
+    vendorName: safeItem.returnVendorName || "",
     purity: safeItem.purity || safeItem.locker || "",
     weight: Number(safeItem.netWeight || 0),
+    grossWeight: Number(safeItem.grossWeight || 0),
+    stoneWeight: Number(safeItem.nonGoldBreakdown?.stone || 0),
+    blackBeadsWeight: Number(safeItem.nonGoldBreakdown?.["black-beads"] || 0),
+    motiWeight: Number(safeItem.nonGoldBreakdown?.moti || 0),
+    springWeight: Number(safeItem.nonGoldBreakdown?.spring || 0),
+    otherNonGoldWeight: Number(safeItem.nonGoldBreakdown?.other || 0),
+    totalNonGoldWeight: Number(safeItem.nonGoldWeight || 0),
+    netWeight: Number(safeItem.netWeight || 0),
     stockPosting: `${safeItem.locker || safeLockerForPurity(safeItem.purity)} Production Shelf Return`,
     reference: `${safeItem.returnProductionNo || "Returned item"} / ${safeItem.returnSourceBillNo || "Office"}`,
     remarks: `Returned GW ${gram(safeItem.grossWeight)} - Non-Gold ${gram(safeItem.nonGoldWeight)} = Net Gold ${gram(safeItem.netWeight)}; ${nonGoldBreakdownText(safeItem.nonGoldBreakdown) || "No non-gold"}; ${safeItem.returnReason || "Office return"}`,
     sourceType: "office-production-return",
     sourceId,
     sourceLine: safeItem.returnOrderId || "",
+    billId: safeItem.returnSourceBillId || "",
+    billNo: safeItem.returnSourceBillNo || "",
+    lotId: safeItem.returnSourceLotId || "",
+    lotNumber: safeItem.returnSourceLotNumber || "",
+    jobNumber: safeItem.returnSourceJobNumber || "",
+    productionNos: [safeItem.returnProductionNo].filter(Boolean),
+    pcs: 1,
+    customerName: safeItem.returnOriginalPartyName || "",
+    originalPartyName: safeItem.returnOriginalPartyName || "",
+    officePartyName: safeItem.returnVendorName || "",
+    orderType: safeItem.returnOriginalPartyName ? manufacturingOrderTypeLabel(safeItem.returnOriginalPartyName) : "",
   });
 }
 
@@ -25315,6 +25548,10 @@ function returnBillItemToProductionShelf({ lot = {}, bill = {}, item = {}, order
   const normalizedWeights = productionReturnWeightSummary(item, weights);
   if (normalizedWeights.grossWeight <= 0 || normalizedWeights.nonGoldWeight > normalizedWeights.grossWeight + 0.0005) return null;
   const safeItem = productionReturnSafeItem({ lot, bill, item, order, weights: normalizedWeights, reason, remarks, fromOffice: wasFactoryOut });
+  const returnParty = productionReturnFactoryParty(lot, bill, { create: wasFactoryOut });
+  safeItem.returnVendorId = returnParty.id;
+  safeItem.returnVendorName = returnParty.name;
+  safeItem.returnOriginalPartyName = returnParty.originalPartyName;
   state.safeItems = state.safeItems || [];
   state.safeItems.unshift(safeItem);
   addOfficeProductionReturnLedger(safeItem);
@@ -25337,7 +25574,7 @@ function returnBillItemToProductionShelf({ lot = {}, bill = {}, item = {}, order
     qcStatus: "QC Failed",
     qcDate: returnDate,
     officeStatus: "",
-    factoryStatus: wasFactoryOut ? "Factory Out" : "Factory In",
+    factoryStatus: "Factory In",
     productionReturnFromOffice: wasFactoryOut,
     productionReturnSafeItemId: safeItem.id,
     productionReturnDate: returnDate,
@@ -25381,9 +25618,9 @@ function finalizeProductionShelfReturnLot(lot = {}, bill = {}) {
   updateSavedBill(bill);
 }
 
-function openProductionReturnDialog(key = "") {
-  if (!canEditOfficeWeights()) {
-    alert("Only Office Main or Owner can return an Office item to Production Shelf.");
+function openProductionReturnDialog(key = "", options = {}) {
+  if (!canReceiveRepairFactoryIn()) {
+    alert("Only an authorised Office or Factory user can return an item to Production Shelf.");
     return;
   }
   const found = findOfficeBillItem(key);
@@ -25405,7 +25642,8 @@ function openProductionReturnDialog(key = "") {
   const nonGold = productionReturnNonGoldBreakdown(item);
   const purity = item.purity || order.purity || lot.metalPurity || "18K";
   form.officeItemKey.value = key;
-  form.reason.value = "";
+  form.dataset.sourceMode = options.sourceMode || "office-return";
+  form.reason.value = options.sourceMode === "repair-factory-in" ? "Repair Required" : "";
   form.locker.value = `${safeLockerForPurity(purity)} Production Shelf`;
   form.purity.value = transferPurityLabel(purity);
   form.grossWeight.value = billWeightInputValue(item.finalGw || 0);
@@ -25415,6 +25653,10 @@ function openProductionReturnDialog(key = "") {
   form.springWeight.value = billWeightInputValue(nonGold.spring || 0);
   form.otherNonGoldWeight.value = billWeightInputValue(nonGold.other || 0);
   form.remarks.value = "";
+  const title = document.querySelector("#production-return-dialog h2");
+  const submit = document.getElementById("production-return-submit");
+  if (title) title.textContent = options.sourceMode === "repair-factory-in" ? "Repair Item Factory In" : "Return Item To Production Shelf";
+  if (submit) submit.textContent = options.sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
   document.getElementById("production-return-summary").textContent = `${item.productionNo || order.productionNo || "Item"} / ${order.designNo || designLabel(order.designId) || "-"} / ${lot.orderNumber || lot.number} / ${bill.billNo || "No Bill"} / Current: ${officeItemLocation(item)}`;
   updateProductionReturnTotals();
   document.getElementById("office-details-dialog")?.close();
@@ -25446,9 +25688,73 @@ function updateProductionReturnTotals() {
   `;
 }
 
-function saveOfficeProductionReturn(form) {
-  if (!canEditOfficeWeights()) {
-    alert("Only Office Main or Owner can return an Office item to Production Shelf.");
+function captureProductionReturnTransactionState() {
+  return structuredClone({
+    safeItems: state.safeItems || [],
+    factoryLedger: state.factoryLedger || [],
+    bills: state.bills || [],
+    lots: state.lots || [],
+    orders: state.orders || [],
+    vendors: state.vendors || [],
+    ledger: state.ledger || [],
+  });
+}
+
+function restoreProductionReturnTransactionState(snapshot = {}) {
+  state.safeItems = structuredClone(snapshot.safeItems || []);
+  state.factoryLedger = structuredClone(snapshot.factoryLedger || []);
+  state.bills = structuredClone(snapshot.bills || []);
+  state.lots = structuredClone(snapshot.lots || []);
+  state.orders = structuredClone(snapshot.orders || []);
+  state.vendors = structuredClone(snapshot.vendors || []);
+  state.ledger = structuredClone(snapshot.ledger || []);
+}
+
+function productionReturnTransactionIsComplete(safeItemId = "", source = state) {
+  const safeItem = (source.safeItems || []).find((item) => String(item.id || "") === String(safeItemId || ""));
+  if (!safeItem || safeItem.status !== "In Safe") return false;
+  const matchingBillItem = (source.lots || []).some((lot) => {
+    const bill = lot.bill || (source.bills || []).find((entry) => entry.lotId === lot.id);
+    return (bill?.items || []).some((item) => String(item.productionReturnSafeItemId || "") === String(safeItemId || ""));
+  });
+  if (!matchingBillItem) return false;
+  const linkedLedger = (source.factoryLedger || []).filter((entry) => (
+    entry.sourceType === "office-production-return" && String(entry.sourceId || "") === String(safeItemId || "")
+  ));
+  if (safeItem.returnedFromOffice && Number(safeItem.netWeight || 0) > 0) {
+    if (linkedLedger.length !== 1) return false;
+    if (safeItem.returnVendorName && linkedLedger[0].vendorName !== safeItem.returnVendorName) return false;
+  }
+  return linkedLedger.length <= 1;
+}
+
+async function verifyProductionReturnInCloud(safeItemId = "") {
+  if (!supabaseClient) return false;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle(),
+      "Repair Factory In cloud verification timeout."
+    );
+    if (result?.error || !result?.data?.data) return false;
+    const verified = productionReturnTransactionIsComplete(safeItemId, result.data.data);
+    if (verified) {
+      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
+      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
+    }
+    return verified;
+  } catch (error) {
+    console.warn("Repair Factory In cloud read-back could not be completed.", error);
+    return false;
+  }
+}
+
+async function saveOfficeProductionReturn(form) {
+  if (!canReceiveRepairFactoryIn()) {
+    alert("Only an authorised Office or Factory user can return an item to Production Shelf.");
     return;
   }
   const found = findOfficeBillItem(form.officeItemKey.value);
@@ -25471,6 +25777,13 @@ function saveOfficeProductionReturn(form) {
     return;
   }
   const order = findById("orders", found.item.orderId) || {};
+  const rollbackSnapshot = captureProductionReturnTransactionState();
+  const submit = document.getElementById("production-return-submit");
+  const sourceMode = form.dataset.sourceMode || "office-return";
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = "Saving Repair Factory In...";
+  }
   const result = returnBillItemToProductionShelf({
     ...found,
     order,
@@ -25479,14 +25792,57 @@ function saveOfficeProductionReturn(form) {
     remarks: form.remarks.value.trim(),
   });
   if (!result || result.duplicate) {
+    restoreProductionReturnTransactionState(rollbackSnapshot);
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
+    }
     alert(result?.duplicate ? "This item is already recorded in Production Shelf." : "The return could not be saved. Check the weights.");
     return;
   }
   finalizeProductionShelfReturnLot(found.lot, found.bill);
-  saveState();
+  if (!productionReturnTransactionIsComplete(result.safeItem.id)) {
+    restoreProductionReturnTransactionState(rollbackSnapshot);
+    render();
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
+    }
+    alert("Repair Factory In validation failed. No shelf, bill, or party ledger data was changed.");
+    return;
+  }
+  const savedLocally = saveState({ alertOnFailure: true, context: `${result.safeItem.returnProductionNo} Repair Factory In` });
+  if (!savedLocally) {
+    restoreProductionReturnTransactionState(rollbackSnapshot);
+    render();
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
+    }
+    alert("Repair Factory In could not be saved on this laptop. No data was changed.");
+    return;
+  }
   render();
   document.getElementById("production-return-dialog")?.close();
-  alert(`${result.safeItem.returnProductionNo} returned to ${result.safeItem.locker} Production Shelf.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.`);
+  const status = document.getElementById("repair-factory-in-status");
+  if (status) status.textContent = `${result.safeItem.returnProductionNo} is saved on this laptop. Confirming live sync...`;
+  const savedToCloud = await saveCurrentStateToCloudNow({ context: `${result.safeItem.returnProductionNo} Repair Factory In` });
+  const cloudVerified = savedToCloud && await verifyProductionReturnInCloud(result.safeItem.id);
+  if (!cloudVerified) saveState({ alertOnFailure: false, context: `${result.safeItem.returnProductionNo} Repair Factory In retry` });
+  if (submit) {
+    submit.disabled = false;
+    submit.textContent = sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
+  }
+  const partyText = result.safeItem.returnedFromOffice
+    ? `Party ${result.safeItem.returnVendorName || "-"} inward fine ${gram(fineGoldWeight(result.safeItem.netWeight, result.safeItem.purity))}.`
+    : "This item had not been posted Factory Out, so no party ledger reversal was required.";
+  if (cloudVerified) {
+    if (status) status.textContent = `${result.safeItem.returnProductionNo} is in ${result.safeItem.locker} Production Shelf and confirmed in live cloud.`;
+    alert(`${result.safeItem.returnProductionNo} Repair Factory In saved and confirmed in cloud.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}`);
+  } else {
+    if (status) status.textContent = `${result.safeItem.returnProductionNo} is saved safely on this laptop. Cloud sync is pending and will retry automatically.`;
+    alert(`${result.safeItem.returnProductionNo} Repair Factory In is saved safely on this laptop.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}\n\nCloud confirmation is pending; do not scan this PR again.`);
+  }
 }
 
 function syncProductionReturnAfterSafeIssue(safeItem = {}, issue = {}, reworkLot = null) {
@@ -28063,7 +28419,8 @@ function renderVendorBalances() {
 
 function factoryLedgerReferenceHtml(entry = {}) {
   const productionNos = Array.isArray(entry.productionNos) ? entry.productionNos : [];
-  const details = entry.sourceType === "bill"
+  const isBillMovement = entry.sourceType === "bill" || entry.sourceType === "office-production-return";
+  const details = isBillMovement
     ? [
       entry.billNo ? `Bill ${entry.billNo}` : "",
       entry.jobNumber ? `Job ${entry.jobNumber}` : "",
@@ -28074,7 +28431,7 @@ function factoryLedgerReferenceHtml(entry = {}) {
   const prText = productionNos.length
     ? `PR ${productionNos.slice(0, 6).join(", ")}${productionNos.length > 6 ? ` +${productionNos.length - 6} more` : ""}`
     : "";
-  const billWeightText = entry.sourceType === "bill"
+  const billWeightText = isBillMovement
     ? `GW ${gram(entry.grossWeight || 0)} / Stone ${gram(entry.stoneWeight || 0)} / BB ${gram(entry.blackBeadsWeight || 0)} / Moti ${gram(entry.motiWeight || 0)} / Spring ${gram(entry.springWeight || 0)} / Other ${gram(entry.otherNonGoldWeight || 0)} / Non-Gold ${gram(entry.totalNonGoldWeight || 0)} / Net ${gram(entry.netWeight ?? entry.weight ?? 0)}`
     : "";
   const fullReference = [
@@ -28141,7 +28498,7 @@ function factoryLedgerActionsHtml(entry = {}) {
   return `
     <div class="row-actions">
       <button class="ghost-button" type="button" onclick="openFactoryLedgerEdit('${entry.id}')">Edit</button>
-      ${entry.sourceType === "bill" ? `<button class="ghost-button" type="button" onclick="openBillFromFactoryLedger('${entry.id}')">View Bill</button>` : ""}
+      ${["bill", "office-production-return"].includes(entry.sourceType) ? `<button class="ghost-button" type="button" onclick="openBillFromFactoryLedger('${entry.id}')">View Bill</button>` : ""}
     </div>
   `;
 }
@@ -30830,6 +31187,8 @@ function normalizeState(currentState) {
     return {
       id: entry.id || crypto.randomUUID(),
       date: entry.date || today(),
+      createdAt: entry.createdAt || "",
+      updatedAt: entry.updatedAt || "",
       direction: entry.direction || (String(entry.type || "").toLowerCase().includes("out") ? "out" : "in"),
       type: entry.type || "Factory In",
       vendorId: entry.vendorId || "",
@@ -30861,6 +31220,14 @@ function normalizeState(currentState) {
       originalPartyName: entry.originalPartyName || entry.customerName || "",
       officePartyName: entry.officePartyName || (entry.customerName ? manufacturingOfficeDestinationLabel(entry.customerName) : entry.vendorName || ""),
       orderType: entry.orderType || (entry.customerName ? manufacturingOrderTypeLabel(entry.customerName) : ""),
+      grossWeight: Number(weight3(entry.grossWeight ?? weight)),
+      stoneWeight: Number(weight3(entry.stoneWeight || 0)),
+      blackBeadsWeight: Number(weight3(entry.blackBeadsWeight || 0)),
+      motiWeight: Number(weight3(entry.motiWeight || 0)),
+      springWeight: Number(weight3(entry.springWeight || 0)),
+      otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight || 0)),
+      totalNonGoldWeight: Number(weight3(entry.totalNonGoldWeight || 0)),
+      netWeight: Number(weight3(entry.netWeight ?? weight)),
     };
   });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {
@@ -30924,6 +31291,9 @@ function normalizeState(currentState) {
       returnReason: item.returnReason || "",
       returnRemarks: item.returnRemarks || "",
       returnedFromOffice: Boolean(item.returnedFromOffice),
+      returnVendorId: item.returnVendorId || "",
+      returnVendorName: item.returnVendorName || "",
+      returnOriginalPartyName: item.returnOriginalPartyName || "",
       productionReturnMeltingId: item.productionReturnMeltingId || "",
       recoveredNonGoldItemIds: Array.isArray(item.recoveredNonGoldItemIds) ? item.recoveredNonGoldItemIds : [],
       sourceMeltingId: item.sourceMeltingId || "",

@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v502</small>
+          <small class="app-version-badge">App v504</small>
           </div>
         </div>
         <label>User
@@ -115,7 +115,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v502</span>
+          <span class="app-version-badge">App v504</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -908,6 +908,23 @@
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
             <button type="submit">Add Factory In</button>
           </form>
+
+          <section class="panel form-panel repair-factory-in-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Repair Item Factory In</h2>
+                <p class="dialog-note">Scan the item's ERP QR code to bring its complete GW and saved non-gold breakup back into the correct production shelf.</p>
+              </div>
+            </div>
+            <div class="factory-reset-warning">
+              <strong>One confirmed scan, one complete transaction</strong>
+              <span>Stone, Black Beads, Moti, Spring, Other non-gold, and Net Gold are recorded separately.</span>
+              <span>The same bill party receives the inward fine-gold entry, keeping its Factory Ledger balance matched.</span>
+              <span>A PR already returned to Production Shelf cannot be received twice.</span>
+            </div>
+            <button id="open-repair-factory-in-scanner" type="button">Scan Repair Item QR</button>
+            <p id="repair-factory-in-status" class="dialog-note">Ready to scan an item returned by Office for repair.</p>
+          </section>
 
           <form id="factory-out-form" class="form-panel factory-out-panel">
             <h2>Factory Out</h2>
@@ -1766,7 +1783,7 @@
                 <h3>Phone Camera</h3>
                 <p id="product-camera-status" class="dialog-note" aria-live="polite">Camera is ready to start.</p>
               </div>
-              <span class="camera-read-only-badge">View Only</span>
+              <span id="product-camera-mode-badge" class="camera-read-only-badge">View Only</span>
             </div>
             <div id="product-camera-reader" class="product-camera-reader"></div>
             <div class="camera-scan-guide" aria-hidden="true"><span></span></div>
@@ -1972,7 +1989,7 @@
         <p class="dialog-note">The full returned item is placed in the matching karat Production Shelf. GW, every non-gold component, and net gold remain separately traceable. Use the shelf item for repair issue, or use Send Gold To Melting after removing recoverable non-gold.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-production-return">Cancel</button>
-          <button type="submit">Return To Production Shelf</button>
+          <button id="production-return-submit" type="submit">Return To Production Shelf</button>
         </div>
       </form>
     </dialog>
@@ -2524,6 +2541,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=502"></script>
+  <script src="app.js?v=504"></script>
 </body>
 </html>
