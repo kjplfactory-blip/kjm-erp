@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v506";
+const APP_VERSION = "v507";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -16091,10 +16091,7 @@ function transferBagItemRow(item, index) {
 async function jobOrderPrintHtml(order, orders, options = {}) {
   const printableItems = await Promise.all(orders.map(async (item) => {
     const design = findById("designs", item.designId);
-    let imageData = "";
-    if (design) {
-      imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
-    }
+    const imageData = await getJobBagFullDesignImage(design);
     return { item, design, imageData };
   }));
   const groupedItems = groupBagPrintItems(printableItems);
@@ -16112,6 +16109,13 @@ async function jobOrderPrintHtml(order, orders, options = {}) {
       `).join("")}
     </div>
   `;
+}
+
+async function getJobBagFullDesignImage(design) {
+  if (!design?.id) return design?.imageData || "";
+  const masterImageData = await getDesignMasterImage(design.id).catch(() => "");
+  if (masterImageData) return masterImageData;
+  return getDesignImage(design.id).catch(() => design.imageData || "");
 }
 
 function chunkPrintItems(items, size = 4) {
