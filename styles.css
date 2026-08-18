@@ -6306,6 +6306,7 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-design-image {
+  position: relative;
   align-self: start;
   min-height: 0;
   width: 46.5mm;
@@ -6318,19 +6319,23 @@ body.measuring-transfer-bag .global-print-area {
   background: #fff;
   color: #6b7280;
   font-weight: 700;
-  padding: 1.5mm;
+  padding: 0;
   box-sizing: border-box;
   overflow: hidden;
 }
 
 .print-design-image img {
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  position: absolute;
+  inset: 1.5mm;
+  width: calc(100% - 3mm);
+  height: calc(100% - 3mm);
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
   object-fit: contain;
-  object-position: center;
+  object-position: 50% 50%;
 }
 
 .print-job-details {
