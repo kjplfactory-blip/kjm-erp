@@ -6299,7 +6299,7 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-card-body {
   display: grid;
-  grid-template-columns: 38.75mm minmax(0, 1fr);
+  grid-template-columns: 46.5mm minmax(0, 1fr);
   gap: 5px;
   align-items: start;
   min-height: 0;
@@ -6308,21 +6308,27 @@ body.measuring-transfer-bag .global-print-area {
 .print-design-image {
   align-self: start;
   min-height: 0;
-  height: 48.75mm;
-  max-height: 48.75mm;
+  width: 46.5mm;
+  height: 58.5mm;
+  max-width: 100%;
+  max-height: 58.5mm;
   display: grid;
   place-items: center;
   border: 1px solid #d1d5db;
   background: #fff;
   color: #6b7280;
   font-weight: 700;
+  overflow: hidden;
 }
 
 .print-design-image img {
+  display: block;
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
-  object-position: top center;
+  object-position: center;
 }
 
 .print-job-details {
@@ -6525,20 +6531,20 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-job-item.stone-space-compact .print-design-image,
 .print-job-item.stone-density-compact .print-design-image {
-  height: 35mm;
-  max-height: 35mm;
+  height: 42mm;
+  max-height: 42mm;
 }
 
 .print-job-item.stone-space-dense .print-design-image,
 .print-job-item.stone-density-dense .print-design-image {
-  height: 31mm;
-  max-height: 31mm;
+  height: 37.2mm;
+  max-height: 37.2mm;
 }
 
 .print-job-item.stone-space-ultra .print-design-image,
 .print-job-item.stone-density-ultra .print-design-image {
-  height: 27mm;
-  max-height: 27mm;
+  height: 32.4mm;
+  max-height: 32.4mm;
 }
 
 .print-stone-details.stone-density-compact,
