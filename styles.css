@@ -1152,6 +1152,8 @@ button:hover {
 .workbench.design-page,
 .stone-page,
 .workbench.stone-page,
+.moti-page,
+.workbench.moti-page,
 .production-page,
 .workbench.production-page,
 .office-page,
@@ -1167,6 +1169,8 @@ button:hover {
 .workbench.active-design-page,
 .active-stone-page,
 .workbench.active-stone-page,
+.active-moti-page,
+.workbench.active-moti-page,
 .active-production-page,
 .workbench.active-production-page,
 .active-office-page,
@@ -1178,6 +1182,7 @@ button:hover {
 .workbench.active-order-page,
 .workbench.active-design-page,
 .workbench.active-stone-page,
+.workbench.active-moti-page,
 .workbench.active-production-page,
 .workbench.active-office-page,
 .workbench.active-operation-page,
@@ -4600,10 +4605,39 @@ th {
   cursor: crosshair;
 }
 
-.stone-design-entry {
+.stone-design-entry,
+.moti-design-entry {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+}
+
+.design-moti-entry-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 2px solid rgba(15, 118, 110, 0.2);
+}
+
+.design-detail-motis {
+  border-color: rgba(180, 134, 28, 0.3);
+  background: #fffdf6;
+}
+
+@media (max-width: 900px) {
+  .stone-design-entry,
+  .moti-design-entry {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .stone-design-entry,
+  .moti-design-entry {
+    grid-template-columns: 1fr;
+  }
 }
 
 .stone-code-preview {
@@ -4668,20 +4702,23 @@ th {
   min-width: 72px;
 }
 
-.stone-lookup-bar {
+.stone-lookup-bar,
+.moti-lookup-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 10px;
 }
 
-.stone-lookup-result {
+.stone-lookup-result,
+.moti-lookup-result {
   display: grid;
   gap: 8px;
   margin-bottom: 10px;
 }
 
-.stone-lookup-card {
+.stone-lookup-card,
+.moti-lookup-card {
   display: grid;
   grid-template-columns: 1.2fr repeat(5, minmax(70px, 1fr)) 80px;
   gap: 8px;
@@ -4693,11 +4730,14 @@ th {
 }
 
 .stone-lookup-card span,
-.stone-lookup-card b {
+.stone-lookup-card b,
+.moti-lookup-card span,
+.moti-lookup-card b {
   display: block;
 }
 
-.stone-lookup-card b {
+.stone-lookup-card b,
+.moti-lookup-card b {
   color: var(--muted);
   font-size: 10px;
 }
@@ -8616,6 +8656,10 @@ select:focus-visible {
   background: linear-gradient(180deg, #6d5dfc, #b7a8ff);
 }
 
+.moti-tile-grid .action-tile::before {
+  background: linear-gradient(180deg, #0f766e, #f4d35e);
+}
+
 .order-tile-grid .action-tile::before {
   background: linear-gradient(180deg, #0f766e, #f4d35e);
 }
@@ -9564,6 +9608,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .stone-tile-grid .action-tile::before,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .moti-tile-grid .action-tile::before,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .design-tile-grid .action-tile::before,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-tile-grid .action-tile::before,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .production-tile-grid .action-tile::before,
@@ -9787,6 +9832,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .design-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .stone-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .moti-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .order-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .production-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .melting-operation-tiles,
@@ -11813,6 +11859,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .operation-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .stone-tile-grid,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .moti-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .order-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .production-tile-grid,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-tile-grid {

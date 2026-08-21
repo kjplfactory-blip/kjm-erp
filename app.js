@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v511";
+const APP_VERSION = "v513";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -337,8 +337,8 @@ let billDesignHoverRequest = 0;
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
-  order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "orders"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "orders", "melting", "production", "billing", "safe", "factory", "daily-tally"] },
+  order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "moti-library", "orders"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "moti-library", "orders", "melting", "production", "billing", "safe", "factory", "daily-tally"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   settingManager: { name: "Setting Manager", password: "setting123", role: "setting-manager", pages: ["production"], productionPages: ["setting"] },
@@ -359,6 +359,7 @@ const loginAccessPages = [
   "designs",
   "catalogue",
   "stone-library",
+  "moti-library",
   "orders",
   "melting",
   "production",
@@ -389,6 +390,7 @@ const demoState = {
   designs: [],
   catalogueItems: [],
   stones: [],
+  motis: [],
   bills: [],
   safeItems: [],
   safeDepartmentIssues: [],
@@ -396,6 +398,7 @@ const demoState = {
   metalSafeMovements: [],
   metalSafeSeededFromLedger: true,
   stoneOptions: { stoneType: [], shape: [], size: [] },
+  motiOptions: { motiType: [], shape: [], size: [] },
   stoneLibrarySeeded: false,
   orders: [],
   lots: [],
@@ -421,6 +424,8 @@ let viewHistory = [];
 let restoringViewFromHistory = false;
 let stoneLibraryPage = 1;
 const stoneLibraryPageSize = 100;
+let motiLibraryPage = 1;
+const motiLibraryPageSize = 100;
 let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
 let stoneCropReturnContext = null;
@@ -443,6 +448,7 @@ const pageInfo = {
   designs: ["Designs", "Upload and manage jewellery designs for stock and customer orders."],
   catalogue: ["Catalogue", "Upload catalogue images category wise, then separately select designs for client order summary."],
   "stone-library": ["Stone Library", "Master list of stone type, size, weight per pc, and price per pc."],
+  "moti-library": ["Moti Library", "Master list of moti type, shape, size, weight per pc, and price per pc."],
   orders: ["Job Orders", "Create and monitor customer jewellery manufacturing orders."],
   production: ["Production", "Issue gold to departments and complete finished lots."],
   billing: ["Bill", "Create bills for completed job cards."],
@@ -710,6 +716,7 @@ function resetBuiltInTilePage(view) {
   if (view === "designs") switchDesignPage("");
   if (view === "catalogue") switchCataloguePage("");
   if (view === "stone-library") switchStonePage("");
+  if (view === "moti-library") switchMotiPage("");
   if (view === "production") switchProductionPage("");
   if (view === "office") clearOfficePages();
   resetOperationPage(view);
@@ -728,6 +735,10 @@ document.querySelectorAll("[data-design-page]").forEach((button) => {
 
 document.querySelectorAll("[data-stone-page]").forEach((button) => {
   button.addEventListener("click", () => switchStonePage(button.dataset.stonePage));
+});
+
+document.querySelectorAll("[data-moti-page]").forEach((button) => {
+  button.addEventListener("click", () => switchMotiPage(button.dataset.motiPage));
 });
 
 document.querySelectorAll("[data-catalogue-page]").forEach((button) => {
@@ -849,7 +860,8 @@ document.getElementById("close-office-details").addEventListener("click", () => 
   document.getElementById("office-details-dialog").close();
 });
 
-document.getElementById("open-stone-entry").addEventListener("click", openStoneEntryDialog);
+document.getElementById("open-stone-entry").addEventListener("click", () => openStoneEntryDialog("", "stone"));
+document.getElementById("open-design-moti-entry").addEventListener("click", () => openStoneEntryDialog("", "moti"));
 document.getElementById("close-stone-entry").addEventListener("click", () => {
   document.getElementById("stone-entry-dialog").close();
 });
@@ -1099,6 +1111,7 @@ document.getElementById("design-form").addEventListener("submit", async (event) 
         itemKeys: selectedItemKeys,
         stoneDetails: existing.stoneDetails || "",
         stoneItems: existing.stoneItems || [],
+        motiItems: existing.motiItems || [],
         stoneChartItems: existing.stoneChartItems || [],
         hasStoneChartSource: existing.hasStoneChartSource || matchingStoneChartResult.sourceSaved,
         stoneChartSourceName: existing.stoneChartSourceName || matchingStoneChartFile?.name || "",
@@ -1280,6 +1293,51 @@ document.getElementById("stone-search").addEventListener("input", () => {
   document.getElementById(id).addEventListener("change", handleStoneLookupChange);
 });
 
+document.getElementById("moti-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!requirePageEditPermission("moti-library", "add or edit moti master")) return;
+  const data = getFormData(event.target);
+  const existing = data.motiId
+    ? findById("motis", data.motiId)
+    : findMotiByLibraryFields(data.motiType, data.shape, data.size);
+  const moti = normalizeMoti({
+    id: existing?.id || crypto.randomUUID(),
+    motiType: data.motiType,
+    shape: data.shape,
+    size: data.size,
+    weightPerPc: data.weightPerPc,
+    pricePerPc: data.pricePerPc,
+    remarks: data.remarks,
+    updatedAt: new Date().toISOString(),
+  });
+  if (existing) Object.assign(existing, moti);
+  else state.motis.unshift(moti);
+  resetMotiForm();
+  saveState();
+  render();
+});
+
+document.getElementById("cancel-moti-edit").addEventListener("click", resetMotiForm);
+
+document.getElementById("moti-form").addEventListener("change", (event) => {
+  if (["motiType", "shape", "size"].includes(event.target.name)) {
+    handleMotiFormChange(event.target.name);
+  }
+});
+
+document.querySelectorAll("[data-add-moti-option]").forEach((button) => {
+  button.addEventListener("click", () => addMotiDropdownOption(button.dataset.addMotiOption));
+});
+
+document.getElementById("moti-search").addEventListener("input", () => {
+  motiLibraryPage = 1;
+  renderMotiLibrary();
+});
+
+["moti-lookup-type", "moti-lookup-shape", "moti-lookup-size"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", handleMotiLookupChange);
+});
+
 document.querySelector('#stone-entry-form [name="stoneDesignId"]').addEventListener("change", (event) => {
   loadStoneEntry(event.target.value);
 });
@@ -1311,19 +1369,30 @@ document.getElementById("stone-entry-form").addEventListener("change", (event) =
   if (["entryStoneType", "entryStoneShape", "entryStoneSize"].includes(event.target.name)) {
     handleDesignStoneEntryChange(event.target.name);
   }
+  if (["entryMotiType", "entryMotiShape", "entryMotiSize"].includes(event.target.name)) {
+    handleDesignMotiEntryChange(event.target.name);
+  }
   if (event.target.closest("[data-design-stone-row]") && event.target.dataset.stoneEdit) {
     updateDesignStoneEditRowPreview(event.target.closest("[data-design-stone-row]"));
+  }
+  if (event.target.closest("[data-design-moti-row]") && event.target.dataset.motiEdit) {
+    updateDesignMotiEditRowPreview(event.target.closest("[data-design-moti-row]"));
   }
 });
 
 document.getElementById("stone-entry-form").addEventListener("input", (event) => {
   if (event.target.name === "entryStonePcs") updateDesignStoneEntryCodePreview();
+  if (event.target.name === "entryMotiPcs") updateDesignMotiEntryCodePreview();
   if (event.target.closest("[data-design-stone-row]") && event.target.dataset.stoneEdit) {
     updateDesignStoneEditRowPreview(event.target.closest("[data-design-stone-row]"));
+  }
+  if (event.target.closest("[data-design-moti-row]") && event.target.dataset.motiEdit) {
+    updateDesignMotiEditRowPreview(event.target.closest("[data-design-moti-row]"));
   }
 });
 
 document.getElementById("add-design-stone").addEventListener("click", addDesignStoneItem);
+document.getElementById("add-design-moti").addEventListener("click", addDesignMotiItem);
 
 document.getElementById("read-stone-chart").addEventListener("click", readStoneChartImage);
 
@@ -3452,6 +3521,7 @@ function stateBusinessProfile(source = {}) {
     lots: (source.lots || []).length,
     designs: (source.designs || []).length,
     catalogue: (source.catalogueItems || []).length,
+    motis: (source.motis || []).length,
     customers: (source.customers || []).length,
     vendors: (source.vendors || []).length,
     bills: (source.bills || []).length,
@@ -3473,6 +3543,7 @@ function stateBusinessProfile(source = {}) {
     + profile.lots * 8
     + profile.designs * 5
     + profile.catalogue * 3
+    + profile.motis
     + profile.customers
     + profile.vendors * 2
     + profile.bills * 8
@@ -3757,7 +3828,7 @@ function readOnlyButtonAllowed(button) {
   if (button.closest("#login-form")) return true;
   if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan") return true;
   if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button")) return true;
-  if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
+  if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-moti-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
   const onclick = String(button.getAttribute("onclick") || "").trim();
   if (/^(open|switch|resetOperationPage|close)/i.test(onclick)) return true;
   const text = String(button.textContent || button.value || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -5688,6 +5759,7 @@ function activeTilePageOpen(view) {
     designs: ".design-page.active-design-page",
     catalogue: ".catalogue-page.active-catalogue-page",
     "stone-library": ".stone-page.active-stone-page",
+    "moti-library": ".moti-page.active-moti-page",
     production: ".production-page.active-production-page",
     office: "[data-office-page].active",
   };
@@ -5976,6 +6048,7 @@ function switchDesignPage(page) {
     section.classList.toggle("active-design-page", section.id === `design-page-${page}`);
   });
   if (page === "stone") openStoneEntryDialog();
+  if (page === "moti") openStoneEntryDialog("", "moti");
 }
 
 function switchCataloguePage(page) {
@@ -5999,6 +6072,15 @@ function switchStonePage(page) {
   });
   document.querySelectorAll(".stone-page").forEach((section) => {
     section.classList.toggle("active-stone-page", section.id === `stone-page-${page}`);
+  });
+}
+
+function switchMotiPage(page) {
+  document.querySelectorAll("[data-moti-page]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.motiPage === page);
+  });
+  document.querySelectorAll(".moti-page").forEach((section) => {
+    section.classList.toggle("active-moti-page", section.id === `moti-page-${page}`);
   });
 }
 
@@ -6059,10 +6141,19 @@ function clearOfficePages() {
   if (selectAll) selectAll.checked = false;
 }
 
-function openStoneEntryDialog(designId = "") {
+async function openStoneEntryDialog(designId = "", focusMode = "stone") {
   const dialog = document.getElementById("stone-entry-dialog");
+  const isMotiFocus = focusMode === "moti";
+  document.getElementById("design-material-entry-title").textContent = isMotiFocus ? "Moti Entry" : "Stone Entry";
+  document.getElementById("design-material-entry-note").textContent = isMotiFocus
+    ? "Search design, select the item, and add Moti Library rows with pieces and total weight."
+    : "Search design, add stone rows, and save stone details.";
   if (!dialog.open) dialog.showModal();
-  if (designId) loadStoneEntry(designId);
+  if (designId) await loadStoneEntry(designId);
+  const target = isMotiFocus
+    ? document.getElementById("design-moti-entry-section")
+    : document.querySelector("#stone-entry-dialog .stone-design-entry");
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function restoreStoneEntryReturnContext() {
@@ -17862,6 +17953,7 @@ function render() {
   renderDesigns();
   renderCatalogue();
   renderStoneLibrary();
+  renderMotiLibrary();
   renderOrders();
   renderProduction();
   renderBills();
@@ -18554,6 +18646,263 @@ function stoneLookupCode(stone) {
   return `${stone.stoneType || ""}${normalizeOcrShape(stone.shape || "")}${normalizeSizeText(stone.size || "")}`.replace(/\s+/g, "").toUpperCase();
 }
 
+function renderMotiLibrary() {
+  renderMotiFormOptions();
+  renderMotiLookupOptions();
+  renderMotiLookup();
+  renderMotiLibraryList();
+}
+
+function renderMotiLibraryList() {
+  const query = String(document.getElementById("moti-search")?.value || "").trim().toLowerCase();
+  const querySize = /[xX*]/.test(query) ? normalizeSizeText(query) : "";
+  const lookupType = document.getElementById("moti-lookup-type")?.value || "";
+  const lookupShape = document.getElementById("moti-lookup-shape")?.value || "";
+  const lookupSize = document.getElementById("moti-lookup-size")?.value || "";
+  const hasSearch = Boolean(query || lookupType || lookupShape || lookupSize);
+  const matches = state.motis.filter((moti) =>
+    (`${moti.motiType} ${moti.shape} ${moti.size} ${moti.code} ${moti.weightPerPc} ${moti.pricePerPc} ${moti.remarks}`.toLowerCase().includes(query)
+      || (querySize && normalizeSizeText(moti.size) === querySize))
+    && (!lookupType || normalizeSearchText(moti.motiType) === normalizeSearchText(lookupType))
+    && (!lookupShape || normalizeSearchText(moti.shape) === normalizeSearchText(lookupShape))
+    && (!lookupSize || normalizeSizeText(moti.size) === normalizeSizeText(lookupSize))
+  );
+  const totalPages = Math.max(Math.ceil(matches.length / motiLibraryPageSize), 1);
+  motiLibraryPage = Math.min(Math.max(motiLibraryPage, 1), totalPages);
+  const start = (motiLibraryPage - 1) * motiLibraryPageSize;
+  const visible = matches.slice(start, start + motiLibraryPageSize);
+  const table = document.getElementById("moti-table");
+  const tableWrap = table?.closest(".table-wrap");
+  const pagination = document.getElementById("moti-pagination");
+  const summary = document.getElementById("moti-library-summary");
+  if (!table || !tableWrap || !pagination || !summary) return;
+  summary.textContent = hasSearch
+    ? `${matches.length} match${matches.length === 1 ? "" : "es"} found. Showing ${visible.length ? start + 1 : 0}-${start + visible.length} of ${matches.length}.`
+    : "Select Type / Shape / Size or type in search to show moti details.";
+  tableWrap.classList.toggle("hidden", !hasSearch);
+  table.innerHTML = visible.length
+    ? visible.map((moti) => `
+      <tr>
+        <td>${escapeHtml(moti.motiType || "-")}</td>
+        <td>${escapeHtml(moti.shape || "-")}</td>
+        <td>${escapeHtml(moti.size || "-")}</td>
+        <td>${escapeHtml(moti.code || "-")}</td>
+        <td>${escapeHtml(formatStoneWeight(moti.weightPerPc) || "-")}</td>
+        <td>${escapeHtml(moti.pricePerPc || "-")}</td>
+        <td>${escapeHtml(moti.remarks || "-")}</td>
+        <td><div class="row-actions"><button type="button" onclick="editMoti('${escapeHtml(moti.id)}')">Edit</button><button class="delete-btn" type="button" onclick="removeMoti('${escapeHtml(moti.id)}')">Delete</button></div></td>
+      </tr>
+    `).join("")
+    : hasSearch ? tableEmpty(8, "No moti found.") : "";
+  pagination.classList.toggle("hidden", !hasSearch);
+  pagination.innerHTML = hasSearch && matches.length
+    ? `
+      <button class="ghost-button" type="button" onclick="changeMotiPage(-1)" ${motiLibraryPage <= 1 ? "disabled" : ""}>Previous</button>
+      <span>Page ${motiLibraryPage} of ${totalPages}</span>
+      <button class="ghost-button" type="button" onclick="changeMotiPage(1)" ${motiLibraryPage >= totalPages ? "disabled" : ""}>Next</button>
+    `
+    : "";
+}
+
+function changeMotiPage(direction) {
+  motiLibraryPage += Number(direction || 0);
+  renderMotiLibrary();
+}
+
+function handleMotiFormChange(changedField) {
+  const form = document.getElementById("moti-form");
+  if (changedField === "motiType") {
+    form.shape.value = "";
+    form.size.value = "";
+  }
+  if (changedField === "shape") form.size.value = "";
+  renderMotiFormOptions();
+  updateMotiFormFromSelection();
+}
+
+function renderMotiFormOptions() {
+  const form = document.getElementById("moti-form");
+  if (!form) return;
+  const selectedType = form.motiType.value;
+  const selectedShape = form.shape.value;
+  const selectedSize = form.size.value;
+  setSelectOptions(form.motiType, motiOptionValues("motiType", state.motis), "Select Type", selectedType);
+  const shapeSource = form.motiType.value
+    ? state.motis.filter((moti) => normalizeSearchText(moti.motiType) === normalizeSearchText(form.motiType.value))
+    : state.motis;
+  setSelectOptions(form.shape, motiOptionValues("shape", shapeSource), "Select Shape", selectedShape);
+  const sizeSource = shapeSource.filter((moti) => !form.shape.value || normalizeSearchText(moti.shape) === normalizeSearchText(form.shape.value));
+  setSelectOptions(form.size, motiOptionValues("size", sizeSource), "Select Size", selectedSize);
+}
+
+function addMotiDropdownOption(field) {
+  if (!requirePageEditPermission("moti-library", "add moti dropdown options")) return;
+  const labels = { motiType: "Moti Type", shape: "Shape", size: "Size" };
+  const enteredValue = prompt(`Enter new ${labels[field] || "option"}`);
+  const cleanValue = motiOptionValue(field, enteredValue);
+  if (!cleanValue) return;
+  state.motiOptions[field] = state.motiOptions[field] || [];
+  if (!state.motiOptions[field].some((item) => normalizeSearchText(item) === normalizeSearchText(cleanValue))) {
+    state.motiOptions[field].push(cleanValue);
+  }
+  const form = document.getElementById("moti-form");
+  renderMotiFormOptions();
+  form[field].value = cleanValue;
+  if (field === "motiType") {
+    form.shape.value = "";
+    form.size.value = "";
+  }
+  if (field === "shape") form.size.value = "";
+  updateMotiFormFromSelection();
+  saveState();
+  renderMotiLookupOptions();
+  renderMotiLookup();
+}
+
+function updateMotiFormFromSelection() {
+  const form = document.getElementById("moti-form");
+  const data = getFormData(form);
+  form.code.value = motiLookupCode(data);
+  const match = findMotiByLibraryFields(data.motiType, data.shape, data.size);
+  if (match && !form.motiId.value) {
+    form.weightPerPc.value = formatStoneWeight(match.weightPerPc) || "";
+    form.pricePerPc.value = match.pricePerPc || "";
+    form.remarks.value = match.remarks || "";
+  }
+}
+
+function handleMotiLookupChange(event) {
+  if (event.target.id === "moti-lookup-type") {
+    document.getElementById("moti-lookup-shape").value = "";
+    document.getElementById("moti-lookup-size").value = "";
+  }
+  if (event.target.id === "moti-lookup-shape") {
+    document.getElementById("moti-lookup-size").value = "";
+  }
+  renderMotiLookupOptions();
+  renderMotiLookup();
+  motiLibraryPage = 1;
+  renderMotiLibraryList();
+}
+
+function renderMotiLookupOptions() {
+  const typeSelect = document.getElementById("moti-lookup-type");
+  const shapeSelect = document.getElementById("moti-lookup-shape");
+  const sizeSelect = document.getElementById("moti-lookup-size");
+  if (!typeSelect || !shapeSelect || !sizeSelect) return;
+  const selectedType = typeSelect.value;
+  const selectedShape = shapeSelect.value;
+  const selectedSize = sizeSelect.value;
+  setSelectOptions(typeSelect, motiOptionValues("motiType", state.motis), "All Type", selectedType);
+  const shapeSource = typeSelect.value
+    ? state.motis.filter((moti) => normalizeSearchText(moti.motiType) === normalizeSearchText(typeSelect.value))
+    : state.motis;
+  setSelectOptions(shapeSelect, motiOptionValues("shape", shapeSource), "All Shape", selectedShape);
+  const sizeSource = shapeSource.filter((moti) => !shapeSelect.value || normalizeSearchText(moti.shape) === normalizeSearchText(shapeSelect.value));
+  setSelectOptions(sizeSelect, motiOptionValues("size", sizeSource), "All Size", selectedSize);
+}
+
+function renderMotiLookup() {
+  const type = document.getElementById("moti-lookup-type")?.value || "";
+  const shape = document.getElementById("moti-lookup-shape")?.value || "";
+  const size = document.getElementById("moti-lookup-size")?.value || "";
+  const result = document.getElementById("moti-lookup-result");
+  if (!result) return;
+  if (!type && !shape && !size) {
+    result.classList.add("empty");
+    result.textContent = "Select type, shape or size to show moti details.";
+    return;
+  }
+  const matches = state.motis.filter((moti) =>
+    (!type || normalizeSearchText(moti.motiType) === normalizeSearchText(type))
+    && (!shape || normalizeSearchText(moti.shape) === normalizeSearchText(shape))
+    && (!size || normalizeSizeText(moti.size) === normalizeSizeText(size))
+  ).slice(0, 20);
+  result.classList.toggle("empty", !matches.length);
+  result.innerHTML = matches.length
+    ? matches.map((moti) => `
+      <article class="moti-lookup-card">
+        <strong>${escapeHtml(moti.code || motiLookupCode(moti))}</strong>
+        <span><b>Type</b>${escapeHtml(moti.motiType || "-")}</span>
+        <span><b>Shape</b>${escapeHtml(moti.shape || "-")}</span>
+        <span><b>Size</b>${escapeHtml(moti.size || "-")}</span>
+        <span><b>Weight/Pc (g)</b>${escapeHtml(formatStoneWeight(moti.weightPerPc) || "-")}</span>
+        <span><b>Price/Pc</b>${escapeHtml(moti.pricePerPc || "-")}</span>
+        <button type="button" onclick="editMoti('${escapeHtml(moti.id)}')">Edit</button>
+      </article>
+    `).join("")
+    : "No moti found for this type, shape and size.";
+}
+
+function editMoti(id) {
+  if (!requirePageEditPermission("moti-library", "edit moti master")) return;
+  const moti = findById("motis", id);
+  if (!moti) return;
+  switchMotiPage("add");
+  const form = document.getElementById("moti-form");
+  form.motiId.value = moti.id;
+  renderMotiFormOptions();
+  form.motiType.value = moti.motiType || "";
+  renderMotiFormOptions();
+  form.shape.value = moti.shape || "";
+  renderMotiFormOptions();
+  form.size.value = moti.size || "";
+  form.code.value = moti.code || motiLookupCode(moti);
+  form.weightPerPc.value = formatStoneWeight(moti.weightPerPc) || "";
+  form.pricePerPc.value = moti.pricePerPc || "";
+  form.remarks.value = moti.remarks || "";
+  document.getElementById("moti-form-title").textContent = "Edit Moti";
+  document.getElementById("moti-submit").textContent = "Update Moti";
+  document.getElementById("cancel-moti-edit").classList.remove("hidden");
+}
+
+function removeMoti(id) {
+  if (!requirePageDeletePermission("moti-library", "delete moti from master")) return;
+  if (!confirm("Delete this moti from library?")) return;
+  state.motis = state.motis.filter((moti) => moti.id !== id);
+  saveDeletionAndRefresh();
+}
+
+function resetMotiForm() {
+  const form = document.getElementById("moti-form");
+  form.reset();
+  form.motiId.value = "";
+  renderMotiFormOptions();
+  form.code.value = "";
+  document.getElementById("moti-form-title").textContent = "Add Moti";
+  document.getElementById("moti-submit").textContent = "Save Moti";
+  document.getElementById("cancel-moti-edit").classList.add("hidden");
+}
+
+function motiOptionValue(field, value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  return field === "size" ? normalizeSizeText(text) : text;
+}
+
+function motiOptionValues(field, motis = []) {
+  const values = motis.map((moti) => motiOptionValue(field, moti[field]));
+  const saved = (state.motiOptions?.[field] || []).map((item) => motiOptionValue(field, item));
+  return [...new Set([...values, ...saved].filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function findMotiByLibraryFields(type, shape, size) {
+  const typeValue = normalizeSearchText(type);
+  const shapeValue = normalizeSearchText(shape);
+  const sizeValue = normalizeSizeText(size);
+  return state.motis.find((moti) =>
+    normalizeSearchText(moti.motiType) === typeValue
+    && normalizeSearchText(moti.shape) === shapeValue
+    && normalizeSizeText(moti.size) === sizeValue
+  );
+}
+
+function motiLookupCode(moti = {}) {
+  return `${moti.motiType || ""}${moti.shape || ""}${normalizeSizeText(moti.size || "")}`
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
 function departmentProcessesFromText(value = "") {
   const parts = String(value || "")
     .split(/[,;|\n]+/)
@@ -18934,6 +19283,11 @@ function designStoneItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
   return (design?.stoneItems || []).filter((item) => normalizeStoneItemKey(item.itemKey) === key);
 }
 
+function designMotiItemsForKey(design, itemKey = DEFAULT_STONE_ITEM_KEY) {
+  const key = normalizeStoneItemKey(itemKey);
+  return (design?.motiItems || []).filter((item) => normalizeStoneItemKey(item.itemKey) === key);
+}
+
 function orderStoneItemKeys(order = {}) {
   const category = categoryCode(order.category || "");
   const itemText = `${order.category || ""} ${order.item || ""} ${order.designNumber || ""}`.toUpperCase();
@@ -19044,6 +19398,7 @@ function createDesignFromUploadGroup(group, category, nameOverride = "", itemKey
     itemKeys: normalizeDesignItemKeys(itemKeys, category),
     stoneDetails: "",
     stoneItems: [],
+    motiItems: [],
     stoneChartItems: [],
     hasStoneChartSource: false,
     stoneChartSourceName: "",
@@ -20252,7 +20607,9 @@ async function loadStoneEntry(designId, itemKey = "") {
     if (form.stoneItemKey) form.stoneItemKey.value = "";
     updateStoneItemDatalist(null);
     resetDesignStoneEntryFields();
+    resetDesignMotiEntryFields();
     renderDesignStoneItems([]);
+    renderDesignMotiItems([]);
     summary.textContent = "Select design to view stone data.";
     preview.classList.add("empty");
     preview.textContent = "No stone chart selected.";
@@ -20270,6 +20627,8 @@ async function loadStoneEntry(designId, itemKey = "") {
   renderDesignStoneEntryOptions();
   resetDesignStoneEntryFields();
   renderDesignStoneItems(designStoneItemsForKey(design, selectedItemKey), selectedItemKey);
+  resetDesignMotiEntryFields();
+  renderDesignMotiItems(designMotiItemsForKey(design, selectedItemKey), selectedItemKey);
   const chartKeys = designStoneChartItemKeys(design);
   const hasItemChart = designHasStoneChartForItem(design, selectedItemKey);
   const itemImageData = hasItemChart ? await getStoneChartImage(design.id, selectedItemKey).catch(() => "") : "";
@@ -20380,6 +20739,206 @@ function addDesignStoneItem() {
   resetDesignStoneEntryFields();
   saveState();
   renderDesigns();
+}
+
+function handleDesignMotiEntryChange(changedField) {
+  const form = document.getElementById("stone-entry-form");
+  if (changedField === "entryMotiType") {
+    form.entryMotiShape.value = "";
+    form.entryMotiSize.value = "";
+  }
+  if (changedField === "entryMotiShape") form.entryMotiSize.value = "";
+  renderDesignMotiEntryOptions();
+  updateDesignMotiEntryCodePreview();
+}
+
+function renderDesignMotiEntryOptions() {
+  const form = document.getElementById("stone-entry-form");
+  if (!form?.entryMotiType) return;
+  const selectedType = form.entryMotiType.value;
+  const selectedShape = form.entryMotiShape.value;
+  const selectedSize = form.entryMotiSize.value;
+  setSelectOptions(form.entryMotiType, motiOptionValues("motiType", state.motis), "Select Type", selectedType);
+  const shapeSource = form.entryMotiType.value
+    ? state.motis.filter((moti) => normalizeSearchText(moti.motiType) === normalizeSearchText(form.entryMotiType.value))
+    : state.motis;
+  setSelectOptions(form.entryMotiShape, motiOptionValues("shape", shapeSource), "Select Shape", selectedShape);
+  const sizeSource = shapeSource.filter((moti) => !form.entryMotiShape.value || normalizeSearchText(moti.shape) === normalizeSearchText(form.entryMotiShape.value));
+  setSelectOptions(form.entryMotiSize, motiOptionValues("size", sizeSource), "Select Size", selectedSize);
+  updateDesignMotiEntryCodePreview();
+}
+
+function designMotiCodeForSelection(motiType, shape, size) {
+  const libraryMoti = findMotiByLibraryFields(motiType, shape, size);
+  return libraryMoti?.code || motiLookupCode({ motiType, shape, size });
+}
+
+function updateDesignMotiEntryCodePreview() {
+  const preview = document.getElementById("entry-moti-code-preview");
+  const form = document.getElementById("stone-entry-form");
+  if (!preview || !form?.entryMotiType) return;
+  const code = form.entryMotiType.value && form.entryMotiShape.value && form.entryMotiSize.value
+    ? designMotiCodeForSelection(form.entryMotiType.value, form.entryMotiShape.value, form.entryMotiSize.value)
+    : "-";
+  preview.textContent = code || "-";
+}
+
+function updateDesignMotiEditRowPreview(row) {
+  if (!row) return;
+  const motiType = row.querySelector('[data-moti-edit="motiType"]')?.value || "";
+  const shape = row.querySelector('[data-moti-edit="shape"]')?.value || "";
+  const size = row.querySelector('[data-moti-edit="size"]')?.value || "";
+  const pcs = Number(row.querySelector('[data-moti-edit="pcs"]')?.value || 0);
+  const libraryMoti = findMotiByLibraryFields(motiType, shape, size);
+  const code = motiType && shape && size ? (libraryMoti?.code || motiLookupCode({ motiType, shape, size })) : "-";
+  const weightPerPc = libraryMoti?.weightPerPc || "";
+  const codeCell = row.querySelector("[data-moti-code-preview]");
+  const weightCell = row.querySelector("[data-moti-weight-preview]");
+  const totalCell = row.querySelector("[data-moti-total-preview]");
+  if (codeCell) codeCell.textContent = code || "-";
+  if (weightCell) weightCell.textContent = formatStoneWeight(weightPerPc) || "-";
+  if (totalCell) totalCell.textContent = weightPerPc ? totalStoneWeight(weightPerPc, pcs) || "-" : "-";
+}
+
+function addDesignMotiItem() {
+  if (!requirePageEditPermission("designs", "add design moti rows")) return;
+  const form = document.getElementById("stone-entry-form");
+  const design = findById("designs", form.stoneDesignId.value);
+  if (!design) {
+    alert("Select design first.");
+    return;
+  }
+  const pcs = Number(form.entryMotiPcs.value || 0);
+  if (!form.entryMotiType.value || !form.entryMotiShape.value || !form.entryMotiSize.value || pcs <= 0) {
+    alert("Select moti type, shape, size and enter No. Pcs.");
+    return;
+  }
+  const moti = findMotiByLibraryFields(form.entryMotiType.value, form.entryMotiShape.value, form.entryMotiSize.value);
+  if (!moti) {
+    alert("This Moti combination is not saved in Moti Library. Add it to Moti Library first.");
+    return;
+  }
+  const item = {
+    id: crypto.randomUUID(),
+    itemKey: currentStoneEntryItemKey(),
+    motiId: moti.id,
+    motiType: moti.motiType,
+    shape: moti.shape,
+    size: moti.size,
+    code: moti.code || motiLookupCode(moti),
+    pcs,
+    weightPerPc: formatStoneWeight(moti.weightPerPc),
+    totalWeight: totalStoneWeight(moti.weightPerPc, pcs),
+    updatedAt: new Date().toISOString(),
+  };
+  design.motiItems = [...(design.motiItems || []), item];
+  renderDesignMotiItems(designMotiItemsForKey(design, item.itemKey), item.itemKey);
+  resetDesignMotiEntryFields();
+  saveState();
+  renderDesigns();
+}
+
+function motiEditOptions(field, selected) {
+  const values = motiOptionValues(field, state.motis);
+  const optionValues = selected && !values.includes(selected) ? [...values, selected] : values;
+  return `<option value="">Select</option>${optionValues.map((value) =>
+    `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value)}</option>`
+  ).join("")}`;
+}
+
+function saveDesignMotiItemEdit(motiItemId) {
+  if (!requirePageEditPermission("designs", "edit design moti rows")) return;
+  const form = document.getElementById("stone-entry-form");
+  const design = findById("designs", form.stoneDesignId.value);
+  const item = (design?.motiItems || []).find((motiItem) => motiItem.id === motiItemId);
+  const row = document.querySelector(`[data-design-moti-row="${motiItemId}"]`);
+  if (!design || !item || !row) return;
+  const motiType = row.querySelector('[data-moti-edit="motiType"]').value;
+  const shape = row.querySelector('[data-moti-edit="shape"]').value;
+  const size = row.querySelector('[data-moti-edit="size"]').value;
+  const itemKey = normalizeStoneItemKey(row.querySelector('[data-moti-edit="itemKey"]')?.value || currentStoneEntryItemKey());
+  const pcs = Number(row.querySelector('[data-moti-edit="pcs"]').value || 0);
+  if (!motiType || !shape || !size || pcs <= 0) {
+    alert("Select Type, Shape, Size and enter valid No. Pcs.");
+    return;
+  }
+  const libraryMoti = findMotiByLibraryFields(motiType, shape, size);
+  if (!libraryMoti) {
+    alert("This Moti combination is not saved in Moti Library. Add it to Moti Library first.");
+    return;
+  }
+  Object.assign(item, {
+    itemKey,
+    motiId: libraryMoti.id,
+    motiType: libraryMoti.motiType,
+    shape: libraryMoti.shape,
+    size: libraryMoti.size,
+    code: libraryMoti.code || motiLookupCode(libraryMoti),
+    pcs,
+    weightPerPc: formatStoneWeight(libraryMoti.weightPerPc),
+    totalWeight: totalStoneWeight(libraryMoti.weightPerPc, pcs),
+    updatedAt: new Date().toISOString(),
+  });
+  renderDesignMotiItems(designMotiItemsForKey(design, currentStoneEntryItemKey()), currentStoneEntryItemKey());
+  saveState();
+  renderDesigns();
+  document.getElementById("stone-entry-summary").textContent = "Moti row corrected and saved.";
+}
+
+function removeDesignMotiItem(motiItemId) {
+  if (!requirePageDeletePermission("designs", "delete design moti rows")) return;
+  const form = document.getElementById("stone-entry-form");
+  const design = findById("designs", form.stoneDesignId.value);
+  if (!design) return;
+  design.motiItems = (design.motiItems || []).filter((item) => item.id !== motiItemId);
+  renderDesignMotiItems(designMotiItemsForKey(design, currentStoneEntryItemKey()), currentStoneEntryItemKey());
+  saveState();
+  renderDesigns();
+}
+
+function designMotiTotals(items = []) {
+  return items.reduce((total, item) => ({
+    pcs: total.pcs + Number(item.pcs || 0),
+    weight: total.weight + (Number(item.totalWeight || 0) || Number(item.weightPerPc || 0) * Number(item.pcs || 0)),
+  }), { pcs: 0, weight: 0 });
+}
+
+function designMotiSummaryText(items = []) {
+  const totals = designMotiTotals(items);
+  return `Total Moti: ${totals.pcs} pcs / ${weight3(totals.weight)} g`;
+}
+
+function renderDesignMotiItems(items = [], itemKey = "ITEM") {
+  const container = document.getElementById("design-moti-details");
+  if (!container) return;
+  container.classList.toggle("empty", !items.length);
+  const activeItem = stoneItemInputValue(itemKey);
+  container.innerHTML = items.length
+    ? `<div class="stone-total-summary">${escapeHtml(activeItem)}: ${escapeHtml(designMotiSummaryText(items))}</div><table><thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th></th></tr></thead><tbody>${items.map((item) => `
+      <tr data-design-moti-row="${escapeHtml(item.id)}">
+        <td><select data-moti-edit="itemKey">${stoneItemEditOptions(item.itemKey)}</select></td>
+        <td data-moti-code-preview>${escapeHtml(item.code || motiLookupCode(item) || "-")}</td>
+        <td><select data-moti-edit="motiType">${motiEditOptions("motiType", item.motiType || "")}</select></td>
+        <td><select data-moti-edit="shape">${motiEditOptions("shape", item.shape || "")}</select></td>
+        <td><select data-moti-edit="size">${motiEditOptions("size", item.size || "")}</select></td>
+        <td><input data-moti-edit="pcs" type="number" min="1" step="1" value="${escapeHtml(item.pcs || "")}"></td>
+        <td data-moti-weight-preview>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")}</td>
+        <td data-moti-total-preview>${escapeHtml(item.totalWeight || "-")}</td>
+        <td><div class="row-actions"><button class="ghost-button" type="button" onclick="saveDesignMotiItemEdit('${escapeHtml(item.id)}')">Save</button><button class="delete-btn" type="button" onclick="removeDesignMotiItem('${escapeHtml(item.id)}')">Remove</button></div></td>
+      </tr>
+    `).join("")}</tbody></table>`
+    : `No moti added for ${escapeHtml(activeItem)}.`;
+}
+
+function resetDesignMotiEntryFields() {
+  const form = document.getElementById("stone-entry-form");
+  if (!form?.entryMotiType) return;
+  form.entryMotiType.value = "";
+  form.entryMotiShape.value = "";
+  form.entryMotiSize.value = "";
+  form.entryMotiPcs.value = "";
+  renderDesignMotiEntryOptions();
+  updateDesignMotiEntryCodePreview();
 }
 
 async function readStoneChartImage() {
@@ -22113,6 +22672,7 @@ async function handleDesignMasterAction(event) {
   if (action === "crop") await openDesignStoneCrop(design.id);
   if (action === "chart") await openStoneChart(design.id);
   if (action === "stone-details") openDesignStoneDetails(design.id);
+  if (action === "moti-details") openDesignStoneDetails(design.id, "moti");
   if (action === "edit") {
     document.getElementById("design-category-dialog")?.close();
     document.getElementById("design-detail-dialog")?.close();
@@ -22410,6 +22970,8 @@ function designStoneChartPreviewHtml(design) {
 function renderDesignCard(design) {
   const stoneEntryCount = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
   const hasStoneEntries = stoneEntryCount > 0;
+  const motiEntryCount = Array.isArray(design.motiItems) ? design.motiItems.length : 0;
+  const hasMotiEntries = motiEntryCount > 0;
   return `
     <article class="design-category-item design-image-tile" data-design-card="${escapeHtml(design.id)}" role="button" tabindex="0" aria-selected="${activeDesignMasterId === design.id}" onclick="openDesignDetail('${design.id}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault(); openDesignDetail('${design.id}');}">
       <label class="design-select-check" onclick="event.stopPropagation()" title="Select for bulk actions">
@@ -22423,6 +22985,10 @@ function renderDesignCard(design) {
       <label class="design-stone-entry-status ${hasStoneEntries ? "is-ready" : "is-pending"}" onclick="event.stopPropagation()" title="${hasStoneEntries ? `${stoneEntryCount} stone row${stoneEntryCount === 1 ? "" : "s"} saved` : "No stone rows saved. Stone entry is pending."}">
         <input type="checkbox" tabindex="-1" aria-label="Stone entry ${hasStoneEntries ? "available" : "pending"}" ${hasStoneEntries ? "checked" : ""} disabled>
         <span>${hasStoneEntries ? `Stone Entry (${stoneEntryCount})` : "Stone Entry Pending"}</span>
+      </label>
+      <label class="design-stone-entry-status ${hasMotiEntries ? "is-ready" : "is-pending"}" onclick="event.stopPropagation()" title="${hasMotiEntries ? `${motiEntryCount} moti row${motiEntryCount === 1 ? "" : "s"} saved` : "No moti rows saved."}">
+        <input type="checkbox" tabindex="-1" aria-label="Moti entry ${hasMotiEntries ? "available" : "pending"}" ${hasMotiEntries ? "checked" : ""} disabled>
+        <span>${hasMotiEntries ? `Moti Entry (${motiEntryCount})` : "No Moti"}</span>
       </label>
     </article>
   `;
@@ -22462,6 +23028,7 @@ async function openDesignDetail(designId) {
   const chartKeys = viewableDesignStoneChartItemKeys(design);
   const itemKeys = normalizeDesignItemKeys(design.itemKeys || [], design.category || "");
   const stoneEntryCount = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
+  const motiEntryCount = Array.isArray(design.motiItems) ? design.motiItems.length : 0;
   dialog.dataset.designId = design.id;
   document.getElementById("design-detail-title").textContent = design.number || design.name || "Design Details";
   document.getElementById("design-detail-summary").textContent = design.name && design.name !== design.number ? design.name : "Complete design information and actions";
@@ -22473,10 +23040,15 @@ async function openDesignDetail(designId) {
     ? chartKeys.map(stoneItemInputValue).join(" / ")
     : design.hasStoneChartSource ? "Main chart image" : "No chart saved";
   document.getElementById("design-detail-stone-count").textContent = stoneEntryCount ? `${stoneEntryCount} saved row${stoneEntryCount === 1 ? "" : "s"}` : "No rows saved";
+  document.getElementById("design-detail-moti-count").textContent = motiEntryCount ? `${motiEntryCount} saved row${motiEntryCount === 1 ? "" : "s"}` : "No moti saved";
   renderDesignDetailStoneRows(design);
+  renderDesignDetailMotiRows(design);
   const status = document.getElementById("design-detail-stone-status");
   status.className = `design-stone-entry-status design-detail-stone-status ${stoneEntryCount ? "is-ready" : "is-pending"}`;
   status.innerHTML = `<input type="checkbox" tabindex="-1" aria-label="Stone entry ${stoneEntryCount ? "available" : "pending"}" ${stoneEntryCount ? "checked" : ""} disabled><span>${stoneEntryCount ? `Stone Entry Complete (${stoneEntryCount})` : "Stone Entry Pending"}</span>`;
+  const motiStatus = document.getElementById("design-detail-moti-status");
+  motiStatus.className = `design-stone-entry-status design-detail-stone-status ${motiEntryCount ? "is-ready" : "is-pending"}`;
+  motiStatus.innerHTML = `<input type="checkbox" tabindex="-1" aria-label="Moti entry ${motiEntryCount ? "available" : "pending"}" ${motiEntryCount ? "checked" : ""} disabled><span>${motiEntryCount ? `Moti Entry Complete (${motiEntryCount})` : "No Moti Entry"}</span>`;
   image.removeAttribute("src");
   image.classList.remove("image-missing");
   image.alt = design.name || design.number || "Design image";
@@ -22526,6 +23098,35 @@ function renderDesignDetailStoneRows(design) {
       </article>
     `).join("")
     : '<div class="empty">Add or read the stone chart to show stone details here.</div>';
+}
+
+function renderDesignDetailMotiRows(design) {
+  const items = Array.isArray(design?.motiItems) ? design.motiItems : [];
+  const container = document.getElementById("design-detail-moti-list");
+  const summary = document.getElementById("design-detail-moti-summary");
+  if (!container || !summary) return;
+  const totals = designMotiTotals(items);
+  summary.textContent = items.length
+    ? `${items.length} row${items.length === 1 ? "" : "s"} / ${totals.pcs} pcs / ${weight5(totals.weight)} g`
+    : "No moti details saved";
+  container.innerHTML = items.length
+    ? items.map((item, index) => `
+      <article class="design-detail-stone-row">
+        <div class="design-detail-stone-row-title">
+          <strong>${escapeHtml(stoneItemInputValue(item.itemKey || DEFAULT_STONE_ITEM_KEY))}</strong>
+          <span>${escapeHtml(item.code || motiLookupCode(item) || `Moti ${index + 1}`)}</span>
+        </div>
+        <div class="design-detail-stone-values">
+          <div><span>Type</span><strong>${escapeHtml(item.motiType || "-")}</strong></div>
+          <div><span>Shape</span><strong>${escapeHtml(item.shape || "-")}</strong></div>
+          <div><span>Size</span><strong>${escapeHtml(item.size || "-")}</strong></div>
+          <div><span>Pcs</span><strong>${escapeHtml(item.pcs || "0")}</strong></div>
+          <div><span>Wt/Pc</span><strong>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")} g</strong></div>
+          <div><span>Total</span><strong>${escapeHtml(weight5(Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0))))} g</strong></div>
+        </div>
+      </article>
+    `).join("")
+    : '<div class="empty">No moti saved for this design.</div>';
 }
 
 async function openDesignImage(designId) {
@@ -22703,7 +23304,7 @@ async function mergeDesignPrompt(sourceDesignId) {
     alert("Target design not found.");
     return;
   }
-  if (!confirm(`Merge ${designText(source)} into ${designText(target)}?\n\nSource design will be removed after image, stone chart, stone details, and job references are moved.`)) return;
+  if (!confirm(`Merge ${designText(source)} into ${designText(target)}?\n\nSource design will be removed after image, stone chart, stone details, moti details, and job references are moved.`)) return;
   await mergeDesignRecords(source, target);
   const category = target.category || source.category || "Uncategorised";
   saveState();
@@ -22728,6 +23329,14 @@ async function mergeDesignRecords(source, target) {
     target.stoneItems = [
       ...(target.stoneItems || []),
       ...source.stoneItems.map((item) => ({ ...item, id: crypto.randomUUID() })),
+    ];
+  }
+  if (!target.motiItems?.length && source.motiItems?.length) {
+    target.motiItems = source.motiItems.map((item) => ({ ...item, id: crypto.randomUUID() }));
+  } else if (source.motiItems?.length) {
+    target.motiItems = [
+      ...(target.motiItems || []),
+      ...source.motiItems.map((item) => ({ ...item, id: crypto.randomUUID() })),
     ];
   }
   target.stoneDetails = designStoneDetailsText(target.stoneItems || []);
@@ -22769,7 +23378,7 @@ async function mergeDesignRecords(source, target) {
   updateDesignReferences(target);
 }
 
-function openDesignStoneDetails(designId) {
+function openDesignStoneDetails(designId, focusMode = "stone") {
   const categoryDialog = document.getElementById("design-category-dialog");
   const detailDialog = document.getElementById("design-detail-dialog");
   const design = findById("designs", designId);
@@ -22788,7 +23397,7 @@ function openDesignStoneDetails(designId) {
     };
     categoryDialog.close();
   }
-  openStoneEntryDialog(designId);
+  openStoneEntryDialog(designId, focusMode);
 }
 
 function renderCustomers() {
@@ -31600,6 +32209,23 @@ function normalizeState(currentState) {
     const stoneItems = specificStoneItems.length
       ? specificStoneItems
       : normalizedStoneItems.map((item) => ({ ...item, itemKey: targetItemKey }));
+    const motiItems = (design.motiItems || []).map((item) => {
+      const normalizedItemKey = normalizeStoneItemKey(item.itemKey);
+      const normalized = {
+        id: item.id || crypto.randomUUID(),
+        itemKey: normalizedItemKey === DEFAULT_STONE_ITEM_KEY ? targetItemKey : normalizedItemKey,
+        motiId: item.motiId || "",
+        motiType: String(item.motiType || item.type || "").trim(),
+        shape: String(item.shape || "").trim(),
+        size: normalizeSizeText(item.size || ""),
+        pcs: Number(item.pcs || 0),
+        weightPerPc: formatStoneWeight(item.weightPerPc),
+        totalWeight: item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs),
+        updatedAt: item.updatedAt || "",
+      };
+      normalized.code = item.code || motiLookupCode(normalized);
+      return normalized;
+    });
     const rawChartItems = design.stoneChartItems?.length
       ? design.stoneChartItems
       : (design.hasStoneChart ? [{ itemKey: DEFAULT_STONE_ITEM_KEY }] : []);
@@ -31633,6 +32259,7 @@ function normalizeState(currentState) {
       imageData: design.imageData || "",
       stoneDetails: stoneItems.length ? designStoneDetailsText(stoneItems) : design.stoneDetails || "",
       stoneItems,
+      motiItems,
       stoneChartItems,
       hasStoneChartSource: Boolean(design.hasStoneChartSource),
       stoneChartSourceName: design.stoneChartSourceName || "",
@@ -31656,6 +32283,12 @@ function normalizeState(currentState) {
     stoneType: currentState.stoneOptions?.stoneType || [],
     shape: currentState.stoneOptions?.shape || [],
     size: currentState.stoneOptions?.size || [],
+  };
+  currentState.motis = dedupeMotiLibrary(Array.isArray(currentState.motis) ? currentState.motis : []);
+  currentState.motiOptions = {
+    motiType: currentState.motiOptions?.motiType || [],
+    shape: currentState.motiOptions?.shape || [],
+    size: currentState.motiOptions?.size || [],
   };
   currentState.melting = (currentState.melting || []).map((item) => {
     const enteredTargetPurity = purityPercent(item.targetPurity);
@@ -32005,6 +32638,52 @@ function normalizeStone(stone) {
     pricePerPc: stone.pricePerPc || "",
     remarks: stone.remarks || "",
   };
+}
+
+function normalizeMoti(moti = {}) {
+  const normalized = {
+    id: moti.id || crypto.randomUUID(),
+    motiType: String(moti.motiType || moti.type || "").trim().replace(/\s+/g, " "),
+    shape: String(moti.shape || "").trim().replace(/\s+/g, " "),
+    size: normalizeSizeText(moti.size || ""),
+    weightPerPc: formatStoneWeight(moti.weightPerPc),
+    pricePerPc: moti.pricePerPc || "",
+    remarks: moti.remarks || "",
+    createdAt: moti.createdAt || "",
+    updatedAt: moti.updatedAt || "",
+  };
+  normalized.code = motiLookupCode(normalized);
+  return normalized;
+}
+
+function motiLibraryKey(moti = {}) {
+  return [
+    normalizeSearchText(moti.motiType),
+    normalizeSearchText(moti.shape),
+    normalizeSizeText(moti.size).toUpperCase(),
+  ].join("|");
+}
+
+function dedupeMotiLibrary(motis = []) {
+  const byKey = new Map();
+  motis.map(normalizeMoti).forEach((moti) => {
+    const key = motiLibraryKey(moti);
+    if (!key.replaceAll("|", "")) return;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, moti);
+      return;
+    }
+    if ((!existing.weightPerPc || Number(existing.weightPerPc) === 0) && Number(moti.weightPerPc) > 0) {
+      existing.weightPerPc = moti.weightPerPc;
+    }
+    existing.pricePerPc = existing.pricePerPc || moti.pricePerPc || "";
+    existing.remarks = existing.remarks || moti.remarks || "";
+    existing.updatedAt = existing.updatedAt || moti.updatedAt || "";
+  });
+  return [...byKey.values()].sort((a, b) =>
+    `${a.motiType} ${a.shape} ${a.size}`.localeCompare(`${b.motiType} ${b.shape} ${b.size}`, undefined, { numeric: true, sensitivity: "base" })
+  );
 }
 
 function stoneLibraryKey(stone) {

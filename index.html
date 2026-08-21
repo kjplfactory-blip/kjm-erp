@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=511">
+  <link rel="stylesheet" href="styles.css?v=513">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v511</small>
+          <small class="app-version-badge">App v513</small>
           </div>
         </div>
         <label>User
@@ -83,6 +83,7 @@
         <button class="nav-item" data-view="designs">Designs</button>
         <button class="nav-item" data-view="catalogue">Catalogue</button>
         <button class="nav-item" data-view="stone-library">Stone Library</button>
+        <button class="nav-item" data-view="moti-library">Moti Library</button>
         <button class="nav-item" data-view="orders">Job Orders</button>
         <button class="nav-item" data-view="melting">Melting</button>
         <button class="nav-item" data-view="production">Production</button>
@@ -115,7 +116,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v511</span>
+          <span class="app-version-badge">App v513</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -216,6 +217,10 @@
             <strong>Stone Entry</strong>
             <span>Add stone details for any design</span>
           </button>
+          <button class="action-tile" type="button" data-design-page="moti">
+            <strong>Moti Entry</strong>
+            <span>Add item-wise moti details for any design</span>
+          </button>
           <button class="action-tile" type="button" data-design-page="master">
             <strong>Design Master</strong>
             <span>Search and open uploaded designs</span>
@@ -251,6 +256,13 @@
             <h2>Stone Entry</h2>
             <p class="dialog-note">Stone Entry opens in full screen for easier design search and stone detail entry.</p>
             <button type="button" id="open-stone-entry">Open Stone Entry</button>
+          </section>
+        </div>
+        <div class="workbench design-page" id="design-page-moti">
+          <section class="panel">
+            <h2>Moti Entry</h2>
+            <p class="dialog-note">Moti Entry opens in full screen and uses the selected design item with Moti Library weights.</p>
+            <button type="button" id="open-design-moti-entry">Open Moti Entry</button>
           </section>
         </div>
         <div class="design-page" id="design-page-master">
@@ -399,6 +411,62 @@
               </table>
             </div>
             <div id="stone-pagination" class="pagination-controls"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="moti-library" class="view">
+        <div class="tile-grid moti-tile-grid">
+          <button class="action-tile" type="button" data-moti-page="add">
+            <strong>Add Moti</strong>
+            <span>Add or edit moti library details</span>
+          </button>
+          <button class="action-tile" type="button" data-moti-page="master">
+            <strong>Moti Master</strong>
+            <span>Search moti details</span>
+          </button>
+        </div>
+        <div class="workbench moti-page" id="moti-page-add">
+          <form id="moti-form" class="form-panel">
+            <h2 id="moti-form-title">Add Moti</h2>
+            <input type="hidden" name="motiId">
+            <label>Moti Type
+              <span class="select-add-row"><select name="motiType" required></select><button class="ghost-button" type="button" data-add-moti-option="motiType">Add</button></span>
+            </label>
+            <label>Shape
+              <span class="select-add-row"><select name="shape"></select><button class="ghost-button" type="button" data-add-moti-option="shape">Add</button></span>
+            </label>
+            <label>Size
+              <span class="select-add-row"><select name="size"></select><button class="ghost-button" type="button" data-add-moti-option="size">Add</button></span>
+            </label>
+            <label>Lookup Code <input name="code" placeholder="MOTIROUND4MM" readonly></label>
+            <label>Weight / Pc (g) <input name="weightPerPc" inputmode="decimal" placeholder="0.05000"></label>
+            <label>Price / Pc <input name="pricePerPc" inputmode="decimal" placeholder="Optional"></label>
+            <label>Remarks <input name="remarks" placeholder="Optional note"></label>
+            <button id="moti-submit" type="submit">Save Moti</button>
+            <button id="cancel-moti-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
+          </form>
+        </div>
+        <div class="moti-page" id="moti-page-master">
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Moti Master</h2>
+              <input id="moti-search" class="search" placeholder="Search type, shape, size, code">
+            </div>
+            <div class="moti-lookup-bar">
+              <label>Type <select id="moti-lookup-type"></select></label>
+              <label>Shape <select id="moti-lookup-shape"></select></label>
+              <label>Size <select id="moti-lookup-size"></select></label>
+            </div>
+            <div id="moti-lookup-result" class="moti-lookup-result empty">Select type, shape or size to show moti details.</div>
+            <p id="moti-library-summary" class="dialog-note"></p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Type</th><th>Shape</th><th>Size</th><th>Code</th><th>Weight/Pc (g)</th><th>Price/Pc</th><th>Remarks</th><th></th></tr></thead>
+                <tbody id="moti-table"></tbody>
+              </table>
+            </div>
+            <div id="moti-pagination" class="pagination-controls"></div>
           </section>
         </div>
       </section>
@@ -2391,6 +2459,10 @@
               <input type="checkbox" tabindex="-1" aria-label="Stone entry pending" disabled>
               <span>Stone Entry Pending</span>
             </label>
+            <label id="design-detail-moti-status" class="design-stone-entry-status design-detail-stone-status is-pending">
+              <input type="checkbox" tabindex="-1" aria-label="Moti entry pending" disabled>
+              <span>Moti Entry Pending</span>
+            </label>
           </section>
           <section class="design-detail-control-panel">
             <div class="design-detail-facts">
@@ -2399,6 +2471,7 @@
               <div><span>Master Image</span><strong id="design-detail-master">Checking...</strong></div>
               <div><span>Stone Charts</span><strong id="design-detail-charts">-</strong></div>
               <div><span>Stone Details</span><strong id="design-detail-stone-count">-</strong></div>
+              <div><span>Moti Details</span><strong id="design-detail-moti-count">-</strong></div>
             </div>
             <section class="design-detail-stones">
               <div class="design-detail-section-heading">
@@ -2406,6 +2479,13 @@
                 <span id="design-detail-stone-summary">No stone details saved</span>
               </div>
               <div id="design-detail-stone-list" class="design-detail-stone-list"></div>
+            </section>
+            <section class="design-detail-stones design-detail-motis">
+              <div class="design-detail-section-heading">
+                <h3>Moti Details</h3>
+                <span id="design-detail-moti-summary">No moti details saved</span>
+              </div>
+              <div id="design-detail-moti-list" class="design-detail-stone-list"></div>
             </section>
             <div class="design-selected-toolbar design-detail-actions" data-design-selected-toolbar>
               <div class="design-selected-summary">
@@ -2419,6 +2499,7 @@
                 <button type="button" data-design-master-action="crop" disabled>Crop Stone Chart</button>
                 <button type="button" data-design-master-action="chart" disabled>View Stone Chart</button>
                 <button type="button" data-design-master-action="stone-details" disabled>Stone Details</button>
+                <button type="button" data-design-master-action="moti-details" disabled>Moti Details</button>
                 <button type="button" class="ghost-button" data-design-master-action="edit" disabled>Edit Design</button>
                 <button type="button" class="ghost-button" data-design-master-action="merge" disabled>Merge</button>
                 <button type="button" class="ghost-button danger-button" data-design-master-action="remove-chart" disabled>Remove Chart</button>
@@ -2434,8 +2515,8 @@
       <div class="dialog-card stone-entry-dialog">
         <div class="dialog-header">
           <div>
-            <h2>Stone Entry</h2>
-            <p class="dialog-note">Search design, add stone rows, and save stone details.</p>
+            <h2 id="design-material-entry-title">Stone Entry</h2>
+            <p id="design-material-entry-note" class="dialog-note">Search design, add stone rows, and save stone details.</p>
           </div>
           <button class="ghost-button" type="button" id="close-stone-entry">Close</button>
         </div>
@@ -2456,6 +2537,21 @@
               <button type="button" id="add-design-stone">Add Stone</button>
             </div>
             <div id="design-stone-details" class="design-stone-details empty">No stone added for this design.</div>
+            <section id="design-moti-entry-section" class="design-moti-entry-section">
+              <div class="design-detail-section-heading">
+                <h3>Moti Details</h3>
+                <span>Saved separately for the selected design item</span>
+              </div>
+              <div class="moti-design-entry">
+                <label>Type <select name="entryMotiType"></select></label>
+                <label>Shape <select name="entryMotiShape"></select></label>
+                <label>Size <select name="entryMotiSize"></select></label>
+                <label>No. Pcs <input name="entryMotiPcs" type="number" min="1" step="1" placeholder="Pcs"></label>
+                <div class="stone-code-preview"><span>Moti Code</span><strong id="entry-moti-code-preview">-</strong></div>
+                <button type="button" id="add-design-moti">Add Moti</button>
+              </div>
+              <div id="design-moti-details" class="design-stone-details empty">No moti added for this design item.</div>
+            </section>
           </section>
           <section class="stone-entry-side">
             <label>Stone Chart / Full Image <input name="stoneChart" type="file" accept="image/*" multiple></label>
@@ -2545,6 +2641,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=511"></script>
+  <script src="app.js?v=513"></script>
 </body>
 </html>
