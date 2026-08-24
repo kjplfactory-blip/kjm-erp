@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v513";
+const APP_VERSION = "v515";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -375,6 +375,8 @@ const loginAccessPages = [
 
 const demoState = {
   nextOrder: 1001,
+  nextJob: 1001,
+  nextProduction: 1001,
   nextLot: 201,
   userPasswords: defaultUserPasswords,
   ownerPasswordUpdatedToN170726: true,
@@ -982,7 +984,9 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
     return;
   }
   const startingNextOrder = state.nextOrder;
-  const jobNumber = `JOB-${startingNextOrder}`;
+  const startingNextJob = state.nextJob;
+  const startingNextProduction = state.nextProduction;
+  const jobNumber = nextJobCardNumber(state);
   const jobCardColor = data.jobColor || "Pink";
   const createdOrders = [];
   const submitButton = event.submitter || event.target.querySelector('button[type="submit"]');
@@ -992,7 +996,7 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
     submitButton.textContent = "Saving Job Order...";
   }
   items.forEach((item) => {
-    const productionNo = `PR-${state.nextOrder++}`;
+    const productionNo = nextProductionNumber(state);
     const orderRecord = {
       id: crypto.randomUUID(),
       number: productionNo,
@@ -1034,6 +1038,8 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
     const createdIds = new Set(createdOrders.map((order) => order.id));
     state.orders = state.orders.filter((order) => !createdIds.has(order.id));
     state.nextOrder = startingNextOrder;
+    state.nextJob = startingNextJob;
+    state.nextProduction = startingNextProduction;
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = submitButtonLabel;
@@ -4182,7 +4188,7 @@ function applyPendingSyncMutationsToCloud(cloudState = {}, journal = pendingSync
       delete merged[key];
       return;
     }
-    if (["nextOrder", "nextLot"].includes(key)) {
+    if (["nextOrder", "nextJob", "nextProduction", "nextLot"].includes(key)) {
       merged[key] = Math.max(Number(merged[key] || 0), Number(change.value || 0));
       return;
     }
@@ -4221,7 +4227,7 @@ function mergeLegacyDirtyState(cloudState = {}, localState = {}) {
   Object.entries(localState || {}).forEach(([key, localValue]) => {
     if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "cloudRecoveryRequired"].includes(key)) return;
     const remoteValue = merged[key];
-    if (["nextOrder", "nextLot"].includes(key)) {
+    if (["nextOrder", "nextJob", "nextProduction", "nextLot"].includes(key)) {
       merged[key] = Math.max(Number(remoteValue || 0), Number(localValue || 0));
       return;
     }
@@ -5949,9 +5955,8 @@ function createFittingAccessoriesJobCard(event) {
     alert("Enter both Job Card Narration and Item Narration.");
     return;
   }
-  const sequence = state.nextOrder;
-  const jobNumber = `JOB-${sequence}`;
-  const productionNo = `PR-${state.nextOrder++}`;
+  const jobNumber = nextJobCardNumber(state);
+  const productionNo = nextProductionNumber(state);
   const lotNumber = `LOT-${state.nextLot++}`;
   const stockCustomer = (state.customers || []).find((customer) => String(customer.name || "").trim().toUpperCase() === "KJPL-STOCK");
   const orderDate = data.orderDate || isoToday();
@@ -6148,6 +6153,7 @@ async function openStoneEntryDialog(designId = "", focusMode = "stone") {
   document.getElementById("design-material-entry-note").textContent = isMotiFocus
     ? "Search design, select the item, and add Moti Library rows with pieces and total weight."
     : "Search design, add stone rows, and save stone details.";
+  renderDesignMotiEntryOptions();
   if (!dialog.open) dialog.showModal();
   if (designId) await loadStoneEntry(designId);
   const target = isMotiFocus
@@ -11047,9 +11053,8 @@ function syncCastingFittingItemsJobCard(melting = {}) {
   const isNew = !lot || !order;
 
   if (isNew) {
-    const sequence = state.nextOrder;
-    const jobNumber = `JOB-${sequence}`;
-    const productionNo = `PR-${state.nextOrder++}`;
+    const jobNumber = nextJobCardNumber(state);
+    const productionNo = nextProductionNumber(state);
     order = {
       id: crypto.randomUUID(),
       number: productionNo,
@@ -12459,6 +12464,8 @@ function clearJobCards(resetAt = new Date().toISOString()) {
   state.productionNonGoldIssues = [];
   state.settingManagerEntries = [];
   state.nextOrder = 1001;
+  state.nextJob = 1001;
+  state.nextProduction = 1001;
   state.nextLot = 201;
   state.ledger = [{
     id: openingStockId,
@@ -12524,6 +12531,8 @@ function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
   state.factoryLedger = [];
   state.metalSafeSeededFromLedger = true;
   state.nextOrder = 1001;
+  state.nextJob = 1001;
+  state.nextProduction = 1001;
   state.nextLot = 201;
   clearRecentJobOrderBackups();
   closeOpenDialogs();
@@ -12643,7 +12652,7 @@ function splitJobRootNumber(jobNumber = "") {
 }
 
 function nextSplitJobNumber(jobNumber = "") {
-  const root = splitJobRootNumber(jobNumber) || jobNumber || `JOB-${state.nextOrder}`;
+  const root = splitJobRootNumber(jobNumber) || jobNumber || `JOB-${state.nextJob || state.nextOrder}`;
   const existing = new Set(state.orders.map((order) => order.jobNumber || order.productionNo || order.number).filter(Boolean));
   let index = 1;
   let candidate = `${root}-S${index}`;
@@ -12876,7 +12885,7 @@ function splitFittingItemsJobCard(event) {
     return;
   }
   const splitJobNumber = nextSplitJobNumber(order.jobNumber || lot.orderNumber);
-  const splitProductionNo = `PR-${state.nextOrder++}`;
+  const splitProductionNo = nextProductionNumber(state);
   const splitLotNumber = `LOT-${state.nextLot++}`;
   const splitReason = `Fitting Items split from ${lot.number}; GW ${gram(splitGw)}, Wax Stone ${gram(splitWax)}`;
 
@@ -14523,11 +14532,12 @@ function addItemsToJobCard(baseOrder, data = {}) {
     alert("Select or enter item details first.");
     return 0;
   }
-  const jobNumber = baseOrder.jobNumber || baseOrder.productionNo || baseOrder.number || `JOB-${state.nextOrder}`;
+  const jobNumber = baseOrder.jobNumber || nextJobCardNumber(state);
+  if (!baseOrder.jobNumber) baseOrder.jobNumber = jobNumber;
   const createdOrders = [];
   newItems.forEach((item) => {
     const design = findById("designs", item.designId);
-    const productionNo = `PR-${state.nextOrder++}`;
+    const productionNo = nextProductionNumber(state);
     const orderRecord = {
       id: crypto.randomUUID(),
       number: productionNo,
@@ -17954,6 +17964,7 @@ function render() {
   renderCatalogue();
   renderStoneLibrary();
   renderMotiLibrary();
+  renderDesignMotiEntryOptions();
   renderOrders();
   renderProduction();
   renderBills();
@@ -18757,6 +18768,7 @@ function addMotiDropdownOption(field) {
   saveState();
   renderMotiLookupOptions();
   renderMotiLookup();
+  renderDesignMotiEntryOptions();
 }
 
 function updateMotiFormFromSelection() {
@@ -32333,6 +32345,7 @@ function normalizeState(currentState) {
   syncXrfWastageReturnsForState(currentState);
   currentState.orders = Array.isArray(currentState.orders) ? currentState.orders : [];
   restoreRecentJobOrderBackups(currentState);
+  normalizeIndependentOrderSerials(currentState);
   currentState.orders.forEach((order) => {
     order.designId = order.designId || "";
     const design = currentState.designs.find((item) => item.id === order.designId);
@@ -32346,9 +32359,9 @@ function normalizeState(currentState) {
     order.cgSize = order.cgSize || "";
     order.color = order.color || "";
     order.remarks = order.remarks || "";
-    order.productionNo = order.productionNo || order.number || `PR-${currentState.nextOrder++}`;
+    order.productionNo = order.productionNo || order.number || nextProductionNumber(currentState);
     order.barcode = order.barcode || order.productionNo;
-    order.jobNumber = order.jobNumber || order.productionNo;
+    order.jobNumber = order.jobNumber || nextJobCardNumber(currentState);
     order.orderDate = order.orderDate || isoToday();
     const savedProductionDays = Number(order.productionDays ?? daysBetween(order.orderDate, order.dueDate));
     order.productionDays = normalizeProductionDays(savedProductionDays);
@@ -32606,12 +32619,61 @@ function migrateCbBothRingOrders(currentState) {
   });
 }
 
-function nextProductionNumber(currentState, usedCodes) {
-  let productionNo = "";
-  do {
-    productionNo = `PR-${currentState.nextOrder++}`;
-  } while (usedCodes.has(productionNo));
-  usedCodes.add(productionNo);
+function serialFromNumber(value = "", prefix = "") {
+  const match = String(value || "").trim().match(new RegExp(`^${prefix}-(\\d+)(?:\\D|$)`, "i"));
+  return match ? Number(match[1]) : 0;
+}
+
+function syncLegacyOrderSerial(currentState = state) {
+  currentState.nextOrder = Math.max(
+    1001,
+    Number(currentState.nextOrder || 0),
+    Number(currentState.nextJob || 0),
+    Number(currentState.nextProduction || 0)
+  );
+}
+
+function normalizeIndependentOrderSerials(currentState) {
+  const orders = Array.isArray(currentState.orders) ? currentState.orders : [];
+  const highestJob = orders.reduce((highest, order) => Math.max(highest, serialFromNumber(order.jobNumber, "JOB")), 0);
+  const highestProduction = orders.reduce((highest, order) => Math.max(
+    highest,
+    serialFromNumber(order.productionNo, "PR"),
+    serialFromNumber(order.number, "PR"),
+    serialFromNumber(order.barcode, "PR")
+  ), 0);
+  const legacyNext = Math.max(1001, Number(currentState.nextOrder || 0));
+  const savedJobSerial = Number(currentState.nextJob || 0);
+  const savedProductionSerial = Number(currentState.nextProduction || 0);
+  currentState.nextJob = Math.max(1001, highestJob + 1, savedJobSerial || legacyNext);
+  currentState.nextProduction = Math.max(1001, highestProduction + 1, savedProductionSerial || legacyNext);
+  syncLegacyOrderSerial(currentState);
+}
+
+function nextJobCardNumber(currentState = state) {
+  const usedNumbers = new Set((currentState.orders || []).map((order) => String(order.jobNumber || "").toUpperCase()).filter(Boolean));
+  let serial = Math.max(1001, Number(currentState.nextJob || currentState.nextOrder || 1001));
+  let jobNumber = `JOB-${serial}`;
+  while (usedNumbers.has(jobNumber.toUpperCase())) {
+    serial += 1;
+    jobNumber = `JOB-${serial}`;
+  }
+  currentState.nextJob = serial + 1;
+  syncLegacyOrderSerial(currentState);
+  return jobNumber;
+}
+
+function nextProductionNumber(currentState = state, usedCodes = null) {
+  const codes = usedCodes || new Set((currentState.orders || []).flatMap((order) => [order.number, order.productionNo, order.barcode]).filter(Boolean));
+  let serial = Math.max(1001, Number(currentState.nextProduction || currentState.nextOrder || 1001));
+  let productionNo = `PR-${serial}`;
+  while (codes.has(productionNo)) {
+    serial += 1;
+    productionNo = `PR-${serial}`;
+  }
+  currentState.nextProduction = serial + 1;
+  syncLegacyOrderSerial(currentState);
+  codes.add(productionNo);
   return productionNo;
 }
 
