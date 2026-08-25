@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v515";
+const APP_VERSION = "v516";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -28,6 +28,10 @@ const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
+const ERP_STATE_STORAGE_KEY = "gold-jewellery-erp-state";
+const ERP_STATE_INDEXED_DB_NAME = "khushali-erp-local-state";
+const ERP_STATE_INDEXED_DB_STORE = "states";
+const ERP_STATE_INDEXED_DB_KEY = "latest";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
 const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
@@ -307,6 +311,8 @@ let appVersionReloadAttempting = false;
 let appVersionReloadStarted = false;
 let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
+let erpStateIndexedDbPendingRecord = null;
+let erpStateIndexedDbWritePromise = null;
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
@@ -421,6 +427,7 @@ let stateLoadedFromFallback = false;
 let state = loadState();
 let pendingSyncMutations = loadPendingSyncMutations();
 let lastLocallyPersistedState = structuredClone(state);
+let localFullStateRecoveryPromise = restoreFullErpStateFromIndexedDb();
 let currentUser = loadCurrentUser();
 let viewHistory = [];
 let restoringViewFromHistory = false;
@@ -3477,7 +3484,7 @@ document.getElementById("daily-tally-container-search")?.addEventListener("input
 function loadState() {
   let saved = null;
   try {
-    saved = localStorage.getItem("gold-jewellery-erp-state");
+    saved = localStorage.getItem(ERP_STATE_STORAGE_KEY);
   } catch (error) {
     console.warn("Browser storage could not be read. Starting with protected local fallback data.", error);
   }
@@ -3487,7 +3494,7 @@ function loadState() {
     const normalized = normalizeState(structuredClone(demoState));
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     try {
-      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
+      localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(normalized));
     } catch (error) {
       console.warn("Starter data could not be stored in this browser. Existing ERP storage was not changed.", error);
     }
@@ -3499,7 +3506,7 @@ function loadState() {
     stateLoadedFromFallback = false;
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     try {
-      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(normalized));
+      localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(normalized));
     } catch (error) {
       console.warn("The valid saved ERP was loaded, but its upgraded copy could not be rewritten because browser storage is full. The original saved copy was kept.", error);
     }
@@ -3594,15 +3601,23 @@ function rememberVerifiedCloudBaseline(cloudState = {}, updatedAt = "") {
 }
 
 function savePreCloudRecoveryCopy(reason = "startup-conflict", source = state, cloudUpdatedAt = "") {
-  const payload = JSON.stringify({
+  const recoveryRecord = {
     format: "KJM-ERP-PRE-CLOUD-RECOVERY",
     savedAt: new Date().toISOString(),
     cloudUpdatedAt,
     appVersion: APP_VERSION,
     reason,
     profile: stateBusinessProfile(source),
-    state: source,
-  });
+  };
+  if (browserHasIndexedDb()) {
+    writeErpStateIndexedDbRecord({
+      id: PRE_CLOUD_RECOVERY_STORAGE_KEY,
+      savedAt: Date.now(),
+      metadata: recoveryRecord,
+      state: structuredClone(source),
+    }).catch((error) => console.warn("The pre-cloud recovery copy could not be written to large browser storage.", error));
+  }
+  const payload = JSON.stringify({ ...recoveryRecord, storage: browserHasIndexedDb() ? "IndexedDB" : "Session" });
   try {
     localStorage.setItem(PRE_CLOUD_RECOVERY_STORAGE_KEY, payload);
     return true;
@@ -3957,19 +3972,163 @@ function applyAccessControl() {
   applyReadOnlyControls();
 }
 
-function persistStateToBrowser(options = {}) {
+function browserHasIndexedDb() {
+  return typeof indexedDB !== "undefined";
+}
+
+function openErpStateIndexedDb() {
+  return new Promise((resolve, reject) => {
+    if (!browserHasIndexedDb()) {
+      reject(new Error("Large browser storage is unavailable."));
+      return;
+    }
+    const request = indexedDB.open(ERP_STATE_INDEXED_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(ERP_STATE_INDEXED_DB_STORE)) {
+        request.result.createObjectStore(ERP_STATE_INDEXED_DB_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Large browser storage could not be opened."));
+    request.onblocked = () => reject(new Error("Large browser storage is blocked by another open ERP tab."));
+  });
+}
+
+function writeErpStateIndexedDbRecord(record) {
+  return openErpStateIndexedDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(ERP_STATE_INDEXED_DB_STORE, "readwrite");
+    transaction.objectStore(ERP_STATE_INDEXED_DB_STORE).put(record);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(true);
+    };
+    transaction.onerror = () => {
+      const error = transaction.error || new Error("Large browser storage write failed.");
+      db.close();
+      reject(error);
+    };
+    transaction.onabort = () => {
+      const error = transaction.error || new Error("Large browser storage write was cancelled.");
+      db.close();
+      reject(error);
+    };
+  }));
+}
+
+function readLatestErpStateIndexedDb() {
+  if (!browserHasIndexedDb()) return Promise.resolve(null);
+  return openErpStateIndexedDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(ERP_STATE_INDEXED_DB_STORE, "readonly");
+    const request = transaction.objectStore(ERP_STATE_INDEXED_DB_STORE).get(ERP_STATE_INDEXED_DB_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error("Large browser storage could not be read."));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      const error = transaction.error || new Error("Large browser storage read failed.");
+      db.close();
+      reject(error);
+    };
+  }));
+}
+
+function queueFullErpStateToIndexedDb(source = state) {
+  if (!browserHasIndexedDb() || !source || typeof source !== "object") return null;
+  erpStateIndexedDbPendingRecord = {
+    id: ERP_STATE_INDEXED_DB_KEY,
+    savedAt: Date.now(),
+    state: structuredClone(source),
+  };
+  if (erpStateIndexedDbWritePromise) return erpStateIndexedDbWritePromise;
+  erpStateIndexedDbWritePromise = (async () => {
+    while (erpStateIndexedDbPendingRecord) {
+      const record = erpStateIndexedDbPendingRecord;
+      erpStateIndexedDbPendingRecord = null;
+      await writeErpStateIndexedDbRecord(record);
+    }
+    return true;
+  })().catch((error) => {
+    console.warn("The full ERP safety copy could not be written to large browser storage.", error);
+    return false;
+  }).finally(() => {
+    erpStateIndexedDbWritePromise = null;
+    if (erpStateIndexedDbPendingRecord) queueFullErpStateToIndexedDb(erpStateIndexedDbPendingRecord.state);
+  });
+  return erpStateIndexedDbWritePromise;
+}
+
+function compactErpStateJson(source = state) {
+  return JSON.stringify(source, (key, value) => {
+    if (typeof value === "string" && /^data:image\//i.test(value)) return undefined;
+    return value;
+  });
+}
+
+function releaseOptionalLocalStorageCopies() {
+  [PRE_CLOUD_RECOVERY_STORAGE_KEY, RECENT_JOB_ORDER_BACKUP_KEY, LOCAL_SYNC_MUTATION_STORAGE_KEY].forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`Optional browser copy ${key} could not be cleared.`, error);
+    }
+  });
+}
+
+async function restoreFullErpStateFromIndexedDb() {
   try {
-    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
+    const record = await readLatestErpStateIndexedDb();
+    if (!record?.state || typeof record.state !== "object") return false;
+    const restored = normalizeState(structuredClone(record.state));
+    if (factoryResetTimestamp(stateFactoryResetAt(state)) > factoryResetTimestamp(stateFactoryResetAt(restored))) return false;
+    const currentProfile = stateBusinessProfile(state);
+    const restoredProfile = stateBusinessProfile(restored);
+    const currentSavedAt = new Date(state.browserSavedAt || 0).getTime() || 0;
+    const restoredSavedAt = Number(record.savedAt || 0);
+    const shouldRestore = stateLoadedFromFallback
+      || restoredSavedAt > currentSavedAt
+      || restoredProfile.score > currentProfile.score;
+    if (!shouldRestore) return false;
+    if (supabaseLastLocalChangeAt > 0) return false;
+    state = restored;
+    stateLoadedFromFallback = false;
+    lastLocallyPersistedState = structuredClone(state);
+    catalogueItems = state.catalogueItems || [];
+    rememberFactoryResetMarker(stateFactoryResetAt(state));
+    if (typeof render === "function") render();
     return true;
   } catch (error) {
-    const context = options.context ? `${options.context} ` : "ERP data ";
-    const detail = String(error?.message || error || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
-    console.error(`${context}could not be saved on this laptop.`, error);
-    setSyncStatus("offline", "Save Failed - Local Storage", detail);
-    if (options.alertOnFailure) {
-      alert(`${context}could not be saved on this laptop. The form has been kept open, and no incomplete job order was created.\n\n${detail}`);
-    }
+    console.warn("The large browser safety copy could not be restored. Normal local and cloud loading will continue.", error);
     return false;
+  }
+}
+
+function persistStateToBrowser(options = {}) {
+  const context = options.context ? `${options.context} ` : "ERP data ";
+  state.browserSavedAt = new Date().toISOString();
+  const indexedDbWrite = queueFullErpStateToIndexedDb(state);
+  try {
+    localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (fullStorageError) {
+    console.warn(`${context}did not fit in small browser storage. Retrying with the compact safety copy.`, fullStorageError);
+    releaseOptionalLocalStorageCopies();
+    try {
+      localStorage.setItem(ERP_STATE_STORAGE_KEY, compactErpStateJson(state));
+      setSyncStatus("saving", "Local Safety: Large Storage", "The complete ERP copy is in large browser storage; the compact local copy and cloud sync remain active.");
+      return true;
+    } catch (compactStorageError) {
+      if (indexedDbWrite) {
+        console.warn(`${context}is using large browser storage because localStorage is full.`, compactStorageError);
+        setSyncStatus("saving", "Local Safety: IndexedDB", "Small browser storage is full. The complete ERP copy is being saved in large browser storage and Supabase.");
+        return true;
+      }
+      const detail = String(compactStorageError?.message || compactStorageError || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
+      console.error(`${context}could not be saved on this laptop.`, compactStorageError);
+      setSyncStatus("offline", "Save Failed - Browser Storage", detail);
+      if (options.alertOnFailure) {
+        alert(`${context}could not be saved on this laptop. The form has been kept open, and no incomplete job order was created.\n\n${detail}`);
+      }
+      return false;
+    }
   }
 }
 
@@ -4082,7 +4241,7 @@ function recordPendingArrayMutations(key, previous = [], current = [], serial) {
 
 function capturePendingSyncMutations(previousState = {}, currentState = {}) {
   if (!previousState || !currentState) return false;
-  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "cloudRecoveryRequired"]);
+  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired"]);
   const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
   const changedKeys = [...keys].filter((key) => !ignoredKeys.has(key) && !syncValuesEqual(previousState[key], currentState[key]));
   if (!changedKeys.length) return false;
@@ -4225,7 +4384,7 @@ function applyPendingSyncMutationsToCloud(cloudState = {}, journal = pendingSync
 function mergeLegacyDirtyState(cloudState = {}, localState = {}) {
   const merged = structuredClone(cloudState || {});
   Object.entries(localState || {}).forEach(([key, localValue]) => {
-    if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "cloudRecoveryRequired"].includes(key)) return;
+    if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired"].includes(key)) return;
     const remoteValue = merged[key];
     if (["nextOrder", "nextJob", "nextProduction", "nextLot"].includes(key)) {
       merged[key] = Math.max(Number(remoteValue || 0), Number(localValue || 0));
@@ -5054,6 +5213,7 @@ function startSupabaseRealtime() {
 
 async function initializeSupabase() {
   if (supabaseIsConnecting) return;
+  await localFullStateRecoveryPromise;
   if (!supabaseSettings.url || !supabaseSettings.anonKey) {
     setSyncStatus("offline", "Sync: Local Only");
     return;
@@ -5322,11 +5482,7 @@ async function syncStateToSupabase(options = {}) {
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
   const updatedAt = new Date().toISOString();
   stampCurrentAppVersion(state, updatedAt);
-  try {
-    localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-  } catch (error) {
-    console.warn("The latest cloud-save timestamp could not be written to browser storage. Cloud synchronization will still continue.", error);
-  }
+  persistStateToBrowser({ context: "Live ERP" });
   let stateToSave = structuredClone(state);
   let mergedConcurrentData = false;
   let error = null;
@@ -5382,11 +5538,7 @@ async function syncStateToSupabase(options = {}) {
   if (supabaseLocalRevision === savingRevision) {
     state = normalizeState(stateToSave);
     lastLocallyPersistedState = structuredClone(state);
-    try {
-      localStorage.setItem("gold-jewellery-erp-state", JSON.stringify(state));
-    } catch (storageError) {
-      console.warn("The merged live ERP was saved to cloud but could not be duplicated in browser storage.", storageError);
-    }
+    persistStateToBrowser({ context: "Merged live ERP" });
     if (mergedConcurrentData) render();
   }
   runPostCloudMigrations();
