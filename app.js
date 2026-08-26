@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v516";
+const APP_VERSION = "v518";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -16363,8 +16363,8 @@ function transferBagItemRow(item, index) {
 async function jobOrderPrintHtml(order, orders, options = {}) {
   const printableItems = await Promise.all(orders.map(async (item) => {
     const design = findById("designs", item.designId);
-    const imageData = await getJobBagDesignImage(design);
-    return { item, design, imageData };
+    const designImages = await getJobBagDesignImages(design);
+    return { item, design, ...designImages };
   }));
   const groupedItems = groupBagPrintItems(printableItems);
   const selectedGroups = options.onlyOrderId
@@ -16372,22 +16372,36 @@ async function jobOrderPrintHtml(order, orders, options = {}) {
     : groupedItems;
   const printableGroups = selectedGroups.length ? selectedGroups : groupedItems;
   const itemsPerPage = Number(options.itemsPerPage || 4);
+  const printPanels = printableGroups.flatMap((entry) => [
+    { type: "job-bag", entry },
+    { type: "main-image", entry },
+  ]);
   return `
     <div class="print-items">
-      ${chunkPrintItems(printableGroups, itemsPerPage).map((pageItems) => `
+      ${chunkPrintItems(printPanels, itemsPerPage).map((pageItems) => `
         <section class="print-page">
-          ${pageItems.map((entry) => printJobItemHtml(order, entry)).join("")}
+          ${pageItems.map((panel) => panel.type === "main-image"
+            ? printJobMainImagePageHtml(order, panel.entry)
+            : printJobItemHtml(order, panel.entry)).join("")}
         </section>
       `).join("")}
     </div>
   `;
 }
 
-async function getJobBagDesignImage(design) {
-  if (!design?.id) return design?.imageData || "";
-  const croppedDesignImage = await getDesignImage(design.id).catch(() => design.imageData || "");
-  if (croppedDesignImage) return croppedDesignImage;
-  return getDesignMasterImage(design.id).catch(() => design.imageData || "");
+async function getJobBagDesignImages(design) {
+  const legacyImage = design?.imageData || "";
+  if (!design?.id) {
+    return { mainImageData: legacyImage, currentImageData: legacyImage };
+  }
+  const [savedMainImage, savedCurrentImage] = await Promise.all([
+    getDesignMasterImage(design.id).catch(() => ""),
+    getDesignImage(design.id).catch(() => ""),
+  ]);
+  return {
+    mainImageData: savedMainImage || legacyImage || savedCurrentImage,
+    currentImageData: savedCurrentImage || legacyImage || savedMainImage,
+  };
 }
 
 function chunkPrintItems(items, size = 4) {
@@ -16635,7 +16649,7 @@ function combinedCbPrintItem(items) {
 function printJobItemHtml(job, entry) {
   const bagItems = entry.items || [entry.item].filter(Boolean);
   const order = combinedBagPrintItem(bagItems);
-  const { design, imageData } = entry;
+  const { design, currentImageData } = entry;
   const designName = order.designNumber || (design ? designText(design) : "") || "-";
   const jobNumber = job.jobNumber || job.productionNo || job.number;
   const customerName = order.customer || job.customer || "";
@@ -16658,7 +16672,7 @@ function printJobItemHtml(job, entry) {
       </div>
       <div class="print-card-body">
         <div class="print-design-image">
-          ${imageData ? `<img src="${imageData}" alt="${escapeHtml(designName)}">` : "<span>No Image</span>"}
+          ${currentImageData ? `<img src="${escapeHtml(currentImageData)}" alt="${escapeHtml(`${designName} current image`)}">` : "<span>No Current Image</span>"}
         </div>
         <div class="print-job-details">
           <div class="print-detail-grid">
@@ -16686,6 +16700,26 @@ function printJobItemHtml(job, entry) {
             </div>
           </div>
         `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function printJobMainImagePageHtml(job, entry) {
+  const bagItems = entry.items || [entry.item].filter(Boolean);
+  const order = combinedBagPrintItem(bagItems);
+  const { design, mainImageData } = entry;
+  const designName = order.designNumber || (design ? designText(design) : "") || "-";
+  const jobNumber = job.jobNumber || job.productionNo || job.number || "-";
+  const productionLabel = order.productionNo || order.number || "-";
+  return `
+    <article class="print-job-main-image-page">
+      <div class="print-main-image-reference">
+        <strong>${escapeHtml(designName)}</strong>
+        <span>Job ${escapeHtml(jobNumber)} / ${escapeHtml(productionLabel)}</span>
+      </div>
+      <div class="print-main-image-full">
+        ${mainImageData ? `<img src="${escapeHtml(mainImageData)}" alt="${escapeHtml(`${designName} main upload`)}">` : "<span>No Main Upload</span>"}
       </div>
     </article>
   `;

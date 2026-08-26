@@ -6314,6 +6314,71 @@ body.measuring-transfer-bag .global-print-area {
   overflow: hidden;
 }
 
+.print-job-main-image-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 2mm;
+  width: 105mm;
+  height: 148.5mm;
+  min-height: 148.5mm;
+  padding: 4mm;
+  border: 1px solid #111827;
+  box-sizing: border-box;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  background: #fff;
+  color: #111827;
+}
+
+.print-main-image-reference {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3mm;
+  min-width: 0;
+  padding-bottom: 1.5mm;
+  border-bottom: 1px solid #111827;
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.print-main-image-reference strong,
+.print-main-image-reference span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.print-main-image-reference span {
+  color: #4b5563;
+  font-size: 7.5px;
+  text-align: right;
+}
+
+.print-main-image-full {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.print-main-image-full img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
 .print-card-head {
   display: flex;
   justify-content: space-between;
