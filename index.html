@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=521">
+  <link rel="stylesheet" href="styles.css?v=522">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v521</small>
+          <small class="app-version-badge">App v522</small>
           </div>
         </div>
         <label>User
@@ -107,16 +107,24 @@
           <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
         </div>
         <div class="top-actions">
+          <div class="top-action-group job-card-search-group" aria-label="Job Card search">
+            <label class="global-scan-label job-card-search-label" for="header-job-card-search">
+              <span>Job Card Search</span>
+              <input id="header-job-card-search" class="global-barcode-input job-card-search-input" placeholder="JOB-1667 or 1667" autocomplete="off" aria-describedby="job-card-search-status">
+            </label>
+            <button id="open-header-job-card" class="job-card-search-button" type="button">Open Job Card</button>
+            <small id="job-card-search-status" class="scan-status job-card-search-status">Enter Job Card No</small>
+          </div>
           <div class="top-action-group scanner-group" aria-label="Barcode and QR scanner">
             <label class="global-scan-label">
-              <span>Search Job Card / Scan Product</span>
-              <input id="global-barcode-scan" class="global-barcode-input" placeholder="Job Card / PR / HUID / Barcode / QR" autocomplete="off">
+              <span>Scan Product</span>
+              <input id="global-barcode-scan" class="global-barcode-input" placeholder="PR / HUID / Barcode / QR" autocomplete="off">
             </label>
             <button id="focus-barcode-scan" class="ghost-button" type="button">Camera Scan</button>
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v521</span>
+          <span class="app-version-badge">App v522</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2648,6 +2656,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=521"></script>
+  <script src="app.js?v=522"></script>
 </body>
 </html>

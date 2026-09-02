@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v521";
+const APP_VERSION = "v522";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -326,6 +326,7 @@ let catalogueImageCache = new Map();
 let barcodeScanBuffer = "";
 let barcodeScanLastInputAt = 0;
 let barcodeScanStatusTimer = null;
+let jobCardSearchStatusTimer = null;
 let phoneBarcodeScanner = null;
 let phoneBarcodeScannerActive = false;
 let phoneBarcodeScanSession = 0;
@@ -1512,6 +1513,11 @@ orderBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydown
 const globalBarcodeScanInput = document.getElementById("global-barcode-scan");
 globalBarcodeScanInput?.addEventListener("change", handleBarcodeScanField);
 globalBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydown);
+
+const headerJobCardSearchInput = document.getElementById("header-job-card-search");
+headerJobCardSearchInput?.addEventListener("keydown", handleHeaderJobCardSearchKeydown);
+
+document.getElementById("open-header-job-card")?.addEventListener("click", openHeaderJobCardSearch);
 
 document.getElementById("focus-barcode-scan")?.addEventListener("click", () => {
   openPhoneBarcodeScanner();
@@ -3866,7 +3872,7 @@ function readOnlyButtonAllowed(button) {
   if (!isReadOnlyUser()) return true;
   if (!button) return true;
   if (button.closest("#login-form")) return true;
-  if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan") return true;
+  if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan" || button.id === "open-header-job-card") return true;
   if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button")) return true;
   if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-moti-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
   const onclick = String(button.getAttribute("onclick") || "").trim();
@@ -3879,7 +3885,7 @@ function readOnlyFieldAllowed(control) {
   if (!isReadOnlyUser()) return true;
   if (!control) return true;
   if (control.closest("#login-form")) return true;
-  if (control.id === "global-barcode-scan" || control.id === "barcode-scan") return true;
+  if (control.id === "global-barcode-scan" || control.id === "barcode-scan" || control.id === "header-job-card-search") return true;
   if (control.matches(".search, [type='search']")) return true;
   return false;
 }
@@ -7999,6 +8005,54 @@ function handleBarcodeScanFieldKeydown(event) {
   handleBarcodeScanField(event);
 }
 
+function handleHeaderJobCardSearchKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  openHeaderJobCardSearch();
+}
+
+function openHeaderJobCardSearch() {
+  const input = document.getElementById("header-job-card-search");
+  const query = String(input?.value || "").trim();
+  if (!query) {
+    setJobCardSearchStatus("Enter a Job Card number.", "error");
+    input?.focus();
+    return false;
+  }
+  if (!currentUser) {
+    setJobCardSearchStatus("Login before opening a Job Card.", "error");
+    return false;
+  }
+  const order = findJobCardByExactSearch(query);
+  if (!order) {
+    setJobCardSearchStatus(`Job Card ${query} not found.`, "error");
+    input?.focus();
+    return false;
+  }
+  if (!canOpenScannedJobDetails()) {
+    setJobCardSearchStatus("This login cannot open Job Order details.", "error");
+    return false;
+  }
+  const result = openWholeJobCardFromHeaderSearch(order);
+  setJobCardSearchStatus(`Opened ${order.jobNumber || query}.`, "success");
+  if (input) input.value = "";
+  return result.ok;
+}
+
+function setJobCardSearchStatus(message, mode = "") {
+  const node = document.getElementById("job-card-search-status");
+  if (!node) return;
+  node.textContent = message || "Enter Job Card No";
+  node.className = ["scan-status", "job-card-search-status", mode].filter(Boolean).join(" ");
+  clearTimeout(jobCardSearchStatusTimer);
+  if (mode) {
+    jobCardSearchStatusTimer = setTimeout(() => {
+      node.textContent = "Enter Job Card No";
+      node.className = "scan-status job-card-search-status";
+    }, 4500);
+  }
+}
+
 function handleHardwareBarcodeScan(event) {
   if (event.defaultPrevented || !currentUser) return;
   if (isBarcodeTypingTarget(event.target)) return;
@@ -8024,7 +8078,7 @@ function handleHardwareBarcodeScan(event) {
 
 function isBarcodeTypingTarget(target) {
   if (!target) return false;
-  if (target.closest?.("#global-barcode-scan, #barcode-scan")) return true;
+  if (target.closest?.("#global-barcode-scan, #barcode-scan, #header-job-card-search")) return true;
   if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return true;
   return Boolean(target.isContentEditable);
 }
