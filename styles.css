@@ -6168,7 +6168,7 @@ dialog::backdrop {
 }
 
 .production-stone-dialog {
-  width: min(1180px, 96vw);
+  width: min(1540px, 98vw);
 }
 
 .production-stone-target-panel {
@@ -6217,6 +6217,102 @@ dialog::backdrop {
   font-size: 20px;
   line-height: 1;
   white-space: nowrap;
+}
+
+.production-stone-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 370px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-height: 0;
+}
+
+.production-stone-chart-panel {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 10px;
+  max-height: 68vh;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #c9ddd7;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.production-stone-chart-panel.has-chart {
+  border-color: #68b19e;
+  background: #f2fbf7;
+}
+
+.production-stone-chart-heading {
+  display: grid;
+  gap: 3px;
+}
+
+.production-stone-chart-heading strong {
+  color: var(--brand-dark);
+  font-size: 15px;
+}
+
+.production-stone-chart-heading span {
+  color: #536a65;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.production-stone-chart-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.production-stone-chart-card {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #cbded8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.production-stone-chart-card figcaption,
+.production-stone-chart-card > strong {
+  color: #164f42;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.production-stone-chart-card > span {
+  color: #667a75;
+  font-size: 11px;
+  text-align: center;
+}
+
+.production-stone-chart-card img {
+  display: block;
+  width: 100%;
+  max-height: 56vh;
+  object-fit: contain;
+  object-position: center;
+  border: 1px solid #d9e4e1;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.production-stone-chart-empty {
+  display: grid;
+  min-height: 190px;
+  place-items: center;
+  padding: 18px;
+  border: 1px dashed #b7cbc5;
+  border-radius: 8px;
+  color: #60746e;
+  background: #ffffff;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
 }
 
 .production-stone-dialog .design-stone-details {
@@ -6278,6 +6374,29 @@ dialog::backdrop {
 @media (max-width: 720px) {
   .production-additional-stone-weight {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1050px) {
+  .production-stone-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .production-stone-chart-panel {
+    position: static;
+    max-height: none;
+  }
+
+  .production-stone-chart-preview {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .production-stone-chart-card img {
+    max-height: 340px;
+  }
+
+  .production-stone-dialog .design-stone-details {
+    max-height: 58vh;
   }
 }
 

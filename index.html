@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=523">
+  <link rel="stylesheet" href="styles.css?v=524">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v523</small>
+          <small class="app-version-badge">App v524</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v523</span>
+          <span class="app-version-badge">App v524</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1906,7 +1906,18 @@
           </label>
           <small>Enter only the directly added stone weight for the current PR. Leave blank or enter zero when none is added.</small>
         </section>
-        <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
+        <section class="production-stone-workspace">
+          <aside id="production-stone-chart-panel" class="production-stone-chart-panel">
+            <div class="production-stone-chart-heading">
+              <strong>Cropped Stone Chart</strong>
+              <span id="production-stone-chart-status">Select a product to load its chart.</span>
+            </div>
+            <div id="production-stone-chart-preview" class="production-stone-chart-preview">
+              <div class="production-stone-chart-empty">No cropped stone chart loaded.</div>
+            </div>
+          </aside>
+          <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
+        </section>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="add-production-stone-row">Add Regular Stone Row</button>
           <button class="ghost-button" type="button" id="refresh-production-stone-master">Get Stone Data From Stone Master</button>
@@ -2656,6 +2667,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=523"></script>
+  <script src="app.js?v=524"></script>
 </body>
 </html>

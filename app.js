@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v523";
+const APP_VERSION = "v524";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -14160,7 +14160,81 @@ function openProductionStoneEntry(orderId) {
   document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || ""} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
   renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
+  void renderProductionStoneChart(order);
   document.getElementById("production-stone-dialog").showModal();
+}
+
+function productionStoneChartKeysForOrder(design = null, order = {}) {
+  if (!design) return [];
+  const availableKeys = designStoneChartItemKeys(design)
+    .map(normalizeStoneItemKey)
+    .filter((key, index, keys) => key && key !== DEFAULT_STONE_ITEM_KEY && keys.indexOf(key) === index);
+  if (!availableKeys.length) return [];
+  const requestedKeys = [
+    ...orderStoneItemKeys(order),
+    ...productionStoneItemsForOrder(order).map((item) => item.itemKey),
+  ]
+    .map(normalizeStoneItemKey)
+    .filter((key, index, keys) => key && key !== DEFAULT_STONE_ITEM_KEY && keys.indexOf(key) === index);
+  const matchingKeys = requestedKeys.filter((key) => availableKeys.includes(key));
+  if (matchingKeys.length) return matchingKeys;
+  if (availableKeys.length === 1) return availableKeys;
+  const defaultKey = normalizeStoneItemKey(defaultStoneItemKeyForDesign(design));
+  if (availableKeys.includes(defaultKey)) return [defaultKey];
+  return availableKeys;
+}
+
+async function renderProductionStoneChart(order = {}) {
+  const panel = document.getElementById("production-stone-chart-panel");
+  const preview = document.getElementById("production-stone-chart-preview");
+  const status = document.getElementById("production-stone-chart-status");
+  if (!panel || !preview || !status) return;
+  const design = productionStoneDesignForOrder(order);
+  const requestedKeys = orderStoneItemKeys(order).map(stoneItemInputValue).filter(Boolean);
+  const loadToken = `${order.id || ""}-${Date.now()}`;
+  panel.dataset.loadToken = loadToken;
+  panel.classList.remove("has-chart");
+  if (!design) {
+    status.textContent = "No matching Design Master record";
+    preview.innerHTML = '<div class="production-stone-chart-empty">No cropped stone chart is available for this product.</div>';
+    return;
+  }
+  const chartKeys = productionStoneChartKeysForOrder(design, order);
+  if (!chartKeys.length) {
+    status.textContent = requestedKeys.length ? `Required: ${requestedKeys.join(" + ")}` : "No cropped chart saved";
+    preview.innerHTML = `<div class="production-stone-chart-empty">No cropped stone chart is saved for ${escapeHtml(requestedKeys.join(" + ") || designText(design))}. Add the crop in Design Master to verify it here.</div>`;
+    return;
+  }
+  status.textContent = `Loading ${chartKeys.map(stoneItemInputValue).join(" + ")}...`;
+  preview.innerHTML = chartKeys.map((key) => `
+    <article class="production-stone-chart-card is-loading">
+      <strong>${escapeHtml(stoneItemInputValue(key))}</strong>
+      <span>Loading cropped chart...</span>
+    </article>
+  `).join("");
+  const charts = await Promise.all(chartKeys.map(async (itemKey) => ({
+    itemKey,
+    imageData: await getStoneChartImage(design.id, itemKey).catch(() => ""),
+  })));
+  if (panel.dataset.loadToken !== loadToken) return;
+  const availableCharts = charts.filter((chart) => chart.imageData);
+  if (!availableCharts.length) {
+    status.textContent = "Cropped chart could not be loaded";
+    preview.innerHTML = '<div class="production-stone-chart-empty">The cropped stone chart is marked in Design Master but its image is not available on this device. Check image cloud sync and reopen Product Stone Entry.</div>';
+    return;
+  }
+  const exactKeys = orderStoneItemKeys(order).map(normalizeStoneItemKey);
+  const exactMatch = availableCharts.some((chart) => exactKeys.includes(chart.itemKey));
+  status.textContent = exactMatch
+    ? `Matched: ${availableCharts.map((chart) => stoneItemInputValue(chart.itemKey)).join(" + ")}`
+    : `Saved crop${availableCharts.length === 1 ? "" : "s"}: ${availableCharts.map((chart) => stoneItemInputValue(chart.itemKey)).join(" + ")}`;
+  panel.classList.add("has-chart");
+  preview.innerHTML = availableCharts.map((chart) => `
+    <figure class="production-stone-chart-card">
+      <figcaption>${escapeHtml(stoneItemInputValue(chart.itemKey))} Cropped Stone Chart</figcaption>
+      <img src="${escapeHtml(chart.imageData)}" alt="${escapeHtml(`${designText(design)} ${stoneItemInputValue(chart.itemKey)} cropped stone chart`)}">
+    </figure>
+  `).join("");
 }
 
 function matchingDesignJobOrders(order = {}) {
