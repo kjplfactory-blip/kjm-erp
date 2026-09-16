@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v524";
+const APP_VERSION = "v525";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -23521,36 +23521,78 @@ async function openDesignDetail(designId) {
   }
 }
 
+function designDetailStoneRowWeight(item = {}) {
+  return Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0));
+}
+
+function designDetailStoneItemKey(item = {}, design = null) {
+  const key = normalizeStoneItemKey(item.itemKey || DEFAULT_STONE_ITEM_KEY);
+  return key === DEFAULT_STONE_ITEM_KEY ? defaultStoneItemKeyForDesign(design) : key;
+}
+
+function designDetailStoneGroups(design = null, items = []) {
+  const fallbackKey = defaultStoneItemKeyForDesign(design);
+  const keys = [
+    ...normalizeDesignItemKeys(design?.itemKeys || [], design?.category || ""),
+    ...designStoneChartItemKeys(design || {}),
+    ...items.map((item) => designDetailStoneItemKey(item, design)),
+  ]
+    .map((key) => normalizeStoneItemKey(key === DEFAULT_STONE_ITEM_KEY ? fallbackKey : key))
+    .filter((key, index, list) => key && list.indexOf(key) === index);
+  if (!keys.length) keys.push(normalizeStoneItemKey(fallbackKey || "ITEM"));
+  const groups = new Map(keys.map((key) => [key, []]));
+  items.forEach((item) => {
+    const key = designDetailStoneItemKey(item, design);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  return [...groups].map(([itemKey, groupItems]) => ({ itemKey, items: groupItems }));
+}
+
 function renderDesignDetailStoneRows(design) {
   const items = Array.isArray(design?.stoneItems) ? design.stoneItems : [];
   const container = document.getElementById("design-detail-stone-list");
   const summary = document.getElementById("design-detail-stone-summary");
-  const totalPcs = items.reduce((total, item) => total + Number(item.pcs || 0), 0);
-  const totalWeight = items.reduce((total, item) => {
-    const rowWeight = Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0));
-    return total + rowWeight;
-  }, 0);
-  summary.textContent = items.length
-    ? `${items.length} row${items.length === 1 ? "" : "s"} / ${totalPcs} pcs / ${weight5(totalWeight)} g`
-    : "No stone details saved";
-  container.innerHTML = items.length
-    ? items.map((item, index) => `
-      <article class="design-detail-stone-row">
-        <div class="design-detail-stone-row-title">
-          <strong>${escapeHtml(stoneItemInputValue(item.itemKey || DEFAULT_STONE_ITEM_KEY))}</strong>
-          <span>${escapeHtml(item.code || stoneLookupCode(item) || `Stone ${index + 1}`)}</span>
+  const groups = designDetailStoneGroups(design, items);
+  summary.textContent = `${groups.length} item${groups.length === 1 ? "" : "s"} / ${items.length} stone row${items.length === 1 ? "" : "s"}`;
+  container.innerHTML = groups.map((group) => {
+    const totals = group.items.reduce((total, item) => ({
+      pcs: total.pcs + Number(item.pcs || 0),
+      weight: total.weight + designDetailStoneRowWeight(item),
+    }), { pcs: 0, weight: 0 });
+    return `
+      <section class="design-detail-stone-item-group">
+        <div class="design-detail-stone-item-heading">
+          <div class="design-detail-stone-item-name">
+            <strong>${escapeHtml(stoneItemInputValue(group.itemKey))}</strong>
+            <span>${group.items.length} stone row${group.items.length === 1 ? "" : "s"}</span>
+          </div>
+          <div class="design-detail-stone-item-totals" aria-label="${escapeHtml(stoneItemInputValue(group.itemKey))} stone totals">
+            <span><small>No. Pcs</small><strong>${escapeHtml(totals.pcs)}</strong></span>
+            <span><small>Total Weight</small><strong>${escapeHtml(weight5(totals.weight))} g</strong></span>
+          </div>
         </div>
-        <div class="design-detail-stone-values">
-          <div><span>Type</span><strong>${escapeHtml(item.stoneType || "-")}</strong></div>
-          <div><span>Shape</span><strong>${escapeHtml(item.shape || "-")}</strong></div>
-          <div><span>Size</span><strong>${escapeHtml(item.size || "-")}</strong></div>
-          <div><span>Pcs</span><strong>${escapeHtml(item.pcs || "0")}</strong></div>
-          <div><span>Wt/Pc</span><strong>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")} g</strong></div>
-          <div><span>Total</span><strong>${escapeHtml(weight5(Number(item.totalWeight || 0) || (Number(item.weightPerPc || 0) * Number(item.pcs || 0))))} g</strong></div>
+        <div class="design-detail-stone-item-rows">
+          ${group.items.length ? group.items.map((item, index) => `
+            <article class="design-detail-stone-row">
+              <div class="design-detail-stone-row-title">
+                <strong>${escapeHtml(item.code || stoneLookupCode(item) || `Stone ${index + 1}`)}</strong>
+                <span>Stone ${index + 1}</span>
+              </div>
+              <div class="design-detail-stone-values">
+                <div><span>Type</span><strong>${escapeHtml(item.stoneType || "-")}</strong></div>
+                <div><span>Shape</span><strong>${escapeHtml(item.shape || "-")}</strong></div>
+                <div><span>Size</span><strong>${escapeHtml(item.size || "-")}</strong></div>
+                <div><span>Pcs</span><strong>${escapeHtml(item.pcs || "0")}</strong></div>
+                <div><span>Wt/Pc</span><strong>${escapeHtml(formatStoneWeight(item.weightPerPc) || "-")} g</strong></div>
+                <div><span>Total</span><strong>${escapeHtml(weight5(designDetailStoneRowWeight(item)))} g</strong></div>
+              </div>
+            </article>
+          `).join("") : `<div class="design-detail-stone-item-empty">No stone details saved for ${escapeHtml(stoneItemInputValue(group.itemKey))}.</div>`}
         </div>
-      </article>
-    `).join("")
-    : '<div class="empty">Add or read the stone chart to show stone details here.</div>';
+      </section>
+    `;
+  }).join("");
 }
 
 function renderDesignDetailMotiRows(design) {

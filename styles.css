@@ -4085,12 +4085,98 @@ th {
 
 .design-detail-stone-list {
   display: grid;
-  gap: 7px;
-  max-height: 34vh;
+  gap: 11px;
+  max-height: 48vh;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+}
+
+.design-detail-stone-item-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #9fcfc2;
+  border-radius: 8px;
+  background: #f4fbf8;
+  box-shadow: 0 3px 10px rgba(20, 83, 70, 0.06);
+}
+
+.design-detail-stone-item-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #d2e8e1;
+}
+
+.design-detail-stone-item-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.design-detail-stone-item-name > strong {
+  color: var(--brand-dark);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.design-detail-stone-item-name > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.design-detail-stone-item-totals {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.design-detail-stone-item-totals > span {
+  display: grid;
+  gap: 2px;
+  min-width: 86px;
+  padding: 6px 8px;
+  border: 1px solid #b9dcd2;
+  border-radius: 7px;
+  background: #ffffff;
+  text-align: right;
+}
+
+.design-detail-stone-item-totals small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.design-detail-stone-item-totals strong {
+  color: #0f5a47;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.design-detail-stone-item-rows {
+  display: grid;
+  gap: 7px;
+}
+
+.design-detail-stone-item-empty {
+  padding: 14px;
+  border: 1px dashed #c4d9d3;
+  border-radius: 7px;
+  color: #667a75;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .design-detail-stone-row {
@@ -4101,6 +4187,22 @@ th {
   border: 1px solid #dce9e5;
   border-radius: 7px;
   background: #f8fcfa;
+}
+
+@media (max-width: 560px) {
+  .design-detail-stone-item-heading {
+    display: grid;
+  }
+
+  .design-detail-stone-item-totals {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .design-detail-stone-item-totals > span {
+    flex: 1;
+    text-align: left;
+  }
 }
 
 .design-detail-stone-row-title {
