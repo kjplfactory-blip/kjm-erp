@@ -5439,7 +5439,7 @@ dialog::backdrop {
 
 .bill-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -5504,22 +5504,22 @@ dialog::backdrop {
 
 .bill-item-table th:first-child,
 .bill-item-table td:first-child {
-  width: 17%;
+  width: 15%;
 }
 
 .bill-item-table th:nth-child(2),
 .bill-item-table td:nth-child(2) {
-  width: 7%;
+  width: 6%;
 }
 
 .bill-item-table th:nth-child(3),
 .bill-item-table td:nth-child(3) {
-  width: 8%;
+  width: 7%;
 }
 
 .bill-item-table th:nth-child(4),
 .bill-item-table td:nth-child(4) {
-  width: 34%;
+  width: 33%;
 }
 
 .bill-item-table th:nth-child(5),
@@ -5530,7 +5530,7 @@ dialog::backdrop {
 .bill-item-table td:nth-child(7),
 .bill-item-table th:nth-child(8),
 .bill-item-table td:nth-child(8) {
-  width: 8.5%;
+  width: 9.75%;
 }
 
 .transfer-entry-table th,
@@ -5771,7 +5771,7 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-totals {
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 3px !important;
   top: 0;
   padding: 2px 0 3px;
@@ -6037,6 +6037,20 @@ dialog::backdrop {
   color: #5c4200;
   font-size: 12px;
   font-weight: 900;
+}
+
+#bill-dialog input[name="billWastagePercent"] {
+  border-color: #d5a91d;
+  background: #fff5bd;
+  color: #594000;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+#bill-dialog input[name="billWastagePercent"].mixed-wastage {
+  border-color: #b3c4c0;
+  background: #f5f8f7;
+  color: #536a65;
 }
 
 #bill-dialog input[name="billItemSize"] {
@@ -8025,7 +8039,7 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .packing-list-document .bill-print-total-grid {
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(11, minmax(0, 1fr));
   gap: 4px;
 }
 

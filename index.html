@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=536">
+  <link rel="stylesheet" href="styles.css?v=539">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v536</small>
+          <small class="app-version-badge">App v539</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v536</span>
+          <span class="app-version-badge">App v539</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1996,6 +1996,7 @@
         <div class="bill-fields">
           <label>Bill No <input name="billNo" required></label>
           <label>Bill Date <input name="billDate" type="date" required></label>
+          <label class="bill-wastage-field">Bill Wastage (%) <input name="billWastagePercent" type="number" min="0" step="0.01" placeholder="Apply to all items"></label>
           <label>Remarks <input name="remarks" placeholder="Bill remarks"></label>
         </div>
         <div id="bill-totals" class="bill-totals"></div>
@@ -2022,7 +2023,7 @@
             </thead>
             <tbody id="bill-item-table"></tbody>
           </table>
-          <p class="dialog-note">Stone Wt is automatic from job card stone data. BB Wt = BB No x BB Type weight per pc. Net Wt = Final GW - BB Wt - Moti Wt - Stone Wt - Spring Wt - Other Wt.</p>
+          <p class="dialog-note">Stone Wt is automatic from job card stone data. Net Wt = Final GW - total non-gold. The Bill Wastage (%) above applies to the complete Bill, and Fine Wt = Net Wt x (Purity % + Wastage %).</p>
         </div>
         <div id="bill-design-hover-preview" class="bill-design-hover-preview hidden" role="tooltip" aria-hidden="true">
           <div class="bill-design-hover-heading">
@@ -2712,6 +2713,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=536"></script>
+  <script src="app.js?v=539"></script>
 </body>
 </html>

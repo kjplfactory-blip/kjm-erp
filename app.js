@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v536";
+const APP_VERSION = "v539";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2907,8 +2907,8 @@ document.getElementById("cancel-production-return")?.addEventListener("click", (
   document.getElementById("production-return-dialog")?.close();
 });
 
-document.getElementById("bill-form").addEventListener("input", updateBillAmount);
-document.getElementById("bill-form").addEventListener("change", updateBillAmount);
+document.getElementById("bill-form").addEventListener("input", handleBillAmountChange);
+document.getElementById("bill-form").addEventListener("change", handleBillAmountChange);
 
 document.getElementById("bill-form").addEventListener("pointerover", (event) => {
   const button = event.target.closest?.("[data-bill-design-preview]");
@@ -3011,7 +3011,12 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     return null;
   }
   const items = billItemRows(existingBill.items || []);
-  const netWeight = items.reduce((total, item) => total + Number(item.netWeight || 0), 0);
+  const totals = billTotals(items);
+  const netWeight = totals.netWeight;
+  const effectiveWastagePercent = netWeight > 0
+    ? factoryWstgPercent((totals.wastageFineWeight / netWeight) * 100)
+    : 0;
+  const commonWastagePercent = billCommonWastagePercent(items);
   const nonGoldStockAdjustment = buildBillNonGoldStockAdjustment(items, existingBill, data.billNo, data.billDate);
   const bill = {
     id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
@@ -3027,10 +3032,17 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     items,
     nonGoldStockAdjustment,
     netWeight,
+    baseFineWeight: totals.baseFineWeight,
+    wastageFineWeight: totals.wastageFineWeight,
+    fineWeight: totals.fineWeight,
+    billWastagePercent: commonWastagePercent === "" ? null : commonWastagePercent,
+    effectiveWastagePercent,
     makingGold: 0,
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
-    factoryOutWstgPercent: factoryWstgPercent(existingBill.factoryOutWstgPercent || 0),
+    factoryOutWstgPercent: isBillFactoryOutPosted(existingBill)
+      ? factoryWstgPercent(existingBill.factoryOutWstgPercent || 0)
+      : effectiveWastagePercent,
     factoryOutPostedAt: existingBill.factoryOutPostedAt || "",
     factoryOutUpdatedAt: existingBill.factoryOutUpdatedAt || "",
     remarks: data.remarks || "",
@@ -16120,7 +16132,7 @@ function billPrintHtml(lot, bill) {
   const totals = billTotals(items);
   const customer = billPrintCustomer(orders);
   const purityText = [...new Set(items.map((item) => item.purity).filter(Boolean))].join(", ") || "-";
-  const fineWeight = items.reduce((sum, item) => sum + fineGoldWeight(item.netWeight, item.purity || item.order?.purity || 0), 0);
+  const wastageRate = billWastageRateLabel(items);
   return `
     <section class="bill-print-document small-bill-document one-page-bill-document">
       <header class="bill-sample-header">
@@ -16161,7 +16173,7 @@ function billPrintHtml(lot, bill) {
           </tr>
         </thead>
         <tbody>
-          ${billWeightCategoryRows(totals, lot, fineWeight).map((row, index) => `
+          ${billWeightCategoryRows(totals, lot, items).map((row, index) => `
             <tr class="${row.highlight ? "bill-sample-total-row" : ""}">
               <td>${index + 1}</td>
               <td>${escapeHtml(row.label)}</td>
@@ -16174,7 +16186,7 @@ function billPrintHtml(lot, bill) {
       <section class="bill-weight-summary-line">
         <span><b>Total Non-Gold</b>${gram(totals.reducedWeight)}</span>
         <span><b>Net Wt</b>${gram(totals.netWeight)}</span>
-        <span><b>Wastage</b>${gram(lot.actualWastage || 0)}</span>
+        <span><b>Bill WSTG</b>${escapeHtml(wastageRate)}</span>
         <span><b>Remarks</b>${escapeHtml(bill.remarks || "-")}</span>
       </section>
       <section class="bill-sign-row">
@@ -16186,7 +16198,8 @@ function billPrintHtml(lot, bill) {
   `;
 }
 
-function billWeightCategoryRows(totals = {}, lot = {}, fineWeight = 0) {
+function billWeightCategoryRows(totals = {}, lot = {}, items = []) {
+  const wastageRate = billWastageRateLabel(items);
   return [
     { label: "Gross Weight", value: weight3(totals.finalGw), note: "Total GW" },
     { label: "BB Weight", value: weight3(totals.bbWeight), note: "Black beads" },
@@ -16196,8 +16209,9 @@ function billWeightCategoryRows(totals = {}, lot = {}, fineWeight = 0) {
     { label: "Other Weight", value: weight3(totals.otherNonGoldWeight), note: "Other non-gold" },
     { label: "Total Non-Gold", value: weight3(totals.reducedWeight), note: "BB + Moti + Stone + Spring + Other" },
     { label: "Net Weight", value: weight3(totals.netWeight), note: "GW - Total Non-Gold", highlight: true },
-    { label: "Wastage", value: weight3(lot.actualWastage || 0), note: "Manufacturing wastage" },
-    { label: "Fine Weight", value: weight3(fineWeight), note: "Net by purity", highlight: true },
+    { label: "Mfg. Loss", value: weight3(lot.actualWastage || 0), note: "Production weight loss" },
+    { label: "Bill Wastage Fine", value: weight3(totals.wastageFineWeight), note: `${wastageRate} added on Net Wt` },
+    { label: "Fine Weight", value: weight3(totals.fineWeight), note: "Net x (Purity + Wastage)", highlight: true },
   ];
 }
 
@@ -16242,6 +16256,8 @@ function packingListPrintHtml(lot, bill) {
           ${billPrintTotalCard("Other Wt", gram(totals.otherNonGoldWeight))}
           ${billPrintTotalCard("Total Non-Gold", gram(totals.reducedWeight))}
           ${billPrintTotalCard("Net Wt", gram(totals.netWeight), "highlight")}
+          ${billPrintTotalCard("Wastage Fine", gram(totals.wastageFineWeight))}
+          ${billPrintTotalCard("Fine Wt", gram(totals.fineWeight), "highlight")}
         </div>
       </section>
       <section class="bill-print-section">
@@ -16284,6 +16300,7 @@ function billPrintItem(item = {}, order = {}, index = 0) {
   const finalGw = billNumber(item.finalGw);
   const reducedWeight = billNumber(item.reducedWeight || nonGold.total);
   const netWeight = billNumber(item.netWeight || Math.max(finalGw - reducedWeight, 0));
+  const fine = billItemFineBreakup({ ...item, netWeight, purity: item.purity || order.purity || "18K" }, order);
   return {
     ...item,
     order,
@@ -16309,6 +16326,9 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     otherNonGoldWeight: billNumber(item.otherNonGoldWeight || item.otherWeight || nonGold.otherNonGoldWeight),
     reducedWeight,
     netWeight,
+    wastagePercent: fine.wastagePercent,
+    wastageFineWeight: fine.wastageFineWeight,
+    fineWeight: fine.fineWeight,
   };
 }
 
@@ -28587,6 +28607,11 @@ function openBill(lotId) {
   form.billNo.value = bill.billNo || nextBillNumber();
   form.billDate.value = bill.billDate || isoToday();
   form.remarks.value = bill.remarks || "";
+  const savedCommonWastage = billCommonWastagePercent(bill.items || []);
+  const openingWastagePercent = bill.billWastagePercent
+    ?? (savedCommonWastage === "" ? bill.effectiveWastagePercent : savedCommonWastage)
+    ?? 0;
+  form.elements.billWastagePercent.value = String(factoryWstgPercent(openingWastagePercent));
   const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
   const lockedForUser = isGeneratedBillLockedForCurrentUser(bill);
   document.getElementById("bill-form-title").textContent = qcOnlyMode
@@ -28860,26 +28885,81 @@ function billNonGoldTotalText(item = {}, order = {}) {
   return billWeightText(billItemNonGoldBreakup(item, order).total);
 }
 
-function updateBillAmount() {
+function billItemFineBreakup(item = {}, order = {}) {
+  const netWeight = billNumber(item.netWeight);
+  const purity = item.purity || order.purity || "18K";
+  const wastagePercent = factoryWstgPercent(item.wastagePercent ?? item.wstgPercent ?? 0);
+  const baseFineWeight = fineGoldWeight(netWeight, purity);
+  const wastageFineWeight = Number(weight3(netWeight * (wastagePercent / 100)));
+  const fineWeight = Number(weight3(baseFineWeight + wastageFineWeight));
+  return { netWeight, purity, wastagePercent, baseFineWeight, wastageFineWeight, fineWeight };
+}
+
+function billWastageRateLabel(items = []) {
+  const rates = [...new Set(items
+    .map((item) => factoryWstgPercent(item.wastagePercent ?? item.wstgPercent ?? 0))
+    .filter((value) => value > 0)
+    .map((value) => value.toFixed(2)))];
+  if (!rates.length) return "0.00%";
+  return rates.length === 1 ? `${rates[0]}%` : `Mixed ${rates.join("% / ")}%`;
+}
+
+function billCommonWastagePercent(items = []) {
+  if (!items.length) return 0;
+  const rates = [...new Set(items.map((item) =>
+    factoryWstgPercent(item.wastagePercent ?? item.wstgPercent ?? 0)
+  ))];
+  return rates.length === 1 ? rates[0] : "";
+}
+
+function syncBillWastageField(items = []) {
+  const input = document.querySelector('#bill-form [name="billWastagePercent"]');
+  if (!input) return;
+  const commonPercent = billCommonWastagePercent(items);
+  input.value = commonPercent === "" ? "" : String(commonPercent);
+  input.placeholder = commonPercent === "" ? "Mixed item percentages" : "Apply to all items";
+  input.classList.toggle("mixed-wastage", commonPercent === "");
+}
+
+function applyBillWastageToAllItems(value) {
+  updateBillAmount({ preserveWastageField: true });
+}
+
+function handleBillAmountChange(event) {
+  if (event?.target?.name === "billWastagePercent") {
+    applyBillWastageToAllItems(event.target.value);
+    return;
+  }
+  updateBillAmount();
+}
+
+function updateBillAmount(options = {}) {
   const form = document.getElementById("bill-form");
   if (!form) return;
   const itemRows = billItemRows();
   renderBillTotals(itemRows);
+  if (!options.preserveWastageField) syncBillWastageField(itemRows);
 }
 
 function billTotals(items = []) {
-  return items.reduce((total, item) => ({
-    pieces: total.pieces + 1,
-    finalGw: total.finalGw + billNumber(item.finalGw),
-    bbWeight: total.bbWeight + billNumber(item.blackBeadsWeight || item.bbWeight),
-    motiWeight: total.motiWeight + billNumber(item.motiWeight || item.mmWeight),
-    stoneWeight: total.stoneWeight + billNumber(item.stoneWeight || item.stWeight),
-    springWeight: total.springWeight + billNumber(item.springWeight),
-    otherNonGoldWeight: total.otherNonGoldWeight + billNumber(item.otherNonGoldWeight || item.otherWeight),
-    stockNonGoldAdjustment: total.stockNonGoldAdjustment + nonGoldBreakdownTotal(billAccessoryNonGoldBreakdown(item)),
-    reducedWeight: total.reducedWeight + billNumber(item.reducedWeight),
-    netWeight: total.netWeight + billNumber(item.netWeight),
-  }), {
+  const total = items.reduce((result, item) => {
+    const fine = billItemFineBreakup(item);
+    return {
+      pieces: result.pieces + 1,
+      finalGw: result.finalGw + billNumber(item.finalGw),
+      bbWeight: result.bbWeight + billNumber(item.blackBeadsWeight || item.bbWeight),
+      motiWeight: result.motiWeight + billNumber(item.motiWeight || item.mmWeight),
+      stoneWeight: result.stoneWeight + billNumber(item.stoneWeight || item.stWeight),
+      springWeight: result.springWeight + billNumber(item.springWeight),
+      otherNonGoldWeight: result.otherNonGoldWeight + billNumber(item.otherNonGoldWeight || item.otherWeight),
+      stockNonGoldAdjustment: result.stockNonGoldAdjustment + nonGoldBreakdownTotal(billAccessoryNonGoldBreakdown(item)),
+      reducedWeight: result.reducedWeight + billNumber(item.reducedWeight),
+      netWeight: result.netWeight + billNumber(item.netWeight),
+      baseFineWeight: result.baseFineWeight + fine.baseFineWeight,
+      wastageFineWeight: result.wastageFineWeight + fine.wastageFineWeight,
+      fineWeight: result.fineWeight + fine.fineWeight,
+    };
+  }, {
     pieces: 0,
     finalGw: 0,
     bbWeight: 0,
@@ -28890,7 +28970,11 @@ function billTotals(items = []) {
     stockNonGoldAdjustment: 0,
     reducedWeight: 0,
     netWeight: 0,
+    baseFineWeight: 0,
+    wastageFineWeight: 0,
+    fineWeight: 0,
   });
+  return Object.fromEntries(Object.entries(total).map(([key, value]) => [key, key === "pieces" ? value : Number(weight3(value))]));
 }
 
 function renderBillTotals(items = []) {
@@ -28908,6 +28992,8 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>
     <div class="bill-total-card"><span>Karat-Wise Stock NG Adj. (g)</span><strong>${gram(total.stockNonGoldAdjustment)}</strong></div>
     <div class="bill-total-card highlight"><span>Net Wt (g)</span><strong>${gram(total.netWeight)}</strong></div>
+    <div class="bill-total-card"><span>Wastage Fine (g)</span><strong>${gram(total.wastageFineWeight)}</strong></div>
+    <div class="bill-total-card highlight"><span>Fine Wt (g)</span><strong>${gram(total.fineWeight)}</strong></div>
   `;
 }
 
@@ -29081,6 +29167,7 @@ function renderBillItems(lot, bill = {}) {
 
 function billItemRows(existingItems = []) {
   const canChangeQc = canEditQcStatus();
+  const billWastagePercent = factoryWstgPercent(document.querySelector('#bill-form [name="billWastagePercent"]')?.value || 0);
   return Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]")).map((row) => {
     const existing = existingItems.find((item) => item.orderId === row.dataset.orderId || item.productionNo === row.dataset.productionNo) || {};
     const sizeInput = row.querySelector('[name="billItemSize"]');
@@ -29106,6 +29193,10 @@ function billItemRows(existingItems = []) {
     const otherNonGoldWeight = Number(otherNonGoldWeightInput?.value || 0);
     const reducedWeight = Number(weight3(blackBeadsWeight + motiWeight + stoneWeight + springWeight + otherNonGoldWeight));
     const netWeight = Math.max(finalGw - reducedWeight, 0);
+    const wastagePercent = billWastagePercent;
+    const baseFineWeight = fineGoldWeight(netWeight, row.dataset.purity || "18K");
+    const wastageFineWeight = Number(weight3(netWeight * (wastagePercent / 100)));
+    const fineWeight = Number(weight3(baseFineWeight + wastageFineWeight));
     if (bbWeightInput) bbWeightInput.value = billWeightInputValue(blackBeadsWeight);
     if (stoneWeightInput) stoneWeightInput.value = billWeightInputValue(stoneWeight);
     if (reducedInput) reducedInput.value = weight3(reducedWeight);
@@ -29136,6 +29227,11 @@ function billItemRows(existingItems = []) {
       otherWeight: Number(weight3(otherNonGoldWeight)),
       reducedWeight: Number(weight3(reducedWeight)),
       netWeight: Number(weight3(netWeight)),
+      wastagePercent,
+      wstgPercent: wastagePercent,
+      baseFineWeight: Number(weight3(baseFineWeight)),
+      wastageFineWeight,
+      fineWeight,
       makingPercent: 0,
       makingGold: 0,
       manufacturingMakingPercent: 0,
