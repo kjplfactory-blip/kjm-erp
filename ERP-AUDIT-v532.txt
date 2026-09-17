@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - v532 AUDIT
+Build date: 2026-09-17
+
+REQUEST
+Allow multiple fitting accessories to be added as rows and then save all fittings into the item together.
+
+IMPLEMENTED
+- Added Add Fitting Row to the fitting accessory dialog.
+- Added a Fittings To Add review list.
+- Each pending row shows fitting name, source design/item, stone-row count, pieces, and weight.
+- Pending rows can be removed before the final save.
+- Added Add All Fittings as the single final save action.
+- The same batch workflow works for Design Master items and existing Job Card PR items.
+- Duplicate source design/item combinations are blocked before they can duplicate stone weight.
+- Final validation is atomic: if any queued fitting is unavailable or duplicated, nothing is saved.
+- Successful batches update total stone pieces, stone weight, and slash-separated fitting names together.
+
+DATA AND CLOUD
+- Existing fitting links and copied stone rows remain compatible.
+- Existing ERP data is preserved.
+- No Supabase schema or SQL change is required.

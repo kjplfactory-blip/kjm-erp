@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v525";
+const APP_VERSION = "v533";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -85,6 +85,8 @@ const STONE_ITEM_PRESETS = [
   ["TME", "TME - Ear Rings"],
   ["NS", "NS - Main"],
   ["NSE", "NSE - Ear Rings"],
+  ["CN", "CN - Main"],
+  ["CNE", "CNE - Ear Rings"],
   ["M", "M - Main"],
   ["ME", "ME - Ear Rings"],
   ["MB", "MB - Bracelet"],
@@ -93,8 +95,9 @@ const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
 const PS_ITEM_KEYS = ["PS", "PSE"];
 const TM_ITEM_KEYS = ["TM", "TME"];
 const NS_ITEM_KEYS = ["NS", "NSE"];
+const CN_ITEM_KEYS = ["CN", "CNE"];
 const MM_ITEM_KEYS = ["M", "ME", "MB"];
-const SET_ITEM_KEYS = [...CM_ITEM_KEYS, ...PS_ITEM_KEYS, ...TM_ITEM_KEYS, ...NS_ITEM_KEYS, ...MM_ITEM_KEYS];
+const SET_ITEM_KEYS = [...CM_ITEM_KEYS, ...PS_ITEM_KEYS, ...TM_ITEM_KEYS, ...NS_ITEM_KEYS, ...CN_ITEM_KEYS, ...MM_ITEM_KEYS];
 const SET_ITEM_CATEGORY_KEYS = [...SET_ITEM_KEYS, "MM"];
 const PRODUCTION_NON_GOLD_TYPES = [
   { value: "stone", label: "Stone" },
@@ -3066,6 +3069,28 @@ document.getElementById("close-design-image").addEventListener("click", () => {
 
 document.getElementById("close-design-detail").addEventListener("click", () => {
   document.getElementById("design-detail-dialog").close();
+});
+
+document.getElementById("close-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
+document.getElementById("cancel-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
+document.getElementById("design-fitting-accessory-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "sourceDesignId") renderDesignFittingAccessoryItemOptions();
+  if (event.target.name === "sourceItemKey") updateDesignFittingAccessorySummary();
+});
+document.getElementById("queue-design-fitting-accessory")?.addEventListener("click", queueCurrentFittingAccessory);
+document.getElementById("design-fitting-accessory-pending")?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest("[data-remove-pending-fitting]");
+  if (removeButton) removePendingFittingAccessory(removeButton.dataset.removePendingFitting);
+});
+document.getElementById("design-fitting-accessory-form")?.addEventListener("submit", addDesignFittingAccessory);
+document.getElementById("design-detail-stone-list")?.addEventListener("click", (event) => {
+  const addButton = event.target.closest("[data-add-design-fitting-accessory]");
+  if (addButton) {
+    openDesignFittingAccessoryDialog(addButton.dataset.designId, addButton.dataset.itemKey);
+    return;
+  }
+  const removeButton = event.target.closest("[data-remove-design-fitting-accessory]");
+  if (removeButton) removeDesignFittingAccessory(removeButton.dataset.designId, removeButton.dataset.accessoryId);
 });
 
 document.getElementById("close-design-category").addEventListener("click", () => {
@@ -6710,6 +6735,7 @@ function setItemFamilyKeys(value = "") {
   if (PS_ITEM_KEYS.includes(code)) return PS_ITEM_KEYS;
   if (TM_ITEM_KEYS.includes(code)) return TM_ITEM_KEYS;
   if (NS_ITEM_KEYS.includes(code)) return NS_ITEM_KEYS;
+  if (CN_ITEM_KEYS.includes(code)) return CN_ITEM_KEYS;
   if (code === "MM" || MM_ITEM_KEYS.includes(code)) return MM_ITEM_KEYS;
   return [];
 }
@@ -6727,7 +6753,7 @@ function setItemFieldLabel(value = "") {
 
 function designOrderCmKeys(design = null, category = "") {
   const familyKeys = setItemFamilyKeys(design?.category || category);
-  if (familyKeys === NS_ITEM_KEYS) return NS_ITEM_KEYS;
+  if (familyKeys === NS_ITEM_KEYS || familyKeys === CN_ITEM_KEYS) return familyKeys;
   const keys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
     .filter((key) => familyKeys.includes(key));
   return [...new Set(keys)].length ? [...new Set(keys)] : familyKeys;
@@ -7439,6 +7465,7 @@ function defaultDesignItemKeysForCategory(category = "") {
   if (PS_ITEM_KEYS.includes(code)) return ["PS", "PSE"];
   if (TM_ITEM_KEYS.includes(code)) return ["TM", "TME"];
   if (NS_ITEM_KEYS.includes(code)) return ["NS", "NSE"];
+  if (CN_ITEM_KEYS.includes(code)) return ["CN", "CNE"];
   if (code === "MM" || MM_ITEM_KEYS.includes(code)) return ["M", "ME", "MB"];
   if (["LR", "GR", "RING", "RINGS"].includes(code)) return ["LR", "GR"];
   return [];
@@ -12860,7 +12887,7 @@ function renderJobItemsDetail(orders) {
             </label>
             <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
               <strong>${escapeHtml(order.productionNo || order.number)}</strong>
-              <span>${escapeHtml(order.designNumber || designLabel(order.designId) || order.category || "-")}</span>
+              <span>${escapeHtml(jobItemDisplayName(order))}</span>
               <small>${escapeHtml(stage)}</small>
               ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
               ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
@@ -13338,7 +13365,7 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Production Days", order.productionDays || "-")}
         ${jobItemDetailCell("Due Date", order.dueDate || "-")}
         ${jobItemDetailCell("Category", order.category || "-")}
-        ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+        ${jobItemDetailCell("Design / Item", jobItemDisplayName(order, design))}
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Job Card Narration", order.jobCardNarration || order.fittingAccessoriesNarration || order.remarks || "-") : ""}
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Item Narration", order.itemNarration || order.item || "-") : ""}
         ${isSetItemCategory(order.category) ? jobItemDetailCell(setItemFieldLabel(order.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category)) : ""}
@@ -13368,15 +13395,74 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Repair Days", billItem.repairStatus ? repairDayText(billItem) : "-")}
         ${jobItemDetailCell("Repair Loss", billItem.repairAdditionalLoss ? gram(billItem.repairAdditionalLoss) : "-")}
       </div>
+      ${jobItemFittingAccessoryPanelHtml(order)}
       ${jobItemTransferHistoryHtml(lotEntries)}
       <div class="row-actions job-item-detail-actions">
         <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
         <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
+        <button type="button" onclick="openJobItemFittingAccessoryDialog('${escapeHtml(order.id)}')">Add Fitting Accessory</button>
         <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
         <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
       </div>
     </div>
+  `;
+}
+
+function jobItemFittingAccessoryLinks(order = {}) {
+  const links = new Map();
+  productionStoneItemsForOrder(order)
+    .filter((item) => item.fittingAccessoryId || item.fittingAccessoryName)
+    .forEach((item) => {
+      const isJobItemAccessory = Boolean(item.jobFittingAccessoryId);
+      const id = item.jobFittingAccessoryId
+        || `design:${item.fittingAccessoryId || item.sourceFittingDesignId || item.fittingAccessoryName || "fitting"}`;
+      if (!links.has(id)) {
+        links.set(id, {
+          id,
+          isJobItemAccessory,
+          name: item.jobFittingAccessoryName || item.fittingAccessoryName || "Fitting Accessory",
+          sourceDesignId: item.sourceFittingDesignId || "",
+          sourceItemKey: item.sourceFittingItemKey || "",
+          pcs: 0,
+          weight: 0,
+          rows: 0,
+        });
+      }
+      const link = links.get(id);
+      link.pcs += Number(item.pcs || 0);
+      link.weight += designDetailStoneRowWeight(item);
+      link.rows += 1;
+    });
+  return [...links.values()];
+}
+
+function jobItemFittingAccessoryPanelHtml(order = {}) {
+  const links = jobItemFittingAccessoryLinks(order);
+  if (!links.length) return "";
+  return `
+    <section class="job-item-fitting-accessory-panel">
+      <div class="job-item-fitting-accessory-heading">
+        <strong>Fitting Accessories Included In Stone Total</strong>
+        <span>${links.length} fitting accessor${links.length === 1 ? "y" : "ies"}</span>
+      </div>
+      <div class="job-item-fitting-accessory-list">
+        ${links.map((link) => {
+          const sourceDesign = findById("designs", link.sourceDesignId);
+          return `
+            <article>
+              <div>
+                <strong>${escapeHtml(link.name)}</strong>
+                <span>${escapeHtml(link.isJobItemAccessory ? "Added to this PR only" : "Inherited from Design Master")}</span>
+              </div>
+              <small>${escapeHtml(sourceDesign ? designText(sourceDesign) : "Fitting design")} / ${escapeHtml(stoneItemInputValue(link.sourceItemKey || "ITEM"))}</small>
+              <b>${escapeHtml(link.pcs)} pcs / ${escapeHtml(weight5(link.weight))} g</b>
+              ${link.isJobItemAccessory && canDeleteErpData() ? `<button class="delete-btn" type="button" onclick="removeJobItemFittingAccessory('${escapeHtml(order.id)}','${escapeHtml(link.id)}')">Remove</button>` : ""}
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -14157,7 +14243,7 @@ function openProductionStoneEntry(orderId) {
   const designItems = designStoneItemsForOrder(design, order);
   const itemItems = productionStoneItemsForOrder(order);
   const itemText = orderStoneItemKeys(order).map(stoneItemInputValue).join(" + ");
-  document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || ""} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
+  document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order, design)} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
   renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
   void renderProductionStoneChart(order);
@@ -14353,6 +14439,13 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       data-production-stone-row="${escapeHtml(id)}"
       data-production-stone-id="${escapeHtml(id)}"
       data-source-design-stone-id="${escapeHtml(item.sourceDesignStoneId || "")}"
+      data-fitting-accessory-id="${escapeHtml(item.fittingAccessoryId || "")}"
+      data-fitting-accessory-name="${escapeHtml(item.fittingAccessoryName || "")}"
+      data-job-fitting-accessory-id="${escapeHtml(item.jobFittingAccessoryId || "")}"
+      data-job-fitting-accessory-name="${escapeHtml(item.jobFittingAccessoryName || "")}"
+      data-source-fitting-design-id="${escapeHtml(item.sourceFittingDesignId || "")}"
+      data-source-fitting-item-key="${escapeHtml(item.sourceFittingItemKey || "")}"
+      data-source-fitting-stone-id="${escapeHtml(item.sourceFittingStoneId || "")}"
       data-original-stone-key="${escapeHtml(stoneKey)}"
       data-original-weight-per-pc="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}"
       data-original-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}"
@@ -14360,7 +14453,7 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       data-additional-stone="${isAdditionalStone ? "true" : ""}"
       data-safe-department-issue-id="${escapeHtml(item.safeDepartmentIssueId || "")}"
     >
-      <td><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select></td>
+      <td><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select>${item.fittingAccessoryName ? `<small class="production-fitting-accessory-name">${escapeHtml(stoneItemDisplayName(item))}</small>` : ""}</td>
       <td data-production-stone-code>${isAdditionalStone ? '<span class="additional-stone-badge">Additional</span>' : ""}${escapeHtml(item.code || stoneLookupCode({ stoneType, shape, size }) || "-")}</td>
       <td><select data-production-stone-field="stoneType">${stoneEditOptions("stoneType", stoneType)}</select></td>
       <td><select data-production-stone-field="shape">${stoneEditOptions("shape", shape)}</select></td>
@@ -14549,6 +14642,14 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   return {
     id: row.dataset.productionStoneId || crypto.randomUUID(),
     sourceDesignStoneId: row.dataset.sourceDesignStoneId || "",
+    fittingAccessoryId: row.dataset.fittingAccessoryId || "",
+    fittingAccessoryName: row.dataset.fittingAccessoryName || "",
+    jobFittingAccessoryId: row.dataset.jobFittingAccessoryId || "",
+    jobFittingAccessoryName: row.dataset.jobFittingAccessoryName || "",
+    sourceFittingDesignId: row.dataset.sourceFittingDesignId || "",
+    sourceFittingItemKey: row.dataset.sourceFittingItemKey || "",
+    sourceFittingStoneId: row.dataset.sourceFittingStoneId || "",
+    isFittingAccessory: Boolean(row.dataset.fittingAccessoryId || row.dataset.fittingAccessoryName),
     safeDepartmentIssueId: row.dataset.safeDepartmentIssueId || "",
     manualShelfIssue: row.dataset.manualShelfIssue === "true",
     isAdditionalStone,
@@ -16338,8 +16439,8 @@ function transferBagItemTableHtml(items = [], startIndex = 0) {
   const rows = items.map((item, index) => transferBagItemRow(item, startIndex + index)).join("");
   return `
     <table class="transfer-bag-table transfer-bag-item-table">
-      <thead><tr><th>#</th><th>PR No</th><th>Design</th><th>Item</th><th>Size</th><th>Color</th><th>Purity</th><th>Remark</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="8">No item details</td></tr>`}</tbody>
+      <thead><tr><th>#</th><th>PR No</th><th>Design</th><th>Item</th><th>Size</th><th>Color</th><th>Purity</th><th>Wax Stone</th><th>Hand Stone</th><th>Remark</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="10">No item details</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -16580,6 +16681,9 @@ function transferBagItemRow(item, index) {
   const design = item.designNumber || designLabel(item.designId) || "-";
   const itemLabel = printBagItemKeyForOrder(item) || item.category || item.item || "-";
   const size = soldItemSizeText(item) || item.size || "-";
+  const stoneItems = productionStoneItemsForOrder(item);
+  const waxStone = productionStoneTotals(stoneItems, "wax");
+  const handStone = productionStoneTotals(stoneItems, "hand");
   return `
     <tr>
       <td>${index + 1}</td>
@@ -16589,6 +16693,8 @@ function transferBagItemRow(item, index) {
       <td>${escapeHtml(size || "-")}</td>
       <td>${escapeHtml(item.color || "-")}</td>
       <td>${escapeHtml(item.purity || "-")}</td>
+      <td class="transfer-bag-item-stone"><b>${escapeHtml(waxStone.pcs)} pcs</b><span>${gram(waxStone.weight)}</span></td>
+      <td class="transfer-bag-item-stone"><b>${escapeHtml(handStone.pcs)} pcs</b><span>${gram(handStone.weight)}</span></td>
       <td>${escapeHtml(item.remarks || "-")}</td>
     </tr>
   `;
@@ -16752,6 +16858,7 @@ function setBagFamilyForOrder(order = {}) {
   if (keys.some((key) => PS_ITEM_KEYS.includes(key))) return "PS";
   if (keys.some((key) => TM_ITEM_KEYS.includes(key))) return "TM";
   if (keys.some((key) => NS_ITEM_KEYS.includes(key))) return "NS";
+  if (keys.some((key) => CN_ITEM_KEYS.includes(key))) return "CN";
   if (keys.some((key) => MM_ITEM_KEYS.includes(key))) return "MM";
   if (keys.some((key) => ["LR", "GR"].includes(key))) return "LRGR";
   return designSubItemBagInfo(order)?.family || "";
@@ -16764,6 +16871,7 @@ function setBagItemKeyForOrder(order = {}) {
   if (family === "PS") return keys.find((key) => PS_ITEM_KEYS.includes(key)) || "";
   if (family === "TM") return keys.find((key) => TM_ITEM_KEYS.includes(key)) || "";
   if (family === "NS") return keys.find((key) => NS_ITEM_KEYS.includes(key)) || "";
+  if (family === "CN") return keys.find((key) => CN_ITEM_KEYS.includes(key)) || "";
   if (family === "MM") return keys.find((key) => MM_ITEM_KEYS.includes(key)) || "";
   if (family === "LRGR") return keys.find((key) => ["LR", "GR"].includes(key)) || "";
   return designSubItemBagInfo(order)?.itemKey || "";
@@ -16798,6 +16906,7 @@ function bagDesignFamilyKey(order = {}, family = "") {
     PS: ["PSE", "PS"],
     TM: ["TME", "TM"],
     NS: ["NSE", "NS"],
+    CN: ["CNE", "CN"],
     MM: ["MM", "ME", "MB", "M"],
     CB: ["CL", "CG", "CB"],
     CBR: ["CLR", "CGR", "CBR"],
@@ -16883,11 +16992,19 @@ function combinedCbPrintItem(items) {
   };
 }
 
+function printJobBagDesignName(order = {}, design = null, bagItems = []) {
+  const baseName = order.designNumber || (design ? designText(design) : "") || "-";
+  const fittingNames = [...new Set(
+    (bagItems || []).flatMap((item) => jobItemFittingAccessoryNames(item))
+  )];
+  return fittingNames.length ? [baseName, ...fittingNames].join(" / ") : baseName;
+}
+
 function printJobItemHtml(job, entry) {
   const bagItems = entry.items || [entry.item].filter(Boolean);
   const order = combinedBagPrintItem(bagItems);
   const { design, currentImageData } = entry;
-  const designName = order.designNumber || (design ? designText(design) : "") || "-";
+  const designName = printJobBagDesignName(order, design, bagItems);
   const jobNumber = job.jobNumber || job.productionNo || job.number;
   const customerName = order.customer || job.customer || "";
   const isCustomerOrder = isManufacturingCustomerOrder(customerName);
@@ -16946,7 +17063,7 @@ function printJobMainImagePageHtml(job, entry) {
   const bagItems = entry.items || [entry.item].filter(Boolean);
   const order = combinedBagPrintItem(bagItems);
   const { design, mainImageData } = entry;
-  const designName = order.designNumber || (design ? designText(design) : "") || "-";
+  const designName = printJobBagDesignName(order, design, bagItems);
   const jobNumber = job.jobNumber || job.productionNo || job.number || "-";
   const productionLabel = order.productionNo || order.number || "-";
   return `
@@ -16988,11 +17105,12 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
     const rows = printStoneRowsForOrder(design, itemOrder);
     const totals = designStoneTotals(rows);
     const itemKey = printBagItemKeyForOrder(itemOrder) || orderStoneItemKeys(itemOrder)[0] || defaultStoneItemKeyForDesign(design);
-    const itemLabel = stoneItemInputValue(itemKey);
+    const fittingNames = [...new Set(rows.map((item) => String(item.fittingAccessoryName || "").trim()).filter(Boolean))];
+    const itemLabel = [stoneItemInputValue(itemKey), ...fittingNames].join(" / ");
     const productionNo = itemOrder.productionNo || itemOrder.number || "";
     const detailRows = rows.length ? rows.map((item) => item.isAdditionalStone ? `
       <tr>
-        <td>${escapeHtml(itemLabel)}</td>
+        <td>${escapeHtml(stoneItemDisplayName(item, itemKey))}</td>
         <td>Additional Stone</td>
         <td>Direct Weight</td>
         <td></td>
@@ -17001,7 +17119,7 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
       </tr>
     ` : `
       <tr>
-        <td>${escapeHtml(itemLabel)}</td>
+        <td>${escapeHtml(stoneItemDisplayName(item, itemKey))}</td>
         <td>${escapeHtml(item.stoneType || "")}</td>
         <td>${escapeHtml([item.shape, item.size].filter(Boolean).join(" "))}</td>
         <td>${escapeHtml(item.pcs || "")}</td>
@@ -17189,6 +17307,14 @@ function productionStoneItemFromDesignStone(item = {}) {
   return productionStoneItemWithMasterData({
     id: crypto.randomUUID(),
     sourceDesignStoneId: item.id || "",
+    fittingAccessoryId: item.fittingAccessoryId || "",
+    fittingAccessoryName: item.fittingAccessoryName || "",
+    jobFittingAccessoryId: item.jobFittingAccessoryId || "",
+    jobFittingAccessoryName: item.jobFittingAccessoryName || "",
+    sourceFittingDesignId: item.sourceFittingDesignId || "",
+    sourceFittingItemKey: item.sourceFittingItemKey || "",
+    sourceFittingStoneId: item.sourceFittingStoneId || "",
+    isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName),
     date: today(),
     settingType: automaticSetting.settingType,
     manufacturingStage: automaticSetting.manufacturingStage,
@@ -19531,6 +19657,26 @@ function stoneItemInputValue(itemKey = "") {
   return key === DEFAULT_STONE_ITEM_KEY ? "Item" : key;
 }
 
+function stoneItemDisplayName(item = {}, fallbackItemKey = "") {
+  const itemName = stoneItemInputValue(item.itemKey || fallbackItemKey || DEFAULT_STONE_ITEM_KEY);
+  const fittingName = String(item.fittingAccessoryName || "").trim();
+  return fittingName ? `${itemName} / ${fittingName}` : itemName;
+}
+
+function jobItemFittingAccessoryNames(order = {}) {
+  return [...new Set(
+    productionStoneItemsForOrder(order)
+      .map((item) => String(item.fittingAccessoryName || item.jobFittingAccessoryName || "").trim())
+      .filter(Boolean)
+  )];
+}
+
+function jobItemDisplayName(order = {}, design = null) {
+  const baseName = order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item";
+  const fittingNames = jobItemFittingAccessoryNames(order);
+  return fittingNames.length ? [baseName, ...fittingNames].join(" / ") : baseName;
+}
+
 function isCbrStoneDesign(design = null) {
   const category = categoryCode(design?.category || "");
   const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
@@ -19553,6 +19699,12 @@ function isNsSetStoneDesign(design = null) {
   const category = categoryCode(design?.category || "");
   const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
   return NS_ITEM_KEYS.includes(category) || /\bNSE?\b/.test(designTextValue);
+}
+
+function isCnSetStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return CN_ITEM_KEYS.includes(category) || /\bCNE?\b/.test(designTextValue);
 }
 
 function isMmSetStoneDesign(design = null) {
@@ -19583,6 +19735,7 @@ function baseStoneItemKeysForDesign(design = null) {
   if (isCmSetStoneDesign(design)) return ["CM", "CME", "CMB"];
   if (isTmSetStoneDesign(design)) return ["TM", "TME"];
   if (isNsSetStoneDesign(design)) return ["NS", "NSE"];
+  if (isCnSetStoneDesign(design)) return ["CN", "CNE"];
   if (isMmSetStoneDesign(design)) return ["M", "ME", "MB"];
   return [fallbackStoneItemKeyForDesign(design)];
 }
@@ -19766,6 +19919,7 @@ function orderStoneItemKeys(order = {}) {
   if (/\bPSE\b/.test(itemText)) return ["PSE"];
   if (/\bTME\b/.test(itemText)) return ["TME"];
   if (/\bNSE\b/.test(itemText)) return ["NSE"];
+  if (/\bCNE\b/.test(itemText)) return ["CNE"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(BRACELET|BR)\b/.test(itemText)) return ["CMB"];
   if (/\bCHAMS?\b/.test(itemText)) return ["CM"];
@@ -19773,6 +19927,7 @@ function orderStoneItemKeys(order = {}) {
   if (PS_ITEM_KEYS.includes(category)) return [category];
   if (TM_ITEM_KEYS.includes(category)) return [category];
   if (NS_ITEM_KEYS.includes(category)) return [category];
+  if (CN_ITEM_KEYS.includes(category)) return [category];
   if (MM_ITEM_KEYS.includes(category)) return [category];
   if (category === "MM") return ["M"];
   if (["LR", "GR"].includes(category)) return [category];
@@ -21457,11 +21612,13 @@ async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEF
     }
     const existingRows = design.stoneItems || [];
     const existingItemRows = existingRows.filter((item) => normalizeStoneItemKey(item.itemKey) === targetItemKey);
+    const fittingItemRows = existingItemRows.filter((item) => item.fittingAccessoryId || item.fittingAccessoryName);
+    const baseItemRows = existingItemRows.filter((item) => !item.fittingAccessoryId && !item.fittingAccessoryName);
     const otherRows = existingRows.filter((item) => normalizeStoneItemKey(item.itemKey) !== targetItemKey);
-    const replaceRows = existingItemRows.length
+    const replaceRows = baseItemRows.length
       ? confirm(`Existing ${stoneItemInputValue(targetItemKey)} stone rows found. OK = replace this item rows. Cancel = add OCR rows below existing rows.`)
       : true;
-    design.stoneItems = replaceRows ? [...otherRows, ...rows] : [...existingRows, ...rows];
+    design.stoneItems = replaceRows ? [...otherRows, ...fittingItemRows, ...rows] : [...existingRows, ...rows];
     design.stoneDetails = designStoneDetailsText(design.stoneItems);
     saveState();
     renderDesignStoneItems(designStoneItemsForKey(design, targetItemKey), targetItemKey);
@@ -21552,7 +21709,7 @@ function renderDesignStoneItems(items = [], itemKey = "ITEM") {
   container.innerHTML = items.length
     ? `<div class="stone-total-summary">${activeItem}: ${designStoneSummaryText(items)}</div><table><thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Total Wt (g)</th><th></th></tr></thead><tbody>${items.map((item) => `
       <tr data-design-stone-row="${item.id}">
-        <td><select data-stone-edit="itemKey">${stoneItemEditOptions(item.itemKey)}</select></td>
+        <td><select data-stone-edit="itemKey">${stoneItemEditOptions(item.itemKey)}</select>${item.fittingAccessoryName ? `<small class="production-fitting-accessory-name">${escapeHtml(stoneItemDisplayName(item))}</small>` : ""}</td>
         <td data-stone-code-preview>${escapeHtml(item.code || stoneLookupCode(item) || "-")}</td>
         <td><select data-stone-edit="stoneType">${stoneEditOptions("stoneType", item.stoneType || "")}</select></td>
         <td><select data-stone-edit="shape">${stoneEditOptions("shape", item.shape || "")}</select></td>
@@ -21814,7 +21971,7 @@ function stoneDetailLine(item) {
     .map((part) => String(part || "").trim())
     .filter(Boolean)
     .join(" ") || item.code || stoneLookupCode(item);
-  const itemName = stoneItemInputValue(item.itemKey).padEnd(8);
+  const itemName = stoneItemDisplayName(item).padEnd(8);
   const pcs = `${item.pcs || 0} PCS`;
   const weightPerPc = formatStoneWeight(item.weightPerPc) || "-";
   const totalWeight = item.totalWeight || "-";
@@ -23549,6 +23706,398 @@ function designDetailStoneGroups(design = null, items = []) {
   return [...groups].map(([itemKey, groupItems]) => ({ itemKey, items: groupItems }));
 }
 
+let pendingFittingAccessoryRows = [];
+
+function designFittingAccessoryLinks(items = []) {
+  const links = new Map();
+  items.filter((item) => item.fittingAccessoryId || item.fittingAccessoryName).forEach((item) => {
+    const id = item.fittingAccessoryId || `${item.sourceFittingDesignId || "source"}:${item.sourceFittingItemKey || "item"}:${item.fittingAccessoryName || "fitting"}`;
+    if (!links.has(id)) {
+      links.set(id, {
+        id,
+        name: item.fittingAccessoryName || "Fitting Accessory",
+        sourceDesignId: item.sourceFittingDesignId || "",
+        sourceItemKey: item.sourceFittingItemKey || "",
+      });
+    }
+  });
+  return [...links.values()];
+}
+
+function isLikelyFittingAccessoryDesign(design = {}) {
+  const categoryWords = categoryCode(design.category || "")
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+  return categoryWords.some((word) => word === "FITTING" || word === "FITTINGS");
+}
+
+function fittingAccessoryDesignOptionHtml(design = {}) {
+  const stoneRows = Array.isArray(design.stoneItems) ? design.stoneItems.length : 0;
+  const stoneStatus = stoneRows
+    ? `${stoneRows} stone row${stoneRows === 1 ? "" : "s"}`
+    : "NO STONE YET";
+  const label = `${designText(design)} / ${stoneStatus}`;
+  return `<option value="${escapeHtml(design.id)}">${escapeHtml(label)}</option>`;
+}
+
+function closeDesignFittingAccessoryDialog() {
+  document.getElementById("design-fitting-accessory-dialog")?.close();
+  pendingFittingAccessoryRows = [];
+  renderPendingFittingAccessories();
+}
+
+function fittingAccessorySourceDesigns(excludeDesignId = "") {
+  return sortedDesigns().filter((design) =>
+    design.id !== excludeDesignId
+    && isLikelyFittingAccessoryDesign(design)
+  );
+}
+
+function renderFittingAccessorySourceDesignOptions(form, candidates = []) {
+  form.sourceDesignId.innerHTML = `
+    <option value="">Select fitting design</option>
+    ${candidates.length ? `<optgroup label="Fitting Category Designs">${candidates.map(fittingAccessoryDesignOptionHtml).join("")}</optgroup>` : ""}
+  `;
+  form.sourceDesignId.value = candidates[0]?.id || "";
+}
+
+function openDesignFittingAccessoryDialog(designId = "", itemKey = "") {
+  if (!requirePageEditPermission("designs", "add fitting accessories to designs")) return;
+  const targetDesign = findById("designs", designId);
+  if (!targetDesign) return;
+  const candidates = fittingAccessorySourceDesigns(targetDesign.id);
+  if (!candidates.length) {
+    alert("No Design Master records were found under the Fitting / Fittings category. Check the Category field of the fitting designs and try again.");
+    return;
+  }
+  const form = document.getElementById("design-fitting-accessory-form");
+  form.reset();
+  form.targetDesignId.value = targetDesign.id;
+  form.targetOrderId.value = "";
+  form.targetItemKey.value = normalizeStoneItemKey(itemKey || defaultStoneItemKeyForDesign(targetDesign));
+  pendingFittingAccessoryRows = [];
+  renderFittingAccessorySourceDesignOptions(form, candidates);
+  document.getElementById("design-fitting-accessory-title").textContent = "Add Fitting Accessory To Design";
+  document.getElementById("design-fitting-accessory-target").textContent = `${designText(targetDesign)} / Item ${stoneItemInputValue(form.targetItemKey.value)}`;
+  document.getElementById("design-fitting-accessory-note").textContent = "The selected fitting stone rows will be copied into this Design Master item. Their pieces and stone weight will be included in this item's totals and in future Job Orders. The source fitting design remains unchanged.";
+  renderDesignFittingAccessoryItemOptions();
+  document.getElementById("design-fitting-accessory-dialog").showModal();
+}
+
+function openJobItemFittingAccessoryDialog(orderId = "") {
+  if (!requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return;
+  const order = findById("orders", orderId);
+  if (!order) return;
+  const candidates = fittingAccessorySourceDesigns(order.designId || "");
+  if (!candidates.length) {
+    alert("No Design Master records were found under the Fitting / Fittings category. Check the Category field of the fitting designs and try again.");
+    return;
+  }
+  const targetItemKey = normalizeStoneItemKey(orderStoneItemKeys(order)[0] || defaultStoneItemKeyForDesign(findById("designs", order.designId)) || "ITEM");
+  const form = document.getElementById("design-fitting-accessory-form");
+  form.reset();
+  form.targetDesignId.value = "";
+  form.targetOrderId.value = order.id;
+  form.targetItemKey.value = targetItemKey;
+  pendingFittingAccessoryRows = [];
+  renderFittingAccessorySourceDesignOptions(form, candidates);
+  document.getElementById("design-fitting-accessory-title").textContent = "Add Fitting Accessory To Job Item";
+  document.getElementById("design-fitting-accessory-target").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order)} / Item ${stoneItemInputValue(targetItemKey)}`;
+  document.getElementById("design-fitting-accessory-note").textContent = "The selected fitting stone rows will be copied only into this PR item. Their stone weight is included automatically in the item's total stone weight. The item name is shown as Original Product / Fitting Accessory. Design Master remains unchanged.";
+  renderDesignFittingAccessoryItemOptions();
+  document.getElementById("design-fitting-accessory-dialog").showModal();
+}
+
+function renderDesignFittingAccessoryItemOptions() {
+  const form = document.getElementById("design-fitting-accessory-form");
+  if (!form) return;
+  const sourceDesign = findById("designs", form.sourceDesignId.value);
+  const groups = sourceDesign
+    ? designDetailStoneGroups(sourceDesign, sourceDesign.stoneItems || []).filter((group) => group.items.length)
+    : [];
+  form.sourceItemKey.innerHTML = groups.length
+    ? groups.map((group) => `<option value="${escapeHtml(group.itemKey)}">${escapeHtml(stoneItemInputValue(group.itemKey))} / ${group.items.length} stone row${group.items.length === 1 ? "" : "s"}</option>`).join("")
+    : '<option value="">NO STONE YET</option>';
+  form.sourceItemKey.disabled = !groups.length;
+  form.fittingName.value = sourceDesign ? String(sourceDesign.number || sourceDesign.name || "Fitting").trim() : "";
+  const queueButton = document.getElementById("queue-design-fitting-accessory");
+  if (queueButton) queueButton.disabled = !groups.length;
+  updateDesignFittingAccessorySummary();
+  renderPendingFittingAccessories();
+}
+
+function updateDesignFittingAccessorySummary() {
+  const form = document.getElementById("design-fitting-accessory-form");
+  const summary = document.getElementById("design-fitting-accessory-summary");
+  if (!form || !summary) return;
+  const sourceDesign = findById("designs", form.sourceDesignId.value);
+  const sourceItemKey = normalizeStoneItemKey(form.sourceItemKey.value || "");
+  const rows = sourceDesign
+    ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
+    : [];
+  const totals = rows.reduce((total, item) => ({
+    pcs: total.pcs + Number(item.pcs || 0),
+    weight: total.weight + designDetailStoneRowWeight(item),
+  }), { pcs: 0, weight: 0 });
+  summary.innerHTML = rows.length
+    ? `<strong>${escapeHtml(designText(sourceDesign))} / ${escapeHtml(stoneItemInputValue(sourceItemKey))}</strong><span>${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${escapeHtml(totals.pcs)} pcs / ${escapeHtml(weight5(totals.weight))} g</span>`
+    : sourceDesign
+      ? `<strong>${escapeHtml(designText(sourceDesign))}</strong><span>NO STONE YET - add stone entry in Design Master before using this fitting.</span>`
+      : "Select a fitting design.";
+}
+
+function fittingAccessorySelectionKey(sourceDesignId = "", sourceItemKey = "") {
+  return `${sourceDesignId}::${normalizeStoneItemKey(sourceItemKey)}`;
+}
+
+function targetAlreadyHasFittingAccessory(form, sourceDesignId = "", sourceItemKey = "") {
+  const targetItemKey = normalizeStoneItemKey(form.targetItemKey.value || "ITEM");
+  const order = form.targetOrderId?.value ? findById("orders", form.targetOrderId.value) : null;
+  const targetDesign = form.targetDesignId?.value ? findById("designs", form.targetDesignId.value) : null;
+  const items = order ? productionStoneItemsForOrder(order) : (targetDesign?.stoneItems || []);
+  return items.some((item) =>
+    item.sourceFittingDesignId === sourceDesignId
+    && normalizeStoneItemKey(item.sourceFittingItemKey || "") === normalizeStoneItemKey(sourceItemKey)
+    && normalizeStoneItemKey(item.itemKey || targetItemKey) === targetItemKey
+  );
+}
+
+function queueCurrentFittingAccessory() {
+  const form = document.getElementById("design-fitting-accessory-form");
+  if (!form) return;
+  const sourceDesign = findById("designs", form.sourceDesignId.value);
+  const sourceItemKey = normalizeStoneItemKey(form.sourceItemKey.value || "");
+  const fittingName = String(form.fittingName.value || "").trim();
+  const sourceRows = sourceDesign
+    ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
+    : [];
+  if (!sourceDesign || !sourceItemKey || !fittingName) {
+    alert("Select a fitting design, fitting item, and fitting accessory name.");
+    return;
+  }
+  if (!sourceRows.length) {
+    alert("NO STONE YET. Add the fitting stone entry in Design Master before adding this row.");
+    return;
+  }
+  const selectionKey = fittingAccessorySelectionKey(sourceDesign.id, sourceItemKey);
+  if (pendingFittingAccessoryRows.some((item) => item.selectionKey === selectionKey)) {
+    alert("This fitting design item is already in the Fittings To Add list.");
+    return;
+  }
+  if (targetAlreadyHasFittingAccessory(form, sourceDesign.id, sourceItemKey)) {
+    alert("This fitting design item is already included in the selected product item and cannot be counted twice.");
+    return;
+  }
+  const totals = designStoneTotals(sourceRows);
+  pendingFittingAccessoryRows.push({
+    id: crypto.randomUUID(),
+    selectionKey,
+    sourceDesignId: sourceDesign.id,
+    sourceItemKey,
+    fittingName,
+    stoneRows: sourceRows.length,
+    pcs: totals.pcs,
+    weight: totals.weight,
+  });
+  renderPendingFittingAccessories();
+}
+
+function removePendingFittingAccessory(pendingId = "") {
+  pendingFittingAccessoryRows = pendingFittingAccessoryRows.filter((item) => item.id !== pendingId);
+  renderPendingFittingAccessories();
+}
+
+function renderPendingFittingAccessories() {
+  const container = document.getElementById("design-fitting-accessory-pending");
+  const count = document.getElementById("design-fitting-accessory-pending-count");
+  const saveButton = document.getElementById("save-all-design-fitting-accessories");
+  if (count) count.textContent = `${pendingFittingAccessoryRows.length} fitting${pendingFittingAccessoryRows.length === 1 ? "" : "s"}`;
+  if (saveButton) saveButton.disabled = !pendingFittingAccessoryRows.length;
+  if (!container) return;
+  if (!pendingFittingAccessoryRows.length) {
+    container.innerHTML = '<div class="empty">No fitting rows added yet.</div>';
+    return;
+  }
+  container.innerHTML = pendingFittingAccessoryRows.map((item, index) => {
+    const sourceDesign = findById("designs", item.sourceDesignId);
+    return `
+      <article class="design-fitting-accessory-pending-row">
+        <b>${index + 1}</b>
+        <div>
+          <strong>${escapeHtml(item.fittingName)}</strong>
+          <span>${escapeHtml(sourceDesign ? designText(sourceDesign) : "Fitting design")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey))}</span>
+        </div>
+        <small>${escapeHtml(item.stoneRows)} stone row${item.stoneRows === 1 ? "" : "s"}</small>
+        <strong>${escapeHtml(item.pcs)} pcs / ${escapeHtml(weight5(item.weight))} g</strong>
+        <button class="delete-btn" type="button" data-remove-pending-fitting="${escapeHtml(item.id)}">Remove</button>
+      </article>
+    `;
+  }).join("");
+}
+
+function addDesignFittingAccessory(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const selections = [...pendingFittingAccessoryRows];
+  if (!selections.length) {
+    alert("Add at least one fitting with Add Fitting Row before saving.");
+    return;
+  }
+  if (form.targetOrderId?.value) {
+    addJobItemFittingAccessories(form, selections);
+    return;
+  }
+  if (!requirePageEditPermission("designs", "add fitting accessories to designs")) return;
+  const targetDesign = findById("designs", form.targetDesignId.value);
+  const targetItemKey = normalizeStoneItemKey(form.targetItemKey.value || "");
+  if (!targetDesign || !targetItemKey) {
+    alert("The target Design Master item is no longer available.");
+    return;
+  }
+  const existingKeys = new Set((targetDesign.stoneItems || [])
+    .filter((item) => normalizeStoneItemKey(item.itemKey) === targetItemKey && item.sourceFittingDesignId)
+    .map((item) => fittingAccessorySelectionKey(item.sourceFittingDesignId, item.sourceFittingItemKey)));
+  const copiedRows = [];
+  const fittingNames = [];
+  for (const selection of selections) {
+    const sourceDesign = findById("designs", selection.sourceDesignId);
+    const sourceItemKey = normalizeStoneItemKey(selection.sourceItemKey || "");
+    const selectionKey = fittingAccessorySelectionKey(selection.sourceDesignId, sourceItemKey);
+    const sourceRows = sourceDesign
+      ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
+      : [];
+    if (!sourceDesign || !isLikelyFittingAccessoryDesign(sourceDesign) || sourceDesign.id === targetDesign.id || !sourceRows.length) {
+      alert(`${selection.fittingName || "A fitting"} is no longer available with stone rows. Nothing was saved.`);
+      return;
+    }
+    if (existingKeys.has(selectionKey)) {
+      alert(`${selection.fittingName} is already included in this design item. Nothing was saved.`);
+      return;
+    }
+    existingKeys.add(selectionKey);
+    fittingNames.push(selection.fittingName);
+    const fittingAccessoryId = crypto.randomUUID();
+    sourceRows.forEach((item) => copiedRows.push({
+      ...item,
+      id: crypto.randomUUID(),
+      itemKey: targetItemKey,
+      fittingAccessoryId,
+      fittingAccessoryName: selection.fittingName,
+      sourceFittingDesignId: sourceDesign.id,
+      sourceFittingItemKey,
+      sourceFittingStoneId: item.id || "",
+      isFittingAccessory: true,
+    }));
+  }
+  targetDesign.stoneItems = [...(targetDesign.stoneItems || []), ...copiedRows];
+  targetDesign.stoneDetails = designStoneDetailsText(targetDesign.stoneItems);
+  const totals = designStoneTotals(copiedRows);
+  closeDesignFittingAccessoryDialog();
+  saveState();
+  renderDesigns();
+  openDesignDetail(targetDesign.id);
+  alert(`${fittingNames.length} fitting${fittingNames.length === 1 ? "" : "s"} added together to ${stoneItemInputValue(targetItemKey)}.\n${fittingNames.join(" / ")}\n${totals.pcs} pcs / ${weight5(totals.weight)} g added to the item's stone total.\nFuture Job Orders will include these fitting stone rows automatically.`);
+}
+
+function addJobItemFittingAccessories(form, selections = []) {
+  if (!requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return;
+  const order = findById("orders", form.targetOrderId.value);
+  const targetItemKey = normalizeStoneItemKey(form.targetItemKey.value || orderStoneItemKeys(order || {})[0] || "ITEM");
+  if (!order || !targetItemKey || !selections.length) {
+    alert("The target Job Card item or fitting list is no longer available.");
+    return;
+  }
+  const currentItems = productionStoneItemsForOrder(order).map((item) => ({
+    ...item,
+    id: item.id || crypto.randomUUID(),
+  }));
+  const existingKeys = new Set(currentItems
+    .filter((item) => item.sourceFittingDesignId && normalizeStoneItemKey(item.itemKey || targetItemKey) === targetItemKey)
+    .map((item) => fittingAccessorySelectionKey(item.sourceFittingDesignId, item.sourceFittingItemKey)));
+  const copiedRows = [];
+  const sourceLabels = [];
+  const fittingNames = [];
+  for (const selection of selections) {
+    const sourceDesign = findById("designs", selection.sourceDesignId);
+    const sourceItemKey = normalizeStoneItemKey(selection.sourceItemKey || "");
+    const selectionKey = fittingAccessorySelectionKey(selection.sourceDesignId, sourceItemKey);
+    const sourceRows = sourceDesign
+      ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
+      : [];
+    if (!sourceDesign || !isLikelyFittingAccessoryDesign(sourceDesign) || !sourceRows.length) {
+      alert(`${selection.fittingName || "A fitting"} is no longer available with stone rows. Nothing was saved.`);
+      return;
+    }
+    if (existingKeys.has(selectionKey)) {
+      alert(`${selection.fittingName} is already included in this PR item. Nothing was saved.`);
+      return;
+    }
+    existingKeys.add(selectionKey);
+    sourceLabels.push(`${designText(sourceDesign)} / ${stoneItemInputValue(sourceItemKey)}`);
+    fittingNames.push(selection.fittingName);
+    const jobFittingAccessoryId = crypto.randomUUID();
+    sourceRows.forEach((item) => copiedRows.push({
+      ...productionStoneItemFromDesignStone(item),
+      id: crypto.randomUUID(),
+      sourceDesignStoneId: item.id || "",
+      fittingAccessoryId: jobFittingAccessoryId,
+      fittingAccessoryName: selection.fittingName,
+      sourceFittingDesignId: sourceDesign.id,
+      sourceFittingItemKey: sourceItemKey,
+      sourceFittingStoneId: item.id || "",
+      jobFittingAccessoryId,
+      jobFittingAccessoryName: selection.fittingName,
+      isFittingAccessory: true,
+      itemKey: targetItemKey,
+    }));
+  }
+  order.productionStoneItems = [...currentItems, ...copiedRows];
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
+  order.productionStoneCopiedFrom = sourceLabels.join(" / ");
+  const totals = designStoneTotals(copiedRows);
+  backupRecentJobOrders([order]);
+  closeDesignFittingAccessoryDialog();
+  saveState();
+  render();
+  const bucket = document.getElementById("order-dialog")?.dataset.bucket || "all";
+  openOrderDetail(order.id, false, bucket);
+  setTimeout(() => openJobItemDetail(order.id), 0);
+  alert(`${fittingNames.length} fitting${fittingNames.length === 1 ? "" : "s"} added together to ${order.productionNo || order.number}.\n${fittingNames.join(" / ")}\n${totals.pcs} pcs / ${weight5(totals.weight)} g is now included once in this item's total stone weight.\nDesign Master was not changed.`);
+}
+
+function removeJobItemFittingAccessory(orderId = "", jobFittingAccessoryId = "") {
+  if (!requireDeletePermission("remove fitting accessories from Job Card items")) return;
+  const order = findById("orders", orderId);
+  const rows = (order?.productionStoneItems || []).filter((item) => item.jobFittingAccessoryId === jobFittingAccessoryId);
+  if (!order || !rows.length) return;
+  const fittingName = rows[0].jobFittingAccessoryName || rows[0].fittingAccessoryName || "Fitting Accessory";
+  if (!confirm(`Remove ${fittingName} and its ${rows.length} stone row${rows.length === 1 ? "" : "s"} from ${order.productionNo || order.number}?\n\nDesign Master will remain unchanged.`)) return;
+  order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.jobFittingAccessoryId !== jobFittingAccessoryId);
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
+  backupRecentJobOrders([order]);
+  saveState();
+  render();
+  const bucket = document.getElementById("order-dialog")?.dataset.bucket || "all";
+  openOrderDetail(order.id, false, bucket);
+  setTimeout(() => openJobItemDetail(order.id), 0);
+}
+
+function removeDesignFittingAccessory(designId = "", fittingAccessoryId = "") {
+  if (!requireDeletePermission("remove fitting accessories from designs")) return;
+  const design = findById("designs", designId);
+  const rows = (design?.stoneItems || []).filter((item) => item.fittingAccessoryId === fittingAccessoryId);
+  if (!design || !rows.length) return;
+  const fittingName = rows[0].fittingAccessoryName || "Fitting Accessory";
+  if (!confirm(`Remove ${fittingName} and its ${rows.length} copied stone row${rows.length === 1 ? "" : "s"} from ${designText(design)}?\n\nThe original fitting design will not be changed.`)) return;
+  design.stoneItems = (design.stoneItems || []).filter((item) => item.fittingAccessoryId !== fittingAccessoryId);
+  design.stoneDetails = designStoneDetailsText(design.stoneItems);
+  saveState();
+  renderDesigns();
+  openDesignDetail(design.id);
+}
+
 function renderDesignDetailStoneRows(design) {
   const items = Array.isArray(design?.stoneItems) ? design.stoneItems : [];
   const container = document.getElementById("design-detail-stone-list");
@@ -23556,6 +24105,9 @@ function renderDesignDetailStoneRows(design) {
   const groups = designDetailStoneGroups(design, items);
   summary.textContent = `${groups.length} item${groups.length === 1 ? "" : "s"} / ${items.length} stone row${items.length === 1 ? "" : "s"}`;
   container.innerHTML = groups.map((group) => {
+    const fittingAccessories = designFittingAccessoryLinks(group.items);
+    const fittingNames = [...new Set(fittingAccessories.map((item) => item.name).filter(Boolean))];
+    const itemName = [stoneItemInputValue(group.itemKey), ...fittingNames].join(" / ");
     const totals = group.items.reduce((total, item) => ({
       pcs: total.pcs + Number(item.pcs || 0),
       weight: total.weight + designDetailStoneRowWeight(item),
@@ -23564,20 +24116,24 @@ function renderDesignDetailStoneRows(design) {
       <section class="design-detail-stone-item-group">
         <div class="design-detail-stone-item-heading">
           <div class="design-detail-stone-item-name">
-            <strong>${escapeHtml(stoneItemInputValue(group.itemKey))}</strong>
+            <strong>${escapeHtml(itemName)}</strong>
             <span>${group.items.length} stone row${group.items.length === 1 ? "" : "s"}</span>
+            <button class="ghost-button design-fitting-accessory-add" type="button" data-add-design-fitting-accessory data-design-id="${escapeHtml(design.id)}" data-item-key="${escapeHtml(group.itemKey)}">Add Fitting Accessory</button>
           </div>
           <div class="design-detail-stone-item-totals" aria-label="${escapeHtml(stoneItemInputValue(group.itemKey))} stone totals">
             <span><small>No. Pcs</small><strong>${escapeHtml(totals.pcs)}</strong></span>
             <span><small>Total Weight</small><strong>${escapeHtml(weight5(totals.weight))} g</strong></span>
           </div>
         </div>
+        ${fittingAccessories.length ? `<div class="design-fitting-accessory-links">${fittingAccessories.map((accessory) => `
+          <span><b>${escapeHtml(accessory.name)}</b><small>Source ${escapeHtml(stoneItemInputValue(accessory.sourceItemKey || "ITEM"))}</small><button class="delete-btn" type="button" data-remove-design-fitting-accessory data-design-id="${escapeHtml(design.id)}" data-accessory-id="${escapeHtml(accessory.id)}" title="Remove fitting accessory">Remove</button></span>
+        `).join("")}</div>` : ""}
         <div class="design-detail-stone-item-rows">
           ${group.items.length ? group.items.map((item, index) => `
             <article class="design-detail-stone-row">
               <div class="design-detail-stone-row-title">
-                <strong>${escapeHtml(item.code || stoneLookupCode(item) || `Stone ${index + 1}`)}</strong>
-                <span>Stone ${index + 1}</span>
+                <strong>${escapeHtml(`${item.code || stoneLookupCode(item) || `Stone ${index + 1}`}${item.fittingAccessoryName ? ` / ${item.fittingAccessoryName}` : ""}`)}</strong>
+                <span>${item.fittingAccessoryName ? `Fitting / ${stoneItemInputValue(item.sourceFittingItemKey || "ITEM")}` : `Stone ${index + 1}`}</span>
               </div>
               <div class="design-detail-stone-values">
                 <div><span>Type</span><strong>${escapeHtml(item.stoneType || "-")}</strong></div>
@@ -32699,6 +33255,12 @@ function normalizeState(currentState) {
       return {
         id: item.id || crypto.randomUUID(),
         itemKey: normalizeStoneItemKey(item.itemKey),
+        fittingAccessoryId: item.fittingAccessoryId || "",
+        fittingAccessoryName: item.fittingAccessoryName || "",
+        sourceFittingDesignId: item.sourceFittingDesignId || "",
+        sourceFittingItemKey: item.sourceFittingItemKey ? normalizeStoneItemKey(item.sourceFittingItemKey) : "",
+        sourceFittingStoneId: item.sourceFittingStoneId || "",
+        isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName),
         stoneType: item.stoneType || "",
         shape,
         size: item.size || "",
@@ -32878,6 +33440,16 @@ function normalizeState(currentState) {
       return {
         id: item.id || crypto.randomUUID(),
         sourceDesignStoneId: isAdditionalStone ? "" : (item.sourceDesignStoneId || matchedDesignStone?.id || ""),
+        fittingAccessoryId: item.fittingAccessoryId || matchedDesignStone?.fittingAccessoryId || "",
+        fittingAccessoryName: item.fittingAccessoryName || matchedDesignStone?.fittingAccessoryName || "",
+        jobFittingAccessoryId: item.jobFittingAccessoryId || "",
+        jobFittingAccessoryName: item.jobFittingAccessoryName || "",
+        sourceFittingDesignId: item.sourceFittingDesignId || matchedDesignStone?.sourceFittingDesignId || "",
+        sourceFittingItemKey: (item.sourceFittingItemKey || matchedDesignStone?.sourceFittingItemKey)
+          ? normalizeStoneItemKey(item.sourceFittingItemKey || matchedDesignStone?.sourceFittingItemKey)
+          : "",
+        sourceFittingStoneId: item.sourceFittingStoneId || matchedDesignStone?.sourceFittingStoneId || "",
+        isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName || matchedDesignStone?.isFittingAccessory),
         safeDepartmentIssueId: item.safeDepartmentIssueId || "",
         manualShelfIssue: Boolean(item.manualShelfIssue),
         isAdditionalStone,

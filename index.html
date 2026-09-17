@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=525">
+  <link rel="stylesheet" href="styles.css?v=533">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v525</small>
+          <small class="app-version-badge">App v533</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v525</span>
+          <span class="app-version-badge">App v533</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2537,6 +2537,51 @@
       </div>
     </dialog>
 
+    <dialog id="design-fitting-accessory-dialog">
+      <form id="design-fitting-accessory-form" class="dialog-card design-fitting-accessory-dialog">
+        <div class="dialog-header">
+          <div>
+            <h2 id="design-fitting-accessory-title">Add Fitting Accessory</h2>
+            <p id="design-fitting-accessory-target" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-design-fitting-accessory">Close</button>
+        </div>
+        <input type="hidden" name="targetDesignId">
+        <input type="hidden" name="targetOrderId">
+        <input type="hidden" name="targetItemKey">
+        <section class="design-fitting-accessory-fields">
+          <label>Source Fitting Design
+            <select name="sourceDesignId"></select>
+          </label>
+          <label>Source Fitting Item
+            <select name="sourceItemKey"></select>
+          </label>
+          <label>Fitting Accessory Name
+            <input name="fittingName" maxlength="80" placeholder="Shown after the original product using /">
+          </label>
+        </section>
+        <div id="design-fitting-accessory-summary" class="design-fitting-accessory-summary">Select a fitting design and item.</div>
+        <div class="design-fitting-accessory-queue-action">
+          <button class="ghost-button" type="button" id="queue-design-fitting-accessory">Add Fitting Row</button>
+          <small>Select a fitting and add it to the list. Repeat for every fitting required.</small>
+        </div>
+        <section class="design-fitting-accessory-pending-panel">
+          <div class="design-fitting-accessory-pending-head">
+            <strong>Fittings To Add</strong>
+            <span id="design-fitting-accessory-pending-count">0 rows</span>
+          </div>
+          <div id="design-fitting-accessory-pending" class="design-fitting-accessory-pending">
+            <div class="empty">No fitting rows added yet.</div>
+          </div>
+        </section>
+        <p id="design-fitting-accessory-note" class="dialog-note">The selected fitting stone rows will be copied into this design item. Their pieces and stone weight will be included in this item's totals and in future Job Orders. The source fitting design remains unchanged.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-design-fitting-accessory">Cancel</button>
+          <button type="submit" id="save-all-design-fitting-accessories">Add All Fittings</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="stone-entry-dialog">
       <div class="dialog-card stone-entry-dialog">
         <div class="dialog-header">
@@ -2667,6 +2712,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=525"></script>
+  <script src="app.js?v=533"></script>
 </body>
 </html>
