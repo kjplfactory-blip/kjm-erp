@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v533";
+const APP_VERSION = "v534";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -12879,6 +12879,7 @@ function renderJobItemsDetail(orders) {
       ${orders.map((order) => {
         const stage = orderCurrentStage(order);
         const deliveryText = orderDeliveryText(order);
+        const subcategory = jobItemSubcategoryLabel(order);
         return `
           <article class="job-item-select-card">
             <label class="job-split-select ${isFittingAccessoriesOrder(order) ? "hidden" : ""}">
@@ -12888,6 +12889,7 @@ function renderJobItemsDetail(orders) {
             <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
               <strong>${escapeHtml(order.productionNo || order.number)}</strong>
               <span>${escapeHtml(jobItemDisplayName(order))}</span>
+              <span class="job-item-subcategory"><b>Sub Item</b>${escapeHtml(subcategory)}</span>
               <small>${escapeHtml(stage)}</small>
               ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
               ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
@@ -12897,6 +12899,11 @@ function renderJobItemsDetail(orders) {
       }).join("")}
     </div>
   `;
+}
+
+function jobItemSubcategoryLabel(order = {}) {
+  const itemKey = printBagItemKeyForOrder(order) || orderStoneItemKeys(order)[0];
+  return itemKey ? stoneItemInputValue(itemKey) : (order.item || order.category || "-");
 }
 
 function closeJobItemDetail() {

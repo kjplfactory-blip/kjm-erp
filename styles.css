@@ -6328,6 +6328,29 @@ dialog::backdrop {
   color: var(--ink);
 }
 
+.job-item-open-button .job-item-subcategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid #99d4c9;
+  border-radius: 999px;
+  background: #e8f7f3;
+  color: #075e54;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.job-item-open-button .job-item-subcategory b {
+  color: #47736d;
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
 .job-item-open-button small,
 .job-item-open-button em {
   color: var(--muted);
