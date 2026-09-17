@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v535";
+const APP_VERSION = "v536";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -33,6 +33,7 @@ const ERP_STATE_INDEXED_DB_NAME = "khushali-erp-local-state";
 const ERP_STATE_INDEXED_DB_STORE = "states";
 const ERP_STATE_INDEXED_DB_KEY = "latest";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
+const LOCAL_COMPACT_MODE_SESSION_KEY = "gold-jewellery-erp-compact-storage-mode";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
 const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
@@ -45,6 +46,7 @@ const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_JPEG_QUALITY = 0.74;
 const DESIGN_IMAGE_ASPECT_TEXT = "4x6";
 const IMAGE_PREVIEW_BATCH_SIZE = 8;
+const DESIGN_IMAGE_CACHE_LIMIT = 96;
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
 const AUTO_SYNC_INTERVAL_MS = 15000;
@@ -319,6 +321,13 @@ let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
 let erpStateIndexedDbPendingRecord = null;
 let erpStateIndexedDbWritePromise = null;
+let localStorageCompactMode = (() => {
+  try {
+    return sessionStorage.getItem(LOCAL_COMPACT_MODE_SESSION_KEY) === "1";
+  } catch (error) {
+    return false;
+  }
+})();
 let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) || 0);
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
@@ -346,6 +355,8 @@ const designImageCache = new Map();
 const designImagePending = new Map();
 const designImageCloudPending = new Map();
 const designImageUnsyncedIds = new Set();
+let designThumbnailObserver = null;
+let activeRenderCache = null;
 let billDesignHoverRequest = 0;
 
 const users = {
@@ -4166,30 +4177,38 @@ function persistStateToBrowser(options = {}) {
   const context = options.context ? `${options.context} ` : "ERP data ";
   state.browserSavedAt = new Date().toISOString();
   const indexedDbWrite = queueFullErpStateToIndexedDb(state);
-  try {
-    localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch (fullStorageError) {
-    console.warn(`${context}did not fit in small browser storage. Retrying with the compact safety copy.`, fullStorageError);
-    releaseOptionalLocalStorageCopies();
+  if (!localStorageCompactMode) {
     try {
-      localStorage.setItem(ERP_STATE_STORAGE_KEY, compactErpStateJson(state));
-      setSyncStatus("saving", "Local Safety: Large Storage", "The complete ERP copy is in large browser storage; the compact local copy and cloud sync remain active.");
+      localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(state));
       return true;
-    } catch (compactStorageError) {
-      if (indexedDbWrite) {
-        console.warn(`${context}is using large browser storage because localStorage is full.`, compactStorageError);
-        setSyncStatus("saving", "Local Safety: IndexedDB", "Small browser storage is full. The complete ERP copy is being saved in large browser storage and Supabase.");
-        return true;
+    } catch (fullStorageError) {
+      localStorageCompactMode = true;
+      try {
+        sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1");
+      } catch (error) {
+        // Session storage is optional; IndexedDB and Supabase remain the safety copies.
       }
-      const detail = String(compactStorageError?.message || compactStorageError || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
-      console.error(`${context}could not be saved on this laptop.`, compactStorageError);
-      setSyncStatus("offline", "Save Failed - Browser Storage", detail);
-      if (options.alertOnFailure) {
-        alert(`${context}could not be saved on this laptop. The form has been kept open, and no incomplete job order was created.\n\n${detail}`);
-      }
-      return false;
+      console.warn(`${context}did not fit in small browser storage. Future saves in this session will use the compact safety copy.`, fullStorageError);
     }
+  }
+  try {
+    releaseOptionalLocalStorageCopies();
+    localStorage.setItem(ERP_STATE_STORAGE_KEY, compactErpStateJson(state));
+    setSyncStatus("saving", "Local Safety: Large Storage", "The complete ERP copy is in large browser storage; the compact local copy and cloud sync remain active.");
+    return true;
+  } catch (compactStorageError) {
+    if (indexedDbWrite) {
+      console.warn(`${context}is using large browser storage because localStorage is full.`, compactStorageError);
+      setSyncStatus("saving", "Local Safety: IndexedDB", "Small browser storage is full. The complete ERP copy is being saved in large browser storage and Supabase.");
+      return true;
+    }
+    const detail = String(compactStorageError?.message || compactStorageError || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
+    console.error(`${context}could not be saved on this laptop.`, compactStorageError);
+    setSyncStatus("offline", "Save Failed - Browser Storage", detail);
+    if (options.alertOnFailure) {
+      alert(`${context}could not be saved on this laptop. The form has been kept open, and no incomplete job order was created.\n\n${detail}`);
+    }
+    return false;
   }
 }
 
@@ -6032,6 +6051,7 @@ function switchView(view) {
   document.getElementById("page-subtitle").textContent = pageInfo[view][1];
   resetBuiltInTilePage(view);
   openDefaultOperationPage(view);
+  render({ view });
 }
 
 function openDashboardShortcut(button) {
@@ -7440,14 +7460,16 @@ function cleanDesignCategoryText(value = "") {
 }
 
 function designCategoryNames() {
-  const categories = new Map();
-  state.designs.forEach((design) => {
-    const clean = cleanDesignCategoryText(design.category);
-    if (!clean) return;
-    const key = clean.toLowerCase();
-    if (!categories.has(key)) categories.set(key, clean);
+  return renderCachedValue("designCategoryNames", () => {
+    const categories = new Map();
+    state.designs.forEach((design) => {
+      const clean = cleanDesignCategoryText(design.category);
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!categories.has(key)) categories.set(key, clean);
+    });
+    return [...categories.values()].sort((a, b) => a.localeCompare(b));
   });
-  return [...categories.values()].sort((a, b) => a.localeCompare(b));
 }
 
 function normalizeDesignCategory(value = "") {
@@ -7529,9 +7551,9 @@ function renderDesignOptions() {
 }
 
 function sortedDesigns() {
-  return [...state.designs].sort((a, b) =>
+  return renderCachedValue("sortedDesigns", () => [...state.designs].sort((a, b) =>
     `${a.category || "Uncategorised"} ${a.number || ""}`.localeCompare(`${b.category || "Uncategorised"} ${b.number || ""}`)
-  );
+  ));
 }
 
 function openPhoneBarcodeScanner() {
@@ -8222,7 +8244,7 @@ function findOfficeEntryByBarcode(value) {
 function allOfficeBillItemEntries() {
   const entries = [];
   (state.lots || []).forEach((lot) => {
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    const bill = billForLotRecord(lot);
     if (!bill?.items?.length) return;
     bill.items.forEach((item) => {
       entries.push({ lot, bill, item, order: findById("orders", item.orderId) || {} });
@@ -8490,8 +8512,31 @@ function code128BarcodeSvg(value, options = {}) {
   return `<div class="barcode-wrap ${wrapClass}"><svg class="barcode code128-barcode" viewBox="0 0 ${totalWidth} ${barHeight}" preserveAspectRatio="none"><rect x="0" y="0" width="${totalWidth}" height="${barHeight}" fill="#ffffff"></rect>${bars.join("")}</svg><small>${escapeHtml(text)}</small></div>`;
 }
 
+function withRenderCache(callback) {
+  if (activeRenderCache) return callback();
+  activeRenderCache = { values: new Map(), lookups: new Map() };
+  try {
+    return callback();
+  } finally {
+    activeRenderCache = null;
+  }
+}
+
+function renderCachedValue(key, factory) {
+  if (!activeRenderCache) return factory();
+  if (activeRenderCache.values.has(key)) return activeRenderCache.values.get(key);
+  const value = factory();
+  activeRenderCache.values.set(key, value);
+  return value;
+}
+
 function findById(collection, id) {
-  return state[collection].find((item) => item.id === id);
+  const items = Array.isArray(state[collection]) ? state[collection] : [];
+  if (!activeRenderCache) return items.find((item) => item.id === id);
+  if (!activeRenderCache.lookups.has(collection)) {
+    activeRenderCache.lookups.set(collection, new Map(items.map((item) => [item.id, item])));
+  }
+  return activeRenderCache.lookups.get(collection).get(id);
 }
 
 function getLotOrderIds(lot) {
@@ -8499,7 +8544,16 @@ function getLotOrderIds(lot) {
 }
 
 function getLotOrders(lot, sourceState = state) {
-  return getLotOrderIds(lot).map((id) => (sourceState?.orders || []).find((order) => order.id === id)).filter(Boolean);
+  return getLotOrderIds(lot)
+    .map((id) => sourceState === state ? findById("orders", id) : (sourceState?.orders || []).find((order) => order.id === id))
+    .filter(Boolean);
+}
+
+function billForLotRecord(lot = {}) {
+  if (lot.bill) return lot.bill;
+  if (!activeRenderCache) return state.bills?.find((item) => item.lotId === lot.id);
+  const billsByLot = renderCachedValue("billsByLot", () => new Map((state.bills || []).map((bill) => [bill.lotId, bill])));
+  return billsByLot.get(lot.id);
 }
 
 function billableOrderIdsForLot(lot = {}, bill = {}) {
@@ -14163,19 +14217,40 @@ function cataloguePrintHtml(orderData = {}, items = []) {
 }
 
 function lotsForOrder(order) {
-  return state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
+  if (!activeRenderCache) return state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
+  const lotsByOrder = renderCachedValue("lotsByOrder", () => {
+    const index = new Map();
+    state.lots.forEach((lot) => {
+      getLotOrderIds(lot).forEach((orderId) => {
+        if (!index.has(orderId)) index.set(orderId, []);
+        index.get(orderId).push(lot);
+      });
+    });
+    return index;
+  });
+  return lotsByOrder.get(order.id) || [];
 }
 
 function findBillItemForOrder(order) {
+  const cacheKey = order.id || order.productionNo || "";
+  const cachedItems = activeRenderCache
+    ? renderCachedValue("billItemsByOrder", () => new Map())
+    : null;
+  if (cachedItems?.has(cacheKey)) return cachedItems.get(cacheKey);
   for (const lot of state.lots) {
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    const bill = billForLotRecord(lot);
     if (!bill?.items?.length) continue;
     const found = bill.items.find((item) =>
       item.orderId === order.id ||
       (item.productionNo && item.productionNo === order.productionNo)
     );
-    if (found) return { lot, bill, item: found };
+    if (found) {
+      const result = { lot, bill, item: found };
+      cachedItems?.set(cacheKey, result);
+      return result;
+    }
   }
+  cachedItems?.set(cacheKey, null);
   return null;
 }
 
@@ -18602,31 +18677,45 @@ function escapeRegExp(value = "") {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function render() {
-  renderLoginUserOptions();
-  renderSelects();
-  renderDashboard();
-  renderCustomers();
-  renderDesigns();
-  renderCatalogue();
-  renderStoneLibrary();
-  renderMotiLibrary();
-  renderDesignMotiEntryOptions();
-  renderOrders();
-  renderProduction();
-  renderBills();
-  renderOffice();
-  renderSafe();
-  renderFactory();
-  renderDailyTally();
-  renderLedger();
-  renderMelting();
-  renderKarigars();
-  renderOnlineTransferHistory();
-  renderDepartmentTransferHistoryBoard();
-  renderReports();
-  renderLoginUsers();
-  applyAccessControl();
+function renderActiveView(view = activeViewId() || "dashboard") {
+  if (view === "dashboard") renderDashboard();
+  else if (view === "customers") renderCustomers();
+  else if (view === "designs") {
+    renderDesigns();
+    renderDesignMotiEntryOptions();
+  }
+  else if (view === "catalogue") renderCatalogue();
+  else if (view === "stone-library") renderStoneLibrary();
+  else if (view === "moti-library") {
+    renderMotiLibrary();
+    renderDesignMotiEntryOptions();
+  }
+  else if (view === "orders") renderOrders();
+  else if (view === "production") renderProduction();
+  else if (view === "billing") renderBills();
+  else if (view === "office") renderOffice();
+  else if (view === "safe") renderSafe();
+  else if (view === "factory") renderFactory();
+  else if (view === "daily-tally") renderDailyTally();
+  else if (view === "melting") renderMelting();
+  else if (view === "karigars") renderKarigars();
+  else if (view === "reports") renderReports();
+  else if (view === "users") renderLoginUsers();
+  else if (view === "transfer-history") {
+    if (document.getElementById("online-transfer-history-dialog")?.open) renderOnlineTransferHistory();
+    if (document.getElementById("department-transfer-history-dialog")?.open) renderDepartmentTransferHistoryBoard();
+  }
+}
+
+function render(options = {}) {
+  const requestedView = typeof options === "string" ? options : options.view;
+  const view = requestedView || activeViewId() || "dashboard";
+  return withRenderCache(() => {
+    renderLoginUserOptions();
+    renderSelects(view);
+    renderActiveView(view);
+    applyAccessControl();
+  });
 }
 
 function renderLoginUsers() {
@@ -19595,7 +19684,9 @@ function formatStoneWeight(value) {
   return number.toFixed(5);
 }
 
-function renderSelects() {
+function renderSelects(view = activeViewId() || "dashboard") {
+  const viewsWithLiveSelects = ["designs", "stone-library", "moti-library", "orders", "production", "safe", "factory", "daily-tally", "melting", "billing", "office"];
+  if (!viewsWithLiveSelects.includes(view)) return;
   renderDesignCategoryDatalist();
   const customerOptions = state.customers
     .map((customer) => `<option value="${customer.id}">${escapeHtml(customer.name)}</option>`)
@@ -23212,6 +23303,13 @@ function jobDetailsText(job) {
 }
 
 function groupedJobOrders(orderFilter = null, bucket = "all") {
+  if (!orderFilter && activeRenderCache) {
+    return renderCachedValue(`groupedJobOrders:${bucket}`, () => groupedJobOrdersUncached(null, bucket));
+  }
+  return groupedJobOrdersUncached(orderFilter, bucket);
+}
+
+function groupedJobOrdersUncached(orderFilter = null, bucket = "all") {
   const sourceOrders = orderFilter ? state.orders.filter(orderFilter) : state.orders;
   const groups = sourceOrders.reduce((acc, order) => {
     const key = order.jobNumber || order.productionNo || order.number;
@@ -23293,7 +23391,7 @@ function orderCurrentStage(order = {}) {
     if (reworkLot && reworkLot.status !== "Completed") return reworkLot.currentDepartment || "Repair Production";
     return officeItemLocation(repairEntry.item);
   }
-  const lot = state.lots.find((item) => getLotOrderIds(item).includes(order.id));
+  const lot = lotsForOrder(order)[0];
   if (lot?.bill) return lot.billingStage || "Bill / QC";
   if (lot) return lot.currentDepartment || lot.karigarName || "Production";
   return order.status || "Pending";
@@ -23694,13 +23792,15 @@ function renderDesignCard(design) {
 }
 
 function designCategoryGroups() {
-  const groups = sortedDesigns().reduce((acc, design) => {
-    const category = design.category || "Uncategorised";
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(design);
-    return acc;
-  }, {});
-  return Object.entries(groups).map(([category, designs]) => ({ category, designs }));
+  return renderCachedValue("designCategoryGroups", () => {
+    const groups = sortedDesigns().reduce((acc, design) => {
+      const category = design.category || "Uncategorised";
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(design);
+      return acc;
+    }, {});
+    return Object.entries(groups).map(([category, designs]) => ({ category, designs }));
+  });
 }
 
 function openDesignCategory(categoryKey) {
@@ -24802,8 +24902,19 @@ function queueDesignImageCloudRepair(id, imageData) {
   designImageCloudPending.set(id, repair);
 }
 
+function rememberDesignImage(id, imageData = "") {
+  designImageCache.delete(id);
+  if (imageData) designImageCache.set(id, imageData);
+  while (designImageCache.size > DESIGN_IMAGE_CACHE_LIMIT) {
+    const oldestKey = designImageCache.keys().next().value;
+    if (!oldestKey) break;
+    designImageCache.delete(oldestKey);
+  }
+  return imageData || "";
+}
+
 async function saveDesignImage(id, imageData) {
-  designImageCache.set(id, imageData || "");
+  rememberDesignImage(id, imageData);
   designImagePending.delete(id);
   const cloudResult = await saveDesignImageCloud(id, imageData);
   const cloudSaved = cloudResult.saved;
@@ -24900,7 +25011,7 @@ async function deleteAllStoneChartImages(design) {
 }
 
 async function getDesignImage(id) {
-  if (designImageCache.has(id)) return designImageCache.get(id) || "";
+  if (designImageCache.has(id)) return rememberDesignImage(id, designImageCache.get(id));
   if (designImagePending.has(id)) return designImagePending.get(id);
   const loadPromise = (async () => {
     let imageData = "";
@@ -24926,7 +25037,7 @@ async function getDesignImage(id) {
       });
       if (imageData && supabaseClient && !cloudImageFound) queueDesignImageCloudRepair(id, imageData);
     }
-    if (imageData) designImageCache.set(id, imageData);
+    if (imageData) rememberDesignImage(id, imageData);
     else designImageCache.delete(id);
     return imageData || "";
   })();
@@ -25039,8 +25150,8 @@ function blobToDataUrl(blob) {
   });
 }
 
-async function loadDesignThumbnails() {
-  const images = [...document.querySelectorAll("[data-design-image]")];
+async function loadDesignThumbnailsNow() {
+  const images = [...document.querySelectorAll("[data-design-image]:not([data-preview-deferred]):not([src])")];
   await runPreviewBatch(images, async (image) => {
     const imageId = image.dataset.designImage;
     const design = findById("designs", image.dataset.designImage);
@@ -25079,7 +25190,7 @@ async function loadDesignThumbnails() {
       }
     }
   });
-  const stoneCharts = [...document.querySelectorAll("[data-stone-chart-image]")];
+  const stoneCharts = [...document.querySelectorAll("[data-stone-chart-image]:not([data-preview-deferred]):not([src])")];
   await runPreviewBatch(stoneCharts, async (image) => {
     const imageId = image.dataset.stoneChartImage;
     const itemKey = image.dataset.stoneChartItem || DEFAULT_STONE_ITEM_KEY;
@@ -25091,7 +25202,7 @@ async function loadDesignThumbnails() {
       image.alt = "Stone chart not available";
     }
   });
-  const stoneChartSources = [...document.querySelectorAll("[data-stone-chart-source-image]")];
+  const stoneChartSources = [...document.querySelectorAll("[data-stone-chart-source-image]:not([data-preview-deferred]):not([src])")];
   await runPreviewBatch(stoneChartSources, async (image) => {
     const imageId = image.dataset.stoneChartSourceImage;
     try {
@@ -25102,6 +25213,29 @@ async function loadDesignThumbnails() {
       image.alt = "Main stone chart not available";
     }
   });
+}
+
+function loadDesignThumbnails() {
+  const selector = "[data-design-image], [data-stone-chart-image], [data-stone-chart-source-image]";
+  const images = [...document.querySelectorAll(selector)].filter((image) => !image.src);
+  designThumbnailObserver?.disconnect();
+  images.forEach((image) => image.setAttribute("data-preview-deferred", ""));
+  if (!("IntersectionObserver" in window)) {
+    images.forEach((image) => image.removeAttribute("data-preview-deferred"));
+    loadDesignThumbnailsNow();
+    return;
+  }
+  designThumbnailObserver = new IntersectionObserver((entries) => {
+    let shouldLoad = false;
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      entry.target.removeAttribute("data-preview-deferred");
+      designThumbnailObserver?.unobserve(entry.target);
+      shouldLoad = true;
+    });
+    if (shouldLoad) loadDesignThumbnailsNow();
+  }, { rootMargin: "600px 0px", threshold: 0.01 });
+  images.forEach((image) => designThumbnailObserver.observe(image));
 }
 
 async function migrateLegacyDesignImages() {
@@ -27885,8 +28019,8 @@ function renderOfficeTeamSummary(items = officeItems()) {
 }
 
 function officeItems() {
-  return state.lots.flatMap((lot) => {
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+  return renderCachedValue("officeItems", () => state.lots.flatMap((lot) => {
+    const bill = billForLotRecord(lot);
     if (!bill?.items?.length) return [];
     return bill.items
       .filter((item) => !isDiscardedItem(item) && (
@@ -27898,12 +28032,12 @@ function officeItems() {
         item,
         order: findById("orders", item.orderId) || {},
       }));
-  });
+  }));
 }
 
 function repairJobItems() {
-  return state.lots.flatMap((lot) => {
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+  return renderCachedValue("repairJobItems", () => state.lots.flatMap((lot) => {
+    const bill = billForLotRecord(lot);
     if (!bill?.items?.length) return [];
     return bill.items
       .filter((item) => isRepairItem(item))
@@ -27913,7 +28047,7 @@ function repairJobItems() {
         item,
         order: findById("orders", item.orderId) || {},
       }));
-  });
+  }));
 }
 
 function isRepairItem(item = {}) {
