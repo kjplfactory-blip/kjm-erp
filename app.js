@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v534";
+const APP_VERSION = "v535";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -16316,13 +16316,14 @@ function prepareJobBagStoneLayouts(rootDocument = document) {
   const cards = Array.from(rootDocument.querySelectorAll(".print-job-item"));
   let fittedCards = 0;
   cards.forEach((card) => {
-    const details = card.querySelector(".print-stone-details");
+    const details = card.querySelector(".print-material-details") || card.querySelector(".print-stone-details");
+    const detailPanels = Array.from(card.querySelectorAll(".print-stone-details"));
     const section = card.querySelector(".print-stone-section");
     const barcode = card.querySelector(".print-barcode");
     if (!details) return;
     card.classList.remove(...spaceClasses);
     card.classList.remove(...fitClasses);
-    details.classList.remove(...fitClasses);
+    detailPanels.forEach((panel) => panel.classList.remove(...fitClasses));
     details.dataset.stoneFit = "normal";
     card.getBoundingClientRect();
     const fits = () => {
@@ -16348,9 +16349,9 @@ function prepareJobBagStoneLayouts(rootDocument = document) {
       card.classList.remove(...spaceClasses);
       for (const fitClass of fitClasses) {
         card.classList.remove(...fitClasses);
-        details.classList.remove(...fitClasses);
+        detailPanels.forEach((panel) => panel.classList.remove(...fitClasses));
         card.classList.add(fitClass);
-        details.classList.add(fitClass);
+        detailPanels.forEach((panel) => panel.classList.add(fitClass));
         details.dataset.stoneFit = fitClass.replace("stone-density-", "");
         card.getBoundingClientRect();
         if (fits()) break;
@@ -17019,6 +17020,7 @@ function printJobItemHtml(job, entry) {
   const barcodeValues = order.barcodeValues?.length
     ? order.barcodeValues
     : [{ label: "", value: order.barcode || order.productionNo || order.number }];
+  const motiDetailsHtml = printMotiDetailsHtml(design, order, bagItems);
   return `
     <article class="print-job-item ${isCustomerOrder ? "customer-order-print" : ""}">
       <div class="print-card-head">
@@ -17049,7 +17051,10 @@ function printJobItemHtml(job, entry) {
         </div>
       </div>
       <div class="print-stone-section">
-        ${printStoneDetailsHtml(design, order, bagItems)}
+        <div class="print-material-details">
+          ${printStoneDetailsHtml(design, order, bagItems, { manualRows: motiDetailsHtml ? 1 : undefined })}
+          ${motiDetailsHtml}
+        </div>
       </div>
       <div class="print-barcode ${barcodeValues.length > 1 ? "combined" : ""} ${barcodeValues.length > 2 ? "barcode-many" : ""}">
         ${barcodeValues.map((barcode) => `
@@ -17106,7 +17111,7 @@ function printStoneRowsForOrder(design, order = {}) {
   }));
 }
 
-function printStoneDetailsHtml(design, order = {}, bagItems = null) {
+function printStoneDetailsHtml(design, order = {}, bagItems = null, options = {}) {
   const sourceOrders = Array.isArray(bagItems) && bagItems.length ? bagItems : [order];
   const itemGroups = sourceOrders.map((itemOrder) => {
     const rows = printStoneRowsForOrder(design, itemOrder);
@@ -17159,7 +17164,10 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
       <td>${escapeHtml(totals.weight ? weight3(totals.weight) : "")}</td>
     </tr>
   ` : "";
-  const blankRowCount = sourceOrders.length > 1 ? 2 : 4;
+  const defaultBlankRowCount = sourceOrders.length > 1 ? 2 : 4;
+  const blankRowCount = Number.isFinite(options.manualRows)
+    ? Math.max(0, Math.trunc(options.manualRows))
+    : defaultBlankRowCount;
   const blankRows = Array.from({ length: blankRowCount }, () => `
     <tr class="manual-stone-row"><td></td><td></td><td></td><td></td><td></td><td></td></tr>
   `).join("");
@@ -17170,6 +17178,80 @@ function printStoneDetailsHtml(design, order = {}, bagItems = null) {
       <table>
         <thead><tr><th>Item</th><th>Type</th><th>Shape</th><th>No of Pcs</th><th>Wt/Pc</th><th>Total Weight</th></tr></thead>
         <tbody>${itemGroups}${grandTotalRow}${blankRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function printMotiRowsForOrder(design, order = {}) {
+  const sourceDesign = order.designId ? findById("designs", order.designId) || design : design;
+  if (!sourceDesign) return [];
+  const itemKey = normalizeStoneItemKey(
+    printBagItemKeyForOrder(order)
+    || orderStoneItemKeys(order)[0]
+    || defaultStoneItemKeyForDesign(sourceDesign)
+  );
+  return designMotiItemsForKey(sourceDesign, itemKey).map((item) => ({
+    ...item,
+    itemKey: normalizeStoneItemKey(item.itemKey || itemKey),
+  }));
+}
+
+function printMotiDetailsHtml(design, order = {}, bagItems = null) {
+  const sourceOrders = Array.isArray(bagItems) && bagItems.length ? bagItems : [order];
+  const groups = sourceOrders.map((itemOrder) => {
+    const rows = printMotiRowsForOrder(design, itemOrder);
+    const itemKey = printBagItemKeyForOrder(itemOrder)
+      || orderStoneItemKeys(itemOrder)[0]
+      || defaultStoneItemKeyForDesign(design);
+    return { itemOrder, rows, itemKey, totals: designMotiTotals(rows) };
+  });
+  if (!groups.some((group) => group.rows.length)) return "";
+  const itemGroups = groups.map(({ itemOrder, rows, itemKey, totals }) => {
+    const itemLabel = stoneItemInputValue(itemKey);
+    const productionNo = itemOrder.productionNo || itemOrder.number || "";
+    const detailRows = rows.length ? rows.map((item) => `
+      <tr>
+        <td>${escapeHtml(itemLabel)}</td>
+        <td>${escapeHtml(item.motiType || "")}</td>
+        <td>${escapeHtml([item.shape, item.size].filter(Boolean).join(" "))}</td>
+        <td>${escapeHtml(item.pcs || "")}</td>
+        <td>${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}</td>
+        <td>${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}</td>
+      </tr>
+    `).join("") : `
+      <tr>
+        <td>${escapeHtml(itemLabel)}</td>
+        <td colspan="5">No moti details saved.</td>
+      </tr>
+    `;
+    return `
+      ${detailRows}
+      <tr class="stone-item-total-row moti-item-total-row">
+        <td colspan="3">${escapeHtml(itemLabel)} Moti Total${productionNo ? ` / ${escapeHtml(productionNo)}` : ""}</td>
+        <td>${escapeHtml(totals.pcs || "")}</td>
+        <td></td>
+        <td>${escapeHtml(totals.weight ? weight3(totals.weight) : "")}</td>
+      </tr>
+    `;
+  }).join("");
+  const allRows = groups.flatMap((group) => group.rows);
+  const totals = designMotiTotals(allRows);
+  const grandTotalRow = sourceOrders.length > 1 ? `
+    <tr class="stone-total-row stone-grand-total-row moti-grand-total-row">
+      <td colspan="3">Bag Moti Total</td>
+      <td>${escapeHtml(totals.pcs || "")}</td>
+      <td></td>
+      <td>${escapeHtml(totals.weight ? weight3(totals.weight) : "")}</td>
+    </tr>
+  ` : "";
+  const itemLabels = [...new Set(groups.map((group) => stoneItemInputValue(group.itemKey)))];
+  return `
+    <div class="print-stone-details print-moti-details ${sourceOrders.length > 1 ? "multi-item" : ""}">
+      <b>Moti Details - ${escapeHtml(itemLabels.join(" + ") || "-")}</b>
+      <table>
+        <thead><tr><th>Item</th><th>Type</th><th>Shape</th><th>No of Pcs</th><th>Wt/Pc</th><th>Total Weight</th></tr></thead>
+        <tbody>${itemGroups}${grandTotalRow}</tbody>
       </table>
     </div>
   `;

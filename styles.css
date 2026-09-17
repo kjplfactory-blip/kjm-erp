@@ -7117,6 +7117,13 @@ body.measuring-transfer-bag .global-print-area {
   overflow: hidden;
 }
 
+.print-material-details {
+  display: grid;
+  gap: 2px;
+  min-height: 0;
+  align-self: start;
+}
+
 .print-stone-details {
   display: grid;
   grid-template-rows: auto auto;
@@ -7211,6 +7218,29 @@ body.measuring-transfer-bag .global-print-area {
 
 .print-stone-details .manual-stone-row td {
   height: 3.5mm;
+}
+
+.print-moti-details {
+  border-color: #c7a64a;
+}
+
+.print-moti-details > b,
+.print-moti-details th {
+  color: #684f0d;
+}
+
+.print-moti-details th {
+  background: #fff8dc;
+}
+
+.print-moti-details .moti-item-total-row td {
+  background: #fff8dc;
+  color: #684f0d;
+}
+
+.print-moti-details .moti-grand-total-row td {
+  background: #684f0d;
+  color: #ffffff;
 }
 
 .print-job-item.stone-space-compact,
