@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=545">
+  <link rel="stylesheet" href="styles.css?v=546">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v545</small>
+      <small class="app-version-badge">App v546</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v545</span>
+          <span class="app-version-badge">App v546</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -656,8 +656,8 @@
           <section class="panel opening-non-gold-adjustment-panel">
             <div class="panel-heading">
               <div>
-                <h2>Opening Non-Gold Included In Existing GW</h2>
-                <p>Use this only when initial stock GW was entered as net gold. Physical GW stays unchanged; non-gold reduces net gold and fine stock.</p>
+                <h2>Final Non-Gold Stock Target</h2>
+                <p>Enter the final physical non-gold stock. The ERP subtracts non-gold already tracked and adds only the missing adjustment; physical GW stays unchanged.</p>
               </div>
             </div>
             <form id="opening-non-gold-adjustment-form" class="inline-form opening-non-gold-adjustment-form">
@@ -672,9 +672,11 @@
               <label>Moti (g) <input name="moti" type="number" min="0" step="0.001" value="42.622"></label>
               <label>Spring (g) <input name="spring" type="number" min="0" step="0.001" value="5.630"></label>
               <label>Other (g) <input name="other" type="number" min="0" step="0.001" value="0"></label>
-              <div class="opening-non-gold-total"><span>Total Included In GW</span><strong id="opening-non-gold-total">357.362 g</strong></div>
+              <div class="opening-non-gold-total"><span>Final Non-Gold Target</span><strong id="opening-non-gold-total">357.362 g</strong></div>
+              <div class="opening-non-gold-total"><span>Already Tracked</span><strong id="opening-non-gold-existing-total">0.000 g</strong></div>
+              <div class="opening-non-gold-total"><span>Adjustment To Add</span><strong id="opening-non-gold-required-total">357.362 g</strong></div>
               <div class="row-actions opening-non-gold-actions">
-                <button type="submit">Save / Update Adjustment</button>
+                <button type="submit">Apply Final Stock</button>
                 <button id="clear-opening-non-gold-adjustment" class="danger-button" type="button">Clear This Karat</button>
               </div>
             </form>
@@ -2766,6 +2768,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=545"></script>
+  <script src="app.js?v=546"></script>
 </body>
 </html>

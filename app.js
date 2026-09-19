@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v545";
+const APP_VERSION = "v546";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -18002,6 +18002,56 @@ function openingNonGoldSuggestedBreakdown(purity = "18K") {
     : {};
 }
 
+function openingNonGoldSavedTargetBreakdown(purity = "18K", currentState = state) {
+  const targetKarat = karatPurityKey(purity || "18K");
+  const entries = (currentState.productionNonGoldIssues || [])
+    .filter((issue) => isOpeningNonGoldAdjustment(issue) && karatPurityKey(issue.purity || issue.karat) === targetKarat);
+  const savedTargets = entries.reduce((breakdown, issue) => {
+    const targetWeight = Number(issue.openingTargetWeight);
+    if (!Number.isFinite(targetWeight) || targetWeight < 0) return breakdown;
+    const materialType = normalizeProductionNonGoldMaterial(issue.materialType || issue.materialLabel);
+    breakdown[materialType] = Number(weight3(targetWeight));
+    return breakdown;
+  }, {});
+  if (Object.keys(savedTargets).length) return savedTargets;
+  if (entries.length && targetKarat === karatPurityKey("18K")) return { ...REQUESTED_18K_OPENING_NON_GOLD };
+  return {};
+}
+
+function openingNonGoldExistingBreakdown(purity = "18K") {
+  const targetKarat = karatPurityKey(purity || "18K");
+  let breakdown = {};
+  safeNonGoldShelfPools()
+    .filter((pool) => karatPurityKey(pool.purity) === targetKarat)
+    .forEach((pool) => {
+      breakdown = addNonGoldBreakdowns(breakdown, pool.byMaterial || {});
+    });
+  departmentNonGoldStockPools()
+    .filter((pool) => !pool.embeddedInOpeningGw && karatPurityKey(pool.purity) === targetKarat)
+    .forEach((pool) => {
+      breakdown = addNonGoldBreakdowns(breakdown, pool.byMaterial || {});
+    });
+  trackedNonGoldDemandLines()
+    .filter((line) => karatPurityKey(line.purity) === targetKarat)
+    .forEach((line) => {
+      const used = normalizeNonGoldBreakdown(line.breakdown, "other", line.weight);
+      Object.entries(used).forEach(([materialType, weight]) => {
+        breakdown[materialType] = Number(weight3(Math.max(Number(breakdown[materialType] || 0) - Number(weight || 0), 0)));
+      });
+    });
+  return normalizeNonGoldBreakdown(breakdown);
+}
+
+function openingNonGoldRequiredAdjustment(target = {}, existing = {}) {
+  return normalizeNonGoldBreakdown(NON_GOLD_COMPONENT_TYPES.reduce((breakdown, type) => {
+    breakdown[type.value] = Number(weight3(Math.max(
+      Number(target[type.value] || 0) - Number(existing[type.value] || 0),
+      0,
+    )));
+    return breakdown;
+  }, {}));
+}
+
 function openingNonGoldFormBreakdown(form = document.getElementById("opening-non-gold-adjustment-form")) {
   if (!form) return {};
   return normalizeNonGoldBreakdown({
@@ -18019,7 +18069,8 @@ function populateOpeningNonGoldAdjustmentForm(form = document.getElementById("op
   form.purity.value = selectedPurity;
   const savedBreakdown = openingNonGoldAdjustmentBreakdown(selectedPurity);
   const savedTotal = nonGoldBreakdownTotal(savedBreakdown);
-  const values = savedTotal > 0 ? savedBreakdown : openingNonGoldSuggestedBreakdown(selectedPurity);
+  const savedTarget = openingNonGoldSavedTargetBreakdown(selectedPurity);
+  const values = nonGoldBreakdownTotal(savedTarget) > 0 ? savedTarget : openingNonGoldSuggestedBreakdown(selectedPurity);
   form.stone.value = weight3(values.stone || 0);
   form.blackBeads.value = weight3(values["black-beads"] || 0);
   form.moti.value = weight3(values.moti || 0);
@@ -18034,14 +18085,22 @@ function updateOpeningNonGoldAdjustmentSummary(form = document.getElementById("o
   const purity = form.purity?.value || "18K";
   const breakdown = openingNonGoldFormBreakdown(form);
   const total = nonGoldBreakdownTotal(breakdown);
-  const fineReduction = fineGoldWeight(total, karatLogicPurity(purity));
+  const existingBreakdown = openingNonGoldExistingBreakdown(purity);
+  const existingTotal = nonGoldBreakdownTotal(existingBreakdown);
+  const requiredBreakdown = openingNonGoldRequiredAdjustment(breakdown, existingBreakdown);
+  const requiredTotal = nonGoldBreakdownTotal(requiredBreakdown);
+  const fineReduction = fineGoldWeight(requiredTotal, karatLogicPurity(purity));
   const savedBreakdown = openingNonGoldAdjustmentBreakdown(purity);
   const savedTotal = nonGoldBreakdownTotal(savedBreakdown);
   const output = document.getElementById("opening-non-gold-total");
   if (output) output.textContent = gram(total);
+  const existingOutput = document.getElementById("opening-non-gold-existing-total");
+  if (existingOutput) existingOutput.textContent = gram(existingTotal);
+  const adjustmentOutput = document.getElementById("opening-non-gold-required-total");
+  if (adjustmentOutput) adjustmentOutput.textContent = gram(requiredTotal);
   const summary = document.getElementById("opening-non-gold-adjustment-summary");
   if (summary) {
-    summary.innerHTML = `<strong>${escapeHtml(transferPurityLabel(purity))}</strong> / GW change ${gram(0)} / Non-Gold ${gram(total)} / Net Gold and Fine reduce by ${gram(total)} and ${gram(fineReduction)} respectively. ${savedTotal > 0 ? `Saved adjustment ${gram(savedTotal)}.` : "Suggested opening figures are not saved yet."}${canManageOpeningNonGoldAdjustment() ? "" : " Only Owner or Manager can save this adjustment."}`;
+    summary.innerHTML = `<strong>${escapeHtml(transferPurityLabel(purity))}</strong> / Final target ${gram(total)} - already tracked ${gram(existingTotal)} = adjustment ${gram(requiredTotal)}. Physical GW stays unchanged; net gold and fine reduce only by ${gram(requiredTotal)} and ${gram(fineReduction)}. Components already tracked: ${escapeHtml(nonGoldBreakdownText(existingBreakdown) || "None")}. ${savedTotal > 0 ? `Current saved adjustment ${gram(savedTotal)}.` : "Final target is not applied yet."}${canManageOpeningNonGoldAdjustment() ? "" : " Only Owner or Manager can apply this adjustment."}`;
   }
   form.querySelectorAll("input, select, button").forEach((control) => {
     control.disabled = !canManageOpeningNonGoldAdjustment() || isReadOnlyUser();
@@ -18062,6 +18121,16 @@ function saveOpeningNonGoldAdjustment(event) {
     alert("Enter at least one non-gold component weight.");
     return;
   }
+  const existingBreakdown = openingNonGoldExistingBreakdown(purity);
+  const excessComponents = NON_GOLD_COMPONENT_TYPES.filter((type) =>
+    Number(existingBreakdown[type.value] || 0) - Number(breakdown[type.value] || 0) > 0.0005
+  );
+  if (excessComponents.length) {
+    alert(`The ERP already tracks more than the entered final target for: ${excessComponents.map((type) => type.label).join(", ")}. Remove or correct those stock entries before applying this final target.`);
+    return;
+  }
+  const requiredBreakdown = openingNonGoldRequiredAdjustment(breakdown, existingBreakdown);
+  const requiredTotal = nonGoldBreakdownTotal(requiredBreakdown);
   const targetKarat = karatPurityKey(purity);
   const previousEntries = (state.productionNonGoldIssues || []).filter((issue) =>
     isOpeningNonGoldAdjustment(issue) && karatPurityKey(issue.purity || issue.karat) === targetKarat
@@ -18070,7 +18139,7 @@ function saveOpeningNonGoldAdjustment(event) {
   state.productionNonGoldIssues = (state.productionNonGoldIssues || []).filter((issue) =>
     !isOpeningNonGoldAdjustment(issue) || karatPurityKey(issue.purity || issue.karat) !== targetKarat
   );
-  Object.entries(breakdown).forEach(([materialType, weight]) => {
+  Object.entries(requiredBreakdown).forEach(([materialType, weight]) => {
     if (Number(weight || 0) <= 0) return;
     const previous = previousByMaterial.get(materialType) || {};
     state.productionNonGoldIssues.unshift(normalizeProductionNonGoldIssue({
@@ -18086,13 +18155,15 @@ function saveOpeningNonGoldAdjustment(event) {
       sourceType: "opening-non-gold-adjustment",
       embeddedInOpeningGw: true,
       adjustmentKey: `opening:${targetKarat || purity}:${materialType}`,
-      remarks: "Cumulative opening non-gold already included in existing physical GW",
+      openingTargetWeight: Number(breakdown[materialType] || 0),
+      openingBaseWeight: Number(existingBreakdown[materialType] || 0),
+      remarks: "Adjustment from currently tracked non-gold to the final physical non-gold stock target",
     }));
   });
   saveState();
   render();
   switchProductionPage("non-gold");
-  alert(`OPENING NON-GOLD ADJUSTMENT SAVED.\n${transferPurityLabel(purity)} / ${gram(total)}\nPhysical GW unchanged. Net gold and fine stock adjusted.`);
+  alert(`FINAL NON-GOLD STOCK APPLIED.\n${transferPurityLabel(purity)} / Final ${gram(total)}\nAlready tracked ${gram(nonGoldBreakdownTotal(existingBreakdown))} / Adjustment ${gram(requiredTotal)}\nPhysical GW unchanged.`);
 }
 
 function clearOpeningNonGoldAdjustment() {
@@ -18194,6 +18265,8 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     issuedWeight: Number(weight3(issue.issuedWeight ?? Math.abs(weight))),
     embeddedInOpeningGw: Boolean(issue.embeddedInOpeningGw || issue.sourceType === "opening-non-gold-adjustment"),
     adjustmentKey: issue.adjustmentKey || "",
+    openingTargetWeight: Number(weight3(issue.openingTargetWeight || 0)),
+    openingBaseWeight: Number(weight3(issue.openingBaseWeight || 0)),
     reason: issue.reason || "",
     remarks: issue.remarks || "",
   };
