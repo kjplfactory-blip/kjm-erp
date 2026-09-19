@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v549";
+const APP_VERSION = "v551";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2244,6 +2244,7 @@ document.getElementById("safe-department-receive-form")?.addEventListener("chang
   if (event.target.name === "departmentName") {
     renderSafeDepartmentReceiveIssueOptions(event.target.value);
     applySafeDepartmentReceiveIssueDefaults();
+    refreshSafeDepartmentReceiveLineDestinations(event.target.value);
   }
   if (event.target.name === "issueId") applySafeDepartmentReceiveIssueDefaults();
   if (event.target.name === "purity" && !event.currentTarget.issueId.value) {
@@ -10327,6 +10328,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     safeItemId: issue.safeItemId || item.id || "",
     itemDescription: issue.itemDescription || item.description || "",
     itemKind: issue.itemKind || safeKindLabel(item),
+    colour: issue.colour || item.colour || safeItemColour(item),
     source: issue.source || item.source || "",
     sourceLine: issue.sourceLine || item.sourceLine || "",
     locker: safeLockerForPurity(issue.locker || item.locker || item.purity || purity),
@@ -10350,6 +10352,12 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     stoneAdjustmentProductionNo: issue.stoneAdjustmentProductionNo || "",
     completedStage: String(issue.completedStage || issue.stoneAdjustmentCompletedStage || "").trim(),
     goldIssueLotId: issue.goldIssueLotId || "",
+    directDepartmentTransfer: Boolean(issue.directDepartmentTransfer),
+    directTransferId: issue.directTransferId || "",
+    sourceDepartmentId: issue.sourceDepartmentId || "",
+    sourceDepartmentName: issue.sourceDepartmentName || "",
+    sourceProcess: mergedProductionDepartmentName(issue.sourceProcess || issue.sourceDepartmentName || ""),
+    sourceReturnId: issue.sourceReturnId || "",
     issuedGrossWeight,
     issuedWaxStoneWeight,
     issuedNonGoldWeight,
@@ -10969,6 +10977,10 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
     netWeight,
     lossWeight,
     lossFineGold: fineGoldWeight(lossWeight, purity),
+    directTransferId: entry.directTransferId || "",
+    destinationDepartmentId: entry.destinationDepartmentId || "",
+    destinationDepartmentName: entry.destinationDepartmentName || "",
+    destinationProcess: mergedProductionDepartmentName(entry.destinationProcess || entry.destinationDepartmentName || ""),
     remarks: entry.remarks || "",
   };
 }
@@ -11010,6 +11022,54 @@ function safeDepartmentReceiveReturnTypes() {
   return ["accessory", "patta", "tar", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "rod", "rava", "laser-wire", "wastage", "loss", "other"];
 }
 
+function safeDepartmentReceiveDestinationValue(department = {}, process = "") {
+  const selectedProcess = process || primaryDepartmentProcess(department) || department.name || "";
+  return department.id ? `department:${department.id}:${encodeURIComponent(selectedProcess)}` : "safe";
+}
+
+function safeDepartmentReceiveDestination(value = "") {
+  const match = String(value || "").match(/^department:([^:]+):(.*)$/);
+  if (!match) return { mode: "invalid", value: String(value || ""), department: null, process: "" };
+  const department = findById("karigars", match[1]);
+  if (!department) return { mode: "invalid", value: String(value || ""), department: null, process: "" };
+  const requestedProcess = decodeURIComponent(match[2] || "");
+  const processes = departmentProcesses(department);
+  const process = processes.find((item) => departmentTextKey(item) === departmentTextKey(requestedProcess))
+    || requestedProcess
+    || primaryDepartmentProcess(department)
+    || department.name;
+  return { mode: "department", value: String(value || ""), department, process };
+}
+
+function safeDepartmentReceiveDestinationOptions(selectedValue = "", sourceDepartmentName = "") {
+  const selected = String(selectedValue || "");
+  const sourceGroup = sourceDepartmentName ? departmentTransferHistoryGroupName(sourceDepartmentName) : "";
+  const options = ['<option value="">Select Department / Process</option>'];
+  (state.karigars || []).forEach((department) => {
+    const processes = departmentProcesses(department);
+    const destinations = processes.length ? processes : [primaryDepartmentProcess(department) || department.name];
+    destinations.forEach((process) => {
+      const value = safeDepartmentReceiveDestinationValue(department, process);
+      const targetGroup = departmentTransferGroupName(department.name, process);
+      const disabled = sourceGroup && targetGroup === sourceGroup ? "disabled" : "";
+      const label = destinations.length > 1 ? `${department.name} / ${process}` : department.name;
+      options.push(`<option value="${escapeHtml(value)}" ${disabled}>${escapeHtml(label)}</option>`);
+    });
+  });
+  const html = options.join("");
+  return html.replace(`value="${escapeHtml(selected)}"`, `value="${escapeHtml(selected)}" selected`);
+}
+
+function refreshSafeDepartmentReceiveLineDestinations(sourceDepartmentName = "") {
+  document.querySelectorAll('#safe-department-receive-lines select[name="returnLineDestination"]').forEach((select) => {
+    const selected = select.value || "";
+    select.innerHTML = safeDepartmentReceiveDestinationOptions(selected, sourceDepartmentName);
+    const selectedOption = [...select.options].find((option) => option.value === selected && !option.disabled);
+    select.value = selectedOption ? selected : "";
+    updateSafeDepartmentReceiveLine(select.closest(".department-receive-line"));
+  });
+}
+
 function isTarPattaManufacturingDepartment(value = "") {
   const text = departmentTextKey(value);
   const hasTar = textMatchesAny(text, ["tar", "tara"]);
@@ -11028,6 +11088,8 @@ function safeDepartmentReceiveLineHtml(values = {}) {
   const nonGoldCategory = safeDepartmentReturnNonGoldCategory(selectedType);
   const nonGoldWeight = Number(weight3(values.nonGoldWeight ?? (nonGoldCategory ? Math.max(grossWeight - waxStoneWeight, 0) : 0)));
   const netWeight = safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight);
+  const destinationValue = values.destinationValue || "";
+  const routeMode = values.routeMode === "department" || destinationValue ? "department" : "safe";
   return `
     <div class="department-receive-line">
       <label><span>Type</span><select name="returnLineType">${options}</select></label>
@@ -11036,6 +11098,8 @@ function safeDepartmentReceiveLineHtml(values = {}) {
       <label><span>Wax Stone (g)</span><input name="returnLineWaxStoneWeight" type="number" min="0" step="0.001" value="${weight3(waxStoneWeight)}"></label>
       <label><span>Non-Gold (g)</span><input name="returnLineNonGoldWeight" type="number" min="0" step="0.001" value="${weight3(nonGoldWeight)}" readonly></label>
       <label><span>Net Wt (g)</span><input name="returnLineNetWeight" type="number" value="${weight3(netWeight)}" readonly></label>
+      <label><span>Action</span><select name="returnLineRoute"><option value="safe" ${routeMode === "safe" ? "selected" : ""}>Receive To Safe</option><option value="department" ${routeMode === "department" ? "selected" : ""}>Transfer To Department</option></select></label>
+      <label><span>Transfer Department</span><select name="returnLineDestination">${safeDepartmentReceiveDestinationOptions(destinationValue, document.getElementById("safe-department-receive-form")?.departmentName?.value || "")}</select></label>
       <button class="ghost-button remove-department-receive-line" type="button" title="Remove returned item" aria-label="Remove returned item">&times;</button>
     </div>
   `;
@@ -11078,6 +11142,16 @@ function updateSafeDepartmentReceiveLine(row) {
   const netWeight = isLoss ? 0 : safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight);
   const netInput = row.querySelector('[name="returnLineNetWeight"]');
   if (netInput) netInput.value = weight3(netWeight);
+  const destinationSelect = row.querySelector('[name="returnLineDestination"]');
+  const routeSelect = row.querySelector('[name="returnLineRoute"]');
+  const isDirectTransfer = !isLoss && routeSelect?.value === "department";
+  if (routeSelect) routeSelect.disabled = isLoss;
+  if (destinationSelect) {
+    destinationSelect.disabled = !isDirectTransfer;
+    destinationSelect.required = isDirectTransfer;
+    if (!isDirectTransfer) destinationSelect.value = "";
+  }
+  row.classList.toggle("is-direct-transfer-line", isDirectTransfer);
 }
 
 function safeDepartmentReceiveLines() {
@@ -11088,6 +11162,8 @@ function safeDepartmentReceiveLines() {
     const waxStoneWeight = returnType === "loss" ? 0 : Number(weight3(row.querySelector('[name="returnLineWaxStoneWeight"]')?.value || 0));
     const nonGoldCategory = safeDepartmentReturnNonGoldCategory(returnType);
     const nonGoldWeight = Number(weight3(row.querySelector('[name="returnLineNonGoldWeight"]')?.value || 0));
+    const routeMode = row.querySelector('[name="returnLineRoute"]')?.value || "safe";
+    const destinationValue = routeMode === "department" ? row.querySelector('[name="returnLineDestination"]')?.value || "" : "";
     return {
       row,
       lineNumber: index + 1,
@@ -11098,6 +11174,13 @@ function safeDepartmentReceiveLines() {
       nonGoldWeight,
       nonGoldCategory,
       netWeight: returnType === "loss" ? 0 : safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight),
+      routeMode,
+      destinationValue,
+      destination: returnType === "loss"
+        ? { mode: "loss", value: "", department: null, process: "" }
+        : routeMode === "department"
+          ? safeDepartmentReceiveDestination(destinationValue)
+          : { mode: "safe", value: "", department: null, process: "" },
     };
   });
 }
@@ -11124,6 +11207,7 @@ function safeDepartmentReceiveAccounting(lines = safeDepartmentReceiveLines()) {
 
 function safeDepartmentMovementLabel(isReturn = false, data = {}) {
   if (!isReturn) {
+    if (data.directDepartmentTransfer) return "TRANSFER FROM DEPT";
     const mode = normalizeSafeIssueDestinationMode(data.destinationMode, data.lotId);
     if (mode === "job") return "ISSUE TO JOB";
     if (mode === "both") return "ISSUE TO JOB + DEPT";
@@ -11131,6 +11215,7 @@ function safeDepartmentMovementLabel(isReturn = false, data = {}) {
   }
   const receivedWeight = Number(data.grossWeight || 0);
   const lossWeight = Number(data.lossWeight || 0);
+  if (data.destinationDepartmentName && receivedWeight > 0.0005) return "TRANSFER TO DEPT";
   if (receivedWeight <= 0.0005 && lossWeight > 0.0005) return "LOSS BOOKED";
   if (receivedWeight > 0.0005 && lossWeight > 0.0005) return "RECEIVE + LOSS";
   return "RECEIVE FROM DEPT";
@@ -11206,6 +11291,7 @@ function openSafeDepartmentReceive(issueId = "", departmentName = "") {
   form.lossWeight.value = "0";
   form.remarks.value = "";
   applySafeDepartmentReceiveIssueDefaults();
+  refreshSafeDepartmentReceiveLineDestinations(selectedDepartment);
   document.getElementById("safe-department-receive-dialog").showModal();
 }
 
@@ -11297,6 +11383,8 @@ function updateSafeDepartmentReceiveCalculation() {
   const availableNet = Number(available.netWeight ?? available.gold ?? 0);
   const activeLineCount = accounting.returnedLines.filter((line) => line.grossWeight > 0).length;
   const activeLossLineCount = accounting.lossLines.filter((line) => line.grossWeight > 0).length;
+  const directTransferCount = accounting.returnedLines.filter((line) => line.grossWeight > 0 && line.destination?.mode === "department").length;
+  const safeReturnCount = Math.max(activeLineCount - directTransferCount, 0);
   const accountedWeight = Number(weight3(totals.grossWeight + lossWeight));
   const totalGw = document.getElementById("safe-department-return-total-gw");
   const totalNet = document.getElementById("safe-department-return-total-net");
@@ -11306,7 +11394,7 @@ function updateSafeDepartmentReceiveCalculation() {
   if (totalNet) totalNet.textContent = gram(totals.netWeight);
   if (totalLoss) totalLoss.textContent = gram(lossWeight);
   if (totalAccounted) totalAccounted.textContent = gram(accountedWeight);
-  summary.textContent = `${form.departmentName.value || "Department"} / ${sourceText}: Available GW ${gram(availableGross)}, Non-Gold ${gram(availableNonGold)}, Gold ${gram(availableNet)}. ${activeLineCount} return line${activeLineCount === 1 ? "" : "s"}, returned GW ${gram(totals.grossWeight)}, Non-Gold ${gram(totals.nonGoldWeight)}, loss ${gram(lossWeight)}. Balance after save: GW ${gram(afterGross)}, Non-Gold ${gram(afterNonGold)}, Gold ${gram(afterNet)}.`;
+  summary.textContent = `${form.departmentName.value || "Department"} / ${sourceText}: Available GW ${gram(availableGross)}, Non-Gold ${gram(availableNonGold)}, Gold ${gram(availableNet)}. ${activeLineCount} line${activeLineCount === 1 ? "" : "s"}: ${safeReturnCount} to Safe, ${directTransferCount} direct to another department. Returned / transferred GW ${gram(totals.grossWeight)}, Non-Gold ${gram(totals.nonGoldWeight)}, loss ${gram(lossWeight)}. Balance after save: GW ${gram(afterGross)}, Non-Gold ${gram(afterNonGold)}, Gold ${gram(afterNet)}.`;
 }
 
 function saveSafeDepartmentReceive(event) {
@@ -11348,6 +11436,20 @@ function saveSafeDepartmentReceive(event) {
     missingDescriptionLine.row.querySelector('[name="returnLineDescription"]')?.focus();
     return;
   }
+  const invalidDestinationLine = receivedLines.find((line) => line.destination?.mode === "invalid");
+  if (invalidDestinationLine) {
+    alert(`Return line ${invalidDestinationLine.lineNumber}: select a valid destination.`);
+    invalidDestinationLine.row.querySelector('[name="returnLineDestination"]')?.focus();
+    return;
+  }
+  const sourceDepartmentGroup = departmentTransferHistoryGroupName(departmentName);
+  const sameDepartmentLine = receivedLines.find((line) => line.destination?.mode === "department"
+    && departmentTransferGroupName(line.destination.department?.name, line.destination.process) === sourceDepartmentGroup);
+  if (sameDepartmentLine) {
+    alert(`Return line ${sameDepartmentLine.lineNumber}: select another department or Safe Locker.`);
+    sameDepartmentLine.row.querySelector('[name="returnLineDestination"]')?.focus();
+    return;
+  }
   const available = issue || safeDepartmentReceiveAvailability(departmentName, form.purity.value);
   const availableGross = Number(available.grossWeight ?? available.gross ?? 0);
   const availableNet = Number(available.netWeight ?? available.gold ?? 0);
@@ -11374,11 +11476,15 @@ function saveSafeDepartmentReceive(event) {
   const createdAt = new Date().toISOString();
   const process = issue?.process || primaryDepartmentProcess(department || {}) || departmentName;
   const sourceItemDescription = issue?.itemDescription || `${departmentName} general holding`;
+  const directIssues = [];
   const entries = receivedLines.map((line) => {
-    const safeItemId = crypto.randomUUID();
+    const directDestination = line.destination?.mode === "department" ? line.destination : null;
+    const safeItemId = directDestination ? "" : crypto.randomUUID();
+    const returnEntryId = crypto.randomUUID();
+    const directTransferId = directDestination ? crypto.randomUUID() : "";
     const label = safeDepartmentReturnLabel(line.returnType);
     const entry = normalizeSafeDepartmentReturn({
-      id: crypto.randomUUID(),
+      id: returnEntryId,
       issueId: issue?.id || "",
       safeItemId,
       receiptGroupId,
@@ -11400,30 +11506,74 @@ function saveSafeDepartmentReceive(event) {
       netWeight: line.netWeight,
       lossWeight: 0,
       lossFineGold: 0,
-      remarks: `${line.description}; ${remarks}`,
+      directTransferId,
+      destinationDepartmentId: directDestination?.department?.id || "",
+      destinationDepartmentName: directDestination?.department?.name || "",
+      destinationProcess: directDestination?.process || "",
+      remarks: `${line.description}; ${remarks}${directDestination ? `; Direct to ${directDestination.department.name}${directDestination.process && departmentTextKey(directDestination.process) !== departmentTextKey(directDestination.department.name) ? ` / ${directDestination.process}` : ""}` : ""}`,
     });
-    addSafeItem({
-      id: safeItemId,
-      date: entry.date,
-      locker: entry.locker,
-      purity: entry.purity,
-      description: line.description,
-      source: `${label} returned from ${entry.departmentName || entry.process || "department"} / ${sourceItemDescription}`,
-      sourceType: "safe-department-return",
-      sourceId: entry.id,
-      sourceLine: line.returnType,
-      safeKind: safeDepartmentReturnSafeKind(line.returnType),
-      nonGoldCategory: line.nonGoldCategory,
-      nonGoldWeight: line.nonGoldWeight,
-      nonGoldWeightKnown: true,
-      colour: form.colour.value,
-      desiredPurity: entry.purity,
-      grossWeight: line.grossWeight,
-      waxStoneWeight: line.waxStoneWeight,
-      netWeight: line.netWeight,
-      status: "In Safe",
-      remarks: entry.remarks,
-    });
+    if (directDestination) {
+      const targetNonGoldBreakdown = normalizeNonGoldBreakdown({}, line.nonGoldCategory, line.nonGoldWeight);
+      directIssues.push(normalizeSafeDepartmentIssue({
+        id: crypto.randomUUID(),
+        date: entry.date,
+        createdAt,
+        safeItemId: "",
+        itemDescription: line.description,
+        itemKind: label,
+        colour: form.colour.value,
+        source: `${label} transferred directly from ${departmentName} / ${sourceItemDescription}`,
+        sourceLine: line.returnType,
+        locker: entry.locker,
+        purity: entry.purity,
+        departmentId: directDestination.department.id,
+        departmentName: directDestination.department.name,
+        process: directDestination.process,
+        issuedGrossWeight: line.grossWeight,
+        issuedWaxStoneWeight: line.waxStoneWeight,
+        issuedNonGoldWeight: line.nonGoldWeight,
+        issuedNonGoldBreakdown: targetNonGoldBreakdown,
+        nonGoldBreakdown: targetNonGoldBreakdown,
+        nonGoldCategory: line.nonGoldCategory,
+        nonGoldWeightKnown: true,
+        issuedNetWeight: line.netWeight,
+        grossWeight: line.grossWeight,
+        waxStoneWeight: line.waxStoneWeight,
+        nonGoldWeight: line.nonGoldWeight,
+        netWeight: line.netWeight,
+        destinationMode: "department",
+        directDepartmentTransfer: true,
+        directTransferId,
+        sourceDepartmentId: issue?.departmentId || department?.id || "",
+        sourceDepartmentName: departmentName,
+        sourceProcess: process,
+        sourceReturnId: returnEntryId,
+        remarks: entry.remarks,
+      }, {}, state));
+    } else {
+      addSafeItem({
+        id: safeItemId,
+        date: entry.date,
+        locker: entry.locker,
+        purity: entry.purity,
+        description: line.description,
+        source: `${label} returned from ${entry.departmentName || entry.process || "department"} / ${sourceItemDescription}`,
+        sourceType: "safe-department-return",
+        sourceId: entry.id,
+        sourceLine: line.returnType,
+        safeKind: safeDepartmentReturnSafeKind(line.returnType),
+        nonGoldCategory: line.nonGoldCategory,
+        nonGoldWeight: line.nonGoldWeight,
+        nonGoldWeightKnown: true,
+        colour: form.colour.value,
+        desiredPurity: entry.purity,
+        grossWeight: line.grossWeight,
+        waxStoneWeight: line.waxStoneWeight,
+        netWeight: line.netWeight,
+        status: "In Safe",
+        remarks: entry.remarks,
+      });
+    }
     return entry;
   });
   lossLines.forEach((line) => {
@@ -11474,12 +11624,15 @@ function saveSafeDepartmentReceive(event) {
   }
   state.safeDepartmentReturns = state.safeDepartmentReturns || [];
   state.safeDepartmentReturns.unshift(...entries);
+  state.safeDepartmentIssues = state.safeDepartmentIssues || [];
+  state.safeDepartmentIssues.unshift(...directIssues);
   document.getElementById("safe-department-receive-dialog").close();
   form.reset();
   saveState();
   render();
   refreshOpenDepartmentTransferHistory();
-  alert(`DEPARTMENT RECEIPT SAVED.\nRETURN ITEMS: ${receivedLines.length}\nLOSS LINES: ${lossLines.length}\nRETURNED GW: ${gram(totals.grossWeight)}\nNON-GOLD RETURNED: ${gram(totals.nonGoldWeight)}\nREMELTING WASTAGE: ${gram(receivedLines.filter((line) => line.returnType === "wastage").reduce((total, line) => total + line.grossWeight, 0))}\nMANUFACTURING LOSS: ${gram(lossWeight)}\nTOTAL ACCOUNTED: ${gram(totals.grossWeight + lossWeight)}`);
+  const directTransferWeight = directIssues.reduce((total, targetIssue) => total + Number(targetIssue.issuedGrossWeight || 0), 0);
+  alert(`DEPARTMENT RECEIPT / TRANSFER SAVED.\nITEM LINES: ${receivedLines.length}\nDIRECT DEPARTMENT TRANSFERS: ${directIssues.length} / ${gram(directTransferWeight)}\nSAFE LOCKER RETURNS: ${receivedLines.length - directIssues.length}\nLOSS LINES: ${lossLines.length}\nRETURNED / TRANSFERRED GW: ${gram(totals.grossWeight)}\nNON-GOLD: ${gram(totals.nonGoldWeight)}\nREMELTING WASTAGE: ${gram(receivedLines.filter((line) => line.returnType === "wastage").reduce((total, line) => total + line.grossWeight, 0))}\nMANUFACTURING LOSS: ${gram(lossWeight)}\nTOTAL ACCOUNTED: ${gram(totals.grossWeight + lossWeight)}`);
 }
 
 function safeLockerForPurity(value) {
@@ -32704,7 +32857,7 @@ function safeDepartmentTransferHistoryEntries() {
   const issues = (state.safeDepartmentIssues || []).flatMap((rawIssue) => {
     const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
     const issue = normalizeSafeDepartmentIssue(rawIssue, item);
-    return issue.goldIssueLotId ? [] : [{ type: "safe-department-issue", issue }];
+    return issue.goldIssueLotId || issue.directDepartmentTransfer ? [] : [{ type: "safe-department-issue", issue }];
   });
   const returns = (state.safeDepartmentReturns || []).map((entry) => ({
     type: "safe-department-return",
@@ -32716,11 +32869,11 @@ function safeDepartmentTransferHistoryEntries() {
 function transferHistorySearchText(entry = {}) {
   if (entry.type === "safe-department-issue") {
     const issue = entry.issue || {};
-    return `${safeDepartmentMovementLabel(false, issue)} direct shelf issue ${issue.lotNumber || ""} ${issue.jobNumber || ""} ${issue.itemDescription || ""} ${issue.source || ""} ${issue.locker || ""} ${issue.departmentName || ""} ${issue.process || ""} ${issue.remarks || ""}`.toLowerCase();
+    return `${safeDepartmentMovementLabel(false, issue)} direct shelf issue ${issue.lotNumber || ""} ${issue.jobNumber || ""} ${issue.itemDescription || ""} ${issue.source || ""} ${issue.locker || ""} ${issue.sourceDepartmentName || ""} ${issue.sourceProcess || ""} ${issue.departmentName || ""} ${issue.process || ""} ${issue.remarks || ""}`.toLowerCase();
   }
   if (entry.type === "safe-department-return") {
     const departmentReturn = entry.departmentReturn || {};
-    return `${safeDepartmentMovementLabel(true, departmentReturn)} department return ${departmentReturn.returnedItemDescription || ""} ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
+    return `${safeDepartmentMovementLabel(true, departmentReturn)} department return transfer ${departmentReturn.returnedItemDescription || ""} ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.destinationDepartmentName || ""} ${departmentReturn.destinationProcess || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
   }
   const { lot = {}, transfer = {}, type } = entry;
   return type === "issue"
@@ -32989,7 +33142,7 @@ function departmentTransferEvents() {
     ...(state.safeDepartmentIssues || []).flatMap((rawIssue) => {
       const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
       const issue = normalizeSafeDepartmentIssue(rawIssue, item);
-      return issue.goldIssueLotId ? [] : [{ kind: "issue", data: issue }];
+      return issue.goldIssueLotId || issue.directDepartmentTransfer ? [] : [{ kind: "issue", data: issue }];
     }),
     ...(state.safeDepartmentReturns || []).map((entry) => ({ kind: "return", data: normalizeSafeDepartmentReturn(entry) })),
   ].sort((a, b) => String(a.data.createdAt || a.data.date || "").localeCompare(String(b.data.createdAt || b.data.date || "")));
@@ -33009,8 +33162,18 @@ function departmentTransferEvents() {
     const lossWeight = Number(isReturn ? data.lossWeight || 0 : 0);
     const accountedGrossWeight = Number(weight3(receivedGrossWeight + lossWeight));
     const shelfName = `${safeLockerForPurity(data.locker || data.purity)} Safe`;
-    const destinationName = movementLabel === "LOSS BOOKED" ? "Department Loss" : shelfName;
-    events.push({
+    const directDestinationName = isReturn && data.destinationDepartmentName
+      ? departmentTransferDetail(data.destinationDepartmentName, data.destinationProcess || data.destinationDepartmentName)
+      : "";
+    const destinationName = movementLabel === "LOSS BOOKED" ? "Department Loss" : (directDestinationName || shelfName);
+    const movementRemarks = isReturn
+      ? movementLabel === "LOSS BOOKED"
+        ? `Manufacturing loss ${gram(lossWeight)} removed from ${departmentName}${data.remarks ? `; ${data.remarks}` : ""}`
+        : directDestinationName
+          ? `${safeDepartmentReturnLabel(data.returnType)} transferred directly from ${departmentTransferDetail(departmentName, processName)} to ${directDestinationName}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+          : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+      : `${safeIssueDestinationModeLabel(data.destinationMode)} from ${shelfName}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`;
+    const baseEvent = {
       id: `${isReturn ? "safe-return" : "safe-issue"}-${data.id}`,
       sortIndex: sortIndex++,
       createdAt: data.createdAt || "",
@@ -33030,13 +33193,27 @@ function departmentTransferEvents() {
       difference: lossWeight,
       fineGold: Number(isReturn ? data.lossFineGold || fineGoldWeight(lossWeight, data.purity || data.locker) : 0),
       purity: data.purity || data.locker || "",
-      remarks: isReturn
-        ? movementLabel === "LOSS BOOKED"
-          ? `Manufacturing loss ${gram(lossWeight)} removed from ${departmentName}${data.remarks ? `; ${data.remarks}` : ""}`
-          : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelfName}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
-        : `${safeIssueDestinationModeLabel(data.destinationMode)} from ${shelfName}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`,
+      remarks: movementRemarks,
       hasLot: Boolean(data.lotId),
-    });
+    };
+    events.push(baseEvent);
+    if (directDestinationName) {
+      const destinationProcess = data.destinationProcess || data.destinationDepartmentName;
+      events.push({
+        ...baseEvent,
+        id: `${baseEvent.id}-direct-in`,
+        sortIndex: sortIndex++,
+        direction: "in",
+        department: departmentTransferGroupName(data.destinationDepartmentName, destinationProcess),
+        departmentDetail: departmentTransferDetail(data.destinationDepartmentName, destinationProcess),
+        counterparty: departmentTransferDetail(departmentName, processName),
+        process: destinationProcess,
+        issueGw: receivedGrossWeight,
+        receiveGw: receivedGrossWeight,
+        difference: 0,
+        fineGold: 0,
+      });
+    }
   });
   productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
     const isRemove = productionNonGoldMovementLabel(issue) === "Remove";
@@ -33260,8 +33437,14 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
   const department = departmentTransferDetail(data.departmentName || "Unassigned", data.process || data.departmentName || "");
   const shelf = `${safeLockerForPurity(data.locker || data.purity)} Safe`;
   const movementLabel = safeDepartmentMovementLabel(isReturn, data);
-  const movedFrom = isReturn ? department : shelf;
-  const movedTo = isReturn ? (movementLabel === "LOSS BOOKED" ? "Department Loss" : shelf) : department;
+  const directDestination = isReturn && data.destinationDepartmentName
+    ? departmentTransferDetail(data.destinationDepartmentName, data.destinationProcess || data.destinationDepartmentName)
+    : "";
+  const directSource = !isReturn && data.directDepartmentTransfer && data.sourceDepartmentName
+    ? departmentTransferDetail(data.sourceDepartmentName, data.sourceProcess || data.sourceDepartmentName)
+    : "";
+  const movedFrom = isReturn ? department : (directSource || shelf);
+  const movedTo = isReturn ? (movementLabel === "LOSS BOOKED" ? "Department Loss" : (directDestination || shelf)) : department;
   const grossWeight = Number(isReturn ? data.grossWeight : data.issuedGrossWeight || data.grossWeight || 0);
   const waxStoneWeight = Number(isReturn ? data.waxStoneWeight : data.issuedWaxStoneWeight || data.waxStoneWeight || 0);
   const nonGoldWeight = Number(isReturn ? data.nonGoldWeight || 0 : data.issuedNonGoldWeight || data.nonGoldWeight || 0);
@@ -33283,8 +33466,10 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
   const remarks = isReturn
     ? movementLabel === "LOSS BOOKED"
       ? `Manufacturing loss ${gram(lossWeight)} removed from ${department}${data.remarks ? `; ${data.remarks}` : ""}`
-      : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
-    : `${safeIssueDestinationModeLabel(data.destinationMode)} to ${department}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`;
+      : directDestination
+        ? `${safeDepartmentReturnLabel(data.returnType)} transferred directly from ${department} to ${directDestination}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+        : `${safeDepartmentReturnLabel(data.returnType)} received into ${shelf}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${lossWeight ? `; Department loss ${gram(lossWeight)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`
+    : `${data.directDepartmentTransfer ? `Direct transfer from ${directSource || "department"}` : safeIssueDestinationModeLabel(data.destinationMode)} to ${department}${data.lotNumber ? `; ${data.lotNumber} / ${data.jobNumber || "-"}` : ""}${nonGoldWeight ? `; ${nonGoldCategory || `Non-Gold ${gram(nonGoldWeight)}`}` : ""}${safeIssueStoneAdjustmentText(data) ? `; ${safeIssueStoneAdjustmentText(data)}` : ""}${data.remarks ? `; ${data.remarks}` : ""}`;
   const referenceText = data.lotNumber
     ? `${data.lotNumber} / ${data.jobNumber || "-"}`
     : itemDescription;
