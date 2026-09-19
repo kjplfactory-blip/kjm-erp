@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v543";
+const APP_VERSION = "v544";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -12555,6 +12555,13 @@ function factoryPhysicalFineStock() {
   return factoryPhysicalStock();
 }
 
+function isKjplStockMetalSoldEntry(entry = {}) {
+  if (String(entry.direction || "").toLowerCase() !== "out") return false;
+  const partyName = entry.originalPartyName || entry.customerName || entry.vendorName || "";
+  return isKjplStockPartyName(partyName)
+    || String(entry.orderType || "").trim().toLowerCase() === "kjpl stock order";
+}
+
 function vendorBalanceRows() {
   const rows = new Map();
   (state.vendors || []).forEach((vendor) => {
@@ -12562,6 +12569,10 @@ function vendorBalanceRows() {
       vendor,
       inFine: 0,
       outFine: 0,
+      countedInFine: 0,
+      countedOutFine: 0,
+      metalSoldFine: 0,
+      ledgerBalanceFine: 0,
       balanceFine: 0,
     });
   });
@@ -12574,14 +12585,28 @@ function vendorBalanceRows() {
         vendor: vendor || { id: key, name: entry.vendorName || "Opening Stock", phone: "", city: "", remarks: "" },
         inFine: 0,
         outFine: 0,
+        countedInFine: 0,
+        countedOutFine: 0,
+        metalSoldFine: 0,
+        ledgerBalanceFine: 0,
         balanceFine: 0,
       });
     }
     const row = rows.get(key);
     const fine = factoryFineGoldBreakup(entry).fineGold;
-    if (entry.direction === "out") row.outFine = Number(weight3(row.outFine + fine));
-    else row.inFine = Number(weight3(row.inFine + fine));
-    row.balanceFine = Number(weight3(row.inFine - row.outFine));
+    if (entry.direction === "out") {
+      row.outFine = Number(weight3(row.outFine + fine));
+      if (isKjplStockMetalSoldEntry(entry)) {
+        row.metalSoldFine = Number(weight3(row.metalSoldFine + fine));
+      } else {
+        row.countedOutFine = Number(weight3(row.countedOutFine + fine));
+      }
+    } else {
+      row.inFine = Number(weight3(row.inFine + fine));
+      row.countedInFine = Number(weight3(row.countedInFine + fine));
+    }
+    row.ledgerBalanceFine = Number(weight3(row.inFine - row.outFine));
+    row.balanceFine = Number(weight3(row.countedInFine - row.countedOutFine));
   });
   return [...rows.values()].sort((a, b) => String(a.vendor.name || "").localeCompare(String(b.vendor.name || ""), undefined, { sensitivity: "base" }));
 }
@@ -12590,7 +12615,8 @@ function factoryVendorFineTotals(rows = vendorBalanceRows()) {
   const payable = rows.reduce((total, row) => Number(weight3(total + Math.max(row.balanceFine, 0))), 0);
   const receivable = rows.reduce((total, row) => Number(weight3(total + Math.max(-row.balanceFine, 0))), 0);
   const netBalance = rows.reduce((total, row) => Number(weight3(total + Number(row.balanceFine || 0))), 0);
-  return { payable, receivable, netBalance };
+  const metalSold = rows.reduce((total, row) => Number(weight3(total + Number(row.metalSoldFine || 0))), 0);
+  return { payable, receivable, netBalance, metalSold };
 }
 
 function totalFactoryFineStock(physical = factoryPhysicalFineStock(), vendorTotals = factoryVendorFineTotals()) {
@@ -16160,7 +16186,8 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
     partRow("nonGoldDirect", "Direct Non-Gold In Factory", "Physical only, no fine gold"),
     partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
-    { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine" },
+    { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine; KJPL-STOCK metal sold excluded" },
+    { label: "KJPL-STOCK Metal Sold", fine: weight3(vendorTotals.metalSold || 0), note: "Ledger entry only; not counted in stock or vendor balance" },
     { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
     { label: "Factory Out Fine Ledger", fine: weight3(ledger.outFine), note: "Bill + metal/stock out" },
     { label: "Ledger Fine Balance", fine: weight3(ledger.balanceFine), note: "Factory in - factory out" },
@@ -30692,8 +30719,8 @@ function renderFactorySummary() {
   grid.innerHTML = [
     factorySummaryCard("Total Factory Weight", gram(physical.grossWeight), `NW ${gram(physical.goldWeight)} / Non-Gold ${gram(physical.nonGoldWeight)} / Fine ${gram(physical.totalFine)}`, "owned"),
     factorySummaryCard("Total Non-Gold In Factory", gram(physical.nonGoldWeight), "Safe shelf + production + bill pending + direct factory holdings", "owned"),
-    factorySummaryCard("Net Factory Fine Stock", gram(totalFineStock), "Physical fine - party fine balance", "owned"),
-    factorySummaryCard("Party Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)}`),
+    factorySummaryCard("Net Factory Fine Stock", gram(totalFineStock), "Physical fine - external party fine balance; KJPL-STOCK sold excluded", "owned"),
+    factorySummaryCard("Party Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)} / KJPL-STOCK Sold ${gram(vendorTotals.metalSold || 0)} not counted`),
     factorySummaryCard("Metal Safe", gram(parts.metal?.grossWeight || 0), factoryStockPartNote(parts.metal)),
     factorySummaryCard("Safe Shelf", gram(parts.shelf?.grossWeight || 0), factoryStockPartNote(parts.shelf)),
     factorySummaryCard("Production Lots", gram(parts.production?.grossWeight || 0), factoryStockPartNote(parts.production)),
@@ -30731,13 +30758,17 @@ function renderVendorBalances() {
   const rows = vendorBalanceRows()
     .filter((row) => !query || [row.vendor.name, row.vendor.phone, row.vendor.city, row.vendor.remarks].join(" ").toLowerCase().includes(query))
     .map((row) => {
-      const status = factoryBalanceStatus(row.balanceFine);
+      const metalSoldOnly = Number(row.metalSoldFine || 0) > 0.0005 && Math.abs(Number(row.balanceFine || 0)) <= 0.0005;
+      const status = metalSoldOnly ? "Metal Sold / Entry Only" : factoryBalanceStatus(row.balanceFine);
       const isManualVendor = Boolean((state.vendors || []).some((vendor) => vendor.id === row.vendor.id));
+      const metalSoldNote = Number(row.metalSoldFine || 0) > 0.0005
+        ? `<br><small>KJPL-STOCK sold ${gram(row.metalSoldFine)} - not counted in stock/balance</small>`
+        : "";
       return `
         <tr>
           <td><strong>${escapeHtml(row.vendor.name || "-")}</strong><br><small>${escapeHtml([row.vendor.phone, row.vendor.city].filter(Boolean).join(" / ") || row.vendor.remarks || "-")}</small></td>
           <td>${gram(row.inFine)}</td>
-          <td>${gram(row.outFine)}</td>
+          <td>${gram(row.outFine)}${metalSoldNote}</td>
           <td><strong>${row.balanceFine < 0 ? "-" : ""}${gram(Math.abs(row.balanceFine))}</strong></td>
           <td><span class="status ${statusClass(status)}">${escapeHtml(status)}</span></td>
           <td>${isManualVendor ? `<button class="ghost-button" type="button" onclick="editVendor('${row.vendor.id}')">Edit</button>` : ""}</td>
