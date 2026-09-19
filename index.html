@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=544">
+  <link rel="stylesheet" href="styles.css?v=545">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v544</small>
+      <small class="app-version-badge">App v545</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v544</span>
+          <span class="app-version-badge">App v545</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -156,7 +156,7 @@
           <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
           <article class="metric xrf-dashboard-metric"><span>XRF Pending GW</span><strong id="metric-xrf-pending">0 g</strong><button class="metric-open" type="button" data-dashboard-view="melting" data-dashboard-operation="xrf">Open</button></article>
-          <article class="metric"><span>Non-Gold In Factory</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="factory" data-dashboard-operation="summary">Open</button></article>
+          <article class="metric"><span>Non-Gold In Factory</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="non-gold">Open Details</button></article>
           <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
           <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="billing" data-dashboard-operation="bill">Open</button></article>
           <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="office" data-dashboard-page="all">Open</button></article>
@@ -653,6 +653,33 @@
           </form>
         </div>
         <div class="workbench production-page" id="production-page-non-gold">
+          <section class="panel opening-non-gold-adjustment-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Opening Non-Gold Included In Existing GW</h2>
+                <p>Use this only when initial stock GW was entered as net gold. Physical GW stays unchanged; non-gold reduces net gold and fine stock.</p>
+              </div>
+            </div>
+            <form id="opening-non-gold-adjustment-form" class="inline-form opening-non-gold-adjustment-form">
+              <label>Karat <select name="purity" required>
+                <option value="9K">9K</option>
+                <option value="14K">14K</option>
+                <option value="18K" selected>18K</option>
+                <option value="22K">22K</option>
+              </select></label>
+              <label>Stone (g) <input name="stone" type="number" min="0" step="0.001" value="284.300"></label>
+              <label>Black Beads (g) <input name="blackBeads" type="number" min="0" step="0.001" value="24.810"></label>
+              <label>Moti (g) <input name="moti" type="number" min="0" step="0.001" value="42.622"></label>
+              <label>Spring (g) <input name="spring" type="number" min="0" step="0.001" value="5.630"></label>
+              <label>Other (g) <input name="other" type="number" min="0" step="0.001" value="0"></label>
+              <div class="opening-non-gold-total"><span>Total Included In GW</span><strong id="opening-non-gold-total">357.362 g</strong></div>
+              <div class="row-actions opening-non-gold-actions">
+                <button type="submit">Save / Update Adjustment</button>
+                <button id="clear-opening-non-gold-adjustment" class="danger-button" type="button">Clear This Karat</button>
+              </div>
+            </form>
+            <p id="opening-non-gold-adjustment-summary" class="dialog-note"></p>
+          </section>
           <form id="production-non-gold-form" class="form-panel">
             <h2>Issue Non-Gold To Department</h2>
             <label>Department <select name="departmentId" required></select></label>
@@ -698,7 +725,7 @@
             </div>
             <div class="table-wrap">
               <table class="non-gold-karat-pool-table">
-                <thead><tr><th>Karat</th><th>In Safe</th><th>In Production</th><th>Components</th><th>Final Bill Used</th><th>Total Factory Balance</th><th>Unmatched Bill</th></tr></thead>
+                <thead><tr><th>Karat</th><th>In Safe</th><th>In Production</th><th>Opening In Existing GW</th><th>Components</th><th>Final Bill Used</th><th>Total Factory Balance</th><th>Unmatched Bill</th></tr></thead>
                 <tbody id="production-non-gold-karat-pool-table"></tbody>
               </table>
             </div>
@@ -2739,6 +2766,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=544"></script>
+  <script src="app.js?v=545"></script>
 </body>
 </html>

@@ -12006,6 +12006,42 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: linear-gradient(180deg, rgba(239, 252, 246, 0.98), rgba(255, 255, 255, 0.98));
 }
 
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) #production-page-non-gold .opening-non-gold-adjustment-panel {
+  grid-column: 1 / -1;
+  border-color: rgba(53, 145, 111, 0.62);
+  background: #f4fcf8;
+}
+
+.opening-non-gold-adjustment-form {
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  align-items: end;
+}
+
+.opening-non-gold-total {
+  display: grid;
+  gap: 4px;
+  min-height: 56px;
+  padding: 9px 11px;
+  border: 1px solid #b9d9cc;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.opening-non-gold-total span {
+  color: #47675a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.opening-non-gold-total strong {
+  color: #0f6a51;
+  font-size: 18px;
+}
+
+.opening-non-gold-actions {
+  align-items: stretch;
+}
+
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .non-gold-karat-pool-panel .panel-heading p {
   margin: 5px 0 0;
   color: #46675a;
