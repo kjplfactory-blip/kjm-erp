@@ -10864,7 +10864,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .department-receive-line-head,
 .department-receive-line {
   display: grid;
-  grid-template-columns: minmax(140px, 0.85fr) minmax(210px, 1.4fr) repeat(3, minmax(95px, 0.55fr)) 38px;
+  grid-template-columns: minmax(112px, 0.8fr) minmax(150px, 1.2fr) repeat(4, minmax(72px, 0.48fr)) minmax(150px, 1fr) 38px;
   gap: 8px;
   align-items: end;
 }
@@ -10885,6 +10885,17 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .department-receive-line.is-loss-line {
   border-color: #edc9c9;
   background: #fff4f4;
+}
+
+.department-receive-line.is-direct-transfer-line {
+  border-color: #99cbbd;
+  background: #eefaf6;
+}
+
+.department-receive-line.is-direct-transfer-line select[name="returnLineDestination"] {
+  border-color: #2f8c72;
+  color: #17644f;
+  font-weight: 800;
 }
 
 .department-receive-line.is-loss-line select {

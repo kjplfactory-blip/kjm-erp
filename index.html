@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=549">
+  <link rel="stylesheet" href="styles.css?v=550">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v549</small>
+      <small class="app-version-badge">App v550</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v549</span>
+          <span class="app-version-badge">App v550</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2359,14 +2359,14 @@
       <form id="safe-department-receive-form" class="dialog-card history-dialog safe-department-receive-form">
         <div class="dialog-header">
           <div>
-            <h2>Receive Multiple Items / Wastage From Department</h2>
+            <h2>Receive Or Transfer Multiple Items / Wastage</h2>
             <p id="safe-department-receive-summary" class="dialog-note"></p>
           </div>
           <button class="ghost-button" type="button" id="cancel-safe-department-receive">Close</button>
         </div>
         <label>Department <select name="departmentName" required></select></label>
         <label class="full-row">Related Holding / Item <select name="issueId"></select></label>
-        <label>Receive Into Locker <select name="locker" required>
+        <label>Safe Locker (For Safe Rows) <select name="locker" required>
           <option value="9K">9K Safe</option>
           <option value="14K">14K Safe</option>
           <option value="18K">18K Safe</option>
@@ -2384,7 +2384,7 @@
           <div class="panel-heading compact-heading">
             <div>
               <h3>Returned Items / Loss</h3>
-              <small>Add every manufactured item, remelting wastage, and department loss separately.</small>
+              <small>Add every item separately, then send each row to Safe Locker or directly to another department.</small>
             </div>
             <div class="row-actions">
               <button class="ghost-button" type="button" id="add-safe-department-return-item">Add Returned Item</button>
@@ -2393,7 +2393,7 @@
             </div>
           </div>
           <div class="department-receive-line-head" aria-hidden="true">
-            <span>Type</span><span>Item Description</span><span>GW (g)</span><span>Wax Stone (g)</span><span>Net Wt (g)</span><span></span>
+            <span>Type</span><span>Item Description</span><span>GW (g)</span><span>Wax Stone (g)</span><span>Non-Gold (g)</span><span>Net Wt (g)</span><span>Send To</span><span></span>
           </div>
           <div id="safe-department-receive-lines" class="department-receive-lines"></div>
         </section>
@@ -2408,10 +2408,10 @@
           <span>Loss <strong id="safe-department-return-total-loss">0.000 g</strong></span>
           <span>Total Accounted <strong id="safe-department-return-total-accounted">0.000 g</strong></span>
         </div>
-        <p class="dialog-note">Choose Manufacturing Loss in the Type dropdown for any manual loss. It is booked in department loss history, removed from stock, and creates no Safe Locker item. Tar/Pata Manufacturing also calculates any unaccounted issue difference automatically.</p>
+        <p class="dialog-note">Choose Safe Locker or another department separately for every item row. Direct department transfers do not create an unnecessary Safe Locker entry and appear as OUT from the source and IN to the destination. Manufacturing Loss is removed from stock and creates no item.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-safe-department-receive-bottom">Cancel</button>
-          <button type="submit">Receive All Into Safe</button>
+          <button type="submit">Save Receive / Transfer</button>
         </div>
       </form>
     </dialog>
@@ -2829,6 +2829,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=549"></script>
+  <script src="app.js?v=550"></script>
 </body>
 </html>
