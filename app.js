@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v547";
+const APP_VERSION = "v548";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -371,7 +371,7 @@ let billDesignHoverRequest = 0;
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
   order: { name: "Order Dept", password: "order123", role: "order", pages: ["customers", "designs", "catalogue", "stone-library", "moti-library", "orders", "billing"] },
-  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "moti-library", "orders", "melting", "production", "billing", "safe", "factory", "daily-tally"] },
+  manager: { name: "Manager Dept", password: "manager123", role: "manager", pages: ["dashboard", "customers", "designs", "catalogue", "stone-library", "moti-library", "orders", "melting", "production", "billing", "safe", "factory", "fine-sheet", "daily-tally"] },
   bill: { name: "Bill Dept", password: "bill123", role: "bill", pages: ["billing"] },
   qc: { name: "QC Dept", password: "qc123", role: "qc", pages: ["billing"], qcOnly: true },
   settingManager: { name: "Setting Manager", password: "setting123", role: "setting-manager", pages: ["production"], productionPages: ["setting"] },
@@ -400,6 +400,7 @@ const loginAccessPages = [
   "office",
   "safe",
   "factory",
+  "fine-sheet",
   "daily-tally",
   "karigars",
   "transfer-history",
@@ -492,6 +493,7 @@ const pageInfo = {
   office: ["Office", "Track only QC OK stock, hallmarking, sales holding, and sold items."],
   safe: ["Safe Locker", "Track item lockers by purity and raw metal safe inventory."],
   factory: ["Factory In / Out", "Receive vendor metal, track bill outward, vendor balances, and total factory fine stock."],
+  "fine-sheet": ["Fine Sheet", "See every stock and party entry used to calculate the live factory fine-gold balance."],
   "daily-tally": ["Daily Stock Tally", "Tally physical department and stock weight against ERP holding every day."],
   melting: ["Melting", "Convert source gold into desired purity and colour."],
   karigars: ["Departments", "Manage department master data and process rates."],
@@ -2399,6 +2401,9 @@ document.querySelector('#factory-out-form select[name="billId"]')?.addEventListe
 document.getElementById("cancel-vendor-edit").addEventListener("click", resetVendorForm);
 document.getElementById("vendor-search").addEventListener("input", renderFactory);
 document.getElementById("factory-ledger-search").addEventListener("input", renderFactory);
+document.getElementById("fine-sheet-search")?.addEventListener("input", renderFineSheet);
+document.getElementById("fine-sheet-purity-filter")?.addEventListener("change", renderFineSheet);
+document.getElementById("fine-sheet-ledger-search")?.addEventListener("input", renderFineSheetLedger);
 document.getElementById("factory-ledger-table")?.addEventListener("pointerover", (event) => {
   const trigger = event.target.closest(".factory-reference-hover");
   if (trigger) showFactoryReferenceTooltip(trigger);
@@ -3867,7 +3872,9 @@ function allowedPages() {
   const config = currentUserConfig();
   if (!config) return [];
   if (config.pages === "all") return Object.keys(pageInfo);
-  return config.pages || [];
+  const pages = [...(config.pages || [])];
+  if (pages.includes("factory") && !pages.includes("fine-sheet")) pages.push("fine-sheet");
+  return pages;
 }
 
 function canAccessPage(view) {
@@ -12411,7 +12418,7 @@ function factoryLedgerTotals() {
 }
 
 function blankFactoryStockPart(label = "") {
-  return { label, grossWeight: 0, goldWeight: 0, fineGold: 0, nonGoldWeight: 0 };
+  return { label, grossWeight: 0, goldWeight: 0, fineGold: 0, nonGoldWeight: 0, purityBreakdown: {} };
 }
 
 function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = grossWeight, purity = "", fineGoldOverride = null, nonGoldWeight = 0) {
@@ -12426,6 +12433,22 @@ function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = gr
   part.goldWeight = Number(weight3(part.goldWeight + gold));
   part.fineGold = Number(weight3(part.fineGold + fineGold));
   part.nonGoldWeight = Number(weight3(part.nonGoldWeight + Number(nonGoldWeight || 0)));
+  const rawPurity = String(purity || "").trim();
+  const purityLabel = rawPurity
+    ? (karatPurityKey(rawPurity) || normalizeMetalSafePurity(rawPurity))
+    : "NON-GOLD";
+  const bucket = part.purityBreakdown[purityLabel] || {
+    purity: purityLabel,
+    grossWeight: 0,
+    goldWeight: 0,
+    fineGold: 0,
+    nonGoldWeight: 0,
+  };
+  bucket.grossWeight = Number(weight3(bucket.grossWeight + gross));
+  bucket.goldWeight = Number(weight3(bucket.goldWeight + gold));
+  bucket.fineGold = Number(weight3(bucket.fineGold + fineGold));
+  bucket.nonGoldWeight = Number(weight3(bucket.nonGoldWeight + Number(nonGoldWeight || 0)));
+  part.purityBreakdown[purityLabel] = bucket;
   parts[key] = part;
   return part;
 }
@@ -19280,6 +19303,7 @@ function renderActiveView(view = activeViewId() || "dashboard") {
   else if (view === "office") renderOffice();
   else if (view === "safe") renderSafe();
   else if (view === "factory") renderFactory();
+  else if (view === "fine-sheet") renderFineSheet();
   else if (view === "daily-tally") renderDailyTally();
   else if (view === "melting") renderMelting();
   else if (view === "karigars") renderKarigars();
@@ -31035,6 +31059,219 @@ function renderFactorySummary() {
     factorySummaryCard("Payable To Vendors", gram(vendorTotals.payable), "Metal to give to party", vendorTotals.payable > 0 ? "payable" : ""),
     factorySummaryCard("Receivable From Vendors", gram(vendorTotals.receivable), "Metal to receive from party", vendorTotals.receivable > 0 ? "receivable" : ""),
   ].join("");
+}
+
+const fineSheetPartOrder = [
+  "metal",
+  "shelf",
+  "production",
+  "billPending",
+  "departmentIssues",
+  "departmentReturns",
+  "meltingCasting",
+  "xrf",
+  "nonGoldDirect",
+  "openingNonGoldAdjustment",
+  "billNonGoldAdjustment",
+];
+
+function signedFineGram(value) {
+  const number = Number(value || 0);
+  if (Math.abs(number) < 0.0005) return gram(0);
+  return `${number > 0 ? "+" : "-"}${gram(Math.abs(number))}`;
+}
+
+function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows = vendorBalanceRows()) {
+  const rows = [];
+  fineSheetPartOrder.forEach((key) => {
+    const part = physical.parts?.[key];
+    if (!part) return;
+    let buckets = Object.values(part.purityBreakdown || {});
+    if (!buckets.length && [part.grossWeight, part.goldWeight, part.fineGold, part.nonGoldWeight].some((value) => Math.abs(Number(value || 0)) > 0.0005)) {
+      buckets = [{
+        purity: "MIXED",
+        grossWeight: part.grossWeight,
+        goldWeight: part.goldWeight,
+        fineGold: part.fineGold,
+        nonGoldWeight: part.nonGoldWeight,
+      }];
+    }
+    buckets
+      .sort((left, right) => String(left.purity || "").localeCompare(String(right.purity || ""), undefined, { numeric: true }))
+      .forEach((bucket) => {
+        const gross = Number(bucket.grossWeight || 0);
+        const gold = Number(bucket.goldWeight || 0);
+        const nonGold = Number(bucket.nonGoldWeight || 0);
+        const effect = Number(weight3(bucket.fineGold || 0));
+        const percent = purityPercent(bucket.purity);
+        let calculation = "No fine-gold effect";
+        if (Math.abs(gold) > 0.0005 && percent > 0) calculation = `${weight3(gold)} x ${percent.toFixed(2)}%`;
+        else if (key === "openingNonGoldAdjustment") calculation = "Deduct non-gold already inside opening GW";
+        else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
+        rows.push({
+          source: "Physical Stock",
+          location: part.label || key,
+          purity: bucket.purity || "-",
+          gross,
+          nonGold,
+          gold,
+          calculation,
+          effect,
+        });
+      });
+  });
+
+  vendorRows
+    .filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine].some((value) => Math.abs(Number(value || 0)) > 0.0005))
+    .forEach((row) => {
+      const balance = Number(weight3(row.balanceFine || 0));
+      const effect = Number(weight3(-balance));
+      const metalSold = Number(row.metalSoldFine || 0);
+      const calculation = balance > 0.0005
+        ? `Subtract payable party fine ${weight3(balance)}`
+        : balance < -0.0005
+          ? `Add receivable party fine ${weight3(Math.abs(balance))}`
+          : metalSold > 0.0005
+            ? `KJPL-STOCK metal sold ${weight3(metalSold)} excluded`
+            : "Settled party balance";
+      rows.push({
+        source: "Party Adjustment",
+        location: row.vendor?.name || "Unknown Party",
+        purity: "PARTY FINE",
+        gross: null,
+        nonGold: null,
+        gold: null,
+        calculation,
+        effect,
+      });
+    });
+
+  let running = 0;
+  return rows.map((row, index) => {
+    running = Number(weight3(running + Number(row.effect || 0)));
+    return { ...row, number: index + 1, running };
+  });
+}
+
+function fineSheetRowMatches(row, query, purity) {
+  if (purity && row.purity !== purity) return false;
+  if (!query) return true;
+  return [row.source, row.location, row.purity, row.calculation]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+
+function renderFineSheet() {
+  const summary = document.getElementById("fine-sheet-summary");
+  const table = document.getElementById("fine-sheet-calculation-table");
+  if (!summary || !table) return;
+  const physical = factoryPhysicalStock();
+  const vendors = vendorBalanceRows();
+  const vendorTotals = factoryVendorFineTotals(vendors);
+  const netFine = totalFactoryFineStock(physical, vendorTotals);
+  const rows = fineSheetCalculationRows(physical, vendors);
+
+  summary.innerHTML = [
+    factorySummaryCard("Net Factory Fine Stock", gram(netFine), "Final accumulated balance", "owned"),
+    factorySummaryCard("Physical Fine Stock", gram(physical.totalFine), `GW ${gram(physical.grossWeight)} / Net Gold ${gram(physical.goldWeight)}`),
+    factorySummaryCard("Party Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)}`),
+    factorySummaryCard("Calculation Entries", String(rows.length), "Location and purity rows plus party adjustments"),
+  ].join("");
+
+  const purityFilter = document.getElementById("fine-sheet-purity-filter");
+  const selectedPurity = purityFilter?.value || "";
+  if (purityFilter) {
+    const purityOptions = [...new Set(rows.map((row) => row.purity).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    purityFilter.innerHTML = `<option value="">All Purities</option>${purityOptions.map((purity) => `<option value="${escapeHtml(purity)}">${escapeHtml(purity)}</option>`).join("")}`;
+    purityFilter.value = purityOptions.includes(selectedPurity) ? selectedPurity : "";
+  }
+  const activePurity = purityFilter?.value || "";
+  const query = (document.getElementById("fine-sheet-search")?.value || "").trim().toLowerCase();
+  const visibleRows = rows.filter((row) => fineSheetRowMatches(row, query, activePurity));
+  table.innerHTML = visibleRows.length
+    ? visibleRows.map((row) => {
+      const effectClass = row.effect > 0.0005 ? "fine-positive" : row.effect < -0.0005 ? "fine-negative" : "fine-zero";
+      return `
+        <tr>
+          <td>${row.number}</td>
+          <td><span class="fine-source-pill ${row.source === "Party Adjustment" ? "party" : "stock"}">${escapeHtml(row.source)}</span></td>
+          <td><strong>${escapeHtml(row.location)}</strong></td>
+          <td>${escapeHtml(row.purity)}</td>
+          <td>${row.gross === null ? "-" : gram(row.gross)}</td>
+          <td>${row.nonGold === null ? "-" : gram(row.nonGold)}</td>
+          <td>${row.gold === null ? "-" : gram(row.gold)}</td>
+          <td><span class="fine-calculation">${escapeHtml(row.calculation)}</span></td>
+          <td><strong class="${effectClass}">${signedFineGram(row.effect)}</strong></td>
+          <td><strong>${gram(row.running)}</strong></td>
+        </tr>
+      `;
+    }).join("")
+    : tableEmpty(10, "No fine-sheet entries match this filter.");
+
+  const status = document.getElementById("fine-sheet-calculation-status");
+  if (status) status.textContent = `Showing ${visibleRows.length} of ${rows.length} calculation rows. Running balances always follow the complete unfiltered calculation.`;
+  const accumulated = Number(rows.at(-1)?.running || 0);
+  const difference = Number(weight3(accumulated - netFine));
+  const matched = Math.abs(difference) < 0.0005;
+  const reconciliation = document.getElementById("fine-sheet-reconciliation");
+  if (reconciliation) {
+    reconciliation.className = `fine-sheet-reconciliation ${matched ? "matched" : "mismatch"}`;
+    reconciliation.innerHTML = `
+      <div><span>Accumulated Fine</span><strong>${gram(accumulated)}</strong></div>
+      <div><span>Dashboard Net Fine</span><strong>${gram(netFine)}</strong></div>
+      <div><span>Difference</span><strong>${signedFineGram(difference)}</strong></div>
+      <div class="fine-sheet-check"><span>Reconciliation</span><strong>${matched ? "MATCHED" : "CHECK REQUIRED"}</strong></div>
+    `;
+  }
+  renderFineSheetLedger();
+}
+
+function fineSheetLedgerDate(entry = {}) {
+  const sourceTimestamp = entry.updatedAt || entry.createdAt || entry.editedAt || "";
+  const timestamp = Date.parse(sourceTimestamp);
+  if (sourceTimestamp && Number.isFinite(timestamp)) {
+    return new Date(timestamp).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" });
+  }
+  return entry.date || "-";
+}
+
+function renderFineSheetLedger() {
+  const table = document.getElementById("fine-sheet-ledger-table");
+  if (!table) return;
+  const query = (document.getElementById("fine-sheet-ledger-search")?.value || "").trim().toLowerCase();
+  let running = 0;
+  const rows = [...(state.factoryLedger || [])]
+    .sort((left, right) => factoryLedgerTimestamp(left) - factoryLedgerTimestamp(right))
+    .map((entry) => {
+      const fine = factoryFineGoldBreakup(entry);
+      const effect = Number(weight3((entry.direction === "out" ? -1 : 1) * fine.fineGold));
+      running = Number(weight3(running + effect));
+      return { entry, fine, effect, running };
+    });
+  const visibleRows = rows.filter(({ entry }) => {
+    if (!query) return true;
+    return [entry.date, entry.type, entry.vendorName, entry.reference, entry.purity, entry.billNo, entry.jobNumber, entry.lotNumber]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  table.innerHTML = visibleRows.length
+    ? visibleRows.map(({ entry, fine, effect, running: ledgerRunning }) => `
+      <tr>
+        <td>${escapeHtml(fineSheetLedgerDate(entry))}</td>
+        <td><span class="status ${statusClass(entry.type || entry.direction)}">${escapeHtml(String(entry.direction || "in").toUpperCase())}</span></td>
+        <td>${escapeHtml(entry.vendorName || "-")}</td>
+        <td><span class="fine-ledger-reference" title="${escapeHtml([entry.reference, entry.remarks].filter(Boolean).join(" | "))}">${escapeHtml(entry.reference || "-")}</span></td>
+        <td>${escapeHtml(karatPurityKey(entry.purity) || normalizeMetalSafePurity(entry.purity))}</td>
+        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
+        <td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}% / ${gram(fine.wstgFineGold)}` : "-"}</td>
+        <td><strong class="${effect > 0.0005 ? "fine-positive" : effect < -0.0005 ? "fine-negative" : "fine-zero"}">${signedFineGram(effect)}</strong></td>
+        <td><strong>${gram(ledgerRunning)}</strong></td>
+      </tr>
+    `).join("")
+    : tableEmpty(9, "No Factory In / Out entries match this search.");
 }
 
 function factoryStockPartNote(part = {}) {

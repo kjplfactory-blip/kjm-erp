@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=547">
+  <link rel="stylesheet" href="styles.css?v=548">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v547</small>
+      <small class="app-version-badge">App v548</small>
           </div>
         </div>
         <label>User
@@ -91,6 +91,7 @@
         <button class="nav-item" data-view="office">Office</button>
         <button class="nav-item" data-view="safe">Safe Locker</button>
         <button class="nav-item" data-view="factory">Factory In / Out</button>
+        <button class="nav-item" data-view="fine-sheet">Fine Sheet</button>
         <button class="nav-item" data-view="daily-tally">Daily Stock Tally</button>
         <button class="nav-item" data-view="karigars">Departments</button>
         <button class="nav-item" data-view="transfer-history">Transfer History</button>
@@ -124,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v547</span>
+          <span class="app-version-badge">App v548</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1128,6 +1129,66 @@
             <span id="one-time-job-reset-status">This special reset has not been used.</span>
           </div>
           <button id="reset-inventory-keep-jobs-after-1680" class="danger-button one-time-reset-button" type="button">One-Time Reset - Keep JOB-1681 Onward</button>
+        </section>
+      </section>
+
+      <section id="fine-sheet" class="view">
+        <div class="fine-sheet-page-head">
+          <div>
+            <span class="fine-sheet-eyebrow">Live Fine Gold Reconciliation</span>
+            <h2>Factory Fine Sheet</h2>
+            <p>Every physical stock contribution and party adjustment is accumulated into one running fine-gold balance.</p>
+          </div>
+          <div class="fine-sheet-formula">
+            <small>Net Factory Fine Stock</small>
+            <strong>Physical Fine - Party Fine Balance</strong>
+          </div>
+        </div>
+
+        <div id="fine-sheet-summary" class="factory-summary-grid fine-sheet-summary"></div>
+
+        <section class="panel table-panel fine-sheet-calculation-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="fine-sheet-eyebrow">Exact Dashboard Calculation</span>
+              <h2>Accumulated Fine Sheet</h2>
+              <small id="fine-sheet-calculation-status">All calculation rows are shown.</small>
+            </div>
+            <div class="row-actions fine-sheet-filters">
+              <select id="fine-sheet-purity-filter" aria-label="Filter fine sheet by purity">
+                <option value="">All Purities</option>
+              </select>
+              <input id="fine-sheet-search" class="search compact-search" placeholder="Search source, location, party or purity">
+            </div>
+          </div>
+          <div class="table-wrap fine-sheet-table-wrap">
+            <table class="fine-sheet-table">
+              <thead>
+                <tr><th>No.</th><th>Source</th><th>Location / Party</th><th>Purity</th><th>GW</th><th>Non-Gold</th><th>Net Gold</th><th>Calculation</th><th>Fine Effect</th><th>Running Fine</th></tr>
+              </thead>
+              <tbody id="fine-sheet-calculation-table"></tbody>
+            </table>
+          </div>
+          <div id="fine-sheet-reconciliation" class="fine-sheet-reconciliation"></div>
+        </section>
+
+        <section class="panel table-panel fine-sheet-ledger-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="fine-sheet-eyebrow">Dated Movement Audit</span>
+              <h2>Factory In / Out Fine Entries</h2>
+              <small>This movement ledger is shown separately from the live physical-stock calculation above.</small>
+            </div>
+            <input id="fine-sheet-ledger-search" class="search compact-search" placeholder="Search date, party, reference or purity">
+          </div>
+          <div class="table-wrap fine-sheet-ledger-wrap">
+            <table class="fine-sheet-ledger-table">
+              <thead>
+                <tr><th>Date & Time</th><th>IN / OUT</th><th>Party</th><th>Reference</th><th>Purity</th><th>GW</th><th>WSTG</th><th>Fine Effect</th><th>Running Ledger Fine</th></tr>
+              </thead>
+              <tbody id="fine-sheet-ledger-table"></tbody>
+            </table>
+          </div>
         </section>
       </section>
 
@@ -2768,6 +2829,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=547"></script>
+  <script src="app.js?v=548"></script>
 </body>
 </html>
