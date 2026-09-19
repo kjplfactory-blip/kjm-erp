@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v546";
+const APP_VERSION = "v547";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -67,10 +67,10 @@ const MIN_PRODUCTION_DAYS = 10;
 const PRODUCTION_DAYS_MIN_ERROR = "Production days must be 10 days or more.";
 const SAFE_LOCKERS = ["9K", "14K", "18K", "22K"];
 const KARAT_PURITY_PERCENT = {
-  "9K": 38.5,
-  "14K": 58.5,
-  "18K": 75,
-  "22K": 91.6,
+  "9K": 37.5,
+  "14K": 58.75,
+  "18K": 75.25,
+  "22K": 91.7,
 };
 const DEFAULT_STONE_ITEM_KEY = "GENERAL";
 const STONE_ITEM_PRESETS = [
@@ -11889,7 +11889,9 @@ function factoryWstgPercent(value = 0) {
 }
 
 function factoryFineGoldBreakup(entry = {}) {
-  const baseFineGold = Number(entry.baseFineGold ?? fineGoldWeight(entry.weight, entry.purity));
+  const baseFineGold = karatPurityKey(entry.purity)
+    ? fineGoldWeight(entry.weight, entry.purity)
+    : Number(entry.baseFineGold ?? fineGoldWeight(entry.weight, entry.purity));
   const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
   const weight = Number(entry.weight || 0);
   const wstgFineGold = Number(entry.wstgFineGold ?? Number(weight3(weight * (wstgPercent / 100))));
@@ -33848,7 +33850,9 @@ function normalizeState(currentState) {
     const weight = Number(weight3(entry.weight || 0));
     const purity = entry.purity || "";
     const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
-    const baseFineGold = Number(weight3(entry.baseFineGold ?? fineGoldWeight(weight, purity)));
+    const baseFineGold = karatPurityKey(purity)
+      ? fineGoldWeight(weight, purity)
+      : Number(weight3(entry.baseFineGold ?? fineGoldWeight(weight, purity)));
     const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (weight * (wstgPercent / 100))));
     return {
       id: entry.id || crypto.randomUUID(),
