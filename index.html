@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=542">
+  <link rel="stylesheet" href="styles.css?v=543">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v542</small>
+      <small class="app-version-badge">App v543</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v542</span>
+          <span class="app-version-badge">App v543</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -857,7 +857,7 @@
                   <option value="22K">22K Safe</option>
                 </select>
                 <button id="jump-safe-history" class="ghost-button" type="button">View Shelf History</button>
-                <button id="open-casting-wastage-transfer" class="ghost-button" type="button">Casting To Wastage</button>
+                <button id="open-casting-wastage-transfer" class="ghost-button" type="button">Shelf Item To Wastage</button>
                 <button id="open-safe-department-receive" class="ghost-button" type="button">Receive From Dept</button>
               </div>
             </div>
@@ -2224,16 +2224,16 @@
       <form id="casting-wastage-form" class="dialog-card history-dialog casting-wastage-form">
         <div class="dialog-header">
           <div>
-            <h2>Move Casting Item To Wastage</h2>
-            <p id="casting-wastage-summary" class="dialog-note">Select a casting item and enter the GW and stone contained in the wastage portion.</p>
+            <h2>Move Shelf Item To Wastage</h2>
+            <p id="casting-wastage-summary" class="dialog-note">Select a shelf item and enter the GW and stone contained in the wastage portion.</p>
           </div>
           <button class="ghost-button" type="button" id="close-casting-wastage">Close</button>
         </div>
         <div class="inline-form casting-wastage-fields">
-          <label class="full-row">Casting Item In Shelf <select name="itemId" required></select></label>
+          <label class="full-row">Item In Shelf <select name="itemId" required></select></label>
           <label>Karat / Safe <input name="locker" readonly></label>
           <label>Source Colour <input name="sourceColour" readonly></label>
-          <label>Available Casting GW (g) <input name="availableGrossWeight" type="number" readonly></label>
+          <label>Available Shelf GW (g) <input name="availableGrossWeight" type="number" readonly></label>
           <label>Tracked Stone In Item (g) <input name="availableStoneWeight" type="number" readonly></label>
           <label>Available Gold / NT (g) <input name="availableNetWeight" type="number" readonly></label>
           <label>Wastage Colour <select name="colour" required>
@@ -2255,9 +2255,9 @@
           <span>Wastage GW <strong id="casting-wastage-gw">0.000 g</strong></span>
           <span>Stone <strong id="casting-wastage-stone">0.000 g</strong></span>
           <span>Wastage Gold / NT <strong id="casting-wastage-net">0.000 g</strong></span>
-          <span>Casting GW Remaining <strong id="casting-wastage-remaining">0.000 g</strong></span>
+          <span>Shelf GW Remaining <strong id="casting-wastage-remaining">0.000 g</strong></span>
         </div>
-        <p class="dialog-note">For a mixed-colour casting item, select the actual wastage colour. The new wastage is collected automatically under the selected colour and the source item's karat. Stone is excluded from reusable wastage gold.</p>
+        <p class="dialog-note">Select the actual wastage colour. The new wastage remains in the same karat shelf and is collected under that colour. Stone is excluded from reusable wastage gold.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-casting-wastage">Cancel</button>
           <button type="submit">Move To Wastage</button>
@@ -2739,6 +2739,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=542"></script>
+  <script src="app.js?v=543"></script>
 </body>
 </html>

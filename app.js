@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v542";
+const APP_VERSION = "v543";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -9586,9 +9586,16 @@ function addSafeItem(item) {
   });
 }
 
+function safeWastageTransferEligibleItem(item = {}) {
+  if (!item || item.status === "Out") return false;
+  const kind = safeItemKind(item);
+  if (["wastage", "ghiss", "non-gold"].includes(kind)) return false;
+  return Number(item.grossWeight || 0) > 0.0005 && safeItemGoldWeight(item) > 0.0005;
+}
+
 function castingWastageAvailableItems() {
   return (state.safeItems || [])
-    .filter((item) => isCastingIssueStock(item))
+    .filter((item) => safeWastageTransferEligibleItem(item))
     .sort((a, b) => {
       const left = `${safeLockerForPurity(a.locker || a.purity)} ${safeWastageColour(a)} ${a.description || ""}`;
       const right = `${safeLockerForPurity(b.locker || b.purity)} ${safeWastageColour(b)} ${b.description || ""}`;
@@ -9598,7 +9605,7 @@ function castingWastageAvailableItems() {
 
 function castingWastageItemLabel(item = {}) {
   const stoneWeight = Number(weight3(safeItemWaxStoneWeight(item) + Number(safeItemNonGoldBreakdown(item).stone || 0)));
-  return `${safeLockerForPurity(item.locker || item.purity)} / ${safeWastageColour(item)} / ${item.description || "Casting Item"} / GW ${gram(item.grossWeight)} / Stone ${gram(stoneWeight)} / Gold ${gram(safeItemGoldWeight(item))}`;
+  return `${safeLockerForPurity(item.locker || item.purity)} / ${safeWastageColour(item)} / ${safeKindLabel(item)} / ${item.description || "Shelf Item"} / GW ${gram(item.grossWeight)} / Stone ${gram(stoneWeight)} / Gold ${gram(safeItemGoldWeight(item))}`;
 }
 
 function renderCastingWastageItemOptions(selectedItemId = "") {
@@ -9607,7 +9614,7 @@ function renderCastingWastageItemOptions(selectedItemId = "") {
   const items = castingWastageAvailableItems();
   form.itemId.innerHTML = items.length
     ? items.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(castingWastageItemLabel(item))}</option>`).join("")
-    : '<option value="">No casting item is available in Safe Locker</option>';
+    : '<option value="">No eligible item is available in Safe Locker</option>';
   form.itemId.value = items.some((item) => item.id === selectedItemId) ? selectedItemId : (items[0]?.id || "");
   return items;
 }
@@ -9670,14 +9677,14 @@ function castingWastageTransferValues(item = {}, grossWeight = 0, stoneWeight = 
 }
 
 function openCastingWastageTransfer(itemId = "") {
-  if (!requirePageEditPermission("safe", "move casting stock to wastage")) return;
+  if (!requirePageEditPermission("safe", "move shelf stock to wastage")) return;
   const form = document.getElementById("casting-wastage-form");
   const dialog = document.getElementById("casting-wastage-dialog");
   if (!form || !dialog) return;
   form.reset();
   const items = renderCastingWastageItemOptions(itemId);
   if (!items.length) {
-    alert("No casting item is available in Safe Locker.");
+    alert("No eligible shelf item is available to move to wastage.");
     return;
   }
   applyCastingWastageItemDefaults(form.itemId.value);
@@ -9687,7 +9694,7 @@ function openCastingWastageTransfer(itemId = "") {
 function applyCastingWastageItemDefaults(itemId = "") {
   const form = document.getElementById("casting-wastage-form");
   const item = findById("safeItems", itemId || form?.itemId?.value);
-  if (!form || !item || !isCastingIssueStock(item)) return;
+  if (!form || !item || !safeWastageTransferEligibleItem(item)) return;
   const values = castingWastageTransferValues(item);
   form.locker.value = transferPurityLabel(item.locker || item.purity);
   form.sourceColour.value = safeWastageColour(item);
@@ -9714,20 +9721,20 @@ function updateCastingWastageCalculation() {
   const summary = document.getElementById("casting-wastage-summary");
   if (!summary) return;
   if (!item) {
-    summary.textContent = "Select a casting item and enter the GW and stone contained in the wastage portion.";
+    summary.textContent = "Select a shelf item and enter the GW and stone contained in the wastage portion.";
     return;
   }
   const correctionText = values.newlyIdentifiedStoneWeight > 0
     ? ` Newly identified stone: ${gram(values.newlyIdentifiedStoneWeight)}.`
     : "";
-  summary.textContent = `${item.description || "Casting Item"} / ${transferPurityLabel(item.locker || item.purity)} / ${safeWastageColour(item)}. Available GW ${gram(values.sourceGrossWeight)}, tracked stone ${gram(values.trackedStoneWeight)}, gold ${gram(values.sourceGoldWeight)}. Move GW ${gram(values.movedGrossWeight)} - stone ${gram(values.movedStoneWeight)} = wastage gold ${gram(values.movedGoldWeight)}.${correctionText}`;
+  summary.textContent = `${item.description || "Shelf Item"} / ${safeKindLabel(item)} / ${transferPurityLabel(item.locker || item.purity)} / ${safeWastageColour(item)}. Available GW ${gram(values.sourceGrossWeight)}, tracked stone ${gram(values.trackedStoneWeight)}, gold ${gram(values.sourceGoldWeight)}. Move GW ${gram(values.movedGrossWeight)} - stone ${gram(values.movedStoneWeight)} = wastage gold ${gram(values.movedGoldWeight)}.${correctionText}`;
 }
 
 function saveCastingWastageTransfer(form = document.getElementById("casting-wastage-form")) {
-  if (!form || !requirePageEditPermission("safe", "move casting stock to wastage")) return;
+  if (!form || !requirePageEditPermission("safe", "move shelf stock to wastage")) return;
   const item = findById("safeItems", form.itemId.value);
-  if (!item || !isCastingIssueStock(item)) {
-    alert("This casting item is no longer available in Safe Locker.");
+  if (!item || !safeWastageTransferEligibleItem(item)) {
+    alert("This shelf item is no longer available to move to wastage.");
     document.getElementById("casting-wastage-dialog")?.close();
     renderSafeLockers();
     return;
@@ -9743,7 +9750,7 @@ function saveCastingWastageTransfer(form = document.getElementById("casting-wast
     return;
   }
   if (values.movedGrossWeight > values.sourceGrossWeight + 0.0005) {
-    alert(`Wastage GW cannot exceed the casting item balance of ${gram(values.sourceGrossWeight)}.`);
+    alert(`Wastage GW cannot exceed the shelf item balance of ${gram(values.sourceGrossWeight)}.`);
     return;
   }
   if (values.movedStoneWeight > values.movedGrossWeight + 0.0005) {
@@ -9751,24 +9758,24 @@ function saveCastingWastageTransfer(form = document.getElementById("casting-wast
     return;
   }
   if (values.movedGoldWeight > values.sourceGoldWeight + 0.0005) {
-    alert(`Wastage gold / NT cannot exceed the casting item's available gold of ${gram(values.sourceGoldWeight)}.`);
+    alert(`Wastage gold / NT cannot exceed the shelf item's available gold of ${gram(values.sourceGoldWeight)}.`);
     return;
   }
   if (values.remainingGrossWeight + 0.0005 < values.remainingWaxStoneWeight + values.remainingNonGoldWeight) {
-    alert(`The remaining casting GW cannot hold its remaining stone/non-gold weight. Include at least ${gram(values.trackedStoneWeight)} tracked stone when moving the full casting balance, or reduce the GW being moved.`);
+    alert(`The remaining shelf GW cannot hold its remaining stone/non-gold weight. Include the stone contained in the moved portion, or reduce the GW being moved.`);
     return;
   }
   const locker = safeLockerForPurity(item.locker || item.purity);
   const purity = karatLogicPurity(locker);
   const remarks = String(form.remarks.value || "").trim();
-  const movementText = `Moved ${gram(values.movedGrossWeight)} GW with ${gram(values.movedStoneWeight)} stone to ${locker} ${colour} wastage`;
+  const movementText = `Moved ${gram(values.movedGrossWeight)} GW with ${gram(values.movedStoneWeight)} stone from ${safeKindLabel(item)} to ${locker} ${colour} wastage`;
   addSafeItem({
     date: today(),
     locker,
     purity,
-    description: `${item.description || "Casting Item"} - Wastage`,
-    source: `Casting shelf transfer / ${item.description || item.castingBatchName || "Casting Item"}`,
-    sourceType: "safe-casting-wastage-transfer",
+    description: `${item.description || "Shelf Item"} - Wastage`,
+    source: `Safe shelf transfer / ${item.description || item.castingBatchName || "Shelf Item"}`,
+    sourceType: isCastingIssueStock(item) ? "safe-casting-wastage-transfer" : "safe-item-wastage-transfer",
     sourceId: item.id,
     sourceLine: "wastage",
     castingBatchId: item.castingBatchId || "",
@@ -9804,7 +9811,7 @@ function saveCastingWastageTransfer(form = document.getElementById("casting-wast
   form.reset();
   saveState();
   render();
-  alert(`CASTING WASTAGE SAVED.\n${locker} / ${colour}\nWASTAGE GW: ${gram(values.movedGrossWeight)}\nSTONE: ${gram(values.movedStoneWeight)}\nWASTAGE GOLD / NT: ${gram(values.movedGoldWeight)}\nCASTING GW REMAINING: ${gram(values.remainingGrossWeight)}`);
+  alert(`SHELF WASTAGE SAVED.\n${locker} / ${colour}\nWASTAGE GW: ${gram(values.movedGrossWeight)}\nSTONE: ${gram(values.movedStoneWeight)}\nWASTAGE GOLD / NT: ${gram(values.movedGoldWeight)}\nSHELF GW REMAINING: ${gram(values.remainingGrossWeight)}`);
 }
 
 function moveSafeItemOut(itemId) {
@@ -30057,7 +30064,7 @@ function renderSafeLockers() {
         : null;
       const actions = item.status === "Out"
         ? `<div class="safe-out-actions">${outDetail}${partIssueButton}${departmentIssue ? `<button class="ghost-button" type="button" onclick="openSafeDepartmentReceive('${departmentIssue.id}')">Receive</button>` : ""}</div>`
-        : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue Item</button>${partIssueButton}${productionReturnMeltButton}${isCastingIssueStock(item) ? `<button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${item.id}')">To Wastage</button>` : ""}<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button><button class="delete-btn" type="button" onclick="deleteSafeShelfEntry('${item.id}')">Delete Entry</button></div>`;
+        : `<div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue Item</button>${partIssueButton}${productionReturnMeltButton}${safeWastageTransferEligibleItem(item) ? `<button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${item.id}')">To Wastage</button>` : ""}<button class="ghost-button" type="button" onclick="moveSafeItemOut('${item.id}')">Move Out</button><button class="delete-btn" type="button" onclick="deleteSafeShelfEntry('${item.id}')">Delete Entry</button></div>`;
       return `
         <tr data-safe-item-id="${escapeHtml(item.id)}">
           <td>${escapeHtml(item.date || "-")}</td>
