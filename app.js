@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v548";
+const APP_VERSION = "v549";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -9429,6 +9429,11 @@ function safeItemGoldWeight(item = {}) {
   return Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, safeItemWaxStoneWeight(item))));
 }
 
+function safeItemFactoryGoldWeight(item = {}) {
+  const grossWeight = Number(item.grossWeight ?? item.netWeight ?? 0);
+  return Number(weight3(Math.max(grossWeight - safeItemNonGoldWeight(item), 0)));
+}
+
 function safeItemAvailableWeight(item = {}) {
   return safeItemGoldWeight(item);
 }
@@ -12530,7 +12535,7 @@ function factoryPhysicalStock() {
     .filter((item) => item.status !== "Out")
     .forEach((item) => {
       const gross = Number(item.grossWeight ?? item.netWeight ?? 0);
-      const gold = safeItemGoldWeight(item);
+      const gold = safeItemFactoryGoldWeight(item);
       addFactoryStockPart(parts, "shelf", "Safe Locker Items", gross, gold, safeItemDesiredPurity(item), null, safeItemNonGoldWeight(item));
     });
 
@@ -30355,7 +30360,7 @@ function renderSafeLockers() {
       grossWeight: Number(weight3(items.reduce((total, item) => total + Number(item.grossWeight || 0), 0))),
       waxStoneWeight: Number(weight3(items.reduce((total, item) => total + safeItemWaxStoneWeight(item), 0))),
       nonGoldWeight: Number(weight3(items.reduce((total, item) => total + safeItemNonGoldWeight(item), 0))),
-      netWeight: Number(weight3(items.reduce((total, item) => total + safeItemGoldWeight(item), 0))),
+      netWeight: Number(weight3(items.reduce((total, item) => total + safeItemFactoryGoldWeight(item), 0))),
       rodWeight: safeLockerBalance(locker, "rod"),
       wastageWeight: safeLockerBalance(locker, "wastage"),
     };
@@ -30367,7 +30372,7 @@ function renderSafeLockers() {
       <button class="safe-locker-card ${filter === locker ? "active" : ""}" type="button" onclick="selectSafeLocker('${locker}')">
         <span>${locker} Safe</span>
         <strong>GW ${gram(totals[locker].grossWeight)}</strong>
-        <small>Wax ${gram(totals[locker].waxStoneWeight)} / Non-Gold ${gram(totals[locker].nonGoldWeight)} / Gold ${gram(totals[locker].netWeight)}</small>
+        <small>Wax Tracking ${gram(totals[locker].waxStoneWeight)} / Non-Gold ${gram(totals[locker].nonGoldWeight)} / Factory Net Gold ${gram(totals[locker].netWeight)}</small>
         <small>Rod NT ${gram(totals[locker].rodWeight)} / Wstg NT ${gram(totals[locker].wastageWeight)}</small>
         <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"}</small>
       </button>
