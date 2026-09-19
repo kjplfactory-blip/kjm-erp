@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v541";
+const APP_VERSION = "v542";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -8846,7 +8846,7 @@ function safeItemMatchesKind(item, safeKind = "all") {
 
 function normalizeSafeKind(value = "") {
   const text = String(value || "").toLowerCase().trim();
-  if (["rod", "wastage", "ghiss", "non-gold", "accessory"].includes(text)) return text;
+  if (["rod", "unfinished", "wip", "wastage", "ghiss", "non-gold", "accessory"].includes(text)) return text;
   return "all";
 }
 
@@ -8876,6 +8876,8 @@ function safeKindLabel(kindOrItem = "") {
   const kind = typeof kindOrItem === "string" ? normalizeSafeKind(kindOrItem) : safeItemKind(kindOrItem);
   if (kind === "ghiss") return "Ghiss";
   if (kind === "non-gold") return "Non-Gold Item";
+  if (kind === "unfinished") return "Unfinished Item";
+  if (kind === "wip") return "WIP Item";
   if (kind === "wastage") return "Wastage / Scrap";
   if (kind === "accessory") return "Accessory / Other";
   return "Rod / Casting";
