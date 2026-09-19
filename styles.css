@@ -1147,6 +1147,21 @@ button:hover {
   line-height: 1.35;
 }
 
+.factory-reset-keep-jobs {
+  border-color: rgba(180, 83, 9, 0.3);
+  background: linear-gradient(180deg, #fff9ed 0%, #ffffff 100%);
+}
+
+.factory-reset-keep-jobs strong,
+.factory-reset-keep-jobs span {
+  color: #7c3f08;
+}
+
+.one-time-reset-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .safe-inline-form {
   margin-bottom: 14px;
 }
@@ -2373,6 +2388,65 @@ form.active-operation-page,
   counter-reset: order-item;
 }
 
+.order-saved-item-manager {
+  position: sticky;
+  top: 8px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #aad8cc;
+  border-radius: 8px;
+  background: rgba(244, 251, 248, 0.98);
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.1);
+}
+
+.order-saved-item-search {
+  display: grid;
+  grid-template-columns: minmax(180px, auto) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.order-saved-item-search > div {
+  display: grid;
+  gap: 2px;
+}
+
+.order-saved-item-search strong {
+  color: var(--brand-dark);
+  font-size: 15px;
+}
+
+.order-saved-item-search small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.order-saved-item-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.order-saved-item-pagination button {
+  min-height: 38px;
+  padding: 8px 11px;
+}
+
+.order-saved-item-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.order-item-manager-hidden {
+  display: none !important;
+}
+
 .order-item-row {
   display: grid;
   gap: 12px;
@@ -2616,14 +2690,31 @@ form.active-operation-page,
 }
 
 .order-item-row.saved::before {
-  content: counter(order-item);
+  content: none;
+  display: none;
+}
+
+.saved-item-index {
   width: 22px;
   height: 22px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: var(--soft);
+  color: var(--brand);
   font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 860px) {
+  .order-saved-item-manager,
+  .order-saved-item-search {
+    grid-template-columns: 1fr;
+  }
+
+  .order-saved-item-pagination {
+    justify-content: space-between;
+  }
 }
 
 .order-item-row.saved {

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v539";
+const APP_VERSION = "v541";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -41,6 +41,8 @@ const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
+const ONE_TIME_JOB_RESET_CUTOFF = 1680;
+const ONE_TIME_JOB_RESET_REASON = "One-time inventory reset keeping JOB-1681 onwards";
 const DESIGN_IMAGE_WIDTH = 1200;
 const DESIGN_IMAGE_HEIGHT = 1800;
 const DESIGN_IMAGE_JPEG_QUALITY = 0.74;
@@ -433,6 +435,7 @@ const demoState = {
   settingManagerEntries: [],
   melting: [],
   xrfTests: [],
+  oneTimeJob1680ResetAt: "",
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
     { id: crypto.randomUUID(), name: "Setting Department", speciality: "Stone setting", processes: ["Stone setting"], rate: 650 },
@@ -984,6 +987,7 @@ document.getElementById("restore-data-backup-file")?.addEventListener("change", 
 
 document.getElementById("reset-demo").addEventListener("click", resetFactoryInventoryToZeroFromUi);
 document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", resetFactoryInventoryToZeroFromUi);
+document.getElementById("reset-inventory-keep-jobs-after-1680")?.addEventListener("click", resetInventoryKeepingJobsAfter1680FromUi);
 
 document.getElementById("create-fitting-accessories-job")?.addEventListener("click", openFittingAccessoriesJobDialog);
 document.getElementById("close-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
@@ -1478,6 +1482,26 @@ document.getElementById("stone-entry-form").addEventListener("submit", async (ev
 });
 
 document.getElementById("add-order-item").addEventListener("click", commitCurrentOrderItem);
+
+document.getElementById("order-saved-item-search")?.addEventListener("input", () => {
+  refreshOrderSavedItemManager({ resetPage: true });
+});
+
+document.getElementById("order-saved-item-search")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") event.preventDefault();
+});
+
+document.getElementById("order-saved-item-prev")?.addEventListener("click", () => {
+  orderSavedItemPage -= 1;
+  refreshOrderSavedItemManager();
+  document.getElementById("order-saved-item-manager")?.scrollIntoView({ block: "start", behavior: "smooth" });
+});
+
+document.getElementById("order-saved-item-next")?.addEventListener("click", () => {
+  orderSavedItemPage += 1;
+  refreshOrderSavedItemManager();
+  document.getElementById("order-saved-item-manager")?.scrollIntoView({ block: "start", behavior: "smooth" });
+});
 
 document.getElementById("order-item-list").addEventListener("change", (event) => {
   const row = event.target.closest(".order-item-row");
@@ -4786,6 +4810,132 @@ async function resetFactoryInventoryToZero() {
   return cloudSaved;
 }
 
+function jobCardSerialForOneTimeReset(order = {}) {
+  return serialFromNumber(order.jobNumber || "", "JOB");
+}
+
+function jobOrdersAfterOneTimeResetCutoff(source = state) {
+  return (source.orders || []).filter((order) => jobCardSerialForOneTimeReset(order) > ONE_TIME_JOB_RESET_CUTOFF);
+}
+
+function retainedJobOrderResetStats(source = state) {
+  const orders = jobOrdersAfterOneTimeResetCutoff(source);
+  return {
+    itemCount: orders.length,
+    jobCount: new Set(orders.map((order) => order.jobNumber).filter(Boolean)).size,
+  };
+}
+
+function prepareRetainedOrderForInventoryRestart(order = {}) {
+  const retained = structuredClone(order);
+  retained.status = "Pending";
+  retained.completedDate = "";
+  retained.completionReason = "";
+  retained.inventoryRestartedAt = new Date().toISOString();
+  retained.inventoryRestartReason = ONE_TIME_JOB_RESET_REASON;
+  return retained;
+}
+
+function applyOneTimeResetKeepingJobsAfter1680(resetAt = new Date().toISOString()) {
+  const retainedOrders = jobOrdersAfterOneTimeResetCutoff(state).map(prepareRetainedOrderForInventoryRestart);
+  const retainedJobCount = new Set(retainedOrders.map((order) => order.jobNumber).filter(Boolean)).size;
+  clearFactoryInventoryToZero(resetAt);
+  state.orders = retainedOrders;
+  state.factoryResetReason = ONE_TIME_JOB_RESET_REASON;
+  state.oneTimeJob1680ResetAt = resetAt;
+  state.oneTimeJob1680ResetCutoff = ONE_TIME_JOB_RESET_CUTOFF;
+  state.oneTimeJob1680RetainedJobs = retainedJobCount;
+  state.oneTimeJob1680RetainedItems = retainedOrders.length;
+  normalizeIndependentOrderSerials(state);
+  backupRecentJobOrders(retainedOrders);
+  return { retainedOrders, retainedJobCount, retainedItemCount: retainedOrders.length };
+}
+
+async function resetInventoryKeepingJobsAfter1680FromUi(event) {
+  if (!isOwner()) {
+    alert("Only Owner can run the one-time reset.");
+    return;
+  }
+  if (state.oneTimeJob1680ResetAt) {
+    alert("This one-time reset has already been used and cannot be run again.");
+    updateOneTimeJobResetControl();
+    return;
+  }
+  const preview = retainedJobOrderResetStats();
+  if (!preview.itemCount) {
+    alert("No Job Order after JOB-1680 was found. Nothing was reset.");
+    return;
+  }
+  const ownerPassword = prompt("Enter Owner password for the one-time reset keeping JOB-1681 onward:");
+  if (ownerPassword !== userPassword("owner")) {
+    alert("Wrong Owner password. Nothing was reset.");
+    return;
+  }
+  const confirmed = confirm(
+    `ONE-TIME RESET\n\nKeep: ${preview.jobCount} Job Card${preview.jobCount === 1 ? "" : "s"} / ${preview.itemCount} item${preview.itemCount === 1 ? "" : "s"} from JOB-1681 onward.\n\nThese retained jobs will return to Pending. All older Job Orders and all production, bill, stock, safe, melting, XRF, factory ledger, and non-gold movements will be cleared to zero.\n\nMasters and the normal Reset Inventory button will remain unchanged. A full JSON backup will download first.\n\nContinue?`
+  );
+  if (!confirmed) return;
+
+  downloadErpDataBackup();
+  const button = event?.currentTarget;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "One-Time Reset In Progress...";
+  }
+  const resetAt = new Date().toISOString();
+  setFactoryResetProtection(true, resetAt);
+  supabasePendingCloudState = null;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  const result = applyOneTimeResetKeepingJobsAfter1680(resetAt);
+  clearOrderDraft();
+  saveStateLocalOnly();
+  render();
+  setDefaultOrderDates(document.getElementById("order-form"));
+  resetOrderItemRows();
+  resetMeltingSources();
+  updateMeltingCalculation();
+  resetFactoryEntryForms();
+  setSyncStatus("saving", "One-Time Reset Saved Locally", "Trying to update live sync now.");
+
+  if (!supabaseClient && supabaseSettings.url && supabaseSettings.anonKey) {
+    try {
+      supabaseClient = await createSupabaseClient();
+    } catch (error) {
+      console.warn("Supabase one-time reset save could not connect.", error);
+      setSyncStatus("offline", syncStatusForError(error, "One-Time Reset: Local Only"), syncErrorDetail(error));
+    }
+  }
+
+  const cloudSaved = supabaseClient ? await syncStateToSupabase({ force: true }) : false;
+  if (cloudSaved) {
+    setFactoryResetProtection(false);
+    startSupabaseAutoRefresh();
+  } else {
+    setFactoryResetProtection(true, resetAt);
+    setSyncStatus("offline", "One-Time Reset: Local Only", "Live sync was not updated. Fix sync, then click Upload This Laptop Data before using another laptop.");
+  }
+  switchView("orders");
+  switchOrderPage("active");
+  updateOneTimeJobResetControl();
+  const savedText = cloudSaved
+    ? "The reset and retained jobs are confirmed in live sync."
+    : "The reset is saved on this laptop only. Fix sync and upload this laptop data before using another laptop.";
+  alert(`One-time reset completed.\n\nKept ${result.retainedJobCount} Job Card${result.retainedJobCount === 1 ? "" : "s"} / ${result.retainedItemCount} item${result.retainedItemCount === 1 ? "" : "s"} from JOB-1681 onward.\nAll retained jobs are Pending.\nFactory inventory is 0.000 g.\nA full pre-reset JSON backup was downloaded.\n\n${savedText}`);
+}
+
+function updateOneTimeJobResetControl() {
+  const button = document.getElementById("reset-inventory-keep-jobs-after-1680");
+  const status = document.getElementById("one-time-job-reset-status");
+  if (!button || !status) return;
+  const usedAt = state.oneTimeJob1680ResetAt || "";
+  button.disabled = Boolean(usedAt);
+  button.textContent = usedAt ? "One-Time Reset Already Used" : "One-Time Reset - Keep JOB-1681 Onward";
+  status.textContent = usedAt
+    ? `Used ${new Date(usedAt).toLocaleString("en-IN")}. Kept ${Number(state.oneTimeJob1680RetainedJobs || 0)} Job Cards / ${Number(state.oneTimeJob1680RetainedItems || 0)} items.`
+    : "This special reset has not been used.";
+}
+
 function resetFactoryEntryForms() {
   ["factory-in-form", "factory-out-form"].forEach((formId) => {
     const form = document.getElementById(formId);
@@ -6596,7 +6746,76 @@ function syncJobCardColourReferences(jobItems = [], color = "") {
   });
 }
 
-function addOrderItemRow(item = {}, mode = "entry") {
+const ORDER_SAVED_ITEM_PAGE_SIZE = 20;
+let orderSavedItemPage = 1;
+
+function orderSavedItemRows() {
+  return [...document.querySelectorAll('#order-item-list .order-item-row[data-mode="saved"]')];
+}
+
+function orderSavedItemSearchText(row, index) {
+  const item = getOrderItemFromRow(row);
+  return [
+    index + 1,
+    item.category,
+    designLabel(item.designId),
+    item.item,
+    item.ringType,
+    item.cmItemType,
+    item.designSubItemType,
+    item.size,
+    item.clSize,
+    item.cgSize,
+    item.color,
+    item.purity,
+    item.remarks,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function refreshOrderSavedItemManager(options = {}) {
+  const manager = document.getElementById("order-saved-item-manager");
+  const searchInput = document.getElementById("order-saved-item-search");
+  if (!manager || !searchInput) return;
+  if (options.resetPage) orderSavedItemPage = 1;
+  const rows = orderSavedItemRows();
+  const query = searchInput.value.trim().toLowerCase();
+  const matchingRows = [];
+  rows.forEach((row, index) => {
+    const itemNumber = index + 1;
+    const number = row.querySelector("[data-saved-item-index]");
+    if (number) number.textContent = itemNumber;
+    row.dataset.savedItemNumber = String(itemNumber);
+    if (!query || orderSavedItemSearchText(row, index).includes(query)) matchingRows.push(row);
+  });
+  const pageCount = Math.max(1, Math.ceil(matchingRows.length / ORDER_SAVED_ITEM_PAGE_SIZE));
+  orderSavedItemPage = Math.min(Math.max(1, orderSavedItemPage), pageCount);
+  const start = (orderSavedItemPage - 1) * ORDER_SAVED_ITEM_PAGE_SIZE;
+  const visibleRows = new Set(matchingRows.slice(start, start + ORDER_SAVED_ITEM_PAGE_SIZE));
+  rows.forEach((row) => row.classList.toggle("order-item-manager-hidden", !visibleRows.has(row)));
+
+  manager.classList.toggle("hidden", rows.length === 0);
+  document.getElementById("order-saved-item-count").textContent = rows.length;
+  document.getElementById("order-saved-item-page").textContent = `Page ${orderSavedItemPage} of ${pageCount}`;
+  document.getElementById("order-saved-item-prev").disabled = orderSavedItemPage <= 1;
+  document.getElementById("order-saved-item-next").disabled = orderSavedItemPage >= pageCount;
+  const status = document.getElementById("order-saved-item-status");
+  if (!matchingRows.length) {
+    status.textContent = `No matching item found. All ${rows.length} added items are still saved.`;
+  } else {
+    const end = Math.min(start + ORDER_SAVED_ITEM_PAGE_SIZE, matchingRows.length);
+    const matchText = query ? ` matching items (${rows.length} total)` : " added items";
+    status.textContent = `Showing ${start + 1}-${end} of ${matchingRows.length}${matchText}.`;
+  }
+}
+
+function resetOrderSavedItemManager() {
+  orderSavedItemPage = 1;
+  const searchInput = document.getElementById("order-saved-item-search");
+  if (searchInput) searchInput.value = "";
+  refreshOrderSavedItemManager();
+}
+
+function addOrderItemRow(item = {}, mode = "entry", options = {}) {
   const row = document.createElement("div");
   row.className = `order-item-row ${mode}`;
   row.dataset.mode = mode;
@@ -6627,10 +6846,14 @@ function addOrderItemRow(item = {}, mode = "entry") {
     }
     if (!document.querySelector('#order-item-list .order-item-row[data-mode="entry"]')) addOrderItemRow();
     renderOrderEntrySummary();
+    refreshOrderSavedItemManager();
     saveOrderDraft();
   });
   document.getElementById("order-item-list").appendChild(row);
-  renderOrderEntrySummary();
+  if (!options.deferRender) {
+    renderOrderEntrySummary();
+    refreshOrderSavedItemManager();
+  }
   return row;
 }
 
@@ -6719,6 +6942,7 @@ function savedOrderItemRowHtml(item = {}) {
     ? `<span class="saved-item-cell"><b>Size</b>${escapeHtml(item.size || "-")}</span>`
     : "";
   return `
+    <span class="saved-item-index" data-saved-item-index aria-label="Item number"></span>
     <input type="hidden" name="designId" value="${escapeHtml(item.designId || "")}">
     <input type="hidden" name="category" value="${escapeHtml(item.category || "")}">
     <input type="hidden" name="item" value="${escapeHtml(item.item || "")}">
@@ -7004,9 +7228,11 @@ function updateOrderItemStonePreview(row) {
 
 function resetOrderItemRows() {
   document.getElementById("order-item-list").innerHTML = "";
-  addOrderItemRow();
+  resetOrderSavedItemManager();
+  addOrderItemRow({}, "entry", { deferRender: true });
   syncCreateJobCardColor();
   renderOrderEntrySummary();
+  refreshOrderSavedItemManager();
 }
 
 function orderFormActive() {
@@ -7114,17 +7340,19 @@ function restoreOrderDraft(draft = null) {
   form.urgent.checked = Boolean(draft.urgent);
   updateOrderDueDate(form);
   list.innerHTML = "";
+  resetOrderSavedItemManager();
   const rows = draft.rows || [];
   rows.filter((row) => row.mode === "saved" && orderDraftItemHasWork(row.item)).forEach((row) => {
-    addOrderItemRow(row.item, "saved");
+    addOrderItemRow(row.item, "saved", { deferRender: true });
   });
   const entryDraft = rows.find((row) => row.mode !== "saved" && orderDraftItemHasWork(row.item));
-  const entryRow = addOrderItemRow(entryDraft?.item || {}, "entry");
+  const entryRow = addOrderItemRow(entryDraft?.item || {}, "entry", { deferRender: true });
   if (entryDraft?.item) {
     restoreOrderEntryRow(entryRow, entryDraft.item);
   }
   syncCreateJobCardColor(form);
   renderOrderEntrySummary();
+  refreshOrderSavedItemManager();
   return true;
 }
 
@@ -7151,10 +7379,14 @@ function commitCurrentOrderItem() {
     return;
   }
   orderItemsFromEntryRow(entryRow).forEach((entryItem) => {
-    expandOrderItemCombinations(entryItem).forEach((orderItem) => addOrderItemRow(orderItem, "saved"));
+    expandOrderItemCombinations(entryItem).forEach((orderItem) => addOrderItemRow(orderItem, "saved", { deferRender: true }));
   });
   clearOrderEntryRow(entryRow);
+  const savedItemSearch = document.getElementById("order-saved-item-search");
+  if (savedItemSearch) savedItemSearch.value = "";
+  orderSavedItemPage = Math.max(1, Math.ceil(orderSavedItemRows().length / ORDER_SAVED_ITEM_PAGE_SIZE));
   renderOrderEntrySummary();
+  refreshOrderSavedItemManager();
   saveOrderDraft();
 }
 
@@ -30149,6 +30381,7 @@ function renderFactory() {
   renderFactorySummary();
   renderVendorBalances();
   renderFactoryLedger();
+  updateOneTimeJobResetControl();
 }
 
 function renderFactoryVendorOptions() {
@@ -33227,6 +33460,7 @@ function normalizeState(currentState) {
   migrateTransferHistoryTimestamps(currentState);
   currentState.factoryResetAt = currentState.factoryResetAt || "";
   currentState.factoryResetReason = currentState.factoryResetReason || "";
+  currentState.oneTimeJob1680ResetAt = currentState.oneTimeJob1680ResetAt || "";
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
   currentState.userPasswords = { ...defaultUserPasswords, ...(currentState.userPasswords || {}) };

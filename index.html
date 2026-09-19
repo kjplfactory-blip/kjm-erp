@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=539">
+  <link rel="stylesheet" href="styles.css?v=541">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v539</small>
+          <small class="app-version-badge">App v541</small>
           </div>
         </div>
         <label>User
@@ -124,7 +124,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v539</span>
+          <span class="app-version-badge">App v541</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -539,6 +539,22 @@
                   <p class="dialog-note">Use search or category-wise design selection. Multiple designs can be added in one action.</p>
                 </div>
                 <button id="add-order-item" class="ghost-button" type="button">Add Item</button>
+              </div>
+              <div id="order-saved-item-manager" class="order-saved-item-manager hidden">
+                <div class="order-saved-item-search">
+                  <div>
+                    <strong><span id="order-saved-item-count">0</span> Added Items</strong>
+                    <small id="order-saved-item-status">All saved items remain in this Job Order.</small>
+                  </div>
+                  <label>Find An Added Item
+                    <input id="order-saved-item-search" type="search" placeholder="Item no, design, category, size or remark" autocomplete="off">
+                  </label>
+                </div>
+                <div class="order-saved-item-pagination" aria-label="Added item pages">
+                  <button id="order-saved-item-prev" class="ghost-button" type="button">Previous 20</button>
+                  <strong id="order-saved-item-page">Page 1 of 1</strong>
+                  <button id="order-saved-item-next" class="ghost-button" type="button">Next 20</button>
+                </div>
               </div>
               <div id="order-item-list" class="order-item-list"></div>
             </section>
@@ -1073,6 +1089,14 @@
             <span>After reset, open Factory In and add your actual inventory.</span>
           </div>
           <button id="reset-factory-inventory-zero" class="danger-button" type="button">Reset Inventory To Zero</button>
+          <div class="factory-reset-warning factory-reset-keep-jobs">
+            <strong>One-Time Reset: Keep JOB-1681 Onward</strong>
+            <span>Keeps every Job Order item whose Job Card number is greater than JOB-1680.</span>
+            <span>Retained Job Orders return to Pending so metal can be issued again. Old production, bill, stock, safe, melting, XRF, ledger, and non-gold entries are cleared.</span>
+            <span>A complete JSON data backup is downloaded before this one-time reset starts.</span>
+            <span id="one-time-job-reset-status">This special reset has not been used.</span>
+          </div>
+          <button id="reset-inventory-keep-jobs-after-1680" class="danger-button one-time-reset-button" type="button">One-Time Reset - Keep JOB-1681 Onward</button>
         </section>
       </section>
 
@@ -2713,6 +2737,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=539"></script>
+  <script src="app.js?v=541"></script>
 </body>
 </html>
