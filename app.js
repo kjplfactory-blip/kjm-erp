@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v559";
+const APP_VERSION = "v560";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -8918,9 +8918,10 @@ function getLotOrderIds(lot) {
   return lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
 }
 
-function getLotOrders(lot, sourceState = state) {
+function getLotOrders(lot, sourceState = null) {
+  const sourceOrders = sourceState && Array.isArray(sourceState.orders) ? sourceState.orders : null;
   return getLotOrderIds(lot)
-    .map((id) => sourceState === state ? findById("orders", id) : (sourceState?.orders || []).find((order) => order.id === id))
+    .map((id) => sourceOrders ? sourceOrders.find((order) => order.id === id) : findById("orders", id))
     .filter(Boolean);
 }
 
@@ -12818,9 +12819,8 @@ function factoryPhysicalStock() {
     .filter(factoryStockHoldingLot)
     .forEach((lot) => {
       const totals = departmentCurrentLotTotals(lot);
-      const embeddedNonGold = Number(weight3(
-        Number(totals.waxStone || 0) + Number(totals.handStone || 0) + Number(totals.nonGold || 0)
-      ));
+      const openingNonGold = activeProductionOpeningNonGoldBreakdown(lot);
+      const embeddedNonGold = Number(weight3(nonGoldBreakdownTotal(openingNonGold) + Number(totals.nonGold || 0)));
       addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K", null, embeddedNonGold);
     });
 
@@ -19205,14 +19205,35 @@ function productionNonGoldDirectDepartmentEntries() {
     .filter(({ issue }) => !issue.lotId && !isOpeningNonGoldAdjustment(issue) && productionNonGoldIssueInDepartment(issue));
 }
 
+function lotSafeIssuedWaxStoneWeight(lot = {}) {
+  const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
+  const sourceItemIds = new Set((lot.issueSafeItemsBefore || []).map((item) => item?.id).filter(Boolean));
+  if (lot.castingSafeItemId) sourceItemIds.add(lot.castingSafeItemId);
+  const lotReference = String(lot.number || "").trim().toLowerCase();
+  const movedWax = (state.safeItems || [])
+    .filter((item) => {
+      if (item.sourceType === "factory-issue" && sourceIds.has(String(item.sourceId || ""))) return true;
+      if (item.status !== "Out" || !sourceItemIds.has(item.id)) return false;
+      const reference = `${item.source || ""} ${item.remarks || ""}`.toLowerCase();
+      return Boolean(lotReference && reference.includes(lotReference));
+    })
+    .reduce((total, item) => total + Math.max(Number(safeItemWaxStoneWeight(item) || 0), 0), 0);
+  return Number(weight3(Math.min(movedWax, Math.max(Number(transferWaxStoneWeight(lot) || 0), 0))));
+}
+
+function activeProductionOpeningNonGoldBreakdown(lot = {}) {
+  return normalizeNonGoldBreakdown({
+    stone: Number(weight3(
+      Math.max(Number(lotSafeIssuedWaxStoneWeight(lot) || 0), 0)
+      + Math.max(Number(currentHandStoneWeight(lot) || 0), 0)
+    )),
+  });
+}
+
 function activeProductionNonGoldDemandLine(lot = {}) {
   if (!factoryStockHoldingLot(lot)) return null;
-  const totals = departmentCurrentLotTotals(lot);
-  const stoneWeight = Number(weight3(
-    Math.max(Number(totals.waxStone || 0), 0) + Math.max(Number(totals.handStone || 0), 0)
-  ));
-  const otherNonGoldWeight = Number(weight3(Math.max(Number(totals.nonGold || 0), 0)));
-  const weight = Number(weight3(stoneWeight + otherNonGoldWeight));
+  const breakdown = activeProductionOpeningNonGoldBreakdown(lot);
+  const weight = Number(weight3(nonGoldBreakdownTotal(breakdown)));
   if (weight <= 0) return null;
   const latestTransfer = (lot.transfers || []).at(-1) || {};
   return {
@@ -19223,10 +19244,7 @@ function activeProductionNonGoldDemandLine(lot = {}) {
     createdAt: latestTransfer.createdAt || lot.createdAt || "",
     purity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"),
     weight,
-    breakdown: normalizeNonGoldBreakdown({
-      stone: stoneWeight,
-      other: otherNonGoldWeight,
-    }),
+    breakdown,
   };
 }
 
