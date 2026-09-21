@@ -6339,6 +6339,83 @@ dialog::backdrop {
   overflow-x: hidden;
 }
 
+.job-split-picker {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #c9e5df;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.job-split-search-row,
+.job-split-selected-panel {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.job-split-search-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.job-split-search-row input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 11px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+}
+
+.job-split-search-row input:focus {
+  border-color: #0f766e;
+  outline: 3px solid rgba(15, 118, 110, 0.12);
+}
+
+#job-split-search-summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.job-split-selected-panel {
+  padding-left: 12px;
+  border-left: 1px solid #c9e5df;
+}
+
+.job-split-selected-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #153d36;
+  font-size: 12px;
+}
+
+.job-split-selected-panel .selected-design-chips {
+  min-height: 42px;
+  max-height: 116px;
+  overflow-y: auto;
+}
+
+.job-split-selected-chip {
+  max-width: 100%;
+}
+
+.job-split-selected-chip b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .job-item-button-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
@@ -6348,6 +6425,14 @@ dialog::backdrop {
 .job-item-select-card {
   display: grid;
   gap: 6px;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.job-item-select-card.selected-for-split {
+  border-color: #0f766e;
+  background: #eaf8f3;
 }
 
 .job-split-toolbar {
@@ -6393,6 +6478,19 @@ dialog::backdrop {
 .job-split-select input {
   width: 15px;
   height: 15px;
+}
+
+@media (max-width: 760px) {
+  .job-split-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .job-split-selected-panel {
+    padding-top: 10px;
+    padding-left: 0;
+    border-top: 1px solid #c9e5df;
+    border-left: 0;
+  }
 }
 
 .job-item-open-button {

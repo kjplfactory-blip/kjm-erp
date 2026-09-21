@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v551";
+const APP_VERSION = "v552";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3175,6 +3175,18 @@ document.getElementById("close-job-item-detail").addEventListener("click", () =>
 
 document.getElementById("split-job-items").addEventListener("click", splitSelectedJobItems);
 document.getElementById("add-job-card-item").addEventListener("click", openJobCardAddItem);
+document.getElementById("order-items-detail")?.addEventListener("input", (event) => {
+  if (event.target.matches("#job-split-search")) filterJobSplitItems();
+  if (event.target.matches(".job-split-check")) updateJobSplitSelectionUi();
+});
+document.getElementById("order-items-detail")?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest("[data-remove-job-split-item]");
+  if (!removeButton) return;
+  const checkbox = [...document.querySelectorAll("#order-items-detail .job-split-check")]
+    .find((input) => input.value === removeButton.dataset.removeJobSplitItem);
+  if (checkbox) checkbox.checked = false;
+  updateJobSplitSelectionUi();
+});
 document.getElementById("split-fitting-items-card")?.addEventListener("click", openFittingItemsSplitDialog);
 document.getElementById("fitting-items-split-form")?.addEventListener("input", updateFittingItemsSplitSummary);
 document.getElementById("fitting-items-split-form")?.addEventListener("submit", splitFittingItemsJobCard);
@@ -13451,20 +13463,50 @@ function filterJobOrdersForBucket(orders = [], bucket = "all") {
 
 function renderJobItemsDetail(orders) {
   document.getElementById("order-items-detail").innerHTML = `
+    <section class="job-split-picker" id="standard-split-job-picker">
+      <div class="job-split-search-row">
+        <label>Search Item
+          <input id="job-split-search" type="search" placeholder="PR no, design, sub item, category or item" autocomplete="off">
+        </label>
+        <span id="job-split-search-summary">${orders.length} item${orders.length === 1 ? "" : "s"} shown</span>
+      </div>
+      <div class="job-split-selected-panel">
+        <div class="job-split-selected-heading">
+          <strong>Selected For Split</strong>
+          <span id="job-split-selected-count">0 selected</span>
+        </div>
+        <div id="job-split-selected-items" class="selected-design-chips">
+          <small class="selected-design-empty">No items selected for split.</small>
+        </div>
+      </div>
+    </section>
     <div class="job-item-button-grid">
       ${orders.map((order) => {
         const stage = orderCurrentStage(order);
         const deliveryText = orderDeliveryText(order);
         const subcategory = jobItemSubcategoryLabel(order);
+        const itemDisplay = jobItemDisplayName(order);
+        const searchText = [
+          order.productionNo,
+          order.number,
+          order.designNo,
+          order.designNumber,
+          order.design,
+          itemDisplay,
+          subcategory,
+          order.item,
+          order.category,
+          order.customer,
+        ].filter(Boolean).join(" ").toLowerCase();
         return `
-          <article class="job-item-select-card">
+          <article class="job-item-select-card" data-job-split-card="${escapeHtml(order.id)}" data-job-split-search="${escapeHtml(searchText)}">
             <label class="job-split-select ${isFittingAccessoriesOrder(order) ? "hidden" : ""}">
               <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
               <span>Split</span>
             </label>
             <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
               <strong>${escapeHtml(order.productionNo || order.number)}</strong>
-              <span>${escapeHtml(jobItemDisplayName(order))}</span>
+              <span>${escapeHtml(itemDisplay)}</span>
               <span class="job-item-subcategory"><b>Sub Item</b>${escapeHtml(subcategory)}</span>
               <small>${escapeHtml(stage)}</small>
               ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
@@ -13475,6 +13517,54 @@ function renderJobItemsDetail(orders) {
       }).join("")}
     </div>
   `;
+  updateJobSplitSelectionUi();
+}
+
+function jobSplitItemLabel(order = {}) {
+  const productionNo = order.productionNo || order.number || "Item";
+  const itemName = jobItemDisplayName(order) || order.item || order.category || "-";
+  const subcategory = jobItemSubcategoryLabel(order);
+  return `${productionNo} / ${itemName}${subcategory && subcategory !== "-" ? ` / ${subcategory}` : ""}`;
+}
+
+function filterJobSplitItems() {
+  const search = document.getElementById("job-split-search");
+  const query = String(search?.value || "").trim().toLowerCase();
+  const cards = [...document.querySelectorAll("#order-items-detail [data-job-split-card]")];
+  let visible = 0;
+  cards.forEach((card) => {
+    const matches = !query || String(card.dataset.jobSplitSearch || "").includes(query);
+    card.classList.toggle("hidden", !matches);
+    if (matches) visible += 1;
+  });
+  const summary = document.getElementById("job-split-search-summary");
+  if (summary) summary.textContent = `${visible} of ${cards.length} item${cards.length === 1 ? "" : "s"} shown`;
+}
+
+function updateJobSplitSelectionUi() {
+  const selectedIds = selectedJobSplitIds();
+  const selectedSet = new Set(selectedIds);
+  document.querySelectorAll("#order-items-detail [data-job-split-card]").forEach((card) => {
+    card.classList.toggle("selected-for-split", selectedSet.has(card.dataset.jobSplitCard));
+  });
+  const holder = document.getElementById("job-split-selected-items");
+  const count = document.getElementById("job-split-selected-count");
+  if (count) count.textContent = `${selectedIds.length} selected`;
+  if (!holder) return;
+  if (!selectedIds.length) {
+    holder.innerHTML = '<small class="selected-design-empty">No items selected for split.</small>';
+    return;
+  }
+  holder.innerHTML = selectedIds.map((orderId) => {
+    const order = findById("orders", orderId);
+    if (!order) return "";
+    return `
+      <span class="selected-design-chip job-split-selected-chip">
+        <b>${escapeHtml(jobSplitItemLabel(order))}</b>
+        <button type="button" data-remove-job-split-item="${escapeHtml(orderId)}" aria-label="Remove item from split" title="Remove item">&times;</button>
+      </span>
+    `;
+  }).join("");
 }
 
 function jobItemSubcategoryLabel(order = {}) {
@@ -13656,6 +13746,7 @@ function updateFittingItemsJobToolbar(order = {}) {
   document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard);
   document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard);
   document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard);
+  document.getElementById("standard-split-job-picker")?.classList.toggle("hidden", isSpecialCard);
   document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit);
 }
 
