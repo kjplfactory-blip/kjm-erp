@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v566";
+const APP_VERSION = "v567";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -35149,12 +35149,9 @@ function renderOnlineTransferHistory() {
   const query = (productionViewActive
     ? document.getElementById("production-transfer-search")?.value || ""
     : document.getElementById("transfer-history-search")?.value || "").toLowerCase();
-  const lotEntries = state.lots.flatMap((lot) => [
-    ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
-    goldIssueHistoryEntry(lot),
-  ]);
-  const rows = sortTransferHistoryEntries([...safeDepartmentTransferHistoryEntries(), ...lotEntries])
-    .filter((entry) => transferHistorySearchText(entry).includes(query))
+  const entries = onlineTransferHistoryEntries();
+  const visibleEntries = entries.filter((entry) => transferHistorySearchText(entry).includes(query));
+  const rows = visibleEntries
     .map(renderTransferHistoryRow)
     .join("");
   const content = rows || tableEmpty(14, "No transfer history recorded.");
@@ -35162,6 +35159,67 @@ function renderOnlineTransferHistory() {
   const productionTable = document.getElementById("production-transfer-table");
   if (historyTable) historyTable.innerHTML = content;
   if (productionTable) productionTable.innerHTML = content;
+  renderOnlineTransferTodaySummary(entries, visibleEntries.length);
+}
+
+function onlineTransferHistoryEntries() {
+  const lotEntries = (state.lots || []).flatMap((lot) => [
+    ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
+    goldIssueHistoryEntry(lot),
+  ]);
+  return sortTransferHistoryEntries([...safeDepartmentTransferHistoryEntries(), ...lotEntries]);
+}
+
+function transferHistoryEntryDateKey(entry = {}) {
+  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.lot || {};
+  const createdAt = record.createdAt || entry.lot?.createdAt || "";
+  const timestamp = Date.parse(createdAt);
+  if (Number.isFinite(timestamp)) return fineSheetLocalDateKey(new Date(timestamp));
+  const date = record.date || entry.lot?.issueDate || "";
+  const parts = transferHistoryDateParts(date);
+  if (parts) return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  const parsed = new Date(date);
+  return Number.isFinite(parsed.getTime()) ? fineSheetLocalDateKey(parsed) : "";
+}
+
+function onlineTransferTodayCounts(entries = onlineTransferHistoryEntries(), dateKey = fineSheetLocalDateKey()) {
+  const todayEntries = entries.filter((entry) => transferHistoryEntryDateKey(entry) === dateKey);
+  return {
+    dateKey,
+    total: todayEntries.length,
+    goldIssues: todayEntries.filter((entry) => entry.type === "issue").length,
+    jobTransfers: todayEntries.filter((entry) => entry.type === "transfer").length,
+    directMovements: todayEntries.filter((entry) => ["safe-department-issue", "safe-department-return"].includes(entry.type)).length,
+  };
+}
+
+function renderOnlineTransferTodaySummary(entries = [], visibleCount = entries.length) {
+  const container = document.getElementById("online-transfer-today-summary");
+  if (!container) return;
+  const counts = onlineTransferTodayCounts(entries);
+  const dateLabel = new Date(`${counts.dateKey}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  container.innerHTML = `
+    <article class="online-transfer-today-card primary">
+      <span>Today's Online Transfer Entries</span>
+      <strong>${counts.total}</strong>
+      <small>${escapeHtml(dateLabel)} / ${visibleCount} row${visibleCount === 1 ? "" : "s"} currently shown</small>
+    </article>
+    <article class="online-transfer-today-card">
+      <span>Gold Issues</span>
+      <strong>${counts.goldIssues}</strong>
+      <small>Safe to first department</small>
+    </article>
+    <article class="online-transfer-today-card">
+      <span>Job Transfers</span>
+      <strong>${counts.jobTransfers}</strong>
+      <small>Department to department</small>
+    </article>
+    <article class="online-transfer-today-card">
+      <span>Shelf / Department</span>
+      <strong>${counts.directMovements}</strong>
+      <small>Direct issues, returns and loss</small>
+    </article>
+  `;
 }
 
 function transferHistoryTime(createdAt = "", date = "") {
