@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v555";
+const APP_VERSION = "v556";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -19591,23 +19591,248 @@ function openTransferEdit(lotId, transferId) {
 }
 
 function deleteTransfer(lotId, transferId) {
-  if (!requireDeletePermission("delete transfer entries")) return;
-  const lot = findById("lots", lotId);
-  const transfer = lot?.transfers?.find((item) => item.id === transferId);
-  if (!lot || !transfer) return;
-  const transferLabel = `${transfer.fromDepartment || transfer.fromKarigarName || "-"} to ${transfer.toDepartment || transfer.toKarigarName || "-"}`;
-  if (!confirm(`Delete this transfer?\n${lot.number}: ${transferLabel}`)) return;
-  lot.transfers = (lot.transfers || []).filter((item) => item.id !== transferId);
-  recalculateLotAfterTransferChange(lot);
+  undoOnlineLotTransfer(lotId, transferId);
+}
+
+function onlineUndoRecordTime(record = {}) {
+  return transferHistoryTime(record.createdAt || "", record.date || record.issueDate || "");
+}
+
+function onlineUndoRecordIsAfter(record = {}, movement = {}) {
+  const recordTime = onlineUndoRecordTime(record);
+  const movementTime = onlineUndoRecordTime(movement);
+  return recordTime > 0 && movementTime > 0 && recordTime >= movementTime;
+}
+
+function lotTransferUndoBlockReason(lot = {}, transfer = {}) {
+  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  if (!lot?.id || !transfer?.id) return "Transfer entry was not found.";
+  const transfers = lot.transfers || [];
+  const transferIndex = transfers.findIndex((entry) => entry.id === transfer.id);
+  if (transferIndex < 0) return "Transfer entry was not found.";
+  if (transferIndex !== transfers.length - 1) return "Undo the latest transfer first. Older steps cannot be removed while later movements exist.";
+  if (billForLotRecord(lot)) return "This transfer is already connected to a generated Bill. Correct the Bill or Factory Out workflow first.";
+  if ((state.lots || []).some((entry) => entry.parentLotId === lot.id)) return "This Job Lot has a split or repair child lot. Merge or correct that child lot first.";
+  const laterSafeIssue = (state.safeDepartmentIssues || []).find((entry) =>
+    (entry.lotId === lot.id || (entry.jobNumber && entry.jobNumber === lot.orderNumber))
+    && onlineUndoRecordIsAfter(entry, transfer)
+  );
+  if (laterSafeIssue) return "A Safe Locker or non-gold issue depends on this transfer. Undo that later issue first.";
+  const laterNonGold = (state.productionNonGoldIssues || []).find((entry) =>
+    entry.lotId === lot.id && onlineUndoRecordIsAfter(entry, transfer)
+  );
+  if (laterNonGold) return "A later production non-gold entry depends on this transfer. Correct that entry first.";
+  const laterSetting = (state.settingManagerEntries || []).find((entry) =>
+    (entry.lotId === lot.id || entry.productionLotId === lot.id) && onlineUndoRecordIsAfter(entry, transfer)
+  );
+  if (laterSetting) return "A later Setting Manager entry depends on this transfer. Correct that setter entry first.";
+  return "";
+}
+
+function recordOnlineTransferUndo(kind = "TRANSFER", reference = "", detail = "") {
+  const createdAt = new Date().toISOString();
+  state.transferUndoHistory = state.transferUndoHistory || [];
+  state.transferUndoHistory.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt,
+    kind,
+    reference,
+    detail,
+    userId: currentUser?.id || "",
+    userName: currentUser?.name || currentUserConfig()?.name || "",
+  });
+  state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
     date: today(),
-    type: "Transfer Deleted",
+    createdAt,
+    type: "Transfer Undo",
     purity: "-",
     weight: 0,
-    reference: `${lot.number} deleted transfer ${transferLabel}, issued ${gram(transfer.transferWeight)}, net ${gram(transfer.receivedWeight)}`,
+    reference: `${reference}${detail ? ` / ${detail}` : ""}`,
+    sourceType: "transfer-undo",
   });
-  saveDeletionAndRefresh({ lotId: lot.id });
+}
+
+function saveOnlineTransferUndo(stateBefore, context, refreshOverrides = {}) {
+  if (!saveState({ alertOnFailure: true, context })) {
+    state = stateBefore;
+    render();
+    alert(`${context} could not be saved on this laptop. No data was changed.`);
+    return false;
+  }
+  refreshAfterDelete(refreshOverrides);
+  return true;
+}
+
+function undoOnlineLotTransfer(lotId, transferId) {
+  if (!requireDeletePermission("undo transfer entries")) return;
+  const lot = findById("lots", lotId);
+  const transfer = lot?.transfers?.find((item) => item.id === transferId);
+  if (!lot || !transfer) return;
+  const blockReason = lotTransferUndoBlockReason(lot, transfer);
+  if (blockReason) {
+    alert(blockReason);
+    return;
+  }
+  const transferLabel = `${transfer.fromDepartment || transfer.fromKarigarName || "-"} to ${transfer.toDepartment || transfer.toKarigarName || "-"}`;
+  if (!confirm(`Undo the latest transfer?\n\n${lot.number}: ${transferLabel}\nGW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)}\n\nThe Job Lot will return to its previous department.`)) return;
+  const stateBefore = structuredClone(state);
+  lot.transfers = (lot.transfers || []).filter((item) => item.id !== transferId);
+  recalculateLotAfterTransferChange(lot);
+  const restoredDepartment = lot.currentDepartment || lot.karigarName || "previous department";
+  recordOnlineTransferUndo(
+    "JOB LOT TRANSFER",
+    `${lot.number} / ${lot.orderNumber || "-"}`,
+    `${transferLabel} undone; GW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)} / Net ${gram(transfer.receivedWeight)}; restored to ${restoredDepartment}`,
+  );
+  if (!saveOnlineTransferUndo(stateBefore, `Undo transfer ${lot.number}`, { lotId: lot.id })) return;
+  alert(`${lot.number} transfer was undone.\nCurrent department: ${restoredDepartment}.`);
+}
+
+function safeDepartmentIssueUndoBlockReason(issueId = "") {
+  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issueId);
+  if (!rawIssue) return "Department issue was not found.";
+  const issue = normalizeSafeDepartmentIssue(rawIssue, findById("safeItems", rawIssue.safeItemId) || {});
+  if (issue.directDepartmentTransfer) return "Undo this movement from its matching Department Return row.";
+  if (issue.goldIssueLotId) return "Use Undo Issue on the matching Gold Issue row.";
+  if ((state.safeDepartmentReturns || []).some((entry) => entry.issueId === issue.id)) return "This issue already has a receipt, transfer, or loss entry. Undo that later entry first.";
+  if (safeIssueLinksJobCard(issue.destinationMode) || issue.lotId || issue.jobNumber || issue.stoneAdjustmentType) {
+    return "This issue is linked to a Job Card or stone adjustment and cannot be reversed from the general history.";
+  }
+  if (!issue.safeItemId || !rawIssue.sourceSafeItemBefore) return "This older issue has no complete Safe Locker snapshot for automatic undo.";
+  const newerIssue = (state.safeDepartmentIssues || []).find((entry) =>
+    entry.id !== issue.id
+    && entry.safeItemId === issue.safeItemId
+    && onlineUndoRecordIsAfter(entry, issue)
+  );
+  if (newerIssue) return "The same Safe Locker item has a newer issue. Undo that newer issue first.";
+  return "";
+}
+
+function undoSafeDepartmentIssue(issueId = "") {
+  if (!requireDeletePermission("undo department issues")) return;
+  const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issueId);
+  if (!rawIssue) return;
+  const issue = normalizeSafeDepartmentIssue(rawIssue, findById("safeItems", rawIssue.safeItemId) || {});
+  const blockReason = safeDepartmentIssueUndoBlockReason(issueId);
+  if (blockReason) {
+    alert(blockReason);
+    return;
+  }
+  if (!confirm(`Undo this Safe Locker issue?\n\n${issue.itemDescription || "Shelf item"}\n${safeLockerForPurity(issue.locker || issue.purity)} to ${issue.departmentName || issue.process || "department"}\nGW ${gram(issue.issuedGrossWeight)} / Net ${gram(issue.issuedNetWeight)}\n\nThe exact previous Safe Locker balance will be restored.`)) return;
+  const stateBefore = structuredClone(state);
+  const restoredItem = structuredClone(rawIssue.sourceSafeItemBefore);
+  const safeItemIndex = (state.safeItems || []).findIndex((entry) => entry.id === restoredItem.id);
+  if (safeItemIndex >= 0) state.safeItems[safeItemIndex] = restoredItem;
+  else state.safeItems.unshift(restoredItem);
+  state.safeDepartmentIssues = (state.safeDepartmentIssues || []).filter((entry) => entry.id !== issue.id);
+  recordOnlineTransferUndo(
+    "SAFE DEPARTMENT ISSUE",
+    issue.itemDescription || issue.id,
+    `${safeLockerForPurity(issue.locker || issue.purity)} to ${issue.departmentName || issue.process || "department"} undone; GW ${gram(issue.issuedGrossWeight)} / Net ${gram(issue.issuedNetWeight)}`,
+  );
+  if (!saveOnlineTransferUndo(stateBefore, `Undo Safe issue ${issue.itemDescription || issue.id}`)) return;
+  alert(`Department issue was undone.\n${issue.itemDescription || "Shelf item"} is restored to ${safeLockerForPurity(issue.locker || issue.purity)} Safe.`);
+}
+
+function linkedDirectIssueForReturn(departmentReturn = {}) {
+  return (state.safeDepartmentIssues || []).find((entry) =>
+    (departmentReturn.directTransferId && entry.directTransferId === departmentReturn.directTransferId)
+    || entry.sourceReturnId === departmentReturn.id
+  ) || null;
+}
+
+function safeDepartmentReturnUndoBlockReason(returnId = "") {
+  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  const rawReturn = (state.safeDepartmentReturns || []).find((entry) => entry.id === returnId);
+  if (!rawReturn) return "Department receipt or loss entry was not found.";
+  const departmentReturn = normalizeSafeDepartmentReturn(rawReturn);
+  const directIssue = linkedDirectIssueForReturn(departmentReturn);
+  if (departmentReturn.destinationDepartmentId || departmentReturn.directTransferId) {
+    if (!directIssue) return "The matching destination-department entry could not be found, so this movement cannot be undone automatically.";
+    if ((state.safeDepartmentReturns || []).some((entry) => entry.issueId === directIssue.id)) {
+      return "The destination department has already returned, transferred, or booked loss against this item. Undo that later entry first.";
+    }
+    if (directIssue.lotId || directIssue.goldIssueLotId || safeIssueLinksJobCard(directIssue.destinationMode)) {
+      return "The destination movement is linked to a Job Card and must be corrected from that workflow first.";
+    }
+  }
+  if (departmentReturn.safeItemId) {
+    const safeItem = findById("safeItems", departmentReturn.safeItemId);
+    if (!safeItem) return "The Safe Locker item created by this receipt could not be found.";
+    if (safeItem.status === "Out") return "The received item has already moved out of Safe Locker. Undo that later issue first.";
+    if ((state.safeDepartmentIssues || []).some((entry) => entry.safeItemId === safeItem.id)) {
+      return "The received item has already been issued from Safe Locker. Undo that later issue first.";
+    }
+  }
+  return "";
+}
+
+function undoSafeDepartmentReturn(returnId = "") {
+  if (!requireDeletePermission("undo department receipt or loss entries")) return;
+  const rawReturn = (state.safeDepartmentReturns || []).find((entry) => entry.id === returnId);
+  if (!rawReturn) return;
+  const departmentReturn = normalizeSafeDepartmentReturn(rawReturn);
+  const blockReason = safeDepartmentReturnUndoBlockReason(returnId);
+  if (blockReason) {
+    alert(blockReason);
+    return;
+  }
+  const destination = departmentReturn.destinationDepartmentName
+    ? `direct transfer to ${departmentReturn.destinationDepartmentName}`
+    : departmentReturn.returnType === "loss"
+      ? "manufacturing loss"
+      : `receipt to ${safeLockerForPurity(departmentReturn.locker || departmentReturn.purity)} Safe`;
+  const movementWeight = Number(weight3(Number(departmentReturn.grossWeight || 0) + Number(departmentReturn.lossWeight || 0)));
+  if (!confirm(`Undo this department movement?\n\n${departmentReturn.departmentName || departmentReturn.process || "Department"} / ${destination}\n${departmentReturn.returnedItemDescription || departmentReturn.sourceItemDescription || "Item"}\nGW ${gram(movementWeight)}\n\nThe weight will return to the source department holding.`)) return;
+  const stateBefore = structuredClone(state);
+  const directIssue = linkedDirectIssueForReturn(departmentReturn);
+  if (directIssue) state.safeDepartmentIssues = (state.safeDepartmentIssues || []).filter((entry) => entry.id !== directIssue.id);
+  if (departmentReturn.safeItemId) {
+    state.safeItems = (state.safeItems || []).filter((entry) => entry.id !== departmentReturn.safeItemId);
+  }
+  state.safeDepartmentReturns = (state.safeDepartmentReturns || []).filter((entry) => entry.id !== departmentReturn.id);
+  recordOnlineTransferUndo(
+    departmentReturn.returnType === "loss" ? "DEPARTMENT LOSS" : "DEPARTMENT RETURN",
+    departmentReturn.returnedItemDescription || departmentReturn.sourceItemDescription || departmentReturn.id,
+    `${departmentReturn.departmentName || departmentReturn.process || "Department"} / ${destination} undone; GW ${gram(movementWeight)}`,
+  );
+  if (!saveOnlineTransferUndo(stateBefore, `Undo department movement ${departmentReturn.returnedItemDescription || departmentReturn.id}`)) return;
+  alert(`Department movement was undone.\n${gram(movementWeight)} is back in ${departmentReturn.departmentName || departmentReturn.process || "the source department"} holding.`);
+}
+
+function onlineTransferUndoButtonHtml(entry = {}) {
+  if (!canDeleteErpData() || isReadOnlyUser()) return "";
+  let reason = "";
+  let label = "Undo";
+  let action = "";
+  if (entry.type === "transfer") {
+    reason = lotTransferUndoBlockReason(entry.lot, entry.transfer);
+    action = `undoOnlineLotTransfer('${escapeHtml(entry.lot?.id || "")}', '${escapeHtml(entry.transfer?.id || "")}')`;
+  } else if (entry.type === "issue") {
+    reason = goldIssueCorrectionBlockReason(entry.lot);
+    label = "Undo Issue";
+    action = `undoGoldIssue('${escapeHtml(entry.lot?.id || "")}')`;
+  } else if (entry.type === "safe-department-issue") {
+    reason = safeDepartmentIssueUndoBlockReason(entry.issue?.id || "");
+    action = `undoSafeDepartmentIssue('${escapeHtml(entry.issue?.id || "")}')`;
+  } else if (entry.type === "safe-department-return") {
+    reason = safeDepartmentReturnUndoBlockReason(entry.departmentReturn?.id || "");
+    action = `undoSafeDepartmentReturn('${escapeHtml(entry.departmentReturn?.id || "")}')`;
+  } else {
+    return "";
+  }
+  const clickAction = reason
+    ? `showOnlineTransferUndoBlocked('${encodeURIComponent(reason)}')`
+    : action;
+  return `<button class="ghost-button danger-button${reason ? " disabled-action" : ""}" type="button" onclick="${clickAction}" ${reason ? 'aria-disabled="true"' : ""} title="${escapeHtml(reason || "Undo this movement and restore the previous holding")}">${label}</button>`;
+}
+
+function showOnlineTransferUndoBlocked(encodedReason = "") {
+  alert(decodeURIComponent(encodedReason || "This movement cannot be undone."));
 }
 
 function recalculateLotAfterTransferChange(lot) {
@@ -34340,7 +34565,12 @@ function renderTransferHistoryRow(entry) {
         <td>-</td>
         <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || lot.metalPurity || "-"))}</td>
         <td>${gram(transferFineGold(transfer, lot))}</td>
-        <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
+        <td class="remark-cell">
+          <div class="online-transfer-remarks-actions">
+            ${transferRemarkCell(transfer.reason || "-")}
+            <div class="row-actions transfer-history-actions">${onlineTransferUndoButtonHtml(entry)}</div>
+          </div>
+        </td>
       </tr>
     `;
   }
@@ -34364,7 +34594,7 @@ function renderTransferHistoryRow(entry) {
       <td class="remark-cell">
         <div class="online-transfer-remarks-actions">
           ${transferRemarkCell(transfer.reason || "-")}
-          <div class="row-actions transfer-history-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lot.id}', '${transfer.id}')">Delete</button></div>
+          <div class="row-actions transfer-history-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button>${onlineTransferUndoButtonHtml(entry)}</div>
         </div>
       </td>
     </tr>
@@ -34428,7 +34658,12 @@ function renderSafeDepartmentTransferHistoryRow(entry = {}) {
       <td>${isReturn ? gram(lossWeight) : "-"}</td>
       <td>${escapeHtml(transferPurityLabel(data.purity || data.locker || "-"))}</td>
       <td>${gram(lossFineGold)}</td>
-      <td class="remark-cell">${transferRemarkCell(remarks)}</td>
+      <td class="remark-cell">
+        <div class="online-transfer-remarks-actions">
+          ${transferRemarkCell(remarks)}
+          <div class="row-actions transfer-history-actions">${onlineTransferUndoButtonHtml(entry)}</div>
+        </div>
+      </td>
     </tr>
   `;
 }
@@ -34550,6 +34785,7 @@ function renderGoldIssueHistoryRow(lot) {
 }
 
 function renderHistoryTableRow(transfer, step, lotId) {
+  const lot = findById("lots", lotId);
   const fromDepartment = departmentTransferDetail(transfer.fromKarigarName || transfer.fromDepartment || "-", transfer.fromDepartment || transfer.fromKarigarName || "");
   const toDepartment = departmentTransferDetail(transfer.toKarigarName || transfer.toDepartment || "-", transfer.toDepartment || transfer.toKarigarName || "");
   return `
@@ -34565,10 +34801,10 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
-      <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || findById("lots", lotId)?.metalPurity || ""))}</td>
-      <td>${gram(transferFineGold(transfer, findById("lots", lotId)))}</td>
+      <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || lot?.metalPurity || ""))}</td>
+      <td>${gram(transferFineGold(transfer, lot))}</td>
       <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
-      <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lotId}', '${transfer.id}')">Edit</button><button class="ghost-button danger-button" type="button" onclick="deleteTransfer('${lotId}', '${transfer.id}')">Delete</button></div></td>
+      <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lotId}', '${transfer.id}')">Edit</button>${onlineTransferUndoButtonHtml({ type: "transfer", lot, transfer })}</div></td>
     </tr>
   `;
 }

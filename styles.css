@@ -2083,6 +2083,12 @@ form.active-operation-page,
   font-size: 10px;
 }
 
+.transfer-history-actions .disabled-action {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
 .link-button {
   border: 0;
   padding: 0;
