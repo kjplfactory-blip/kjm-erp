@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v567</small>
+      <small class="app-version-badge">App v569</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v567</span>
+          <span class="app-version-badge">App v569</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1239,7 +1239,7 @@
           </div>
           <div class="daily-tally-formula">
             <small>Tally formula</small>
-            <strong>ERP Net GW - Physical Net Weight = Loss</strong>
+            <strong>ERP GW - Physical GW = Loss</strong>
           </div>
         </div>
         <div id="daily-tally-summary" class="factory-summary-grid daily-tally-summary"></div>
@@ -1285,13 +1285,13 @@
               </section>
 
               <section class="daily-tally-section daily-tally-comparison-section">
-                <div class="daily-tally-section-title"><span>2</span><div><strong>ERP Net Comparison &amp; Automatic Loss</strong><small>The ERP net holding is compared with physical net weight automatically. This is an audit entry and does not move live stock.</small></div></div>
+                <div class="daily-tally-section-title"><span>2</span><div><strong>ERP GW Comparison &amp; Automatic Loss</strong><small>The ERP gross holding is compared with physical GW automatically. This is an audit entry and does not move live stock.</small></div></div>
                 <div class="daily-tally-result-grid">
-                  <label><span>Physical Net Weight</span><input name="tallyWeight" type="number" readonly></label>
-                  <label><span>ERP Gross Reference</span><input name="expectedGross" type="number" readonly></label>
-                  <label><span>ERP Net GW</span><input name="expectedGold" type="number" readonly></label>
+                  <label><span>Physical GW</span><input name="tallyWeight" type="number" readonly></label>
+                  <label><span>ERP GW</span><input name="expectedGross" type="number" readonly></label>
+                  <label><span>ERP Net Gold Reference</span><input name="expectedGold" type="number" readonly></label>
                   <label><span>ERP Fine Gold</span><input name="expectedFine" type="number" readonly></label>
-                  <label class="daily-tally-difference"><span>ERP Net - Physical</span><input name="difference" type="number" readonly></label>
+                  <label class="daily-tally-difference"><span>ERP GW - Physical GW</span><input name="difference" type="number" readonly></label>
                   <label class="daily-tally-booking"><span>Calculated Loss</span><input name="calculatedLoss" type="number" readonly></label>
                   <label class="daily-tally-unexplained"><span>Calculated Gain</span><input name="calculatedGain" type="number" readonly></label>
                 </div>
@@ -1318,7 +1318,7 @@
             </div>
             <div class="table-wrap daily-tally-table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Main Department</th><th>Physical Net Weight</th><th>ERP Net GW</th><th>ERP Net - Physical</th><th>Loss / Gain</th><th>Notes / Entered By</th><th>Action</th></tr></thead>
+                <thead><tr><th>Date</th><th>Main Department</th><th>Physical GW</th><th>ERP GW</th><th>ERP GW - Physical GW</th><th>Loss / Gain</th><th>Notes / Entered By</th><th>Action</th></tr></thead>
                 <tbody id="daily-tally-table"></tbody>
               </table>
             </div>
@@ -2966,6 +2966,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=567"></script>
+  <script src="app.js?v=569"></script>
 </body>
 </html>

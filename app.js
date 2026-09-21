@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v567";
+const APP_VERSION = "v569";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -24848,10 +24848,8 @@ function departmentCurrentLotTotals(lot) {
   const grossBase = Number(currentTransferIssueWeight(lot) || 0);
   const lotWaxStone = Number(transferWaxStoneWeight(lot) || 0);
   const existingHandStone = Number(currentHandStoneWeight(lot) || 0);
-  const plannedHandStone = isSettingDepartment(lot.currentDepartment) || isSettingDepartment(lot.karigarName)
-    ? productionStoneTotalsForOrders(getLotOrders(lot), "hand").weight
-    : 0;
-  const handStone = Math.max(existingHandStone, Number(plannedHandStone || 0));
+  // Planned hand stones are physical stock only after Setting records the received GW.
+  const handStone = existingHandStone;
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
   const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
@@ -24939,9 +24937,9 @@ function normalizeDailyTallyEntry(entry = {}) {
   const totalWeight = Number(weight3(entry.totalWeight || 0));
   const boxWeight = Number(weight3(entry.boxWeight ?? entry.dabbaWeight ?? 0));
   const tallyWeight = Number(weight3(entry.tallyWeight ?? entry.netWeight ?? (totalWeight - boxWeight)));
-  const expectedGross = Number(weight3(entry.expectedGross ?? entry.expectedWeight ?? 0));
+  const expectedGross = Number(weight3(entry.expectedGross ?? entry.expectedWeight ?? entry.expectedGold ?? entry.expectedNet ?? 0));
   const expectedGold = Number(weight3(entry.expectedGold ?? entry.expectedNet ?? expectedGross));
-  const difference = Number(weight3(expectedGold - tallyWeight));
+  const difference = Number(weight3(expectedGross - tallyWeight));
   const tallyLoss = Number(weight3(Math.max(difference, 0)));
   const tallyGain = Number(weight3(Math.max(-difference, 0)));
   const bookedAdjustment = Number(weight3(tallyGain - tallyLoss));
@@ -24965,7 +24963,8 @@ function normalizeDailyTallyEntry(entry = {}) {
     handStone: Number(weight3(entry.handStone || 0)),
     nonGold: Number(weight3(entry.nonGold || 0)),
     loss: Number(weight3(entry.loss || 0)),
-    comparisonBasis: "net-gw",
+    comparisonBasis: "gross-gw",
+    difference,
     tallyLoss,
     tallyGain,
     bookedAdjustment,
@@ -25321,7 +25320,7 @@ function dailyTallyFormPayload() {
   const boxWeight = Number(form.boxWeight.value || 0);
   const tallyWeight = Number(weight3(totalWeight - boxWeight));
   const expected = dailyTallyExpectedForTarget(target, karat);
-  const difference = Number(weight3(expected.gold - tallyWeight));
+  const difference = Number(weight3(expected.gross - tallyWeight));
   const tallyLoss = Number(weight3(Math.max(difference, 0)));
   const tallyGain = Number(weight3(Math.max(-difference, 0)));
   return {
@@ -25342,7 +25341,7 @@ function dailyTallyFormPayload() {
     handStone: expected.handStone,
     nonGold: expected.nonGold,
     loss: expected.loss,
-    comparisonBasis: "net-gw",
+    comparisonBasis: "gross-gw",
     difference,
     tallyLoss,
     tallyGain,
@@ -25501,11 +25500,11 @@ function renderDailyTally() {
   if (summary) {
     summary.innerHTML = [
       factorySummaryCard("Departments Tallied", String(todayDepartments.size), `${todayEntries.length} entries saved today`),
-      factorySummaryCard("Physical Net Weight", gram(todayTotals.tallyWeight), "Total physical weight minus dabba"),
-      factorySummaryCard("ERP Net GW", gram(todayTotals.expectedGold), `ERP gross reference ${gram(todayTotals.expectedGross)}`),
-      factorySummaryCard("ERP Net - Physical", dailyTallySignedGram(todayTotals.difference), "Positive difference is loss", todayTotals.difference > 0.01 ? "payable" : "owned"),
-      factorySummaryCard("Calculated Loss", gram(todayTotals.tallyLoss), "ERP net weight is more than physical", todayTotals.tallyLoss > 0.01 ? "payable" : "owned"),
-      factorySummaryCard("Calculated Gain", gram(todayTotals.tallyGain), "Physical net weight is more than ERP", todayTotals.tallyGain > 0.01 ? "receivable" : "owned"),
+      factorySummaryCard("Physical GW", gram(todayTotals.tallyWeight), "Total measured weight minus dabba"),
+      factorySummaryCard("ERP GW", gram(todayTotals.expectedGross), `Net gold reference ${gram(todayTotals.expectedGold)}`),
+      factorySummaryCard("ERP GW - Physical GW", dailyTallySignedGram(todayTotals.difference), "Positive difference is loss", todayTotals.difference > 0.01 ? "payable" : "owned"),
+      factorySummaryCard("Calculated Loss", gram(todayTotals.tallyLoss), "ERP GW is more than physical GW", todayTotals.tallyLoss > 0.01 ? "payable" : "owned"),
+      factorySummaryCard("Calculated Gain", gram(todayTotals.tallyGain), "Physical GW is more than ERP GW", todayTotals.tallyGain > 0.01 ? "receivable" : "owned"),
     ].join("");
   }
   if (!table) return;
@@ -25543,9 +25542,9 @@ function renderDailyTallyRow(entry) {
     <tr>
       <td>${escapeHtml(entry.date || "-")}</td>
       <td><strong>${escapeHtml(entry.target || "-")}</strong>${entry.karat ? `<small>${escapeHtml(dailyTallyKaratLabel(entry.karat))}</small>` : `<small>All Karats / Total GW</small>`}</td>
-      <td><strong>${gram(entry.tallyWeight)}</strong><small>Physical total ${gram(entry.totalWeight)} / ${escapeHtml(entry.containerName || "Dabba")} ${gram(entry.boxWeight)}</small></td>
-      <td><strong>${gram(entry.expectedGold)}</strong><small>Gross ${gram(entry.expectedGross)} / Other ${gram(otherWeight)} / Fine ${gram(entry.expectedFine)}</small></td>
-      <td><span class="status ${differenceClass}">${dailyTallySignedGram(entry.difference)}</span><small>ERP Net - Physical</small></td>
+      <td><strong>${gram(entry.tallyWeight)}</strong><small>Measured ${gram(entry.totalWeight)} / ${escapeHtml(entry.containerName || "Dabba")} ${gram(entry.boxWeight)}</small></td>
+      <td><strong>${gram(entry.expectedGross)}</strong><small>Net gold ${gram(entry.expectedGold)} / Other ${gram(otherWeight)} / Fine ${gram(entry.expectedFine)}</small></td>
+      <td><span class="status ${differenceClass}">${dailyTallySignedGram(entry.difference)}</span><small>ERP GW - Physical GW</small></td>
       <td><span class="daily-tally-booked ${bookingClass}">${escapeHtml(resultText)}</span><small>Calculated automatically</small></td>
       <td><span class="daily-tally-note">${escapeHtml(entry.contents || entry.remarks || "-")}</span><small>${entry.contents && entry.remarks ? escapeHtml(entry.remarks) : ""}${entry.createdBy ? `${entry.contents || entry.remarks ? " / " : ""}By ${escapeHtml(entry.createdBy)}` : ""}</small></td>
       <td><div class="row-actions"><button type="button" onclick="editDailyTally('${entry.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteDailyTally('${entry.id}')">Delete</button></div></td>
