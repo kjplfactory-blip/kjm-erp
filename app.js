@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v556";
+const APP_VERSION = "v557";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -19594,6 +19594,16 @@ function deleteTransfer(lotId, transferId) {
   undoOnlineLotTransfer(lotId, transferId);
 }
 
+function canUndoOnlineTransferHistory() {
+  return isOwner() && !isReadOnlyUser();
+}
+
+function requireOnlineTransferUndoPermission() {
+  if (canUndoOnlineTransferHistory()) return true;
+  alert("Only Owner can undo Online Transfer History entries.");
+  return false;
+}
+
 function onlineUndoRecordTime(record = {}) {
   return transferHistoryTime(record.createdAt || "", record.date || record.issueDate || "");
 }
@@ -19605,7 +19615,7 @@ function onlineUndoRecordIsAfter(record = {}, movement = {}) {
 }
 
 function lotTransferUndoBlockReason(lot = {}, transfer = {}) {
-  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  if (!canUndoOnlineTransferHistory()) return "Only Owner can undo Online Transfer History entries.";
   if (!lot?.id || !transfer?.id) return "Transfer entry was not found.";
   const transfers = lot.transfers || [];
   const transferIndex = transfers.findIndex((entry) => entry.id === transfer.id);
@@ -19667,7 +19677,7 @@ function saveOnlineTransferUndo(stateBefore, context, refreshOverrides = {}) {
 }
 
 function undoOnlineLotTransfer(lotId, transferId) {
-  if (!requireDeletePermission("undo transfer entries")) return;
+  if (!requireOnlineTransferUndoPermission()) return;
   const lot = findById("lots", lotId);
   const transfer = lot?.transfers?.find((item) => item.id === transferId);
   if (!lot || !transfer) return;
@@ -19692,7 +19702,7 @@ function undoOnlineLotTransfer(lotId, transferId) {
 }
 
 function safeDepartmentIssueUndoBlockReason(issueId = "") {
-  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  if (!canUndoOnlineTransferHistory()) return "Only Owner can undo Online Transfer History entries.";
   const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issueId);
   if (!rawIssue) return "Department issue was not found.";
   const issue = normalizeSafeDepartmentIssue(rawIssue, findById("safeItems", rawIssue.safeItemId) || {});
@@ -19713,7 +19723,7 @@ function safeDepartmentIssueUndoBlockReason(issueId = "") {
 }
 
 function undoSafeDepartmentIssue(issueId = "") {
-  if (!requireDeletePermission("undo department issues")) return;
+  if (!requireOnlineTransferUndoPermission()) return;
   const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issueId);
   if (!rawIssue) return;
   const issue = normalizeSafeDepartmentIssue(rawIssue, findById("safeItems", rawIssue.safeItemId) || {});
@@ -19746,7 +19756,7 @@ function linkedDirectIssueForReturn(departmentReturn = {}) {
 }
 
 function safeDepartmentReturnUndoBlockReason(returnId = "") {
-  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can undo transfer entries.";
+  if (!canUndoOnlineTransferHistory()) return "Only Owner can undo Online Transfer History entries.";
   const rawReturn = (state.safeDepartmentReturns || []).find((entry) => entry.id === returnId);
   if (!rawReturn) return "Department receipt or loss entry was not found.";
   const departmentReturn = normalizeSafeDepartmentReturn(rawReturn);
@@ -19772,7 +19782,7 @@ function safeDepartmentReturnUndoBlockReason(returnId = "") {
 }
 
 function undoSafeDepartmentReturn(returnId = "") {
-  if (!requireDeletePermission("undo department receipt or loss entries")) return;
+  if (!requireOnlineTransferUndoPermission()) return;
   const rawReturn = (state.safeDepartmentReturns || []).find((entry) => entry.id === returnId);
   if (!rawReturn) return;
   const departmentReturn = normalizeSafeDepartmentReturn(rawReturn);
@@ -19805,7 +19815,7 @@ function undoSafeDepartmentReturn(returnId = "") {
 }
 
 function onlineTransferUndoButtonHtml(entry = {}) {
-  if (!canDeleteErpData() || isReadOnlyUser()) return "";
+  if (!canUndoOnlineTransferHistory()) return "";
   let reason = "";
   let label = "Undo";
   let action = "";
@@ -19815,7 +19825,7 @@ function onlineTransferUndoButtonHtml(entry = {}) {
   } else if (entry.type === "issue") {
     reason = goldIssueCorrectionBlockReason(entry.lot);
     label = "Undo Issue";
-    action = `undoGoldIssue('${escapeHtml(entry.lot?.id || "")}')`;
+    action = `undoOnlineHistoryGoldIssue('${escapeHtml(entry.lot?.id || "")}')`;
   } else if (entry.type === "safe-department-issue") {
     reason = safeDepartmentIssueUndoBlockReason(entry.issue?.id || "");
     action = `undoSafeDepartmentIssue('${escapeHtml(entry.issue?.id || "")}')`;
@@ -19829,6 +19839,11 @@ function onlineTransferUndoButtonHtml(entry = {}) {
     ? `showOnlineTransferUndoBlocked('${encodeURIComponent(reason)}')`
     : action;
   return `<button class="ghost-button danger-button${reason ? " disabled-action" : ""}" type="button" onclick="${clickAction}" ${reason ? 'aria-disabled="true"' : ""} title="${escapeHtml(reason || "Undo this movement and restore the previous holding")}">${label}</button>`;
+}
+
+function undoOnlineHistoryGoldIssue(lotId = "") {
+  if (!requireOnlineTransferUndoPermission()) return;
+  undoGoldIssue(lotId);
 }
 
 function showOnlineTransferUndoBlocked(encodedReason = "") {
