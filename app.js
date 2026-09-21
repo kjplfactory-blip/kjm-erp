@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v565";
+const APP_VERSION = "v566";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -9093,6 +9093,18 @@ function castingShelfGroups(purity = "") {
   );
 }
 
+function castingShelfItems(purity = "") {
+  const lockerFilter = purity ? safeLockerForPurity(purity) : "";
+  return (state.safeItems || [])
+    .filter((item) => isCastingIssueStock(item))
+    .filter((item) => !lockerFilter || safeLockerForPurity(item.locker || item.purity) === lockerFilter)
+    .sort((left, right) => {
+      const leftKey = `${left.date || ""} ${left.createdAt || ""} ${left.castingBatchName || left.source || left.description || ""}`;
+      const rightKey = `${right.date || ""} ${right.createdAt || ""} ${right.castingBatchName || right.source || right.description || ""}`;
+      return leftKey.localeCompare(rightKey, undefined, { numeric: true, sensitivity: "base" });
+    });
+}
+
 function rodSourceGroupId(parts = []) {
   return `rod-source:${safeShelfKey(parts)}`;
 }
@@ -9270,6 +9282,12 @@ function safeSourceSelectionGroup(value = "", sourceKind = "rod") {
   return null;
 }
 
+function safeSourceSelectionItem(value = "", sourceKind = "rod") {
+  if (!value || isRodSourceGroupId(value) || isWastageSourceGroupId(value) || isGhissSourceGroupId(value)) return null;
+  const item = (state.safeItems || []).find((entry) => entry.id === value) || null;
+  return item && safeItemKind(item) === sourceKind ? item : null;
+}
+
 function safeSourceSelectionParts(value = "", sourceKind = "rod") {
   const prefix = sourceKind === "wastage"
     ? "wastage-source:"
@@ -9288,26 +9306,35 @@ function safeSourceSelectionParts(value = "", sourceKind = "rod") {
 
 function safeSourceSelectionLocker(value = "", sourceKind = "rod") {
   const group = safeSourceSelectionGroup(value, sourceKind);
+  const item = safeSourceSelectionItem(value, sourceKind);
   const parts = safeSourceSelectionParts(value, sourceKind);
-  return group ? group.locker : (parts[0] ? safeLockerForPurity(parts[0]) : safeLockerForPurity(value));
+  return group
+    ? group.locker
+    : item
+      ? safeLockerForPurity(item.locker || item.purity)
+      : (parts[0] ? safeLockerForPurity(parts[0]) : safeLockerForPurity(value));
 }
 
 function safeSourceSelectionPurity(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
+  const item = safeSourceSelectionItem(value, sourceKind);
   const parts = safeSourceSelectionParts(value, sourceKind);
   const encodedPurity = sourceKind === "rod" ? parts[2] : parts[0] ? karatLogicPurity(parts[0]) : "";
-  return group ? group.desiredPurity : (fallback || encodedPurity || value);
+  return group ? group.desiredPurity : item ? safeItemDesiredPurity(item) : (fallback || encodedPurity || value);
 }
 
 function safeSourceSelectionColour(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
+  const item = safeSourceSelectionItem(value, sourceKind);
   const parts = safeSourceSelectionParts(value, sourceKind);
-  return group ? group.colour : (fallback || parts[1] || "");
+  return group ? group.colour : item ? safeItemColour(item) : (fallback || parts[1] || "");
 }
 
 function safeSourceSelectionAvailableWeight(value = "", sourceKind = "rod") {
   const group = safeSourceSelectionGroup(value, sourceKind);
+  const item = safeSourceSelectionItem(value, sourceKind);
   if (group) return safeItemAvailableWeight(group);
+  if (item) return item.status === "Out" ? 0 : safeItemAvailableWeight(item);
   if (
     (sourceKind === "rod" && isRodSourceGroupId(value))
     || (sourceKind === "wastage" && isWastageSourceGroupId(value))
@@ -9318,8 +9345,13 @@ function safeSourceSelectionAvailableWeight(value = "", sourceKind = "rod") {
 
 function safeSourceSelectionLabel(value = "", sourceKind = "rod", fallback = "") {
   const group = safeSourceSelectionGroup(value, sourceKind);
+  const item = safeSourceSelectionItem(value, sourceKind);
   const categorySuffix = sourceKind === "wastage" ? " / Collective Wastage" : sourceKind === "ghiss" ? " / Collective Ghiss" : "";
   if (group) return `${group.locker} Safe / ${group.colour} / ${group.desiredPurity}${categorySuffix}`;
+  if (item) {
+    const source = item.castingBatchName || item.description || item.source || "Rod / Casting Item";
+    return `${source} / ${safeLockerForPurity(item.locker || item.purity)} Safe / ${safeItemColour(item) || "Mixed / Not Set"} / ${transferPurityLabel(safeItemDesiredPurity(item))} / Avl ${gram(item.status === "Out" ? 0 : safeItemAvailableWeight(item))}`;
+  }
   if (fallback) return fallback;
   const parts = safeSourceSelectionParts(value, sourceKind);
   if (parts.length) return `${safeLockerForPurity(parts[0])} Safe / ${parts[1] || "Mixed / Not Set"}${sourceKind === "rod" && parts[2] ? ` / ${parts[2]}` : ""}${categorySuffix}`;
@@ -13064,13 +13096,20 @@ function renderMetalSafeSourceOptions(selected = "") {
 }
 
 function renderSafeLockerRodOptions(selected = "") {
-  const groups = rodSourceGroups();
-  const selectedFound = groups.some((group) => group.id === selected);
+  const items = (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemKind(item) === "rod")
+    .sort((left, right) => {
+      const leftKey = `${safeLockerForPurity(left.locker || left.purity)} ${safeItemColour(left)} ${left.date || ""} ${left.castingBatchName || left.source || left.description || ""}`;
+      const rightKey = `${safeLockerForPurity(right.locker || right.purity)} ${safeItemColour(right)} ${right.date || ""} ${right.castingBatchName || right.source || right.description || ""}`;
+      return leftKey.localeCompare(rightKey, undefined, { numeric: true, sensitivity: "base" });
+    });
+  const selectedFound = items.some((item) => item.id === selected);
+  const previousItem = selected && !selectedFound ? safeSourceSelectionItem(selected, "rod") : null;
   const legacySelected = selected && !selectedFound
-    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(isRodSourceGroupId(selected) ? "Previous rod selection" : `${safeLockerForPurity(selected)} Safe / Previous rod selection`)}</option>`
+    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(isRodSourceGroupId(selected) ? "Previous combined rod selection" : previousItem ? `${safeSourceSelectionLabel(selected, "rod")} / Previously issued` : `${safeLockerForPurity(selected)} Safe / Previous rod selection`)}</option>`
     : "";
-  const options = groups.map((group) =>
-    `<option value="${escapeHtml(group.id)}" ${group.id === selected ? "selected" : ""}>${escapeHtml(`${group.locker} Safe / ${group.colour} / ${group.desiredPurity} / Rod ${gram(group.netWeight)}`)}</option>`
+  const options = items.map((item) =>
+    `<option value="${escapeHtml(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(`${item.castingBatchName || item.description || item.source || "Rod / Casting Item"} / ${safeLockerForPurity(item.locker || item.purity)} Safe / ${safeItemColour(item) || "Mixed / Not Set"} / ${transferPurityLabel(safeItemDesiredPurity(item))} / ${item.date || "-"} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}`)}</option>`
   ).join("");
   return legacySelected || options
     ? `${legacySelected}${options}`
@@ -13274,11 +13313,19 @@ function recordMeltingSafeLockerRodIssues(sourceMetals = [], meltingId, departme
   sourceMetals.forEach((metal) => {
     if (!isSafeMeltingSourceKind(metal.sourceKind) || !metal.safeLocker) return;
     const group = safeSourceSelectionGroup(metal.safeLocker, metal.sourceKind);
+    const selectedItem = safeSourceSelectionItem(metal.safeLocker, metal.sourceKind);
     const locker = safeSourceSelectionLocker(metal.safeLocker, metal.sourceKind);
     const label = metal.sourceKind === "ghiss" ? "Ghiss" : metal.sourceKind === "wastage" ? "Wastage" : "Rod";
     const reference = `${label} from ${safeSourceSelectionLabel(metal.safeLocker, metal.sourceKind, `${locker} Safe`)} used in ${batchName || `melting ${meltingId}`}, issued to ${departmentName || "department"}`;
-    if (group) {
+    if (selectedItem && selectedItem.status !== "Out" && Number(metal.weight || 0) <= safeItemAvailableWeight(selectedItem) + 0.0005) {
+      issueFromSafeSelection(selectedItem, metal.weight, reference, meltingId, { sourceType: "melting", issueLabel: "Melt Issue" });
+    } else if (group) {
       issueFromSafeSelection(group, metal.weight, reference, meltingId, { sourceType: "melting", issueLabel: "Melt Issue" });
+    } else if (selectedItem) {
+      const details = meltingSafeSourceGroupDetails(metal);
+      const matchingItems = (state.safeItems || [])
+        .filter((item) => item.status !== "Out" && safeItemMatchesMeltingSource(item, details));
+      issueFromSafeGroup({ virtualSafeGroup: true, items: matchingItems }, metal.weight, reference, meltingId, { sourceType: "melting", issueLabel: "Melt Issue" });
     } else {
       issueFromSafeLocker(locker, metal.weight, reference, meltingId, metal.sourceKind);
     }
@@ -13300,12 +13347,15 @@ function cloneMeltingSourceMetals(sourceMetals = []) {
 
 function meltingSafeSourceGroupDetails(metal = {}) {
   const sourceKind = String(metal.sourceKind || "").toLowerCase();
+  const selectedItem = safeSourceSelectionItem(metal.safeLocker || "", sourceKind);
   const parts = safeSourceSelectionParts(metal.safeLocker || "", sourceKind);
   return {
     sourceKind,
-    locker: safeLockerForPurity(metal.sourceDesiredPurity || parts[0] || metal.purity || ""),
-    colour: safeTextKey(metal.sourceColour || parts[1] || "Mixed / Not Set"),
-    desiredPurity: metal.sourceDesiredPurity || (sourceKind === "rod" ? parts[2] || "" : parts[0] ? karatLogicPurity(parts[0]) : ""),
+    locker: selectedItem
+      ? safeLockerForPurity(selectedItem.locker || selectedItem.purity)
+      : safeLockerForPurity(metal.sourceDesiredPurity || parts[0] || metal.purity || ""),
+    colour: safeTextKey(metal.sourceColour || (selectedItem ? safeItemColour(selectedItem) : parts[1]) || "Mixed / Not Set"),
+    desiredPurity: metal.sourceDesiredPurity || (selectedItem ? safeItemDesiredPurity(selectedItem) : sourceKind === "rod" ? parts[2] || "" : parts[0] ? karatLogicPurity(parts[0]) : ""),
   };
 }
 
@@ -19225,17 +19275,18 @@ function relatedSafeItemsForJobCard(purity = "") {
 }
 
 function castingSafeItemsForPurity(purity = "") {
-  const castingGroups = castingShelfGroups(purity).filter((item) => safeItemEligibleForJobCardMetal(item));
-  return [...castingGroups, ...relatedSafeItemsForJobCard(purity)];
+  const castingItems = castingShelfItems(purity).filter((item) => safeItemEligibleForJobCardMetal(item));
+  return [...castingItems, ...relatedSafeItemsForJobCard(purity)];
 }
 
 function safeItemOptionLabel(item = {}) {
   const colour = safeItemColour(item) || "-";
   const desiredPurity = transferPurityLabel(safeItemDesiredPurity(item));
-  const source = item.virtualSafeGroup ? safeIssueSourceName(item) : item.description || "Casting item";
+  const source = item.virtualSafeGroup ? safeIssueSourceName(item) : item.castingBatchName || item.description || item.source || "Casting item";
   const type = item.virtualSafeGroup ? "Casting Shelf" : isCastingIssueStock(item) ? "Casting Item" : "Related Gold Item";
   const itemCount = item.virtualSafeGroup ? ` / ${item.items?.length || 0} entries` : "";
-  return `${source} / ${type} / ${colour} / ${desiredPurity} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
+  const date = item.virtualSafeGroup ? "" : ` / ${item.date || "-"}`;
+  return `${source} / ${type} / ${colour} / ${desiredPurity}${date} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
 }
 
 function safeIssueSourceName(item = {}) {
@@ -32559,22 +32610,23 @@ function renderSafeLockers() {
   renderSafeWastageCollective(filter);
   const shelfContainer = document.getElementById("safe-casting-shelves");
   if (shelfContainer) {
-    const shelfGroups = castingShelfGroups(filter);
-    shelfContainer.innerHTML = shelfGroups.length
-      ? shelfGroups.map((group) => `
+    const shelfItems = castingShelfItems(filter);
+    shelfContainer.innerHTML = shelfItems.length
+      ? shelfItems.map((item) => `
         <article class="safe-casting-shelf-card">
-          <span>${escapeHtml(safeIssueSourceName(group))}</span>
-          <strong>${escapeHtml(safeItemColour(group) || "-")}</strong>
-          <small>${escapeHtml(transferPurityLabel(safeItemDesiredPurity(group)))} / ${group.items.length} casting entr${group.items.length === 1 ? "y" : "ies"}</small>
+          <span>${escapeHtml(item.castingBatchName || item.description || item.source || "Casting Item")}</span>
+          <strong>${escapeHtml(safeItemColour(item) || "-")}</strong>
+          <small>${escapeHtml(transferPurityLabel(safeItemDesiredPurity(item)))} / ${escapeHtml(item.date || "-")} / Individual Casting Item</small>
           <div>
-            <b>GW ${gram(group.grossWeight)}</b>
-            <b>Wax ${gram(safeItemWaxStoneWeight(group))}</b>
-            <b>NT ${gram(safeItemAvailableWeight(group))}</b>
+            <b>GW ${gram(item.grossWeight)}</b>
+            <b>Wax ${gram(safeItemWaxStoneWeight(item))}</b>
+            <b>NT ${gram(safeItemAvailableWeight(item))}</b>
           </div>
-          <button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${escapeHtml(group.items[0]?.id || "")}')">Move To Wastage</button>
+          <small>${escapeHtml(item.source || item.description || "-")}</small>
+          <button class="ghost-button" type="button" onclick="openCastingWastageTransfer('${escapeHtml(item.id || "")}')">Move To Wastage</button>
         </article>
       `).join("")
-      : '<div class="empty">No combined casting shelf stock yet.</div>';
+      : '<div class="empty">No individual casting shelf stock yet.</div>';
   }
   const rows = (state.safeItems || [])
     .filter((item) => !filter || safeLockerForPurity(item.locker || item.purity) === filter)
