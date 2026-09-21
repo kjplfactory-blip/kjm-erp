@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v563";
+const APP_VERSION = "v564";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -9578,15 +9578,20 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
     const waxTake = itemNet ? Number(weight3((take / itemNet) * itemWax)) : 0;
     const nonGoldTake = itemNet ? Number(weight3((take / itemNet) * itemNonGold)) : 0;
     const grossTake = Number(weight3(Math.min(itemGross, take + waxTake + nonGoldTake)));
+    const changedAt = new Date().toISOString();
+    item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
+    item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
     if (take >= itemNet - 0.0005) {
       item.status = "Out";
       item.outDate = today();
       item.remarks = reference;
+      item.updatedAt = changedAt;
     } else {
       item.netWeight = Number(weight3(itemNet - take));
       item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
       item.nonGoldWeight = Number(weight3(Math.max(itemNonGold - nonGoldTake, 0)));
       item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+      item.updatedAt = changedAt;
       addSafeItem({
         date: today(),
         locker,
@@ -9595,6 +9600,7 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
         source: reference,
         sourceType: "factory-issue",
         sourceId,
+        sourceSafeItemId: item.id,
         sourceLine: item.sourceLine || "",
         colour: item.colour || safeItemColour(item),
         desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
@@ -9632,14 +9638,19 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
       ? Number(weight3((take / itemNet) * itemWax))
       : 0;
   const grossTake = Number(weight3(Math.min(itemGross, take + waxTake)));
+  const changedAt = new Date().toISOString();
+  item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
+  item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
   if (take >= itemNet - 0.0005) {
     item.status = "Out";
     item.outDate = today();
     item.remarks = reference;
+    item.updatedAt = changedAt;
   } else {
     item.netWeight = Number(weight3(itemNet - take));
     item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
     item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+    item.updatedAt = changedAt;
     addSafeItem({
       date: today(),
       locker: item.locker || item.purity,
@@ -9648,6 +9659,7 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
       source: reference,
       sourceType: issueSourceType,
       sourceId,
+      sourceSafeItemId: item.id,
       sourceLine: item.sourceLine || "",
       colour: safeItemColour(item),
       desiredPurity: safeItemDesiredPurity(item),
@@ -9707,15 +9719,19 @@ function addSafeItem(item) {
   const nonGoldCategory = nonGoldBreakdownCategory(nonGoldBreakdown, savedNonGoldCategory);
   const waxStoneWeight = Number(weight3(item.waxStoneWeight ?? Math.max(grossWeight - nonGoldWeight - Number(item.netWeight ?? grossWeight - nonGoldWeight), 0)));
   const netWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight)));
+  const createdAt = item.createdAt || new Date().toISOString();
   state.safeItems.unshift({
     id: item.id || crypto.randomUUID(),
     date: item.date || today(),
+    createdAt,
+    updatedAt: item.updatedAt || createdAt,
     locker: safeLockerForPurity(item.locker || item.purity),
     purity: item.purity || item.locker || "",
     description: item.description || "",
     source: item.source || "",
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
+    sourceSafeItemId: item.sourceSafeItemId || "",
     sourceLine: item.sourceLine || "",
     castingBatchId: item.castingBatchId || "",
     castingBatchName: item.castingBatchName || "",
@@ -9727,8 +9743,10 @@ function addSafeItem(item) {
     nonGoldWeight,
     nonGoldWeightKnown,
     grossWeight,
+    initialGrossWeight: Number(weight3(item.initialGrossWeight ?? grossWeight)),
     waxStoneWeight,
     netWeight,
+    initialNetWeight: Number(weight3(item.initialNetWeight ?? netWeight)),
     status: item.status || "In Safe",
     outDate: item.outDate || "",
     remarks: item.remarks || "",
@@ -13269,6 +13287,182 @@ function cloneMeltingSourceMetals(sourceMetals = []) {
     sourceDesiredPurity: metal.sourceDesiredPurity || "",
     safeLockerLabel: metal.safeLockerLabel || "",
   }));
+}
+
+function meltingSafeSourceGroupDetails(metal = {}) {
+  const sourceKind = String(metal.sourceKind || "").toLowerCase();
+  const parts = safeSourceSelectionParts(metal.safeLocker || "", sourceKind);
+  return {
+    sourceKind,
+    locker: safeLockerForPurity(metal.sourceDesiredPurity || parts[0] || metal.purity || ""),
+    colour: safeTextKey(metal.sourceColour || parts[1] || "Mixed / Not Set"),
+    desiredPurity: metal.sourceDesiredPurity || (sourceKind === "rod" ? parts[2] || "" : parts[0] ? karatLogicPurity(parts[0]) : ""),
+  };
+}
+
+function safeItemMatchesMeltingSource(item = {}, details = {}) {
+  if (!item || !details.sourceKind) return false;
+  if (safeItemKind(item) !== details.sourceKind) return false;
+  if (safeLockerForPurity(item.locker || item.purity) !== details.locker) return false;
+  const itemColour = safeTextKey(details.sourceKind === "rod" ? safeItemColour(item) || "Mixed / Not Set" : safeWastageColour(item));
+  if (details.colour && itemColour !== details.colour) return false;
+  if (details.sourceKind === "rod" && details.desiredPurity) {
+    const itemPurity = purityPercent(safeItemDesiredPurity(item));
+    const sourcePurity = purityPercent(details.desiredPurity);
+    if (itemPurity > 0 && sourcePurity > 0 && Math.abs(itemPurity - sourcePurity) > 0.0005) return false;
+  }
+  return true;
+}
+
+function safeItemMeltingReferenceMatches(item = {}, melting = {}) {
+  const reference = [item.source, item.remarks, item.issueReference].filter(Boolean).join(" ").toLowerCase();
+  const batchName = String(melting.batchName || "").trim().toLowerCase();
+  const meltingId = String(melting.id || "").trim().toLowerCase();
+  return Boolean((batchName && reference.includes(batchName)) || (meltingId && reference.includes(meltingId)));
+}
+
+function meltingReceiveOriginalSafeWeight(currentState = {}, item = {}, field = "gross") {
+  if (item.sourceType !== "melting-receive" || !item.sourceId || !item.sourceLine) return null;
+  const sourceMelting = (currentState.melting || []).find((entry) => entry.id === item.sourceId);
+  const originalGross = Number(sourceMelting?.receiveBreakup?.[item.sourceLine]);
+  if (!Number.isFinite(originalGross) || originalGross < 0) return null;
+  if (field === "net") {
+    const wax = item.sourceLine === "castingItemWeight" ? meltingReceiveWaxStoneWeight(sourceMelting.receiveBreakup || {}) : 0;
+    return safeItemNetFromGross(originalGross, wax, 0);
+  }
+  return Number(weight3(originalGross));
+}
+
+function safeItemOriginalMeltingWeight(currentState = {}, item = {}, field = "gross") {
+  const receiveWeight = meltingReceiveOriginalSafeWeight(currentState, item, field);
+  if (receiveWeight !== null) return receiveWeight;
+  const saved = field === "net" ? item.initialNetWeight : item.initialGrossWeight;
+  return saved === undefined || saved === null || !Number.isFinite(Number(saved)) ? null : Number(weight3(saved));
+}
+
+function reduceSafeItemForMeltingRepair(item = {}, requestedNet = 0, melting = {}, reference = "") {
+  if (!item || item.status === "Out") return 0;
+  const itemNet = safeItemAvailableWeight(item);
+  const takeNet = Number(weight3(Math.min(Math.max(Number(requestedNet || 0), 0), itemNet)));
+  if (takeNet <= 0) return 0;
+  const itemGross = Number(item.grossWeight ?? itemNet);
+  const itemWax = safeItemWaxStoneWeight(item);
+  const itemNonGold = safeItemNonGoldWeight(item);
+  const waxTake = itemNet ? Number(weight3((takeNet / itemNet) * itemWax)) : 0;
+  const nonGoldTake = itemNet ? Number(weight3((takeNet / itemNet) * itemNonGold)) : 0;
+  const grossTake = Number(weight3(Math.min(itemGross, takeNet + waxTake + nonGoldTake)));
+  item.initialGrossWeight = item.initialGrossWeight ?? itemGross;
+  item.initialNetWeight = item.initialNetWeight ?? itemNet;
+  item.updatedAt = new Date().toISOString();
+  if (takeNet >= itemNet - 0.0005) {
+    item.status = "Out";
+    item.outDate = melting.date || today();
+    item.remarks = reference;
+    return takeNet;
+  }
+  item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+  item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
+  item.nonGoldWeight = Number(weight3(Math.max(itemNonGold - nonGoldTake, 0)));
+  item.netWeight = Number(weight3(Math.max(itemNet - takeNet, 0)));
+  return takeNet;
+}
+
+function legacyMeltingChildParent(currentState = {}, child = {}, details = {}) {
+  if (child.sourceSafeItemId) {
+    const linked = (currentState.safeItems || []).find((item) => item.id === child.sourceSafeItemId);
+    if (linked) return linked;
+  }
+  const baseDescription = String(child.description || "").replace(/\s+-\s+Melt Issue$/i, "").trim().toLowerCase();
+  return (currentState.safeItems || []).find((item) =>
+    item.id !== child.id
+    && item.status !== "Out"
+    && item.sourceType !== "melting"
+    && safeItemMatchesMeltingSource(item, details)
+    && String(item.description || "").trim().toLowerCase() === baseDescription
+    && (!child.sourceLine || !item.sourceLine || child.sourceLine === item.sourceLine)
+  ) || null;
+}
+
+function reconcileSavedMeltingSafeSources(currentState = {}) {
+  const safeItems = currentState.safeItems || [];
+  (currentState.melting || []).forEach((melting) => {
+    const groupedSources = new Map();
+    (melting.sourceMetals || [])
+      .filter((metal) => isSafeMeltingSourceKind(metal.sourceKind) && metal.safeLocker && Number(metal.weight || 0) > 0)
+      .forEach((metal) => {
+        const details = meltingSafeSourceGroupDetails(metal);
+        const key = [details.sourceKind, details.locker, details.colour, weight3(purityPercent(details.desiredPurity))].join("|");
+        const group = groupedSources.get(key) || { details, expected: 0 };
+        group.expected = Number(weight3(group.expected + Number(metal.weight || 0)));
+        groupedSources.set(key, group);
+      });
+    if (!groupedSources.size) return;
+
+    let repairedWeight = 0;
+    groupedSources.forEach(({ details, expected }) => {
+      const linkedChildren = safeItems.filter((item) =>
+        item.status === "Out"
+        && item.sourceType === "melting"
+        && item.sourceId === melting.id
+        && safeItemMatchesMeltingSource(item, details)
+      );
+      const fullConsumedSources = safeItems.filter((item) =>
+        item.status === "Out"
+        && !(item.sourceType === "melting" && item.sourceId === melting.id)
+        && safeItemMatchesMeltingSource(item, details)
+        && safeItemMeltingReferenceMatches(item, melting)
+      );
+
+      const childrenByParent = new Map();
+      linkedChildren.forEach((child) => {
+        const parent = legacyMeltingChildParent(currentState, child, details);
+        if (!parent) return;
+        const row = childrenByParent.get(parent.id) || { parent, childNet: 0 };
+        row.childNet = Number(weight3(row.childNet + safeItemAvailableWeight(child)));
+        childrenByParent.set(parent.id, row);
+      });
+      childrenByParent.forEach(({ parent, childNet }) => {
+        const originalNet = safeItemOriginalMeltingWeight(currentState, parent, "net");
+        if (originalNet === null) return;
+        const expectedRemaining = Number(weight3(Math.max(originalNet - childNet, 0)));
+        const duplicatedNet = Number(weight3(Math.max(safeItemAvailableWeight(parent) - expectedRemaining, 0)));
+        if (duplicatedNet <= 0.0005) return;
+        repairedWeight = Number(weight3(repairedWeight + reduceSafeItemForMeltingRepair(
+          parent,
+          duplicatedNet,
+          melting,
+          `Reconciled partial source already used in ${melting.batchName || melting.id}`,
+        )));
+      });
+
+      const recordedConsumption = Number(weight3(
+        linkedChildren.reduce((total, item) => total + safeItemAvailableWeight(item), 0)
+        + fullConsumedSources.reduce((total, item) => total + safeItemAvailableWeight(item), 0)
+      ));
+      let missingConsumption = Number(weight3(Math.max(expected - recordedConsumption, 0)));
+      if (missingConsumption <= 0.0005) return;
+      const reference = `${details.sourceKind === "wastage" ? "Wastage" : details.sourceKind === "ghiss" ? "Ghiss" : "Rod"} source reconciled as used in ${melting.batchName || melting.id}`;
+      safeItems
+        .filter((item) =>
+          item.status !== "Out"
+          && !(item.sourceType === "melting" && item.sourceId === melting.id)
+          && !(item.sourceType === "melting-receive" && item.sourceId === melting.id)
+          && safeItemMatchesMeltingSource(item, details)
+        )
+        .sort((left, right) => `${left.date || ""} ${left.createdAt || ""}`.localeCompare(`${right.date || ""} ${right.createdAt || ""}`))
+        .forEach((item) => {
+          if (missingConsumption <= 0.0005) return;
+          const consumed = reduceSafeItemForMeltingRepair(item, missingConsumption, melting, reference);
+          missingConsumption = Number(weight3(Math.max(missingConsumption - consumed, 0)));
+          repairedWeight = Number(weight3(repairedWeight + consumed));
+        });
+    });
+    if (repairedWeight > 0.0005) {
+      melting.sourceStockRepairedWeight = Number(weight3(Number(melting.sourceStockRepairedWeight || 0) + repairedWeight));
+      melting.sourceStockRepairVersion = APP_VERSION;
+      melting.sourceStockRepairNote = `Restored duplicate Safe source removed: ${gram(repairedWeight)}`;
+    }
+  });
 }
 
 function removeMeltingIssueRecords(meltingId) {
@@ -36286,12 +36480,14 @@ function normalizeState(currentState) {
       id: item.id || crypto.randomUUID(),
       date: item.date || today(),
       createdAt: item.createdAt || "",
+      updatedAt: item.updatedAt || "",
       locker: safeLockerForPurity(item.locker || item.purity),
       purity,
       description: item.description || "",
       source: item.source || "",
       sourceType: item.sourceType || "",
       sourceId: item.sourceId || "",
+      sourceSafeItemId: item.sourceSafeItemId || "",
       sourceLine: item.sourceLine || "",
       castingBatchId: item.castingBatchId || "",
       castingBatchName: item.castingBatchName || "",
@@ -36303,8 +36499,14 @@ function normalizeState(currentState) {
       nonGoldWeight,
       nonGoldWeightKnown,
       grossWeight,
+      initialGrossWeight: item.initialGrossWeight === undefined || item.initialGrossWeight === null
+        ? null
+        : Number(weight3(item.initialGrossWeight)),
       waxStoneWeight,
       netWeight,
+      initialNetWeight: item.initialNetWeight === undefined || item.initialNetWeight === null
+        ? null
+        : Number(weight3(item.initialNetWeight)),
       status: item.status || "In Safe",
       outDate: item.outDate || "",
       issueDepartmentId: item.issueDepartmentId || "",
@@ -36652,6 +36854,7 @@ function normalizeState(currentState) {
     };
   });
   currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
+  reconcileSavedMeltingSafeSources(currentState);
   currentState.xrfTests = (currentState.xrfTests || []).map(normalizeXrfEntry);
   syncXrfWastageReturnsForState(currentState);
   currentState.orders = Array.isArray(currentState.orders) ? currentState.orders : [];
