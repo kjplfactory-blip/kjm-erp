@@ -9197,6 +9197,33 @@ body.measuring-transfer-bag .global-print-area {
   line-height: 1.4;
 }
 
+.gold-issue-correction-card {
+  width: min(1180px, calc(100vw - 28px));
+}
+
+.gold-issue-correction-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gold-issue-correction-grid label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gold-issue-correction-grid label small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.gold-issue-correction-grid .gold-issue-source-field,
+.gold-issue-correction-grid .gold-issue-reason-field {
+  grid-column: span 2;
+}
+
 .gold-issue-correction-card .dialog-actions {
   justify-content: flex-end;
 }
@@ -15672,6 +15699,16 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 #fine-sheet .fine-sheet-formula small { color: #55756c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 #fine-sheet .fine-sheet-formula strong { color: #0c5b4a; font-size: 14px; }
+#fine-sheet .fine-sheet-head-actions {
+  display: grid;
+  justify-items: stretch;
+  gap: 8px;
+  min-width: 300px;
+}
+
+#fine-sheet .fine-sheet-head-actions button {
+  width: 100%;
+}
 #fine-sheet .fine-sheet-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 #fine-sheet .fine-sheet-summary .factory-summary-card:first-child {
   border-color: #54b694;
@@ -15779,8 +15816,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #fine-sheet .fine-sheet-ledger-table th:nth-child(9) { width: 9.5%; }
 
 @media (max-width: 900px) {
+  .gold-issue-correction-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #fine-sheet .fine-sheet-page-head { align-items: stretch; flex-direction: column; }
   #fine-sheet .fine-sheet-formula { min-width: 0; }
+  #fine-sheet .fine-sheet-head-actions { min-width: 0; }
   #fine-sheet .fine-sheet-summary,
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #fine-sheet .fine-sheet-filters { width: 100%; grid-template-columns: 1fr; }
@@ -15788,6 +15827,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 @media (max-width: 560px) {
+  .gold-issue-correction-grid { grid-template-columns: 1fr; }
+  .gold-issue-correction-grid .gold-issue-source-field,
+  .gold-issue-correction-grid .gold-issue-reason-field { grid-column: auto; }
   #fine-sheet .fine-sheet-summary,
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: 1fr; }
   #fine-sheet .fine-sheet-reconciliation > div { border-right: 0; border-bottom: 1px solid #d7e9e2; }
