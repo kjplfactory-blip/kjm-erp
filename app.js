@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v562";
+const APP_VERSION = "v561";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -551,15 +551,14 @@ const operationTileConfigs = {
 };
 
 const productionFlow = [
-  { label: "Filing", matches: ["filer", "filing", "filling", "back to filer"], departmentMatches: ["filer", "filing", "filling"] },
+  { label: "Filing / Fitting", matches: ["filer", "filing", "fitting", "back to filer"], departmentMatches: ["filer", "filing", "fitting", "vinod"] },
   { label: "Paper Filing", matches: ["paper filing", "paper"], departmentMatches: ["paper filing", "paper"] },
   { label: "EP", matches: ["ep", "electro", "electro polishing"], departmentMatches: ["ep", "electro", "electro polish", "electro polishing"] },
-  { label: "Pre-Final Polish", matches: ["pp", "pre polish", "pre polishing", "pre final polish", "pre-final polish"], departmentMatches: ["pp", "pre polish", "pre polishing", "pre final polish", "pre-final polish"] },
+  { label: "PP", matches: ["pp", "pre polish", "pre polishing"], departmentMatches: ["pp", "pre polish", "pre polishing"] },
   { label: "Setting", matches: ["setting"], departmentMatches: ["setting"] },
-  { label: "Fitting", matches: ["fitting", "vinod", "chain fitting"], departmentMatches: ["fitting", "vinod", "chain fitting"] },
+  { label: "Filing / Fitting", matches: ["fitting", "filer", "filing", "back to filer"], departmentMatches: ["fitting", "vinod", "filer", "filing"] },
   { label: "Final Polish", matches: ["final polish", "final polishing"], departmentMatches: ["final polish", "final polishing", "polishing department", "polishing dept", "polishing", "polish"] },
 ];
-const productionDepartmentLabels = new Set(productionFlow.map((step) => step.label));
 
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.view));
@@ -1772,8 +1771,8 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     karigarName: karigar.name,
     issueKarigarId: karigar.id,
     issueKarigarName: karigar.name,
-    issueDepartment: mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name),
-    currentDepartment: mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name),
+    issueDepartment: primaryDepartmentProcess(karigar),
+    currentDepartment: primaryDepartmentProcess(karigar),
     metalPurity,
     grossIssuedWeight: issuedWeight,
     waxStoneWeight,
@@ -3542,9 +3541,9 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     departmentBalance,
     differencePurity,
     differenceFineGold,
-    balanceDepartment: mergedProductionDepartmentName(data.fromDepartment, editingTransfer?.fromKarigarName || lot.karigarName),
-    fromDepartment: mergedProductionDepartmentName(data.fromDepartment, editingTransfer?.fromKarigarName || lot.karigarName),
-    toDepartment: mergedProductionDepartmentName(data.toDepartment, newKarigar.name),
+    balanceDepartment: mergedProductionDepartmentName(data.fromDepartment),
+    fromDepartment: mergedProductionDepartmentName(data.fromDepartment),
+    toDepartment: mergedProductionDepartmentName(data.toDepartment),
     toProcessRaw: data.toDepartment,
     reason: fittingItemsCompletion ? "Fitting Items" : data.reason,
     ...(editingTransfer ? {
@@ -10110,7 +10109,7 @@ function ensureSafeIssueProductionLot({
   const orders = selection.orders.filter((order) => !isCompletedOrder(order) && order.status !== "Discarded");
   if (!orders.length) return { lot: null, created: false };
   const lotNumber = `LOT-${state.nextLot++}`;
-  const issueProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name, department.name);
+  const issueProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name);
   const metalPurity = karatLogicPurity(item.purity || item.locker || orders[0]?.purity || "18K");
   const tracedWaxStone = Number(weight3(stoneAdjustmentParts.wax || 0));
   const tracedHandStone = Number(weight3(stoneAdjustmentParts.hand || 0));
@@ -10176,7 +10175,7 @@ function ensureSafeIssueProductionLot({
 
 function transferExistingLotForSafeIssue(lot = null, department = null, process = "", item = {}) {
   if (!lot || !department || lot.status === "Completed") return false;
-  const targetProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name, department.name);
+  const targetProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name);
   const sameDepartment = lot.karigarId === department.id;
   const sameProcess = departmentTextKey(lot.currentDepartment || lot.karigarName) === departmentTextKey(targetProcess);
   if (sameDepartment && sameProcess) return false;
@@ -10203,8 +10202,8 @@ function transferExistingLotForSafeIssue(lot = null, department = null, process 
     departmentBalance: 0,
     differencePurity: karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || ""),
     differenceFineGold: 0,
-    balanceDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName, lot.karigarName),
-    fromDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName, lot.karigarName),
+    balanceDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName),
+    fromDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName),
     toDepartment: targetProcess,
     toProcessRaw: process || targetProcess,
     reason: `Lot transferred with Safe shelf issue: ${item.description || "Shelf item"}`,
@@ -10259,7 +10258,7 @@ function migrateLegacySafeShelfGoldIssues(currentState) {
     const issuedNonGoldWeight = Number(weight3(issue.issuedNonGoldWeight || issue.nonGoldWeight || 0));
     const issuedNetWeight = Number(weight3(issue.issuedNetWeight ?? issue.netWeight ?? Math.max(issuedGrossWeight - issuedWaxStoneWeight - issuedNonGoldWeight, 0)));
     if (issuedGrossWeight <= 0) return;
-    const issueProcess = mergedProductionDepartmentName(issue.process || departmentName, departmentName);
+    const issueProcess = mergedProductionDepartmentName(issue.process || departmentName);
     const metalPurity = karatLogicPurity(issue.purity || issue.locker || activeOrders[0]?.purity || "18K");
     const createdLot = {
       id: crypto.randomUUID(),
@@ -10316,7 +10315,7 @@ function migrateLegacySafeShelfLotDepartment(currentState, issue = {}, lot = {})
   const targetDepartment = (issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null) || {};
   const targetDepartmentId = targetDepartment.id || issue.departmentId || "";
   const targetDepartmentName = targetDepartment.name || issue.departmentName || "";
-  const targetProcess = mergedProductionDepartmentName(issue.process || targetDepartmentName, targetDepartmentName);
+  const targetProcess = mergedProductionDepartmentName(issue.process || targetDepartmentName);
   if (!targetDepartmentName || !targetProcess) return;
   const sameDepartment = lot.karigarId === targetDepartmentId || departmentTextKey(lot.karigarName) === departmentTextKey(targetDepartmentName);
   const sameProcess = departmentTextKey(lot.currentDepartment || lot.karigarName) === departmentTextKey(targetProcess);
@@ -10333,7 +10332,7 @@ function migrateLegacySafeShelfLotDepartment(currentState, issue = {}, lot = {})
   const handStoneWeight = Number(weight3(latest?.handStoneWeight ?? latest?.stoneWeight ?? lot.initialHandStoneWeight ?? 0));
   const otherNonGoldWeight = Number(weight3(lot.issueOtherNonGoldWeight || 0));
   const receivedWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - handStoneWeight - otherNonGoldWeight, 0)));
-  const fromDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName);
+  const fromDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
   const transfer = {
     id: crypto.randomUUID(),
     date: issue.date || today(),
@@ -10460,7 +10459,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     purity,
     departmentId: holdingDepartment?.id || issue.departmentId || "",
     departmentName: holdingDepartment?.name || issue.departmentName || "",
-    process: mergedProductionDepartmentName(holdingProcess, holdingDepartment?.name || issue.departmentName),
+    process: mergedProductionDepartmentName(holdingProcess),
     destinationMode,
     lotId: issue.lotId || linkedLot?.id || "",
     lotNumber: issue.lotNumber || linkedLot?.number || "",
@@ -10482,7 +10481,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     directTransferId: issue.directTransferId || "",
     sourceDepartmentId: issue.sourceDepartmentId || "",
     sourceDepartmentName: issue.sourceDepartmentName || "",
-    sourceProcess: mergedProductionDepartmentName(issue.sourceProcess || issue.sourceDepartmentName || "", issue.sourceDepartmentName),
+    sourceProcess: mergedProductionDepartmentName(issue.sourceProcess || issue.sourceDepartmentName || ""),
     sourceReturnId: issue.sourceReturnId || "",
     issuedGrossWeight,
     issuedWaxStoneWeight,
@@ -11089,7 +11088,7 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
     createdAtInferred: Boolean(entry.createdAtInferred),
     departmentId: entry.departmentId || issue.departmentId || "",
     departmentName: entry.departmentName || issue.departmentName || department?.name || "",
-    process: mergedProductionDepartmentName(entry.process || issue.process || primaryDepartmentProcess(department || {}), entry.departmentName || issue.departmentName || department?.name),
+    process: mergedProductionDepartmentName(entry.process || issue.process || primaryDepartmentProcess(department || {})),
     sourceItemDescription: entry.sourceItemDescription || issue.itemDescription || "",
     returnedItemDescription: entry.returnedItemDescription || "",
     returnType,
@@ -11107,7 +11106,7 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
     directTransferId: entry.directTransferId || "",
     destinationDepartmentId: entry.destinationDepartmentId || "",
     destinationDepartmentName: entry.destinationDepartmentName || "",
-    destinationProcess: mergedProductionDepartmentName(entry.destinationProcess || entry.destinationDepartmentName || "", entry.destinationDepartmentName),
+    destinationProcess: mergedProductionDepartmentName(entry.destinationProcess || entry.destinationDepartmentName || ""),
     remarks: entry.remarks || "",
   };
 }
@@ -13744,7 +13743,7 @@ function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0)
 }
 
 function splitLotAdjustmentTransfer(lot, transferWeight, grossReceivedWeight, waxStoneWeight, handStoneWeight, reason) {
-  const department = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName);
+  const department = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
   const reducedWeight = Number(weight3(Number(waxStoneWeight || 0) + Number(handStoneWeight || 0)));
   return {
     id: crypto.randomUUID(),
@@ -13790,7 +13789,7 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
   const splitNetWeight = Number(weight3(Math.min(splitLotNetWeight(splitGw, selectedWax, selectedHand), originalNetWeight)));
   const remainingNetWeight = Number(weight3(Math.max(originalNetWeight - splitNetWeight, 0)));
   const splitLotNumber = `LOT-${state.nextLot++}`;
-  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName);
+  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "");
   const splitReason = `Split ${gram(splitGw)} GW from ${lot.number} to ${splitJobNumber}`;
 
   lot.orderIds = remainingIds;
@@ -15719,7 +15718,7 @@ function productionSettingOptions(selected = "wax") {
 }
 
 function manufacturingStageOptions(selected = "") {
-  const defaults = ["Wax", "Casting", "Filing", "Paper Filing", "EP", "Pre-Final Polish", "Setting", "Fitting", "Final Polish", "QC", "Bill"];
+  const defaults = ["Wax", "Casting", "Filing / Fitting", "Setting", "Polishing", "QC", "Bill"];
   const departmentStages = state.karigars.flatMap((karigar) => [karigar.name, karigar.speciality]).filter(Boolean);
   const stages = [...new Set([...defaults, ...departmentStages])];
   return [
@@ -18484,7 +18483,7 @@ function saveGoldIssueCorrection(event) {
   const sourceDetail = safeItemOptionLabel(source);
   const sourceSnapshots = captureSafeIssueSourceItems(source);
   const balanceAfter = Number(weight3(available - net));
-  const issueDepartment = mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name);
+  const issueDepartment = primaryDepartmentProcess(karigar);
   const reference = `${lot.number} for ${target.jobNumber} issued from ${sourceName} to ${karigar.name}; ${sourceDetail}; Gold Issue ${gram(gross)} - Wax Stone ${gram(wax)} = Net Wt ${gram(net)}; Balance ${gram(balanceAfter)}`;
 
   target.orders.forEach((order) => { order.status = "In Production"; });
@@ -19123,7 +19122,7 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     designNumber: issue.designNumber || "",
     itemName: issue.itemName || "",
     departmentId,
-    department: mergedProductionDepartmentName(issue.department || lot.currentDepartment || lot.karigarName || primaryDepartmentProcess(department) || department?.name || "", department?.name || lot.karigarName),
+    department: mergedProductionDepartmentName(issue.department || lot.currentDepartment || lot.karigarName || primaryDepartmentProcess(department) || department?.name || ""),
     materialType,
     materialLabel: productionNonGoldMaterialLabel(materialType),
     pcs,
@@ -20031,7 +20030,6 @@ function rewireLotTransferChain(lot = {}) {
   let currentKarigarName = lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName || "";
   let currentDepartment = mergedProductionDepartmentName(
     lot.issueDepartment || firstTransfer.fromDepartment || currentKarigarName,
-    currentKarigarName,
   );
   transfers.forEach((transfer) => {
     transfer.fromKarigarId = currentKarigarId;
@@ -20040,7 +20038,7 @@ function rewireLotTransferChain(lot = {}) {
     transfer.balanceDepartment = currentDepartment;
     currentKarigarId = transfer.toKarigarId || currentKarigarId;
     currentKarigarName = transfer.toKarigarName || currentKarigarName;
-    currentDepartment = mergedProductionDepartmentName(transfer.toDepartment || currentKarigarName, currentKarigarName);
+    currentDepartment = mergedProductionDepartmentName(transfer.toDepartment || currentKarigarName);
   });
 }
 
@@ -20224,7 +20222,7 @@ function recalculateLotAfterTransferChange(lot) {
   const latest = lot.transfers?.at(-1);
   lot.karigarId = lot.issueKarigarId || lot.karigarId;
   lot.karigarName = lot.issueKarigarName || lot.karigarName;
-  lot.currentDepartment = mergedProductionDepartmentName(lot.issueDepartment || lot.currentDepartment || lot.karigarName, lot.issueKarigarName || lot.karigarName);
+  lot.currentDepartment = mergedProductionDepartmentName(lot.issueDepartment || lot.currentDepartment || lot.karigarName);
   lot.status = "Issued";
   lot.finishedWeight = 0;
   lot.actualWastage = 0;
@@ -20242,7 +20240,7 @@ function recalculateLotAfterTransferChange(lot) {
   if (!latest) return;
   lot.karigarId = latest.toKarigarId;
   lot.karigarName = latest.toKarigarName;
-  lot.currentDepartment = mergedProductionDepartmentName(latest.toDepartment, latest.toKarigarName);
+  lot.currentDepartment = mergedProductionDepartmentName(latest.toDepartment);
   if (lot.fittingItemsJobCard && isFittingItemsTransferDestination(latest)) {
     lot.actualWastage = Number(latest.departmentBalance || 0);
     lot.status = "Completed";
@@ -20331,7 +20329,7 @@ function currentTransferProvisionalNonGold(lot = {}) {
 }
 
 function isFittingNonGoldTransferSource(value = "") {
-  return departmentTransferGroupName(value, value) === "Fitting";
+  return departmentTransferGroupName(value, value) === "Filing / Fitting";
 }
 
 function renderTransferOptions(lot) {
@@ -20403,56 +20401,35 @@ function applyProductionFlowDefaults(lot) {
   if (!nextStep) return;
   const targetDepartment = findFlowDepartment(nextStep, lot.karigarId);
   if (targetDepartment) form.karigarId.value = targetDepartment.id;
-  const registeredProcess = targetDepartment
-    ? departmentProcesses(targetDepartment).find((process) => mergedProductionDepartmentName(process, targetDepartment.name) === nextStep.label)
-    : "";
-  renderTransferProcessOptions(form.karigarId.value, registeredProcess || nextStep.label);
+  renderTransferProcessOptions(form.karigarId.value, nextStep.label);
   form.reason.value = `Next process: ${nextStep.label}`;
 }
 
 function nextProductionFlowStep(lot) {
   const latestTransfer = (lot.transfers || []).at(-1);
   if (latestTransfer) {
-    const latestDepartment = mergedProductionDepartmentName(latestTransfer.toDepartment, latestTransfer.toKarigarName);
-    const latestIndex = productionFlow.findIndex((step) => step.label === latestDepartment);
+    const latestIndex = productionFlow.findIndex((step, index) =>
+      index > 0 && step.label === latestTransfer.toDepartment
+    );
     if (latestIndex >= 0) return productionFlow[latestIndex + 1] || null;
   }
-  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName, lot.karigarName);
-  let currentIndex = productionFlow.findIndex((step) => step.label === currentDepartment);
-  if (currentIndex < 0) {
-    const currentText = `${lot.currentDepartment || ""} ${lot.karigarName || ""}`;
-    currentIndex = productionFlow.findIndex((step) => textMatchesAny(currentText, step.matches));
-  }
+  const currentText = `${lot.currentDepartment || ""} ${lot.karigarName || ""}`;
+  const currentIndex = productionFlow.findIndex((step) => textMatchesAny(currentText, step.matches));
   if (currentIndex < 0) return productionFlow[0];
   return productionFlow[currentIndex + 1] || null;
 }
 
 function findFlowDepartment(step, currentDepartmentId = "") {
-  const candidates = state.karigars.filter((karigar) => karigar.id !== currentDepartmentId);
-  return candidates.find((karigar) =>
-    mergedProductionDepartmentName(karigar.name || primaryDepartmentProcess(karigar), karigar.name) === step.label
-  ) || candidates.find((karigar) =>
-    departmentProcesses(karigar).some((process) => mergedProductionDepartmentName(process, karigar.name) === step.label)
-  ) || candidates.find((karigar) =>
+  return state.karigars.find((karigar) =>
+    karigar.id !== currentDepartmentId &&
     textMatchesAny(`${karigar.name || ""} ${departmentProcessText(karigar)}`, step.departmentMatches)
   );
 }
 
-function mergedProductionDepartmentName(value = "", departmentName = "") {
+function mergedProductionDepartmentName(value = "") {
   const text = String(value || "").trim();
-  const departmentText = String(departmentName || "").trim();
-  const source = text || departmentText;
-  if (isPaperFilingDepartment(source)) return "Paper Filing";
-  if (isPrePolishDepartment(source)) return "Pre-Final Polish";
-  if (isElectroPolishDepartment(source)) return "EP";
-  if (isPolishDepartment(source)) return "Final Polish";
-  const legacyCombined = departmentTextKey(text) === "filing fitting";
-  if (legacyCombined) {
-    return textMatchesAny(departmentText, ["fitting", "vinod", "chain fitting"]) ? "Fitting" : "Filing";
-  }
-  if (textMatchesAny(source, ["fitting", "vinod", "chain fitting"])) return "Fitting";
-  if (textMatchesAny(source, ["filer", "filing", "filling", "back to filer"])) return "Filing";
-  return text || departmentText;
+  if (isPaperFilingDepartment(text)) return "Paper Filing";
+  return textMatchesAny(text, ["filer", "filing", "fitting", "back to filer"]) ? "Filing / Fitting" : text;
 }
 
 function isPaperFilingDepartment(value = "") {
@@ -20460,15 +20437,19 @@ function isPaperFilingDepartment(value = "") {
   return textMatchesAny(text, ["paper"]) && textMatchesAny(text, ["filer", "filing"]);
 }
 
-function departmentDashboardHeader(value = "", departmentName = "") {
-  const canonicalName = mergedProductionDepartmentName(value || "Unassigned", departmentName);
-  if (productionDepartmentLabels.has(canonicalName)) return canonicalName;
+function departmentDashboardHeader(value = "") {
   const masterName = dashboardMasterDepartmentName(value);
-  return masterName ? mergedProductionDepartmentName(masterName, masterName) : canonicalName;
+  if (masterName) return masterName;
+  const mergedName = mergedProductionDepartmentName(value || "Unassigned");
+  if (isPrePolishDepartment(mergedName) || isPolishDepartment(mergedName)) return "Pre Polish / Polish";
+  return mergedName;
 }
 
-function departmentDashboardSplitLabel(value = "", departmentName = "") {
-  return mergedProductionDepartmentName(value || "Unassigned", departmentName);
+function departmentDashboardSplitLabel(value = "") {
+  const mergedName = mergedProductionDepartmentName(value || "Unassigned");
+  if (isPrePolishDepartment(mergedName)) return "Pre Polish";
+  if (isPolishDepartment(mergedName)) return "Polish";
+  return mergedName;
 }
 
 function dashboardMasterDepartmentName(value = "") {
@@ -20492,16 +20473,11 @@ function departmentTextKey(value = "") {
 }
 
 function isPrePolishDepartment(value = "") {
-  return textMatchesAny(value, ["pp", "pre polish", "pre polishing", "pre final polish", "pre-final polish"]);
+  return textMatchesAny(value, ["pp", "pre polish", "pre polishing"]);
 }
 
 function isPolishDepartment(value = "") {
-  return !isPrePolishDepartment(value)
-    && textMatchesAny(value, ["final polish", "final polishing", "polishing department", "polishing dept", "polishing", "polish", "fp"]);
-}
-
-function isElectroPolishDepartment(value = "") {
-  return textMatchesAny(value, ["ep", "electro polish", "electro polishing", "electro"]);
+  return textMatchesAny(value, ["final polish", "final polishing", "polishing department", "polishing dept", "polishing", "polish"]);
 }
 
 function textMatchesAny(text = "", matches = []) {
@@ -24223,7 +24199,7 @@ function departmentMetalInHand() {
   seedDashboardDepartments(departments);
   state.lots.forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
-      addDepartmentWeight(departments, transfer.balanceDepartment || transfer.fromDepartment || transfer.fromKarigarName || "Unassigned", {
+      addDepartmentWeight(departments, transfer.fromKarigarName || transfer.balanceDepartment || transfer.fromDepartment || "Unassigned", {
         gold: Number(transfer.departmentBalance || 0),
         gross: Number(transfer.departmentBalance || 0),
         purity: transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
@@ -24231,18 +24207,18 @@ function departmentMetalInHand() {
     });
 
     if (factoryStockHoldingLot(lot)) {
-      addDepartmentWeight(departments, lot.currentDepartment || lot.karigarName || "Unassigned", departmentCurrentLotTotals(lot));
+      addDepartmentWeight(departments, lot.karigarName || lot.currentDepartment || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
   productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
-    addDepartmentWeight(departments, issue.department || dashboardDepartmentNameFromId(issue.departmentId) || "Unassigned", {
+    addDepartmentWeight(departments, dashboardDepartmentNameFromId(issue.departmentId) || issue.department || "Unassigned", {
       gross: Number(issue.weight || 0),
       nonGold: Number(issue.weight || 0),
       purity: issue.purity || issue.karat || "",
     });
   });
   safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
-    addDepartmentWeight(departments, issue.process || issue.departmentName || "Unassigned", {
+    addDepartmentWeight(departments, issue.departmentName || issue.process || "Unassigned", {
       gross: Number(issue.grossWeight || 0),
       gold: Number(issue.netWeight || 0),
       waxStone: Number(issue.waxStoneWeight || 0),
@@ -24251,7 +24227,7 @@ function departmentMetalInHand() {
     });
   });
   (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry)).forEach((entry) => {
-    const departmentName = entry.process || entry.departmentName || "Unassigned";
+    const departmentName = entry.departmentName || entry.process || "Unassigned";
     if (!entry.issueId) {
       const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
       const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
@@ -24290,12 +24266,6 @@ function departmentMetalInHand() {
 function seedDashboardDepartments(departments) {
   (state.karigars || []).forEach((department) => {
     addDepartmentWeight(departments, department.name || primaryDepartmentProcess(department) || "Unassigned", { alwaysShow: true });
-    departmentProcesses(department).forEach((process) => {
-      const canonicalProcess = mergedProductionDepartmentName(process, department.name);
-      if (productionDepartmentLabels.has(canonicalProcess)) {
-        addDepartmentWeight(departments, canonicalProcess, { alwaysShow: true });
-      }
-    });
   });
   ["Casting Department", "Melting Department", "XRF Department"].forEach((department) => {
     addDepartmentWeight(departments, department, { alwaysShow: true });
@@ -27981,7 +27951,7 @@ function splitSettingLotForSetter(lot, selectedOrderIds = [], splitGw = 0) {
   const splitNetWeight = splitLotNetWeight(splitWeight, selectedWax, selectedHand);
   const remainingNetWeight = splitLotNetWeight(remainingGw, remainingWax, remainingHand);
   const splitLotNumber = `LOT-${state.nextLot++}`;
-  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "Setting", lot.karigarName);
+  const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "Setting");
   const splitReason = `Setting split ${selectedIds.length} PR item(s), ${gram(splitWeight)} GW from ${lot.number} to ${splitLotNumber}`;
 
   lot.orderIds = remainingIds;
@@ -34935,16 +34905,19 @@ function departmentTransferEvents() {
 }
 
 function departmentTransferGroupName(departmentName = "", processName = "") {
-  return departmentDashboardHeader(processName || departmentName || "Unassigned", departmentName);
+  const combined = `${processName || ""} ${departmentName || ""}`;
+  if (isPaperFilingDepartment(combined)) {
+    const masterName = dashboardMasterDepartmentName(departmentName) || dashboardMasterDepartmentName(processName);
+    return isPaperFilingDepartment(masterName) ? masterName : "Paper Filing";
+  }
+  if (textMatchesAny(combined, ["filer", "filing", "fitting", "back to filer", "vinod"])) return "Filing / Fitting";
+  if (isPrePolishDepartment(combined) || isPolishDepartment(combined)) return "Pre Polish / Polish";
+  return departmentDashboardHeader(processName || departmentName || "Unassigned");
 }
 
 function departmentTransferHistoryGroupName(departmentName = "") {
   const source = String(departmentName || "").trim();
   if (!source) return "Unassigned";
-  const canonicalSource = mergedProductionDepartmentName(source, source);
-  if (productionDepartmentLabels.has(canonicalSource)) {
-    return canonicalSource;
-  }
   const sourceKey = departmentTextKey(source);
   const masterDepartment = (state.karigars || []).find((department) =>
     departmentTextKey(department.name) === sourceKey
@@ -36585,9 +36558,9 @@ function normalizeLotIssueWeights(currentState, lot) {
       departmentBalance,
       differencePurity,
       differenceFineGold: fineGoldWeight(departmentBalance, differencePurity),
-      balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || "", transfer.fromKarigarName),
-      fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || "", transfer.fromKarigarName),
-      toDepartment: mergedProductionDepartmentName(transfer.toDepartment || "", transfer.toKarigarName),
+      balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || ""),
+      fromDepartment: mergedProductionDepartmentName(transfer.fromDepartment || ""),
+      toDepartment: mergedProductionDepartmentName(transfer.toDepartment || ""),
     };
   });
   return {
@@ -36597,13 +36570,10 @@ function normalizeLotIssueWeights(currentState, lot) {
     billOrderIds,
     issueKarigarId: lot.issueKarigarId || firstTransfer.fromKarigarId || lot.karigarId || "",
     issueKarigarName: lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName || "",
-    issueDepartment: mergedProductionDepartmentName(
-      lot.issueDepartment || firstTransfer.fromDepartment || lot.currentDepartment || lot.karigarName || "",
-      lot.issueKarigarName || firstTransfer.fromKarigarName || lot.karigarName,
-    ),
+    issueDepartment: mergedProductionDepartmentName(lot.issueDepartment || firstTransfer.fromDepartment || lot.currentDepartment || lot.karigarName || ""),
     metalPurity,
     transfers: normalizedTransfers,
-    currentDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName),
+    currentDepartment: mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || ""),
     issueDate: lot.issueDate || "",
     grossIssuedWeight,
     waxStoneWeight,
