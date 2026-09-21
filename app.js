@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v553";
+const APP_VERSION = "v554";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -439,6 +439,7 @@ const demoState = {
   stoneLibrarySeeded: false,
   orders: [],
   lots: [],
+  goldIssueCorrections: [],
   productionNonGoldIssues: [],
   settingSetters: [],
   settingManagerEntries: [],
@@ -1750,12 +1751,13 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const balanceAfterIssue = Number(weight3(castingItemAvailable - netMetalIssuedWeight));
   const issueSourceName = safeIssueSourceName(castingSafeItem);
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
+  const issueSafeItemsBefore = captureSafeIssueSourceItems(castingSafeItem);
 
   selectedOrders.forEach((order) => {
     order.status = "In Production";
   });
   const lotNumber = `LOT-${state.nextLot++}`;
-  state.lots.unshift({
+  const issuedLot = {
     id: crypto.randomUUID(),
     number: lotNumber,
     issueDate: today(),
@@ -1785,9 +1787,11 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     actualWastage: 0,
     status: "Issued",
     transfers: [],
-  });
+    issueSafeItemsBefore,
+  };
+  state.lots.unshift(issuedLot);
   const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
-  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference });
+  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference, sourceType: "gold-issue", sourceId: issuedLot.id });
   issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
     grossWeight: issuedWeight,
     waxStoneWeight,
@@ -2152,6 +2156,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     alert(`This partial issue exceeds the remaining Safe Locker balance. Remaining: GW ${gram(availableGrossWeight)} / Wax ${gram(availableWaxStoneWeight)} / Non-Gold ${gram(availableNonGoldWeight)} (${nonGoldBreakdownText(availableNonGoldBreakdown) || "none"}) / Gold ${gram(availableNetWeight)}. Enter only the GW and non-gold contained in this small lot; later issues will use the remaining balance.`);
     return;
   }
+  const sourceSafeItemsBefore = captureSafeIssueSourceItems(item);
   const safeGoldIssue = ensureSafeIssueProductionLot({
     selection,
     lot,
@@ -2164,6 +2169,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     issuedNonGoldBreakdown,
     issuedNetWeight,
     stoneAdjustmentParts,
+    sourceSafeItemsBefore,
   });
   lot = safeGoldIssue.lot;
   const lotMovedToDepartment = !safeGoldIssue.created && destinationMode === "both"
@@ -2193,6 +2199,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     stoneAdjustmentProductionNo: stoneAdjustmentOrder?.productionNo || stoneAdjustmentOrder?.number || (stoneAdjustmentType === "trace" ? "Whole Job Card" : ""),
     completedStage,
     goldIssueLotId: safeGoldIssue.created ? lot?.id || "" : "",
+    sourceSafeItemBefore: sourceSafeItemsBefore[0] || null,
   });
   state.safeDepartmentIssues = state.safeDepartmentIssues || [];
   state.safeDepartmentIssues.unshift(issue);
@@ -3577,6 +3584,17 @@ document.getElementById("transfer-form").addEventListener("change", (event) => {
 
 document.getElementById("close-history").addEventListener("click", () => {
   document.getElementById("history-dialog").close();
+});
+
+document.getElementById("close-gold-issue-correction")?.addEventListener("click", closeGoldIssueCorrection);
+document.getElementById("cancel-gold-issue-correction")?.addEventListener("click", closeGoldIssueCorrection);
+document.getElementById("gold-issue-correction-form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  changeGoldIssueJobCard(event.currentTarget.lotId.value, event.currentTarget.targetJobNumber.value);
+});
+document.getElementById("undo-gold-issue")?.addEventListener("click", () => {
+  const form = document.getElementById("gold-issue-correction-form");
+  undoGoldIssue(form?.lotId.value || "");
 });
 
 document.getElementById("close-safe-item-issue-history")?.addEventListener("click", () => {
@@ -9480,6 +9498,12 @@ function safeItemAvailableWeight(item = {}) {
   return safeItemGoldWeight(item);
 }
 
+function captureSafeIssueSourceItems(selection = null) {
+  if (!selection) return [];
+  const items = selection.virtualSafeGroup ? selection.items || [] : [selection];
+  return items.filter((item) => item?.id).map((item) => structuredClone(item));
+}
+
 function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind = "all") {
   let remaining = Number(weight3(weight));
   if (remaining <= 0) return true;
@@ -10024,6 +10048,7 @@ function ensureSafeIssueProductionLot({
   issuedNonGoldBreakdown = {},
   issuedNetWeight = 0,
   stoneAdjustmentParts = {},
+  sourceSafeItemsBefore = [],
 } = {}) {
   if (lot || !selection.jobNumber || !selection.orders?.length || !department) return { lot, created: false };
   const orders = selection.orders.filter((order) => !isCompletedOrder(order) && order.status !== "Discarded");
@@ -10077,6 +10102,7 @@ function ensureSafeIssueProductionLot({
     status: "Issued",
     transfers: [],
     createdFromSafeIssue: true,
+    issueSafeItemsBefore: (sourceSafeItemsBefore || []).map((entry) => structuredClone(entry)),
   };
   state.lots.unshift(createdLot);
   state.ledger.unshift({
@@ -10086,6 +10112,8 @@ function ensureSafeIssueProductionLot({
     purity: metalPurity,
     weight: Number(weight3(issuedNetWeight)),
     reference: `${lotNumber} for ${selection.jobNumber} issued from ${createdLot.issueSourceName} to ${department.name}; Gold Issue GW ${gram(issuedGrossWeight)} - Wax ${gram(waxStoneWeight)} - Hand ${gram(initialHandStoneWeight)} - Other ${gram(issueOtherNonGoldWeight)} = Net Gold ${gram(issuedNetWeight)}`,
+    sourceType: "gold-issue",
+    sourceId: createdLot.id,
   });
   return { lot: createdLot, created: true };
 }
@@ -10393,6 +10421,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     stoneAdjustmentProductionNo: issue.stoneAdjustmentProductionNo || "",
     completedStage: String(issue.completedStage || issue.stoneAdjustmentCompletedStage || "").trim(),
     goldIssueLotId: issue.goldIssueLotId || "",
+    sourceSafeItemBefore: issue.sourceSafeItemBefore ? structuredClone(issue.sourceSafeItemBefore) : null,
     directDepartmentTransfer: Boolean(issue.directDepartmentTransfer),
     directTransferId: issue.directTransferId || "",
     sourceDepartmentId: issue.sourceDepartmentId || "",
@@ -10466,6 +10495,7 @@ function createSafeDepartmentIssue(item, department, process = "", remarks = "",
     stoneAdjustmentProductionNo: issueWeights.stoneAdjustmentProductionNo || "",
     completedStage: String(issueWeights.completedStage || "").trim(),
     goldIssueLotId: issueWeights.goldIssueLotId || "",
+    sourceSafeItemBefore: issueWeights.sourceSafeItemBefore ? structuredClone(issueWeights.sourceSafeItemBefore) : null,
     issuedNetWeight,
     grossWeight: issuedGrossWeight,
     waxStoneWeight: issuedWaxStoneWeight,
@@ -17984,6 +18014,304 @@ function printMotiDetailsHtml(design, order = {}, bagItems = null) {
   `;
 }
 
+function goldIssueLinkedSafeIssue(lot = {}) {
+  return (state.safeDepartmentIssues || []).find((issue) =>
+    (lot.safeDepartmentIssueId && issue.id === lot.safeDepartmentIssueId)
+    || issue.goldIssueLotId === lot.id
+  ) || null;
+}
+
+function goldIssueCorrectionBlockReason(lot = {}) {
+  if (!lot?.id) return "Gold issue was not found.";
+  if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can correct a Gold Issue.";
+  if (lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) return "This tracking lot was not created by a Safe Locker Gold Issue.";
+  if (lot.parentLotId || lot.qcReturn) return "Repair and split lots must be corrected through their production workflow.";
+  if ((lot.transfers || []).length) return "This lot has already moved to another department. Correct or delete the later transfer first.";
+  if (lot.status === "Completed" || lot.finishedWeight || lot.completedDate) return "A completed Gold Issue cannot be undone.";
+  if (billForLotRecord(lot)) return "This Gold Issue is already included in a Bill.";
+  if ((state.lots || []).some((entry) => entry.parentLotId === lot.id)) return "This Gold Issue has a split or repair child lot.";
+  if ((state.productionNonGoldIssues || []).some((entry) => entry.lotId === lot.id)) return "This lot already has a non-gold issue or removal entry.";
+  if ((state.settingManagerEntries || []).some((entry) => entry.lotId === lot.id || entry.productionLotId === lot.id)) return "This lot already has Setting Manager activity.";
+  const safeIssue = goldIssueLinkedSafeIssue(lot);
+  if (safeIssue && (state.safeDepartmentReturns || []).some((entry) => entry.issueId === safeIssue.id)) {
+    return "Material has already been received or loss booked against this Gold Issue.";
+  }
+  return "";
+}
+
+function goldIssueCorrectionButtonHtml(lot = {}) {
+  if (!canDeleteErpData() || isReadOnlyUser()) return "";
+  const reason = goldIssueCorrectionBlockReason(lot);
+  return `<button class="ghost-button${reason ? " disabled-action" : ""}" type="button" ${reason ? "disabled" : `onclick="openGoldIssueCorrection('${escapeHtml(lot.id)}')"`} title="${escapeHtml(reason || "Undo this Gold Issue or move it to the correct Job Card")}">Correct Issue</button>`;
+}
+
+function goldIssueCorrectionTargetGroups(lot = {}) {
+  const groups = new Map();
+  (state.orders || []).forEach((order) => {
+    const jobNumber = order.jobNumber || order.number || order.productionNo || "";
+    if (!jobNumber || jobNumber === lot.orderNumber || order.status !== "Pending" || isCompletedOrder(order) || order.status === "Discarded") return;
+    if (!groups.has(jobNumber)) groups.set(jobNumber, []);
+    groups.get(jobNumber).push(order);
+  });
+  const sourcePurity = karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "");
+  const sourceWax = Number(weight3(lot.waxStoneWeight || 0));
+  return [...groups.entries()].map(([jobNumber, orders]) => {
+    const purities = [...new Set(orders.map((order) => karatLogicPurity(order.purity || sourcePurity)))];
+    const waxStoneWeight = Number(weight3(productionStoneTotalsForOrders(orders, "wax").weight));
+    const compatible = purities.length === 1
+      && purities[0] === sourcePurity
+      && Math.abs(waxStoneWeight - sourceWax) <= 0.0005;
+    return { jobNumber, orders, purity: purities[0] || "", waxStoneWeight, compatible };
+  }).filter((group) => group.compatible)
+    .sort((left, right) => left.jobNumber.localeCompare(right.jobNumber, undefined, { numeric: true, sensitivity: "base" }));
+}
+
+function openGoldIssueCorrection(lotId = "") {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const reason = goldIssueCorrectionBlockReason(lot);
+  if (reason) {
+    alert(reason);
+    return;
+  }
+  const dialog = document.getElementById("gold-issue-correction-dialog");
+  const form = document.getElementById("gold-issue-correction-form");
+  if (!dialog || !form) return;
+  const safeIssue = goldIssueLinkedSafeIssue(lot);
+  const targets = lot.createdFromSafeIssue ? [] : goldIssueCorrectionTargetGroups(lot);
+  form.lotId.value = lot.id;
+  form.targetJobNumber.innerHTML = targets.length
+    ? `<option value="">Select correct Job Card</option>${targets.map((target) => `<option value="${escapeHtml(target.jobNumber)}">${escapeHtml(target.jobNumber)} / ${target.orders.length} item${target.orders.length === 1 ? "" : "s"} / ${escapeHtml(transferPurityLabel(target.purity))} / Wax ${gram(target.waxStoneWeight)}</option>`).join("")}`
+    : '<option value="">No matching Gold Pending Job Card</option>';
+  form.targetJobNumber.disabled = !targets.length;
+  document.getElementById("change-gold-issue-job").disabled = !targets.length;
+  document.getElementById("gold-issue-correction-summary").textContent = `${lot.number} / ${lot.orderNumber} / GW ${gram(lot.grossIssuedWeight || lot.issuedWeight)} / Wax ${gram(lot.waxStoneWeight)} / Net Gold ${gram(lot.issuedWeight)} / ${lot.currentDepartment || lot.karigarName || "-"}`;
+  document.getElementById("gold-issue-correction-note").textContent = safeIssue
+    ? "This Gold Issue was created from the Safe Locker issue screen. It can be fully undone, then issued again to the correct Job Card."
+    : targets.length
+      ? "Change Job Card keeps the exact GW, wax stone, net gold, Safe Locker source, lot number, and department. Undo restores the source shelf and returns the original Job Card to Gold Pending."
+      : "No Gold Pending Job Card has the same karat and wax-stone total. Use Undo Issue, then issue the gold again against the correct Job Card.";
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeGoldIssueCorrection() {
+  document.getElementById("gold-issue-correction-dialog")?.close();
+}
+
+function restoreSafeIssueSnapshots(lot = {}, snapshots = []) {
+  if (!snapshots.length) return false;
+  const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
+  const snapshotIds = new Set(snapshots.map((item) => item.id).filter(Boolean));
+  state.safeItems = (state.safeItems || []).filter((item) =>
+    snapshotIds.has(item.id)
+    || !(item.sourceType === "factory-issue" && sourceIds.has(String(item.sourceId || "")))
+  );
+  snapshots.forEach((snapshot) => {
+    const index = state.safeItems.findIndex((item) => item.id === snapshot.id);
+    const restored = structuredClone(snapshot);
+    if (index >= 0) state.safeItems[index] = restored;
+    else state.safeItems.unshift(restored);
+  });
+  return true;
+}
+
+function clearSafeIssueLinkFields(item = {}) {
+  [
+    "issueDepartmentId", "issueDepartmentName", "issueProcess", "safeDepartmentIssueId",
+    "issueDestinationMode", "issueLotId", "issueLotNumber", "issueJobNumber",
+    "issueOrderId", "issueProductionNo", "outDate",
+  ].forEach((key) => delete item[key]);
+}
+
+function restoreGoldIssueSafeStock(lot = {}) {
+  const safeIssue = goldIssueLinkedSafeIssue(lot);
+  const snapshots = Array.isArray(lot.issueSafeItemsBefore) && lot.issueSafeItemsBefore.length
+    ? lot.issueSafeItemsBefore
+    : safeIssue?.sourceSafeItemBefore
+      ? [safeIssue.sourceSafeItemBefore]
+      : [];
+  if (restoreSafeIssueSnapshots(lot, snapshots)) return true;
+
+  if (safeIssue) {
+    const item = (state.safeItems || []).find((entry) => entry.id === safeIssue.safeItemId);
+    if (!item) return false;
+    if (item.status === "Out" && item.safeDepartmentIssueId === safeIssue.id) {
+      item.status = "In Safe";
+    } else {
+      item.grossWeight = Number(weight3(Number(item.grossWeight || 0) + Number(safeIssue.issuedGrossWeight || 0)));
+      item.waxStoneWeight = Number(weight3(Number(item.waxStoneWeight || 0) + Number(safeIssue.issuedWaxStoneWeight || 0)));
+      item.nonGoldBreakdown = addNonGoldBreakdowns(item.nonGoldBreakdown, safeIssue.issuedNonGoldBreakdown);
+      item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
+      item.netWeight = safeItemNetFromGross(item.grossWeight, item.waxStoneWeight, item.nonGoldWeight);
+      item.status = "In Safe";
+    }
+    clearSafeIssueLinkFields(item);
+    item.remarks = `Gold Issue ${lot.number} undone`;
+    return true;
+  }
+
+  const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
+  const outgoing = (state.safeItems || []).filter((item) => item.sourceType === "factory-issue" && sourceIds.has(String(item.sourceId || "")));
+  const directlyConsumed = (state.safeItems || []).filter((item) =>
+    item.status === "Out" && String(item.remarks || "").includes(lot.number || "__NO_LOT__")
+  );
+  let restored = false;
+  const mergedOutgoingIds = new Set();
+  const preferredSource = (state.safeItems || []).find((item) => item.id === lot.castingSafeItemId) || null;
+  outgoing.forEach((part) => {
+    const source = preferredSource || (state.safeItems || []).find((item) =>
+      item.id !== part.id
+      && item.sourceLine === part.sourceLine
+      && safeLockerForPurity(item.locker || item.purity) === safeLockerForPurity(part.locker || part.purity)
+      && item.sourceType !== "factory-issue"
+    );
+    if (source) {
+      source.grossWeight = Number(weight3(Number(source.grossWeight || 0) + Number(part.grossWeight || 0)));
+      source.waxStoneWeight = Number(weight3(Number(source.waxStoneWeight || 0) + Number(part.waxStoneWeight || 0)));
+      source.nonGoldBreakdown = addNonGoldBreakdowns(source.nonGoldBreakdown, part.nonGoldBreakdown);
+      source.nonGoldWeight = nonGoldBreakdownTotal(source.nonGoldBreakdown);
+      source.netWeight = safeItemNetFromGross(source.grossWeight, source.waxStoneWeight, source.nonGoldWeight);
+      source.status = "In Safe";
+      delete source.outDate;
+      mergedOutgoingIds.add(part.id);
+    } else {
+      part.status = "In Safe";
+      part.description = String(part.description || "").replace(/\s+-\s+Factory Issue$/i, "");
+      part.sourceType = "gold-issue-undo";
+      part.sourceId = "";
+      part.outDate = "";
+    }
+    restored = true;
+  });
+  state.safeItems = (state.safeItems || []).filter((item) => !mergedOutgoingIds.has(item.id));
+  directlyConsumed.forEach((item) => {
+    if (outgoing.some((part) => part.id === item.id)) return;
+    item.status = "In Safe";
+    item.outDate = "";
+    item.remarks = `Gold Issue ${lot.number} undone`;
+    restored = true;
+  });
+  return restored;
+}
+
+function removeGoldIssueLedgerEntries(lot = {}) {
+  const lotNumber = String(lot.number || "");
+  state.ledger = (state.ledger || []).filter((entry) => {
+    if (entry.sourceType === "gold-issue" && entry.sourceId === lot.id) return false;
+    const reference = String(entry.reference || "");
+    return !(entry.type === "Out" && lotNumber && reference.includes(lotNumber) && /issued from|gold issue/i.test(reference));
+  });
+}
+
+function resetOrdersAfterGoldIssueRemoval(lot = {}) {
+  const removedOrderIds = new Set(getLotOrderIds(lot));
+  removedOrderIds.forEach((orderId) => {
+    const order = (state.orders || []).find((entry) => entry.id === orderId);
+    if (!order || isCompletedOrder(order) || order.status === "Discarded") return;
+    const stillInProduction = (state.lots || []).some((entry) => entry.id !== lot.id && getLotOrderIds(entry).includes(orderId));
+    if (!stillInProduction) order.status = "Pending";
+  });
+}
+
+function recordGoldIssueCorrection(lot = {}, action = "", detail = "") {
+  state.goldIssueCorrections = state.goldIssueCorrections || [];
+  state.goldIssueCorrections.unshift({
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    date: today(),
+    lotId: lot.id || "",
+    lotNumber: lot.number || "",
+    jobNumber: lot.orderNumber || "",
+    action,
+    detail,
+    userId: currentUser?.id || "",
+    userName: currentUser?.name || currentUserConfig()?.name || "",
+  });
+}
+
+function undoGoldIssue(lotId = "") {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const reason = goldIssueCorrectionBlockReason(lot);
+  if (reason) {
+    alert(reason);
+    return;
+  }
+  if (!confirm(`Undo Gold Issue ${lot.number} for ${lot.orderNumber}?\n\nThe Safe Locker stock will be restored, the production lot will be removed, and the Job Card will return to Gold Pending.`)) return;
+  const stateBefore = structuredClone(state);
+  const safeIssue = goldIssueLinkedSafeIssue(lot);
+  if (!restoreGoldIssueSafeStock(lot)) {
+    state = stateBefore;
+    alert("This older Gold Issue does not contain enough Safe Locker source information for an automatic undo. No data was changed.");
+    return;
+  }
+  if (safeIssue) {
+    getLotOrders(lot).forEach((order) => {
+      if (!Array.isArray(order.productionStoneItems)) return;
+      order.productionStoneItems = order.productionStoneItems.filter((item) => item.safeDepartmentIssueId !== safeIssue.id);
+    });
+    state.safeDepartmentIssues = (state.safeDepartmentIssues || []).filter((entry) => entry.id !== safeIssue.id);
+  }
+  removeGoldIssueLedgerEntries(lot);
+  resetOrdersAfterGoldIssueRemoval(lot);
+  state.lots = (state.lots || []).filter((entry) => entry.id !== lot.id);
+  recordGoldIssueCorrection(lot, "UNDO", `Safe Locker stock restored; ${lot.orderNumber} returned to Gold Pending.`);
+  if (!saveState({ alertOnFailure: true, context: `Undo Gold Issue ${lot.number}` })) {
+    state = stateBefore;
+    render();
+    alert("Gold Issue could not be undone on this laptop. No data was changed.");
+    return;
+  }
+  closeGoldIssueCorrection();
+  document.getElementById("history-dialog")?.close();
+  render();
+  alert(`${lot.number} Gold Issue was undone.\n${lot.orderNumber} is Gold Pending again and the Safe Locker stock has been restored.`);
+}
+
+function changeGoldIssueJobCard(lotId = "", targetJobNumber = "") {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const reason = goldIssueCorrectionBlockReason(lot);
+  if (reason) {
+    alert(reason);
+    return;
+  }
+  if (lot.createdFromSafeIssue || goldIssueLinkedSafeIssue(lot)) {
+    alert("This issue was created from the Safe Locker issue screen. Undo it, then issue it again to the correct Job Card.");
+    return;
+  }
+  const target = goldIssueCorrectionTargetGroups(lot).find((group) => group.jobNumber === targetJobNumber);
+  if (!target) {
+    alert("Select a Gold Pending Job Card with matching karat and wax-stone weight.");
+    return;
+  }
+  const oldJobNumber = lot.orderNumber || "";
+  if (!confirm(`Move ${lot.number} Gold Issue from ${oldJobNumber} to ${target.jobNumber}?\n\nGW, wax stone, net gold, Safe Locker source, lot number, and department will stay unchanged.`)) return;
+  const stateBefore = structuredClone(state);
+  resetOrdersAfterGoldIssueRemoval(lot);
+  target.orders.forEach((order) => { order.status = "In Production"; });
+  lot.orderId = target.orders[0]?.id || "";
+  lot.orderIds = target.orders.map((order) => order.id);
+  lot.orderNumber = target.jobNumber;
+  lot.metalPurity = karatLogicPurity(target.purity || lot.metalPurity);
+  (state.ledger || []).forEach((entry) => {
+    const linked = (entry.sourceType === "gold-issue" && entry.sourceId === lot.id)
+      || (lot.number && String(entry.reference || "").includes(lot.number));
+    if (linked && oldJobNumber) entry.reference = String(entry.reference || "").split(oldJobNumber).join(target.jobNumber);
+  });
+  recordGoldIssueCorrection(lot, "CHANGE JOB CARD", `${oldJobNumber} changed to ${target.jobNumber}; issue weights unchanged.`);
+  if (!saveState({ alertOnFailure: true, context: `Change ${lot.number} Job Card` })) {
+    state = stateBefore;
+    render();
+    alert("Gold Issue Job Card could not be changed on this laptop. No data was changed.");
+    return;
+  }
+  closeGoldIssueCorrection();
+  document.getElementById("history-dialog")?.close();
+  render();
+  alert(`${lot.number} now belongs to ${target.jobNumber}.\n${oldJobNumber} has returned to Gold Pending.`);
+}
+
 function renderOrderLots(order) {
   const jobOrders = getJobOrders(order);
   const orderIds = new Set(jobOrders.map((item) => item.id));
@@ -18074,11 +18402,12 @@ function renderOrderLotCard(lot) {
   const waxStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "wax");
   const handStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "hand");
   const nonGoldTotals = productionNonGoldTotalsForLot(lot);
-  const actions = lot.status === "Completed"
+  const primaryActions = lot.status === "Completed"
     ? `<button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
     : lot.fittingItemsJobCard
       ? `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer To Fitting</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
       : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" type="button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
+  const actions = `${primaryActions}${goldIssueCorrectionButtonHtml(lot)}`;
   return `
     <article class="order-lot-card">
       <div>
@@ -26604,7 +26933,7 @@ function renderProduction() {
       <td>${wastageDetailHtml(lot)}</td>
       <td><span class="status ${statusClass(lot.status)}">${lot.status}</span></td>
       <td>${renderTransferHistory(lot)}</td>
-      <td><div class="row-actions">${lot.status === "Completed" ? "" : lot.fittingItemsJobCard ? `<button onclick="openTransferLot('${lot.id}')">Transfer To Fitting</button>` : `<button onclick="openTransferLot('${lot.id}')">Transfer</button><button onclick="openCompleteLot('${lot.id}')">Complete</button><button class="ghost-button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button>`}<button class="ghost-button" onclick="openLotHistory('${lot.id}')">History</button></div></td>
+      <td><div class="row-actions">${lot.status === "Completed" ? "" : lot.fittingItemsJobCard ? `<button onclick="openTransferLot('${lot.id}')">Transfer To Fitting</button>` : `<button onclick="openTransferLot('${lot.id}')">Transfer</button><button onclick="openCompleteLot('${lot.id}')">Complete</button><button class="ghost-button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button>`}<button class="ghost-button" onclick="openLotHistory('${lot.id}')">History</button>${goldIssueCorrectionButtonHtml(lot)}</div></td>
     </tr>
   `).join("");
   document.getElementById("production-table").innerHTML = rows || tableEmpty(11, "No production lots recorded.");
@@ -33997,7 +34326,7 @@ function renderGoldIssueHistoryRow(lot) {
       <td>${escapeHtml(transferPurityLabel(lot.metalPurity || "-"))}</td>
       <td>${gram(0)}</td>
       <td class="remark-cell">${transferRemarkCell(`${sourceName}; Purity ${transferPurityLabel(lot.metalPurity || "-")}; Gold Issue GW ${gram(issueGw)} - Wax ${gram(waxStone)} - Hand ${gram(handStone)} - Other ${gram(otherNonGold)} = Net Gold ${gram(lot.issuedWeight)}`)}</td>
-      <td>-</td>
+      <td><div class="row-actions">${goldIssueCorrectionButtonHtml(lot) || "-"}</div></td>
     </tr>
   `;
 }
@@ -35198,6 +35527,10 @@ function normalizeState(currentState) {
     }
   });
   migrateCbBothRingOrders(currentState);
+  currentState.goldIssueCorrections = (currentState.goldIssueCorrections || [])
+    .filter((entry) => entry?.id)
+    .sort((left, right) => String(right.createdAt || right.date || "").localeCompare(String(left.createdAt || left.date || "")))
+    .slice(0, 1000);
   currentState.productionNonGoldIssues = (currentState.productionNonGoldIssues || []).map((issue) => {
     const lot = issue.lotId ? (currentState.lots || []).find((item) => item.id === issue.lotId) || {} : {};
     return normalizeProductionNonGoldIssue(issue, lot, currentState);

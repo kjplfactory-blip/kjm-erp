@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=553">
+  <link rel="stylesheet" href="styles.css?v=554">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v553</small>
+      <small class="app-version-badge">App v554</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v553</span>
+          <span class="app-version-badge">App v554</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2155,6 +2155,29 @@
       </div>
     </dialog>
 
+    <dialog id="gold-issue-correction-dialog">
+      <form id="gold-issue-correction-form" class="dialog-card history-dialog gold-issue-correction-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Correct Gold Issue</h2>
+            <p id="gold-issue-correction-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-gold-issue-correction">Close</button>
+        </div>
+        <input type="hidden" name="lotId">
+        <label>Change To Job Card
+          <select name="targetJobNumber"></select>
+          <small>Only Gold Pending Job Cards with matching karat and wax-stone weight are listed.</small>
+        </label>
+        <p id="gold-issue-correction-note" class="dialog-note"></p>
+        <div class="dialog-actions">
+          <button class="danger-button" type="button" id="undo-gold-issue">Undo Issue</button>
+          <button class="ghost-button" type="button" id="cancel-gold-issue-correction">Cancel</button>
+          <button type="submit" id="change-gold-issue-job">Change Job Card</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="bill-dialog">
       <form method="dialog" id="bill-form" class="dialog-card bill-dialog-card">
         <h2 id="bill-form-title">Make Bill</h2>
@@ -2881,6 +2904,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=553"></script>
+  <script src="app.js?v=554"></script>
 </body>
 </html>

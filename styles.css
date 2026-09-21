@@ -9105,6 +9105,26 @@ body.measuring-transfer-bag .global-print-area {
   overflow: auto;
 }
 
+.gold-issue-correction-card {
+  align-content: start;
+  gap: 18px;
+}
+
+.gold-issue-correction-card > label {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 760px);
+}
+
+.gold-issue-correction-card > label small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.gold-issue-correction-card .dialog-actions {
+  justify-content: flex-end;
+}
+
 .dialog-header {
   display: flex;
   align-items: flex-start;
