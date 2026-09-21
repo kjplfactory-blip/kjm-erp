@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v557";
+const APP_VERSION = "v558";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -440,6 +440,7 @@ const demoState = {
   orders: [],
   lots: [],
   goldIssueCorrections: [],
+  transferEditHistory: [],
   productionNonGoldIssues: [],
   settingSetters: [],
   settingManagerEntries: [],
@@ -3469,6 +3470,14 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   }
 
   const editingTransfer = data.transferId ? (lot.transfers || []).find((transfer) => transfer.id === data.transferId) : null;
+  if (data.transferId && !editingTransfer) {
+    alert("This transfer entry could not be found. Refresh Transfer History and try again.");
+    return;
+  }
+  if (editingTransfer && !requireTransferHistoryEditPermission()) return;
+  const stateBeforeEdit = editingTransfer ? structuredClone(state) : null;
+  const transferBeforeEdit = editingTransfer ? structuredClone(editingTransfer) : null;
+  const returnToHistory = editingTransfer ? event.target.dataset.returnToHistory || "" : "";
   if (!editingTransfer && lot.karigarId === newKarigar.id) {
     alert("Please select a different department for transfer.");
     return;
@@ -3492,6 +3501,10 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   }
 
   const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId)));
+  if (issuedNetWeight < 0) {
+    alert("Issue GW cannot be less than the stone weight already accounted in this transfer.");
+    return;
+  }
   const receivedWeight = Number(weight3(grossReceivedWeight - reducedWeight));
   if (receivedWeight < 0) {
     alert("Net Wt cannot be less than 0.");
@@ -3508,7 +3521,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   lot.transfers = lot.transfers || [];
   const transferData = {
     id: data.transferId || crypto.randomUUID(),
-    date: today(),
+    date: editingTransfer ? (editingTransfer.date || today()) : today(),
     createdAt: editingTransfer ? (editingTransfer.createdAt || "") : new Date().toISOString(),
     fromKarigarId: lot.karigarId,
     fromKarigarName: lot.karigarName,
@@ -3531,6 +3544,12 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     toDepartment: mergedProductionDepartmentName(data.toDepartment),
     toProcessRaw: data.toDepartment,
     reason: fittingItemsCompletion ? "Fitting Items" : data.reason,
+    ...(editingTransfer ? {
+      editedAt: new Date().toISOString(),
+      editedByUserId: currentUser?.id || "",
+      editedByName: currentUser?.name || currentUserConfig()?.name || "",
+      editCount: Number(editingTransfer.editCount || 0) + 1,
+    } : {}),
   };
   if (editingTransfer) {
     Object.assign(editingTransfer, {
@@ -3541,19 +3560,39 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   } else {
     lot.transfers.push(transferData);
   }
+  if (editingTransfer) recordTransferHistoryEdit(lot, transferBeforeEdit, editingTransfer);
   recalculateLotAfterTransferChange(lot);
   state.ledger.unshift({
     id: crypto.randomUUID(),
     date: today(),
+    createdAt: new Date().toISOString(),
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: receivedWeight,
     reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    sourceType: editingTransfer ? "transfer-edit" : "transfer",
+    sourceId: transferData.id,
+    userId: currentUser?.id || "",
+    userName: currentUser?.name || currentUserConfig()?.name || "",
   });
   document.getElementById("transfer-dialog").close();
   event.target.reset();
-  saveState();
+  event.target.transferWeight.readOnly = true;
+  event.target.dataset.returnToHistory = "";
+  document.getElementById("transfer-form-submit").textContent = "Transfer Job";
+  const saved = saveState({
+    alertOnFailure: Boolean(editingTransfer),
+    context: editingTransfer ? `Edit transfer ${lot.number}` : `Transfer ${lot.number}`,
+  });
+  if (editingTransfer && !saved) {
+    state = stateBeforeEdit;
+    render();
+    alert("The transfer correction could not be saved on this laptop. No transfer data was changed.");
+    return;
+  }
   render();
+  if (returnToHistory === "online") openTransferHistoryOperationDialog("history");
+  if (returnToHistory === "lot") openLotHistory(lot.id);
 });
 
 document.getElementById("cancel-transfer").addEventListener("click", () => {
@@ -4080,6 +4119,16 @@ function canEditGeneratedBill() {
 
 function canDeleteErpData() {
   return isOwner() || isManagerUser();
+}
+
+function canEditTransferHistory() {
+  return Boolean(!isReadOnlyUser() && (isOwner() || isManagerUser()));
+}
+
+function requireTransferHistoryEditPermission() {
+  if (canEditTransferHistory()) return true;
+  alert("Only Owner or Manager can edit transfer history entries.");
+  return false;
 }
 
 function requireDeletePermission(action = "delete ERP data") {
@@ -19531,7 +19580,10 @@ function openTransferLot(lotId) {
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
   form.lotId.value = lot.id;
   form.transferId.value = "";
+  form.dataset.returnToHistory = "";
+  form.transferWeight.readOnly = true;
   document.getElementById("transfer-form-title").textContent = "Transfer Job To Another Department";
+  document.getElementById("transfer-form-submit").textContent = "Transfer Job";
   form.transferWeight.value = weight3(issueWeight);
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
@@ -19557,15 +19609,22 @@ function openTransferLot(lotId) {
 }
 
 function openTransferEdit(lotId, transferId) {
+  if (!requireTransferHistoryEditPermission()) return;
   const lot = findById("lots", lotId);
   const transfer = lot?.transfers?.find((item) => item.id === transferId);
   if (!lot || !transfer) return;
   const historyDialog = document.getElementById("history-dialog");
+  const onlineHistoryDialog = document.getElementById("online-transfer-history-dialog");
+  const returnToHistory = onlineHistoryDialog?.open ? "online" : historyDialog?.open ? "lot" : "";
   if (historyDialog.open) historyDialog.close();
+  if (onlineHistoryDialog?.open) onlineHistoryDialog.close();
   const form = document.getElementById("transfer-form");
   form.lotId.value = lot.id;
   form.transferId.value = transfer.id;
+  form.dataset.returnToHistory = returnToHistory;
+  form.transferWeight.readOnly = false;
   document.getElementById("transfer-form-title").textContent = `Edit Transfer - ${lot.number}`;
+  document.getElementById("transfer-form-submit").textContent = "Save Correction";
   renderTransferOptions({ karigarId: transfer.fromKarigarId });
   form.karigarId.value = transfer.toKarigarId || "";
   renderTransferProcessOptions(form.karigarId.value, transfer.toDepartment || "");
@@ -19583,11 +19642,49 @@ function openTransferEdit(lotId, transferId) {
   form.fromDepartment.value = transfer.fromDepartment || "";
   form.reason.value = transfer.reason || "";
   setTransferCurrentNote(`
-    <span>Editing transfer for ${escapeHtml(lot.number)}. Current department:</span>
+    <span><b>Owner / Manager correction:</b> edit Issue GW or Receive GW for ${escapeHtml(lot.number)}. Original date and time will remain unchanged.</span>
+    <span>Current department:</span>
     <strong class="transfer-current-dept">${escapeHtml(lot.karigarName || lot.currentDepartment || "-")}</strong>
     <span>Entry: ${escapeHtml(transfer.fromDepartment || "-")} to ${escapeHtml(transfer.toDepartment || transfer.toKarigarName || "-")}.</span>
   `);
   document.getElementById("transfer-dialog").showModal();
+}
+
+function transferHistoryCorrectionSnapshot(transfer = {}) {
+  return {
+    issueGw: Number(weight3(transfer.transferWeight || 0)),
+    receiveGw: Number(weight3(transfer.grossReceivedWeight || 0)),
+    waxStone: Number(weight3(transfer.waxStoneWeight || 0)),
+    handStone: Number(weight3(transfer.stoneWeight || transfer.handStoneWeight || 0)),
+    netWeight: Number(weight3(transfer.receivedWeight || 0)),
+    difference: Number(weight3(transfer.departmentBalance || 0)),
+    fromDepartment: transfer.fromDepartment || transfer.fromKarigarName || "",
+    toDepartment: transfer.toDepartment || transfer.toKarigarName || "",
+    remarks: transfer.reason || "",
+  };
+}
+
+function recordTransferHistoryEdit(lot = {}, before = {}, after = {}) {
+  state.transferEditHistory = state.transferEditHistory || [];
+  state.transferEditHistory.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    lotId: lot.id || "",
+    lotNumber: lot.number || "",
+    jobNumber: lot.orderNumber || "",
+    transferId: after.id || before.id || "",
+    before: transferHistoryCorrectionSnapshot(before),
+    after: transferHistoryCorrectionSnapshot(after),
+    userId: currentUser?.id || "",
+    userName: currentUser?.name || currentUserConfig()?.name || "",
+  });
+  state.transferEditHistory = state.transferEditHistory.slice(0, 2000);
+}
+
+function transferHistoryEditButtonHtml(lot = {}, transfer = {}) {
+  if (!canEditTransferHistory() || !lot?.id || !transfer?.id) return "";
+  return `<button class="ghost-button" type="button" onclick="openTransferEdit('${escapeHtml(lot.id)}', '${escapeHtml(transfer.id)}')" title="Correct Issue GW or Receive GW">Edit</button>`;
 }
 
 function deleteTransfer(lotId, transferId) {
@@ -34609,7 +34706,7 @@ function renderTransferHistoryRow(entry) {
       <td class="remark-cell">
         <div class="online-transfer-remarks-actions">
           ${transferRemarkCell(transfer.reason || "-")}
-          <div class="row-actions transfer-history-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lot.id}', '${transfer.id}')">Edit</button>${onlineTransferUndoButtonHtml(entry)}</div>
+          <div class="row-actions transfer-history-actions">${transferHistoryEditButtonHtml(lot, transfer)}${onlineTransferUndoButtonHtml(entry)}</div>
         </div>
       </td>
     </tr>
@@ -34819,7 +34916,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${escapeHtml(transferPurityLabel(transfer.differencePurity || lot?.metalPurity || ""))}</td>
       <td>${gram(transferFineGold(transfer, lot))}</td>
       <td class="remark-cell">${transferRemarkCell(transfer.reason || "-")}</td>
-      <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openTransferEdit('${lotId}', '${transfer.id}')">Edit</button>${onlineTransferUndoButtonHtml({ type: "transfer", lot, transfer })}</div></td>
+      <td><div class="row-actions">${transferHistoryEditButtonHtml(lot, transfer)}${onlineTransferUndoButtonHtml({ type: "transfer", lot, transfer })}</div></td>
     </tr>
   `;
 }
@@ -36000,6 +36097,10 @@ function normalizeState(currentState) {
     .filter((entry) => entry?.id)
     .sort((left, right) => String(right.createdAt || right.date || "").localeCompare(String(left.createdAt || left.date || "")))
     .slice(0, 1000);
+  currentState.transferEditHistory = (currentState.transferEditHistory || [])
+    .filter((entry) => entry?.id)
+    .sort((left, right) => String(right.createdAt || right.date || "").localeCompare(String(left.createdAt || left.date || "")))
+    .slice(0, 2000);
   currentState.productionNonGoldIssues = (currentState.productionNonGoldIssues || []).map((issue) => {
     const lot = issue.lotId ? (currentState.lots || []).find((item) => item.id === issue.lotId) || {} : {};
     return normalizeProductionNonGoldIssue(issue, lot, currentState);
