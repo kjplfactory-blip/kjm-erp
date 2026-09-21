@@ -6422,6 +6422,147 @@ dialog::backdrop {
   gap: 10px;
 }
 
+.merge-job-cards-card {
+  grid-template-rows: auto auto auto minmax(240px, 1fr) auto;
+  overflow: hidden;
+}
+
+.merge-job-primary-panel {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.2fr) minmax(260px, 0.8fr);
+  gap: 12px;
+}
+
+.merge-job-primary-panel label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.merge-job-primary-panel select,
+.merge-job-primary-panel input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 11px;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+}
+
+.merge-job-selected-panel,
+.merge-job-candidate-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #c9e5df;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.merge-job-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.merge-job-section-heading > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.merge-job-section-heading small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.merge-job-selected-panel .selected-design-chips {
+  min-height: 42px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.merge-job-candidate-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.merge-job-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.merge-job-candidate-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.merge-job-candidate-card:hover,
+.merge-job-candidate-card.selected {
+  border-color: #0f766e;
+  background: #eaf8f3;
+}
+
+.merge-job-candidate-card input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.merge-job-candidate-card span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.merge-job-candidate-card strong,
+.merge-job-candidate-card b,
+.merge-job-candidate-card small {
+  overflow-wrap: anywhere;
+}
+
+.merge-job-candidate-card strong {
+  color: #0f5f55;
+  font-size: 16px;
+}
+
+.merge-job-candidate-card small {
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .merge-job-cards-card {
+    grid-template-rows: auto auto auto minmax(220px, 1fr) auto;
+  }
+
+  .merge-job-primary-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .merge-job-candidate-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .job-item-select-card {
   display: grid;
   gap: 6px;

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=552">
+  <link rel="stylesheet" href="styles.css?v=553">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v552</small>
+      <small class="app-version-badge">App v553</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v552</span>
+          <span class="app-version-badge">App v553</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -493,6 +493,10 @@
           <button class="action-tile" type="button" data-order-page="active">
             <strong>Job Order</strong>
             <span>Open and update running jobs</span>
+          </button>
+          <button class="action-tile" type="button" id="merge-split-job-cards">
+            <strong>Merge Split Job Cards</strong>
+            <span>Select related split cards and keep one main job number</span>
           </button>
           <button class="action-tile" type="button" data-order-page="completed">
             <strong>Completed Job Order</strong>
@@ -1785,6 +1789,54 @@
       </form>
     </dialog>
 
+    <dialog id="merge-job-cards-dialog">
+      <form id="merge-job-cards-form" class="dialog-card merge-job-cards-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Merge Split Job Cards</h2>
+            <p class="dialog-note">Choose the first job card as Main. Every PR item from the selected split cards will move into that Main Job Card. Production numbers, lots, weights, departments, transfers, bills, and item status remain unchanged.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-merge-job-cards">Close</button>
+        </div>
+        <section class="merge-job-primary-panel">
+          <label>Main / First Job Card (Job Number Kept)
+            <select id="merge-job-primary" name="primaryJobNumber" required></select>
+          </label>
+          <label>Search Related Split Cards
+            <input id="merge-job-search" type="search" placeholder="Job no, customer, category or status" autocomplete="off">
+          </label>
+        </section>
+        <section class="merge-job-selected-panel">
+          <div class="merge-job-section-heading">
+            <div>
+              <strong>Selected Cards To Merge</strong>
+              <small id="merge-job-selected-summary">0 cards selected</small>
+            </div>
+            <div class="row-actions">
+              <button class="ghost-button" type="button" id="merge-job-select-all">Select All Related</button>
+              <button class="ghost-button" type="button" id="merge-job-clear-selection">Clear Selection</button>
+            </div>
+          </div>
+          <div id="merge-job-selected-list" class="selected-design-chips">
+            <small class="selected-design-empty">No split job card selected.</small>
+          </div>
+        </section>
+        <section class="merge-job-candidate-panel">
+          <div class="merge-job-section-heading">
+            <div>
+              <strong>Related Split Job Cards</strong>
+              <small id="merge-job-candidate-summary"></small>
+            </div>
+          </div>
+          <div id="merge-job-candidates" class="merge-job-candidate-grid"></div>
+        </section>
+        <div class="dialog-actions">
+          <button type="submit" id="confirm-merge-job-cards">Merge Selected Into Main Job Card</button>
+          <button class="ghost-button" type="button" id="cancel-merge-job-cards">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="order-dialog">
       <div class="dialog-card order-dialog">
         <div class="dialog-header">
@@ -2829,6 +2881,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=552"></script>
+  <script src="app.js?v=553"></script>
 </body>
 </html>

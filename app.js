@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v552";
+const APP_VERSION = "v553";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -341,6 +341,7 @@ let factoryResetLockUntil = Number(localStorage.getItem(FACTORY_RESET_LOCK_KEY) 
 let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
 let activeDesignMasterId = "";
+let mergeSelectedJobNumbers = new Set();
 let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueSelectionQuantities = new Map();
@@ -767,6 +768,23 @@ function openDefaultOperationPage(view) {
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
 });
+
+document.getElementById("merge-split-job-cards")?.addEventListener("click", openMergeJobCardsDialog);
+document.getElementById("close-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
+document.getElementById("cancel-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
+document.getElementById("merge-job-primary")?.addEventListener("change", () => {
+  mergeSelectedJobNumbers.clear();
+  renderMergeJobCandidates();
+});
+document.getElementById("merge-job-search")?.addEventListener("input", renderMergeJobCandidates);
+document.getElementById("merge-job-select-all")?.addEventListener("click", selectAllRelatedMergeJobs);
+document.getElementById("merge-job-clear-selection")?.addEventListener("click", () => {
+  mergeSelectedJobNumbers.clear();
+  renderMergeJobCandidates();
+});
+document.getElementById("merge-job-candidates")?.addEventListener("change", handleMergeJobSelectionChange);
+document.getElementById("merge-job-selected-list")?.addEventListener("click", handleMergeJobSelectedListClick);
+document.getElementById("merge-job-cards-form")?.addEventListener("submit", mergeSelectedJobCards);
 
 document.querySelectorAll("[data-design-page]").forEach((button) => {
   button.addEventListener("click", () => switchDesignPage(button.dataset.designPage));
@@ -3947,6 +3965,16 @@ function canManageFittingAccessoriesJobCards() {
   return isOwner() || isManagerUser();
 }
 
+function canMergeSplitJobCards() {
+  return isOwner() || isManagerUser() || isOrderUser();
+}
+
+function requireMergeSplitJobCardsPermission() {
+  if (canMergeSplitJobCards()) return true;
+  alert("Only Owner, Manager, or Order Dept can merge split Job Cards.");
+  return false;
+}
+
 function requireFittingAccessoriesManager(action = "manage fitting accessories job cards") {
   if (canManageFittingAccessoriesJobCards()) return true;
   alert(`Only Owner or Manager can ${action}.`);
@@ -4099,6 +4127,7 @@ function applyAccessControl() {
     element.classList.toggle("hidden", currentUser && !canManageSettingSetters());
   });
   document.getElementById("create-fitting-accessories-job")?.classList.toggle("hidden", !canManageFittingAccessoriesJobCards());
+  document.getElementById("merge-split-job-cards")?.classList.toggle("hidden", !canMergeSplitJobCards());
   document.body.classList.toggle("office-readonly", currentUserConfig()?.role === "office-ops" || isSalesUser());
   document.body.classList.toggle("read-only-user", isReadOnlyUser());
   document.body.classList.toggle("qc-only-user", isBillQcOnlyMode());
@@ -24070,6 +24099,279 @@ function renderOrders() {
   document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, "No active job orders recorded.");
   document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, "No completed job orders recorded.");
   renderRepairJobOrders();
+}
+
+function mergeJobNumber(order = {}) {
+  return order.jobNumber || order.productionNo || order.number || "";
+}
+
+function mergeEligibleJobFamilies() {
+  const families = new Map();
+  groupedJobOrders().forEach((job) => {
+    const root = splitJobRootNumber(job.jobNumber);
+    if (!root) return;
+    if (!families.has(root)) families.set(root, []);
+    families.get(root).push(job);
+  });
+  return [...families.entries()]
+    .map(([root, jobs]) => ({
+      root,
+      jobs: jobs.sort((left, right) => {
+        if (left.jobNumber === root) return -1;
+        if (right.jobNumber === root) return 1;
+        return left.jobNumber.localeCompare(right.jobNumber, undefined, { numeric: true });
+      }),
+    }))
+    .filter((family) => family.jobs.length > 1)
+    .sort((left, right) => left.root.localeCompare(right.root, undefined, { numeric: true }));
+}
+
+function mergeJobFamily(primaryJobNumber = "") {
+  const root = splitJobRootNumber(primaryJobNumber);
+  return mergeEligibleJobFamilies().find((family) => family.root === root) || null;
+}
+
+function mergeJobLabel(job = {}) {
+  return `${job.jobNumber} / ${job.orders?.length || 0} item${job.orders?.length === 1 ? "" : "s"} / ${job.customer || "-"} / ${job.categories || "-"} / ${job.status || "-"}`;
+}
+
+function renderMergeJobPrimaryOptions(preferredJobNumber = "") {
+  const select = document.getElementById("merge-job-primary");
+  if (!select) return false;
+  const families = mergeEligibleJobFamilies();
+  const availableJobNumbers = new Set(families.flatMap((family) => family.jobs.map((job) => job.jobNumber)));
+  select.innerHTML = families.map((family) => `
+    <optgroup label="${escapeHtml(family.root)}">
+      ${family.jobs.map((job) => `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(mergeJobLabel(job))}</option>`).join("")}
+    </optgroup>
+  `).join("");
+  const preferred = availableJobNumbers.has(preferredJobNumber) ? preferredJobNumber : families[0]?.jobs[0]?.jobNumber || "";
+  select.value = preferred;
+  return Boolean(preferred);
+}
+
+function openMergeJobCardsDialog(preferredJobNumber = "") {
+  if (!requireMergeSplitJobCardsPermission()) return;
+  const dialog = document.getElementById("merge-job-cards-dialog");
+  const search = document.getElementById("merge-job-search");
+  mergeSelectedJobNumbers.clear();
+  if (search) search.value = "";
+  if (!renderMergeJobPrimaryOptions(preferredJobNumber)) {
+    alert("No related split Job Cards are available to merge.");
+    return;
+  }
+  renderMergeJobCandidates();
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeMergeJobCardsDialog() {
+  document.getElementById("merge-job-cards-dialog")?.close();
+  mergeSelectedJobNumbers.clear();
+}
+
+function visibleMergeJobCandidates() {
+  const primaryJobNumber = document.getElementById("merge-job-primary")?.value || "";
+  const query = (document.getElementById("merge-job-search")?.value || "").trim().toLowerCase();
+  const family = mergeJobFamily(primaryJobNumber);
+  return (family?.jobs || []).filter((job) => {
+    if (job.jobNumber === primaryJobNumber) return false;
+    return !query || mergeJobLabel(job).toLowerCase().includes(query);
+  });
+}
+
+function renderMergeJobCandidates() {
+  const primaryJobNumber = document.getElementById("merge-job-primary")?.value || "";
+  const family = mergeJobFamily(primaryJobNumber);
+  const validJobNumbers = new Set((family?.jobs || []).map((job) => job.jobNumber).filter((jobNumber) => jobNumber !== primaryJobNumber));
+  mergeSelectedJobNumbers = new Set([...mergeSelectedJobNumbers].filter((jobNumber) => validJobNumbers.has(jobNumber)));
+  const visibleJobs = visibleMergeJobCandidates();
+  const holder = document.getElementById("merge-job-candidates");
+  const summary = document.getElementById("merge-job-candidate-summary");
+  if (summary) summary.textContent = family
+    ? `${visibleJobs.length} of ${Math.max(family.jobs.length - 1, 0)} related card${family.jobs.length - 1 === 1 ? "" : "s"} shown. Main card ${primaryJobNumber} will be kept.`
+    : "Choose a Main Job Card.";
+  if (holder) {
+    holder.innerHTML = visibleJobs.length ? visibleJobs.map((job) => `
+      <label class="merge-job-candidate-card ${mergeSelectedJobNumbers.has(job.jobNumber) ? "selected" : ""}">
+        <input type="checkbox" data-merge-job-number="${escapeHtml(job.jobNumber)}" ${mergeSelectedJobNumbers.has(job.jobNumber) ? "checked" : ""}>
+        <span>
+          <strong>${escapeHtml(job.jobNumber)}</strong>
+          <b>${job.orders.length} item${job.orders.length === 1 ? "" : "s"}</b>
+          <small>${escapeHtml(job.customer || "-")} / ${escapeHtml(job.categories || "-")}</small>
+          <small>${escapeHtml(job.currentStage || "-")} / ${escapeHtml(job.status || "-")}</small>
+        </span>
+      </label>
+    `).join("") : '<div class="empty">No related split card matches this search.</div>';
+  }
+  renderMergeJobSelectedList();
+}
+
+function renderMergeJobSelectedList() {
+  const holder = document.getElementById("merge-job-selected-list");
+  const summary = document.getElementById("merge-job-selected-summary");
+  const allJobs = new Map(groupedJobOrders().map((job) => [job.jobNumber, job]));
+  const selectedJobs = [...mergeSelectedJobNumbers].map((jobNumber) => allJobs.get(jobNumber)).filter(Boolean);
+  const selectedItems = selectedJobs.reduce((total, job) => total + job.orders.length, 0);
+  if (summary) summary.textContent = `${selectedJobs.length} card${selectedJobs.length === 1 ? "" : "s"} / ${selectedItems} item${selectedItems === 1 ? "" : "s"} selected`;
+  if (!holder) return;
+  holder.innerHTML = selectedJobs.length ? selectedJobs.map((job) => `
+    <span class="selected-design-chip merge-job-selected-chip">
+      <b>${escapeHtml(job.jobNumber)} / ${job.orders.length} item${job.orders.length === 1 ? "" : "s"}</b>
+      <button type="button" data-remove-merge-job="${escapeHtml(job.jobNumber)}" aria-label="Remove split Job Card" title="Remove split Job Card">&times;</button>
+    </span>
+  `).join("") : '<small class="selected-design-empty">No split job card selected.</small>';
+}
+
+function handleMergeJobSelectionChange(event) {
+  const checkbox = event.target.closest?.("[data-merge-job-number]");
+  if (!checkbox) return;
+  if (checkbox.checked) mergeSelectedJobNumbers.add(checkbox.dataset.mergeJobNumber);
+  else mergeSelectedJobNumbers.delete(checkbox.dataset.mergeJobNumber);
+  renderMergeJobCandidates();
+}
+
+function handleMergeJobSelectedListClick(event) {
+  const button = event.target.closest?.("[data-remove-merge-job]");
+  if (!button) return;
+  mergeSelectedJobNumbers.delete(button.dataset.removeMergeJob);
+  renderMergeJobCandidates();
+}
+
+function selectAllRelatedMergeJobs() {
+  const primaryJobNumber = document.getElementById("merge-job-primary")?.value || "";
+  const family = mergeJobFamily(primaryJobNumber);
+  (family?.jobs || []).forEach((job) => {
+    if (job.jobNumber !== primaryJobNumber) mergeSelectedJobNumbers.add(job.jobNumber);
+  });
+  renderMergeJobCandidates();
+}
+
+function updateMergedJobReference(record, sourceJobNumbers, primaryJobNumber, mergedAt) {
+  if (!record || typeof record !== "object") return false;
+  let changed = false;
+  ["jobNumber", "orderNumber"].forEach((field) => {
+    if (!sourceJobNumbers.has(record[field])) return;
+    record.mergedFromJobNumbers = [...new Set([...(record.mergedFromJobNumbers || []), record[field]])];
+    record[field] = primaryJobNumber;
+    record.jobCardMergedAt = mergedAt;
+    changed = true;
+  });
+  return changed;
+}
+
+async function mergeSelectedJobCards(event) {
+  event.preventDefault();
+  if (!requireMergeSplitJobCardsPermission()) return;
+  const form = event.currentTarget;
+  const submitButton = document.getElementById("confirm-merge-job-cards");
+  const submitLabel = submitButton?.textContent || "Merge Selected Into Main Job Card";
+  const primaryJobNumber = form.primaryJobNumber.value;
+  const sourceJobNumbers = new Set([...mergeSelectedJobNumbers].filter((jobNumber) => jobNumber !== primaryJobNumber));
+  const family = mergeJobFamily(primaryJobNumber);
+  const familyJobNumbers = new Set((family?.jobs || []).map((job) => job.jobNumber));
+  if (!primaryJobNumber || !family) {
+    alert("Choose a valid Main Job Card.");
+    return;
+  }
+  if (!sourceJobNumbers.size) {
+    alert("Select at least one related split Job Card to merge.");
+    return;
+  }
+  if ([...sourceJobNumbers].some((jobNumber) => !familyJobNumbers.has(jobNumber))) {
+    alert("Only Job Cards from the same original split family can be merged together.");
+    return;
+  }
+  const primaryOrders = state.orders.filter((order) => mergeJobNumber(order) === primaryJobNumber);
+  const sourceOrders = state.orders.filter((order) => sourceJobNumbers.has(mergeJobNumber(order)));
+  if (!primaryOrders.length || !sourceOrders.length) {
+    alert("The selected Job Cards could not be found. Refresh and try again.");
+    return;
+  }
+  const sourceSummary = [...sourceJobNumbers].join(", ");
+  const finalItemCount = primaryOrders.length + sourceOrders.length;
+  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the Main Job Card with ${finalItemCount} total items. All PR numbers, lots, weights, departments, transfers, bills, and item statuses will be preserved.`)) return;
+
+  const rollback = {
+    orders: structuredClone(state.orders || []),
+    lots: structuredClone(state.lots || []),
+    bills: structuredClone(state.bills || []),
+    safeItems: structuredClone(state.safeItems || []),
+    productionNonGoldIssues: structuredClone(state.productionNonGoldIssues || []),
+    settingManagerEntries: structuredClone(state.settingManagerEntries || []),
+    factoryLedger: structuredClone(state.factoryLedger || []),
+    ledger: structuredClone(state.ledger || []),
+  };
+  const mergedAt = new Date().toISOString();
+  const sourceOrderIds = new Set(sourceOrders.map((order) => order.id));
+  sourceOrders.forEach((order) => {
+    const previousJobNumber = mergeJobNumber(order);
+    order.mergedFromJobNumbers = [...new Set([...(order.mergedFromJobNumbers || []), previousJobNumber])];
+    order.jobNumber = primaryJobNumber;
+    order.lastJobCardMergeAt = mergedAt;
+    order.lastJobCardMergeBy = currentUser?.name || currentUser?.id || "ERP User";
+  });
+  const mergedOrders = [...primaryOrders, ...sourceOrders];
+  mergedOrders.forEach((order) => {
+    order.mergedJobNumbers = [...new Set([...(order.mergedJobNumbers || []), ...sourceJobNumbers])];
+    order.lastJobCardMergeAt = mergedAt;
+  });
+
+  (state.lots || []).forEach((lot) => {
+    const linkedToMergedOrder = getLotOrderIds(lot).some((orderId) => sourceOrderIds.has(orderId));
+    if (!linkedToMergedOrder && !sourceJobNumbers.has(lot.orderNumber)) return;
+    const previousJobNumber = lot.orderNumber;
+    if (previousJobNumber) lot.mergedFromJobNumbers = [...new Set([...(lot.mergedFromJobNumbers || []), previousJobNumber])];
+    lot.orderNumber = lotOrderNumberFromIds(getLotOrderIds(lot), primaryJobNumber) || primaryJobNumber;
+    lot.jobCardMergedAt = mergedAt;
+    if (lot.bill) updateMergedJobReference(lot.bill, sourceJobNumbers, primaryJobNumber, mergedAt);
+  });
+  (state.bills || []).forEach((bill) => updateMergedJobReference(bill, sourceJobNumbers, primaryJobNumber, mergedAt));
+  [
+    state.safeItems,
+    state.productionNonGoldIssues,
+    state.settingManagerEntries,
+    state.factoryLedger,
+  ].forEach((records) => (records || []).forEach((record) => updateMergedJobReference(record, sourceJobNumbers, primaryJobNumber, mergedAt)));
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: mergedAt,
+    type: "Job Card Merge",
+    purity: "-",
+    weight: 0,
+    jobNumber: primaryJobNumber,
+    mergedFromJobNumbers: [...sourceJobNumbers],
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); physical production lots and weights unchanged.`,
+  });
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Saving Merge...";
+  }
+  const savedLocally = saveState({ alertOnFailure: true, context: `Merge into ${primaryJobNumber}` });
+  if (!savedLocally) {
+    Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = submitLabel;
+    }
+    renderMergeJobCandidates();
+    return;
+  }
+  backupRecentJobOrders(mergedOrders);
+  if (submitButton) submitButton.textContent = "Saving To Cloud...";
+  const savedToCloud = await saveJobOrderToCloudNow();
+  closeMergeJobCardsDialog();
+  render();
+  switchOrderPage("active");
+  openJobOrder(primaryJobNumber, "all");
+  if (submitButton) {
+    submitButton.disabled = false;
+    submitButton.textContent = submitLabel;
+  }
+  const cloudMessage = savedToCloud ? "Saved on this laptop and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically.";
+  alert(`${sourceJobNumbers.size} split Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${finalItemCount} items retained. No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
