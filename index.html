@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v564</small>
+      <small class="app-version-badge">App v565</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v564</span>
+          <span class="app-version-badge">App v565</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1162,6 +1162,17 @@
               <strong>Physical Fine - Party Fine Balance</strong>
             </div>
             <button id="print-fine-sheet" type="button">Print Detailed Fine Sheet</button>
+            <div class="fine-sheet-backup-actions">
+              <button id="save-fine-sheet-backup" type="button" class="secondary">Save Today Backup</button>
+              <button id="print-yesterday-fine-sheet" type="button" class="secondary">Print Yesterday</button>
+            </div>
+            <div class="fine-sheet-saved-backup-row">
+              <select id="fine-sheet-backup-select" aria-label="Select a saved Fine Sheet backup">
+                <option value="">Saved Fine Sheet Backups</option>
+              </select>
+              <button id="print-selected-fine-sheet" type="button" class="secondary">Print Selected</button>
+            </div>
+            <small id="fine-sheet-backup-status" class="fine-sheet-backup-status">Daily backups will appear here after the ERP is saved.</small>
           </div>
         </div>
 
@@ -2947,6 +2958,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=564"></script>
+  <script src="app.js?v=565"></script>
 </body>
 </html>

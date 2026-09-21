@@ -15709,6 +15709,35 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #fine-sheet .fine-sheet-head-actions button {
   width: 100%;
 }
+#fine-sheet .fine-sheet-backup-actions,
+#fine-sheet .fine-sheet-saved-backup-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+#fine-sheet .fine-sheet-saved-backup-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(110px, auto);
+}
+#fine-sheet .fine-sheet-saved-backup-row select {
+  min-width: 0;
+  min-height: 37px;
+  border-color: #b9d7cd;
+  background: #fff;
+}
+#fine-sheet .fine-sheet-head-actions .secondary {
+  border: 1px solid #7fbaa7;
+  color: #0d6655;
+  background: #f5fbf8;
+}
+#fine-sheet .fine-sheet-head-actions .secondary:hover {
+  color: #fff;
+  background: #168168;
+}
+#fine-sheet .fine-sheet-backup-status {
+  color: #607871;
+  font-size: 9px;
+  line-height: 1.35;
+}
 #fine-sheet .fine-sheet-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 #fine-sheet .fine-sheet-summary .factory-summary-card:first-child {
   border-color: #54b694;
@@ -15820,6 +15849,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   #fine-sheet .fine-sheet-page-head { align-items: stretch; flex-direction: column; }
   #fine-sheet .fine-sheet-formula { min-width: 0; }
   #fine-sheet .fine-sheet-head-actions { min-width: 0; }
+  #fine-sheet .fine-sheet-backup-actions,
+  #fine-sheet .fine-sheet-saved-backup-row { grid-template-columns: 1fr; }
   #fine-sheet .fine-sheet-summary,
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #fine-sheet .fine-sheet-filters { width: 100%; grid-template-columns: 1fr; }

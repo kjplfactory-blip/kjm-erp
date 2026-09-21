@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v564";
+const APP_VERSION = "v565";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -39,6 +39,8 @@ const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
+const FINE_SHEET_BACKUP_RETENTION_DAYS = 8;
+const FINE_SHEET_BACKUP_LEDGER_LIMIT = 200;
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
 const FACTORY_INVENTORY_ZERO_RESET_REASON = "Reset gold and non-gold inventory to zero";
 const ONE_TIME_JOB_RESET_CUTOFF = 1680;
@@ -422,6 +424,7 @@ const demoState = {
   officeCustomers: [],
   vendors: [],
   factoryLedger: [],
+  fineSheetSnapshots: [],
   dailyTallies: [],
   dailyTallyContainers: [],
   designs: [],
@@ -2434,6 +2437,10 @@ document.getElementById("fine-sheet-search")?.addEventListener("input", renderFi
 document.getElementById("fine-sheet-purity-filter")?.addEventListener("change", renderFineSheet);
 document.getElementById("fine-sheet-ledger-search")?.addEventListener("input", renderFineSheetLedger);
 document.getElementById("print-fine-sheet")?.addEventListener("click", printDetailedFineSheet);
+document.getElementById("save-fine-sheet-backup")?.addEventListener("click", saveTodayFineSheetBackup);
+document.getElementById("print-yesterday-fine-sheet")?.addEventListener("click", printYesterdayFineSheetBackup);
+document.getElementById("print-selected-fine-sheet")?.addEventListener("click", printSelectedFineSheetBackup);
+document.getElementById("fine-sheet-backup-select")?.addEventListener("change", renderFineSheetBackupControls);
 document.getElementById("factory-ledger-table")?.addEventListener("pointerover", (event) => {
   const trigger = event.target.closest(".factory-reference-hover");
   if (trigger) showFactoryReferenceTooltip(trigger);
@@ -4678,6 +4685,7 @@ function prunePendingSyncMutations(savedSerial) {
 function saveState(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
+  captureTodayFineSheetSnapshot();
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
@@ -4693,6 +4701,7 @@ function saveState(options = {}) {
 function saveStateLocalOnly(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
+  captureTodayFineSheetSnapshot();
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
@@ -33335,6 +33344,197 @@ function fineSheetRowMatches(row, query, purity) {
     .includes(query);
 }
 
+function fineSheetLocalDateKey(date = new Date()) {
+  const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+  return localDate.toISOString().slice(0, 10);
+}
+
+function fineSheetBackupDateLabel(dateKey = "") {
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (!dateKey || Number.isNaN(parsed.getTime())) return dateKey || "Unknown date";
+  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function normalizeFineSheetSnapshot(snapshot = {}) {
+  const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(snapshot.dateKey || ""))
+    ? String(snapshot.dateKey)
+    : fineSheetLocalDateKey(new Date(snapshot.savedAt || Date.now()));
+  const physical = snapshot.physical || {};
+  const vendorTotals = snapshot.vendorTotals || {};
+  return {
+    id: snapshot.id || `fine-sheet-${dateKey}`,
+    dateKey,
+    savedAt: snapshot.savedAt || snapshot.updatedAt || new Date().toISOString(),
+    updatedAt: snapshot.updatedAt || snapshot.savedAt || new Date().toISOString(),
+    savedBy: snapshot.savedBy || "ERP User",
+    appVersion: snapshot.appVersion || "",
+    physical: {
+      grossWeight: Number(weight3(physical.grossWeight || 0)),
+      nonGoldWeight: Number(weight3(physical.nonGoldWeight || 0)),
+      goldWeight: Number(weight3(physical.goldWeight || 0)),
+      totalFine: Number(weight3(physical.totalFine || 0)),
+    },
+    vendorTotals: {
+      payable: Number(weight3(vendorTotals.payable || 0)),
+      receivable: Number(weight3(vendorTotals.receivable || 0)),
+      netBalance: Number(weight3(vendorTotals.netBalance || 0)),
+    },
+    netFine: Number(weight3(snapshot.netFine || 0)),
+    calculationRows: (snapshot.calculationRows || []).map((row, index) => ({
+      number: Number(row.number || index + 1),
+      source: row.source || "Physical Stock",
+      location: row.location || "-",
+      purity: row.purity || "-",
+      gross: row.gross === null ? null : Number(weight3(row.gross || 0)),
+      nonGold: row.nonGold === null ? null : Number(weight3(row.nonGold || 0)),
+      gold: row.gold === null ? null : Number(weight3(row.gold || 0)),
+      calculation: row.calculation || "",
+      effect: Number(weight3(row.effect || 0)),
+      running: Number(weight3(row.running || 0)),
+    })),
+    ledgerRows: (snapshot.ledgerRows || []).slice(-FINE_SHEET_BACKUP_LEDGER_LIMIT).map((row) => ({
+      entry: {
+        date: row.entry?.date || "",
+        createdAt: row.entry?.createdAt || "",
+        updatedAt: row.entry?.updatedAt || "",
+        editedAt: row.entry?.editedAt || "",
+        direction: row.entry?.direction || "in",
+        vendorName: row.entry?.vendorName || "",
+        reference: row.entry?.reference || "",
+        remarks: row.entry?.remarks || "",
+        purity: row.entry?.purity || "",
+        weight: Number(weight3(row.entry?.weight || 0)),
+      },
+      fine: {
+        wstgPercent: Number(row.fine?.wstgPercent || 0),
+        wstgFineGold: Number(weight3(row.fine?.wstgFineGold || 0)),
+      },
+      effect: Number(weight3(row.effect || 0)),
+      running: Number(weight3(row.running || 0)),
+    })),
+    partyRows: (snapshot.partyRows || []).map((row) => ({
+      vendor: { name: row.vendor?.name || "Unknown Party" },
+      inFine: Number(weight3(row.inFine || 0)),
+      outFine: Number(weight3(row.outFine || 0)),
+      metalSoldFine: Number(weight3(row.metalSoldFine || 0)),
+      balanceFine: Number(weight3(row.balanceFine || 0)),
+    })),
+  };
+}
+
+function normalizeFineSheetSnapshots(snapshots = []) {
+  const byDate = new Map();
+  (Array.isArray(snapshots) ? snapshots : []).forEach((rawSnapshot) => {
+    const snapshot = normalizeFineSheetSnapshot(rawSnapshot);
+    const existing = byDate.get(snapshot.dateKey);
+    if (!existing || Date.parse(snapshot.savedAt || 0) >= Date.parse(existing.savedAt || 0)) {
+      byDate.set(snapshot.dateKey, snapshot);
+    }
+  });
+  return [...byDate.values()]
+    .sort((left, right) => right.dateKey.localeCompare(left.dateKey))
+    .slice(0, FINE_SHEET_BACKUP_RETENTION_DAYS);
+}
+
+function buildFineSheetSnapshot(dateKey = fineSheetLocalDateKey()) {
+  const physical = factoryPhysicalStock();
+  const vendors = vendorBalanceRows();
+  const vendorTotals = factoryVendorFineTotals(vendors);
+  const netFine = totalFactoryFineStock(physical, vendorTotals);
+  return normalizeFineSheetSnapshot({
+    id: `fine-sheet-${dateKey}`,
+    dateKey,
+    savedAt: new Date().toISOString(),
+    savedBy: currentUser?.name || currentUserConfig()?.name || currentUser?.username || "ERP User",
+    appVersion: APP_VERSION,
+    physical: {
+      grossWeight: physical.grossWeight,
+      nonGoldWeight: physical.nonGoldWeight,
+      goldWeight: physical.goldWeight,
+      totalFine: physical.totalFine,
+    },
+    vendorTotals,
+    netFine,
+    calculationRows: fineSheetCalculationRows(physical, vendors),
+    ledgerRows: fineSheetLedgerRows().slice(-FINE_SHEET_BACKUP_LEDGER_LIMIT),
+    partyRows: vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
+      .some((value) => Math.abs(Number(value || 0)) > 0.0005)),
+  });
+}
+
+function captureTodayFineSheetSnapshot() {
+  try {
+    const snapshot = buildFineSheetSnapshot();
+    state.fineSheetSnapshots = normalizeFineSheetSnapshots([
+      snapshot,
+      ...(state.fineSheetSnapshots || []).filter((entry) => entry.dateKey !== snapshot.dateKey),
+    ]);
+    return snapshot;
+  } catch (error) {
+    console.warn("The daily Fine Sheet backup could not be refreshed, so the main ERP save continued.", error);
+    return null;
+  }
+}
+
+function fineSheetYesterdayDateKey() {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return fineSheetLocalDateKey(yesterday);
+}
+
+function renderFineSheetBackupControls() {
+  const select = document.getElementById("fine-sheet-backup-select");
+  const status = document.getElementById("fine-sheet-backup-status");
+  const printSelected = document.getElementById("print-selected-fine-sheet");
+  if (!select) return;
+  const snapshots = normalizeFineSheetSnapshots(state.fineSheetSnapshots);
+  const selectedId = select.value;
+  select.innerHTML = `<option value="">Saved Fine Sheet Backups</option>${snapshots.map((snapshot) => `
+    <option value="${escapeHtml(snapshot.id)}">${escapeHtml(fineSheetBackupDateLabel(snapshot.dateKey))} | Net Fine ${escapeHtml(gram(snapshot.netFine))}</option>
+  `).join("")}`;
+  if (snapshots.some((snapshot) => snapshot.id === selectedId)) select.value = selectedId;
+  else if (snapshots.length) select.value = snapshots[0].id;
+  const selected = snapshots.find((snapshot) => snapshot.id === select.value);
+  if (printSelected) printSelected.disabled = !selected;
+  if (status) {
+    status.textContent = selected
+      ? `Saved ${fineSheetBackupDateLabel(selected.dateKey)} at ${new Date(selected.savedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} by ${selected.savedBy}. ${snapshots.length} daily backup${snapshots.length === 1 ? "" : "s"} retained.`
+      : "No daily Fine Sheet backup is saved yet. Select Save Today Backup once; future ERP saves will refresh today's backup automatically.";
+  }
+}
+
+function saveTodayFineSheetBackup() {
+  if (isReadOnlyUser()) {
+    alert(readOnlyNotice());
+    return;
+  }
+  const saved = saveState({ alertOnFailure: true, context: "Fine Sheet Backup" });
+  renderFineSheetBackupControls();
+  if (!saved) return;
+  const snapshot = (state.fineSheetSnapshots || []).find((entry) => entry.dateKey === fineSheetLocalDateKey());
+  alert(`Fine Sheet backup saved for ${fineSheetBackupDateLabel(snapshot?.dateKey || fineSheetLocalDateKey())}. Net Factory Fine: ${gram(snapshot?.netFine || 0)}.`);
+}
+
+function printYesterdayFineSheetBackup() {
+  const dateKey = fineSheetYesterdayDateKey();
+  const snapshot = (state.fineSheetSnapshots || []).find((entry) => entry.dateKey === dateKey);
+  if (!snapshot) {
+    alert(`No Fine Sheet backup was saved for ${fineSheetBackupDateLabel(dateKey)}. Starting with ${APP_VERSION}, today's backup refreshes automatically whenever ERP data is saved.`);
+    return;
+  }
+  printDetailedFineSheet(snapshot);
+}
+
+function printSelectedFineSheetBackup() {
+  const snapshotId = document.getElementById("fine-sheet-backup-select")?.value || "";
+  const snapshot = (state.fineSheetSnapshots || []).find((entry) => entry.id === snapshotId);
+  if (!snapshot) {
+    alert("Select a saved Fine Sheet backup first.");
+    return;
+  }
+  printDetailedFineSheet(snapshot);
+}
+
 function renderFineSheet() {
   const summary = document.getElementById("fine-sheet-summary");
   const table = document.getElementById("fine-sheet-calculation-table");
@@ -33398,6 +33598,7 @@ function renderFineSheet() {
       <div class="fine-sheet-check"><span>Reconciliation</span><strong>${matched ? "MATCHED" : "CHECK REQUIRED"}</strong></div>
     `;
   }
+  renderFineSheetBackupControls();
   renderFineSheetLedger();
 }
 
@@ -33451,20 +33652,27 @@ function renderFineSheetLedger() {
     : tableEmpty(9, "No Factory In / Out entries match this search.");
 }
 
-function printDetailedFineSheet() {
-  const physical = factoryPhysicalStock();
-  const vendors = vendorBalanceRows();
-  const vendorTotals = factoryVendorFineTotals(vendors);
-  const netFine = totalFactoryFineStock(physical, vendorTotals);
-  const calculationRows = fineSheetCalculationRows(physical, vendors);
-  const ledgerRows = fineSheetLedgerRows();
+function printDetailedFineSheet(snapshotOrEvent = null) {
+  const savedSnapshot = snapshotOrEvent?.dateKey ? normalizeFineSheetSnapshot(snapshotOrEvent) : null;
+  const physical = savedSnapshot?.physical || factoryPhysicalStock();
+  const vendors = savedSnapshot?.partyRows || vendorBalanceRows();
+  const vendorTotals = savedSnapshot?.vendorTotals || factoryVendorFineTotals(vendors);
+  const netFine = savedSnapshot ? Number(savedSnapshot.netFine || 0) : totalFactoryFineStock(physical, vendorTotals);
+  const calculationRows = savedSnapshot?.calculationRows || fineSheetCalculationRows(physical, vendors);
+  const ledgerRows = savedSnapshot?.ledgerRows || fineSheetLedgerRows();
   const accumulated = Number(calculationRows.at(-1)?.running || 0);
   const difference = Number(weight3(accumulated - netFine));
-  const partyRows = vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
+  const partyRows = savedSnapshot?.partyRows || vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
     .some((value) => Math.abs(Number(value || 0)) > 0.0005));
   const logoUrl = new URL("assets/vella-logo.jpeg", window.location.href).href;
   const generatedAt = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
-  const userName = currentUser?.name || currentUserConfig()?.name || currentUser?.username || "ERP User";
+  const savedAt = savedSnapshot
+    ? new Date(savedSnapshot.savedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
+    : "";
+  const reportTitle = savedSnapshot
+    ? `Saved Fine Sheet Backup - ${fineSheetBackupDateLabel(savedSnapshot.dateKey)}`
+    : "Detailed Factory Fine Sheet";
+  const userName = savedSnapshot?.savedBy || currentUser?.name || currentUserConfig()?.name || currentUser?.username || "ERP User";
   const printWindow = window.open("", "_blank");
   if (!printWindow) {
     alert("Allow pop-ups for this page, then select Print Detailed Fine Sheet again.");
@@ -33494,7 +33702,7 @@ function printDetailedFineSheet() {
 
   printWindow.document.open();
   printWindow.document.write(`<!doctype html>
-    <html><head><meta charset="utf-8"><title>Factory Fine Sheet - ${escapeHtml(generatedAt)}</title>
+    <html><head><meta charset="utf-8"><title>${escapeHtml(reportTitle)} - ${escapeHtml(generatedAt)}</title>
     <style>
       @page { size: A4 landscape; margin: 8mm; }
       * { box-sizing: border-box; }
@@ -33534,7 +33742,7 @@ function printDetailedFineSheet() {
     </style></head><body>
       <div class="toolbar"><button onclick="window.print()">Print / Save PDF</button><button onclick="window.close()">Close</button></div>
       <main class="sheet">
-        <header><img src="${logoUrl}" alt="Khushali Jewells"><div><h1>KHUSHALI JEWELLS MANUFACTURING</h1><p>Detailed Factory Fine Sheet</p></div><div class="meta">Generated: ${escapeHtml(generatedAt)}<br>By: ${escapeHtml(userName)}<br>${escapeHtml(APP_VERSION)}</div></header>
+        <header><img src="${logoUrl}" alt="Khushali Jewells"><div><h1>KHUSHALI JEWELLS MANUFACTURING</h1><p>${escapeHtml(reportTitle)}</p></div><div class="meta">${savedSnapshot ? `Saved: ${escapeHtml(savedAt)}<br>` : ""}Printed: ${escapeHtml(generatedAt)}<br>By: ${escapeHtml(userName)}<br>${escapeHtml(savedSnapshot?.appVersion || APP_VERSION)}</div></header>
         <section class="summary">
           <div class="primary"><span>Net Factory Fine</span><strong>${gram(netFine)}</strong></div><div><span>Physical GW</span><strong>${gram(physical.grossWeight)}</strong></div>
           <div><span>Physical Non-Gold</span><strong>${gram(physical.nonGoldWeight)}</strong></div><div><span>Physical Net Gold</span><strong>${gram(physical.goldWeight)}</strong></div>
@@ -33543,11 +33751,11 @@ function printDetailedFineSheet() {
         <h2>Accumulated Fine Sheet Calculation</h2>
         <table class="calc-table"><thead><tr><th>No.</th><th>Source</th><th>Location / Party</th><th>Purity</th><th>GW</th><th>Non-Gold</th><th>Net Gold</th><th>Calculation</th><th>Fine Effect</th><th>Running Fine</th></tr></thead><tbody>${calculationBody}</tbody></table>
         <div class="reconciliation">Accumulated Fine ${gram(accumulated)} | Dashboard Net Fine ${gram(netFine)} | Difference ${signedFineGram(difference)} | ${Math.abs(difference) < 0.0005 ? "MATCHED" : "CHECK REQUIRED"}</div>
-        <h2>Factory In / Out Fine Entries</h2>
+        <h2>Factory In / Out Fine Entries${savedSnapshot ? ` (Latest ${FINE_SHEET_BACKUP_LEDGER_LIMIT} at Save Time)` : ""}</h2>
         <table class="ledger-table"><thead><tr><th>Date & Time</th><th>In / Out</th><th>Party</th><th>Reference</th><th>Purity</th><th>GW</th><th>WSTG</th><th>Fine Effect</th><th>Running Fine</th></tr></thead><tbody>${ledgerBody}</tbody></table>
         <h2>Party Fine Balances</h2>
         <table><thead><tr><th>Party</th><th>Fine In</th><th>Fine Out</th><th>Metal Sold</th><th>Current Fine Balance</th><th>Status</th></tr></thead><tbody>${partyBody}</tbody></table>
-        <footer>Net Factory Fine = Physical Fine Stock - Party Fine Balance | ${escapeHtml(APP_VERSION)}</footer>
+        <footer>Net Factory Fine = Physical Fine Stock - Party Fine Balance | ${escapeHtml(savedSnapshot?.appVersion || APP_VERSION)}${savedSnapshot ? ` | Backup ${escapeHtml(fineSheetBackupDateLabel(savedSnapshot.dateKey))}` : ""}</footer>
       </main>
     </body></html>`);
   printWindow.document.close();
@@ -36390,6 +36598,7 @@ function normalizeState(currentState) {
     .map(normalizeLoginAuditEntry)
     .sort((a, b) => new Date(b.loginAt) - new Date(a.loginAt))
     .slice(0, LOGIN_HISTORY_LIMIT);
+  currentState.fineSheetSnapshots = normalizeFineSheetSnapshots(currentState.fineSheetSnapshots);
   currentState.dailyTallies = (currentState.dailyTallies || []).map(normalizeDailyTallyEntry);
   currentState.dailyTallyContainers = (currentState.dailyTallyContainers || currentState.dabbaMaster || [])
     .map(normalizeDailyTallyContainer)
