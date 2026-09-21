@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=554">
+  <link rel="stylesheet" href="styles.css?v=555">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v554</small>
+      <small class="app-version-badge">App v555</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v554</span>
+          <span class="app-version-badge">App v555</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -780,15 +780,28 @@
               <h2>Issue To Setter</h2>
               <label>Issue Type <select name="issueType">
                 <option value="lot">Job Lot</option>
-                <option value="accessory">Accessory / Direct Material</option>
+                <option value="repair">Repair Job Item</option>
+                <option value="accessory">Accessory Used In Job / No Return</option>
+                <option value="accessory-return">Accessory / Repair Item - Return Expected</option>
               </select></label>
               <label id="setting-issue-lot-field">Setting Lot <select name="lotId" required></select></label>
               <label id="setting-issue-accessory-field" class="hidden">Accessory In Setting <select name="accessoryIssueId"></select></label>
+              <label id="setting-issue-scope-field">Issue Scope <select name="issueScope">
+                <option value="full">Full Job Lot</option>
+                <option value="part">Selected PR Items / Split Lot</option>
+              </select></label>
               <label>Setter <select name="setterId" required></select></label>
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
               <label id="setting-issue-hand-stone-field"><span id="setting-issue-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <div id="setting-split-item-picker" class="setting-split-item-picker full-row hidden">
+                <div class="setting-split-picker-heading">
+                  <strong>Select PR Items For This Setter</strong>
+                  <small>The remaining PR items stay in the original Setting lot.</small>
+                </div>
+                <div id="setting-split-item-list" class="setting-split-item-list"></div>
+              </div>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
-              <p id="setting-issue-summary" class="dialog-note">Select a job lot or an accessory currently in Setting Department. Accessories are used in production and require no return.</p>
+              <p id="setting-issue-summary" class="dialog-note">Select a full job lot, selected PR items, an accessory, or a repair item currently in Setting Department.</p>
               <button type="submit">Issue To Setter</button>
             </form>
 
@@ -797,7 +810,7 @@
               <label>Setter <select name="setterId" required></select></label>
               <label>Pending Setter Lot <select name="entryId" required></select></label>
               <label>Account Action <select name="settlementType">
-                <option value="close">Receive Job Lot &amp; Close</option>
+                <option value="close">Receive Lot / Accessory / Repair &amp; Close</option>
                 <option value="rawa">Receive Rawa / Laser Wire / WSTG</option>
                 <option value="loss">Book Setter Loss</option>
               </select></label>
@@ -815,8 +828,8 @@
               <label>Balance To Close (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
               <button class="ghost-button setting-balance-loss-button" type="button" id="setting-use-balance-loss">Book Balance As Loss</button>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
-              <p id="setting-receive-summary" class="dialog-note">Select a setter, pending job lot, and account action.</p>
-              <button type="submit" id="setting-receive-submit">Receive &amp; Close Setter Lot</button>
+              <p id="setting-receive-summary" class="dialog-note">Select a setter, pending lot or returnable item, and account action.</p>
+              <button type="submit" id="setting-receive-submit">Receive &amp; Close</button>
             </form>
           </div>
 
@@ -2904,6 +2917,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=554"></script>
+  <script src="app.js?v=555"></script>
 </body>
 </html>

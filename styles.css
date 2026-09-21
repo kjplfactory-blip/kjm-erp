@@ -2303,6 +2303,76 @@ form.active-operation-page,
   margin-bottom: 16px;
 }
 
+.setting-split-item-picker {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(8, 119, 108, 0.2);
+  border-radius: 8px;
+  background: #f7fcfb;
+}
+
+.setting-split-item-picker.hidden {
+  display: none;
+}
+
+.setting-split-picker-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setting-split-picker-heading small {
+  color: var(--muted);
+}
+
+.setting-split-item-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 8px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.setting-split-item-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.setting-split-item-option:has(input:checked) {
+  border-color: var(--brand);
+  background: #eaf8f3;
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.setting-split-item-option input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+
+.setting-split-item-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 850;
+}
+
+.setting-split-item-option small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .setting-balance-loss-button {
   align-self: end;
 }
