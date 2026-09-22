@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v579";
+const APP_VERSION = "v582";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -1818,6 +1818,10 @@ document.getElementById("opening-non-gold-adjustment-form")?.addEventListener("c
 });
 document.getElementById("opening-non-gold-adjustment-form")?.addEventListener("submit", saveOpeningNonGoldAdjustment);
 document.getElementById("clear-opening-non-gold-adjustment")?.addEventListener("click", clearOpeningNonGoldAdjustment);
+
+document.getElementById("main-stock-non-gold-remove-form")?.addEventListener("input", updateMainStockNonGoldRemoveSummary);
+document.getElementById("main-stock-non-gold-remove-form")?.addEventListener("change", updateMainStockNonGoldRemoveSummary);
+document.getElementById("main-stock-non-gold-remove-form")?.addEventListener("submit", saveMainStockNonGoldRemoval);
 
 document.getElementById("production-non-gold-form").addEventListener("input", updateProductionNonGoldSummary);
 document.getElementById("production-non-gold-form").addEventListener("change", (event) => {
@@ -11129,9 +11133,9 @@ function safeIssueDepartmentForHistory(departmentName = "") {
   const targetGroup = departmentTransferGroupName(departmentName, departmentName);
   const targetHeader = departmentDashboardHeader(departmentName);
   return (state.karigars || []).find((department) => {
-    const process = primaryDepartmentProcess(department);
-    return departmentTransferGroupName(department.name, process) === targetGroup
-      || departmentDashboardHeader(department.name || process) === targetHeader;
+    const processes = departmentProcesses(department);
+    return processes.some((process) => departmentTransferGroupName(department.name, process) === targetGroup)
+      || departmentDashboardHeader(department.name || primaryDepartmentProcess(department)) === targetHeader;
   }) || null;
 }
 
@@ -11494,7 +11498,9 @@ function renderSafeDepartmentReceiveDepartmentOptions(selectedDepartment = "") {
   const selectedHeader = selectedDepartment ? departmentDashboardHeader(selectedDepartment) : "";
   const selectedHistoryGroup = selectedDepartment ? departmentTransferHistoryGroupName(selectedDepartment) : "";
   const selectedMasterDepartment = (state.karigars || []).find((department) =>
-    departmentTransferGroupName(department.name, primaryDepartmentProcess(department)) === selectedHistoryGroup
+    departmentProcesses(department).some((process) =>
+      departmentTransferGroupName(department.name, process) === selectedHistoryGroup
+    )
   );
   form.departmentName.innerHTML = names.length
     ? names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")
@@ -12923,6 +12929,7 @@ function factoryPhysicalStock() {
     meltingCasting: blankFactoryStockPart("Melting / Casting In Hand"),
     xrf: blankFactoryStockPart("XRF Sample Pending"),
     nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Factory"),
+    mainNonGoldRemoval: blankFactoryStockPart("Non-Gold Removed From Main Stock"),
     openingNonGoldAdjustment: blankFactoryStockPart("Opening Non-Gold Remaining After Production / Bill"),
     billNonGoldAdjustment: blankFactoryStockPart("Non-Gold Applied To Production / Bill"),
   };
@@ -13010,6 +13017,21 @@ function factoryPhysicalStock() {
     addFactoryStockPart(parts, "nonGoldDirect", "Direct Non-Gold In Factory", directNonGoldWeight, 0, "", 0, directNonGoldWeight);
   }
 
+  mainStockNonGoldRemovalEntries().forEach((issue) => {
+    const removedWeight = Math.abs(Number(issue.weight || 0));
+    if (removedWeight <= 0) return;
+    addFactoryStockPart(
+      parts,
+      "mainNonGoldRemoval",
+      "Non-Gold Removed From Main Stock",
+      -removedWeight,
+      0,
+      issue.purity || issue.karat,
+      0,
+      -removedWeight,
+    );
+  });
+
   const nonGoldAllocation = trackedNonGoldStockAllocation();
   openingNonGoldAdjustmentPositions(nonGoldAllocation).forEach((position) => {
     if (position.remaining <= 0) return;
@@ -13051,9 +13073,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.openingNonGoldAdjustment.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
@@ -17084,6 +17106,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
     partRow("nonGoldDirect", "Direct Non-Gold In Factory", "Physical only, no fine gold"),
+    partRow("mainNonGoldRemoval", "Main Stock Non-Gold Removed", "Reduces physical GW and non-gold equally; fine gold unchanged"),
     partRow("openingNonGoldAdjustment", "Opening Non-Gold Remaining", "Automatically reduced as embedded non-gold enters production or a final bill"),
     partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
     { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine; KJPL-STOCK metal sold excluded" },
@@ -19562,6 +19585,10 @@ function isOpeningNonGoldAdjustment(issue = {}) {
   return Boolean(issue.embeddedInOpeningGw || issue.sourceType === "opening-non-gold-adjustment");
 }
 
+function isMainStockNonGoldRemoval(issue = {}) {
+  return issue.sourceType === "main-stock-non-gold-remove";
+}
+
 function canManageOpeningNonGoldAdjustment() {
   return isOwner() || isManagerUser();
 }
@@ -19620,6 +19647,9 @@ function openingNonGoldExistingBreakdown(purity = "18K") {
         breakdown[materialType] = Number(weight3(Math.max(Number(breakdown[materialType] || 0) - Number(weight || 0), 0)));
       });
     });
+  Object.entries(mainStockNonGoldRemovalBreakdown(purity)).forEach(([materialType, weight]) => {
+    breakdown[materialType] = Number(weight3(Math.max(Number(breakdown[materialType] || 0) - Number(weight || 0), 0)));
+  });
   return normalizeNonGoldBreakdown(breakdown);
 }
 
@@ -19769,6 +19799,116 @@ function clearOpeningNonGoldAdjustment() {
   switchProductionPage("non-gold");
 }
 
+function mainStockNonGoldRemovalEntries(currentState = state) {
+  return (currentState.productionNonGoldIssues || [])
+    .filter(isMainStockNonGoldRemoval)
+    .map((issue) => normalizeProductionNonGoldIssue(issue, {}, currentState));
+}
+
+function mainStockNonGoldRemovalBreakdown(purity = "18K", currentState = state) {
+  const targetKarat = karatPurityKey(purity || "18K");
+  return mainStockNonGoldRemovalEntries(currentState)
+    .filter((issue) => karatPurityKey(issue.purity || issue.karat) === targetKarat)
+    .reduce((breakdown, issue) => {
+      const materialType = normalizeProductionNonGoldMaterial(issue.materialType || issue.materialLabel);
+      breakdown[materialType] = Number(weight3(
+        Number(breakdown[materialType] || 0) + Math.abs(Number(issue.weight || 0))
+      ));
+      return breakdown;
+    }, {});
+}
+
+function mainStockNonGoldAvailableBreakdown(purity = "18K") {
+  const targetKarat = karatPurityKey(purity || "18K");
+  let available = {};
+  safeNonGoldShelfPools()
+    .filter((pool) => karatPurityKey(pool.purity) === targetKarat)
+    .forEach((pool) => {
+      available = addNonGoldBreakdowns(available, pool.byMaterial || {});
+    });
+  departmentNonGoldStockPools()
+    .filter((pool) => karatPurityKey(pool.purity) === targetKarat)
+    .forEach((pool) => {
+      available = addNonGoldBreakdowns(available, pool.byMaterial || {});
+    });
+
+  const subtractBreakdown = (value = {}) => {
+    const normalized = normalizeNonGoldBreakdown(value);
+    Object.entries(normalized).forEach(([materialType, weight]) => {
+      available[materialType] = Number(weight3(Math.max(
+        Number(available[materialType] || 0) - Math.abs(Number(weight || 0)),
+        0,
+      )));
+    });
+  };
+  trackedNonGoldDemandLines()
+    .filter((line) => karatPurityKey(line.purity) === targetKarat)
+    .forEach((line) => subtractBreakdown(line.breakdown || { other: line.weight }));
+  subtractBreakdown(mainStockNonGoldRemovalBreakdown(purity));
+  return normalizeNonGoldBreakdown(available);
+}
+
+function updateMainStockNonGoldRemoveSummary() {
+  const form = document.getElementById("main-stock-non-gold-remove-form");
+  const summary = document.getElementById("main-stock-non-gold-remove-summary");
+  if (!form || !summary) return;
+  const purity = form.purity.value || "18K";
+  const materialType = normalizeProductionNonGoldMaterial(form.materialType.value || "other");
+  const availableBreakdown = mainStockNonGoldAvailableBreakdown(purity);
+  const available = Number(availableBreakdown[materialType] || 0);
+  const removeWeight = Math.max(Number(form.weight.value || 0), 0);
+  summary.textContent = `${transferPurityLabel(purity)} ${productionNonGoldMaterialLabel(materialType)} available in main factory stock: ${gram(available)}. Balance after removal: ${gram(Math.max(available - removeWeight, 0))}. Fine gold remains unchanged.`;
+}
+
+function saveMainStockNonGoldRemoval(event) {
+  event.preventDefault();
+  if (!canManageOpeningNonGoldAdjustment()) {
+    alert("Only Owner or Manager can remove non-gold from main factory stock.");
+    return;
+  }
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const purity = data.purity || "18K";
+  const materialType = normalizeProductionNonGoldMaterial(data.materialType || "other");
+  const weight = Math.abs(Number(data.weight || 0));
+  const pcs = Math.abs(Number(data.pcs || 0));
+  const reason = String(data.remarks || "").trim();
+  if (weight <= 0) {
+    alert("Enter the non-gold weight to remove from main stock.");
+    return;
+  }
+  if (!reason) {
+    alert("Enter the reason for removing non-gold from main stock.");
+    return;
+  }
+  const available = Number(mainStockNonGoldAvailableBreakdown(purity)[materialType] || 0);
+  if (weight > available + 0.0005) {
+    alert(`Cannot remove ${gram(weight)}. Available ${productionNonGoldMaterialLabel(materialType)} in ${transferPurityLabel(purity)} main stock is ${gram(available)}.`);
+    return;
+  }
+  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+  state.productionNonGoldIssues.unshift(normalizeProductionNonGoldIssue({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    movementType: "remove",
+    materialType,
+    pcs: -pcs,
+    weight: -weight,
+    purity,
+    karat: safeLockerForPurity(purity),
+    department: "Main Factory Stock",
+    sourceType: "main-stock-non-gold-remove",
+    reason,
+    remarks: `Removed from main factory stock - ${reason}`,
+  }));
+  form.reset();
+  saveState();
+  render();
+  switchProductionPage("non-gold");
+  alert(`${productionNonGoldMaterialLabel(materialType)} ${gram(weight)} removed from ${transferPurityLabel(purity)} main factory stock. Fine gold is unchanged.`);
+}
+
 function normalizeProductionNonGoldMovementType(value = "", weight = 0, pcs = 0) {
   const text = String(value || "").trim().toLowerCase();
   if (["remove", "removed", "deduct", "deducted", "damage", "damaged", "out"].includes(text)) return "remove";
@@ -19778,6 +19918,7 @@ function normalizeProductionNonGoldMovementType(value = "", weight = 0, pcs = 0)
 
 function productionNonGoldMovementLabel(issue = {}) {
   if (isOpeningNonGoldAdjustment(issue)) return "Opening Adjustment";
+  if (isMainStockNonGoldRemoval(issue)) return "Main Stock Remove";
   return normalizeProductionNonGoldMovementType(issue.movementType || issue.actionType, issue.weight, issue.pcs) === "remove"
     ? "Remove"
     : "Issue";
@@ -19785,6 +19926,7 @@ function productionNonGoldMovementLabel(issue = {}) {
 
 function productionNonGoldMovementStatusClass(issue = {}) {
   if (isOpeningNonGoldAdjustment(issue)) return "completed";
+  if (isMainStockNonGoldRemoval(issue)) return "cancelled";
   return productionNonGoldMovementLabel(issue) === "Remove"
     ? "cancelled"
     : productionNonGoldIssueInDepartment(issue) ? "pending" : "completed";
@@ -19793,13 +19935,13 @@ function productionNonGoldMovementStatusClass(issue = {}) {
 function productionNonGoldDisplayWeight(issue = {}) {
   const movement = productionNonGoldMovementLabel(issue);
   const weight = Math.abs(Number(issue.weight || 0));
-  return movement === "Remove" ? `-${gram(weight)}` : gram(weight);
+  return movement.includes("Remove") ? `-${gram(weight)}` : gram(weight);
 }
 
 function productionNonGoldDisplayPcs(issue = {}) {
   const pcs = Math.abs(Number(issue.pcs || 0));
   if (!pcs) return "-";
-  return productionNonGoldMovementLabel(issue) === "Remove" ? `-${pcs}` : pcs;
+  return productionNonGoldMovementLabel(issue).includes("Remove") ? `-${pcs}` : pcs;
 }
 
 function lotPurityForStateLot(currentState, lot = {}) {
@@ -20062,6 +20204,7 @@ function legacyLotNonGoldEntries() {
 }
 
 function productionNonGoldIssueInDepartment(issue = {}) {
+  if (isMainStockNonGoldRemoval(issue)) return false;
   if (issue.safeDepartmentIssueId) {
     const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issue.safeDepartmentIssueId);
     if (!rawIssue) return false;
@@ -20078,6 +20221,7 @@ function productionNonGoldIssueInDepartment(issue = {}) {
 
 function productionNonGoldIssueStatus(issue = {}) {
   if (isOpeningNonGoldAdjustment(issue)) return "Included In Existing GW";
+  if (isMainStockNonGoldRemoval(issue)) return "Removed From Main Stock";
   if (productionNonGoldMovementLabel(issue) === "Remove") return "Removed / Damaged";
   if (issue.safeDepartmentIssueId) {
     const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issue.safeDepartmentIssueId);
@@ -20097,7 +20241,7 @@ function productionNonGoldIssueStatus(issue = {}) {
 
 function productionNonGoldDirectDepartmentEntries() {
   return productionNonGoldLedgerIssues()
-    .filter(({ issue }) => !issue.lotId && !isOpeningNonGoldAdjustment(issue) && productionNonGoldIssueInDepartment(issue));
+    .filter(({ issue }) => !issue.lotId && !isOpeningNonGoldAdjustment(issue) && !isMainStockNonGoldRemoval(issue) && productionNonGoldIssueInDepartment(issue));
 }
 
 function lotSafeIssuedWaxStoneWeight(lot = {}, sourceState = state) {
@@ -20278,7 +20422,8 @@ function nonGoldPoolPositionForPurity(purity = "") {
   const billApplied = matchingAllocations
     .filter((line) => line.sourceType !== "production")
     .reduce((total, line) => Number(weight3(total + Number(line.weight || 0))), 0);
-  const applied = Number(weight3(productionApplied + billApplied));
+  const mainStockRemoved = nonGoldBreakdownTotal(mainStockNonGoldRemovalBreakdown(purity));
+  const applied = Number(weight3(productionApplied + billApplied + mainStockRemoved));
   const unmatched = allocation.unmatched
     .filter((line) => karatPurityKey(line.purity) === karatKey)
     .reduce((total, line) => Number(weight3(total + Number(line.weight || 0))), 0);
@@ -20289,6 +20434,7 @@ function nonGoldPoolPositionForPurity(purity = "") {
     openingBalance,
     productionApplied,
     billApplied,
+    mainStockRemoved,
     applied,
     remaining: Number(weight3(Math.max(safeBalance + productionBalance + openingBalance - applied, 0))),
     unmatched,
@@ -20307,6 +20453,7 @@ function renderTransferNonGoldPoolStatus(lot = {}) {
     <span>Opening In Existing GW: ${gram(position.openingBalance)}</span>
     <span>Moved Into Production: ${gram(position.productionApplied)}</span>
     <span>Final Bill Used: ${gram(position.billApplied)}</span>
+    <span>Main Stock Removed: ${gram(position.mainStockRemoved)}</span>
     <span>Factory Balance: ${gram(position.remaining)}</span>
     ${position.unmatched > 0.0005 ? `<b>Unmatched: ${gram(position.unmatched)} - record the corresponding karat-wise non-gold issue.</b>` : ""}
   `;
@@ -20365,6 +20512,7 @@ function productionNonGoldKaratPoolRows() {
         breakdown: {},
         productionAdjusted: 0,
         billAdjusted: 0,
+        mainStockRemoved: 0,
         applied: 0,
         available: 0,
         unmatched: 0,
@@ -20401,6 +20549,12 @@ function productionNonGoldKaratPoolRows() {
     row.unmatched = Number(weight3(row.unmatched + Number(line.weight || 0)));
   });
 
+  mainStockNonGoldRemovalEntries().forEach((issue) => {
+    const row = ensureRow(issue.purity || issue.karat);
+    row.mainStockRemoved = Number(weight3(row.mainStockRemoved + Math.abs(Number(issue.weight || 0))));
+    row.applied = Number(weight3(row.productionAdjusted + row.billAdjusted + row.mainStockRemoved));
+  });
+
   return [...rows.values()]
     .map((row) => ({
       ...row,
@@ -20422,10 +20576,11 @@ function renderProductionNonGoldKaratPool() {
       <td>${escapeHtml(nonGoldBreakdownText(row.breakdown) || "-")}</td>
       <td><strong>${gram(row.productionAdjusted)}</strong></td>
       <td><strong>${gram(row.billAdjusted)}</strong></td>
+      <td><strong>${gram(row.mainStockRemoved)}</strong></td>
       <td><strong>${gram(row.available)}</strong></td>
       <td>${row.unmatched > 0.0005 ? `<span class="status cancelled">${gram(row.unmatched)}</span>` : gram(0)}</td>
     </tr>
-  `).join("") || tableEmpty(9, "No karat-wise non-gold balance recorded yet.");
+  `).join("") || tableEmpty(10, "No karat-wise non-gold balance recorded yet.");
 }
 
 function productionNonGoldDepartmentInHandWeight(departmentName = "") {
@@ -20974,6 +21129,7 @@ function showOnlineTransferUndoBlocked(encodedReason = "") {
 function recalculateLotAfterTransferChange(lot) {
   const linkedOrders = getLotOrders(lot);
   const latest = lot.transfers?.at(-1);
+  reconcileSettingEntriesForLotDeparture(lot, state);
   lot.karigarId = lot.issueKarigarId || lot.karigarId;
   lot.karigarName = lot.issueKarigarName || lot.karigarName;
   lot.currentDepartment = mergedProductionDepartmentName(lot.issueDepartment || lot.currentDepartment || lot.karigarName, lot.issueKarigarName || lot.karigarName);
@@ -28828,11 +28984,12 @@ function renderProductionNonGoldTable() {
   const table = document.getElementById("production-non-gold-table");
   if (!table) return;
   populateOpeningNonGoldAdjustmentForm();
+  updateMainStockNonGoldRemoveSummary();
   renderProductionNonGoldKaratPool();
   const rows = productionNonGoldEntries().map(({ lot, issue }) => `
     <tr>
       <td>${escapeHtml(issue.date || "-")}</td>
-      <td><span class="status ${productionNonGoldMovementLabel(issue) === "Remove" ? "cancelled" : "transfer"}">${productionNonGoldMovementLabel(issue)}</span></td>
+      <td><span class="status ${productionNonGoldMovementLabel(issue).includes("Remove") ? "cancelled" : "transfer"}">${productionNonGoldMovementLabel(issue)}</span></td>
       <td>${escapeHtml(issue.department || lot?.currentDepartment || lot?.karigarName || "-")}</td>
       <td>${escapeHtml(issue.lotNumber || lot?.number || "-")}</td>
       <td>${escapeHtml(issue.jobNumber || lot?.orderNumber || "-")}</td>
@@ -28986,6 +29143,36 @@ function settingReturnMaterialBreakdownText(entry = {}) {
     .join(" / ") || "None";
 }
 
+function settingLotDepartureTransfer(entry = {}, lot = {}) {
+  if (["Accessory", "Manual"].includes(entry.entryType)) return null;
+  const transfers = lot.transfers || [];
+  if (!transfers.length) return null;
+  const sourceIndex = entry.sourceTransferId
+    ? transfers.findIndex((transfer) => transfer.id === entry.sourceTransferId)
+    : -1;
+  const departures = transfers
+    .slice(sourceIndex >= 0 ? sourceIndex + 1 : 0)
+    .filter((transfer) =>
+      isSettingDepartment(`${transfer.fromDepartment || ""} ${transfer.fromKarigarName || ""}`)
+      && !isSettingDepartment(`${transfer.toDepartment || ""} ${transfer.toKarigarName || ""}`)
+    );
+  return sourceIndex >= 0 ? departures[0] || null : departures.at(-1) || null;
+}
+
+function settingDepartureGrossReceiveWeight(transfer = {}) {
+  const directWeight = transfer.grossReceivedWeight ?? transfer.receiveGw;
+  if (directWeight !== undefined && directWeight !== null && String(directWeight) !== "") {
+    return Number(weight3(directWeight));
+  }
+  const netWeight = Number(transfer.receivedWeight || 0);
+  if (netWeight <= 0) return 0;
+  return Number(weight3(
+    netWeight
+    + Number(transfer.waxStoneWeight || 0)
+    + Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? 0)
+  ));
+}
+
 function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const lot = (currentState.lots || []).find((item) => item.id === entry.lotId) || {};
   const setter = (currentState.settingSetters || []).find((item) => item.id === entry.setterId) || {};
@@ -28999,7 +29186,16 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const returnExpected = isAccessory && Boolean(entry.returnExpected || entry.accessoryReturnExpected);
   const isReturnable = !isAccessory || returnExpected;
   const issueGw = Number(weight3(entry.issueGw ?? entry.transferWeight ?? entry.weight ?? currentTransferIssueWeight(lot, currentState)));
-  const receiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
+  const departureTransfer = !isAccessory && !isManual ? settingLotDepartureTransfer(entry, lot) : null;
+  const previousAutomaticTransferId = entry.autoReceivedFromTransferId || "";
+  const automaticTransferMatches = Boolean(departureTransfer);
+  const savedReceiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
+  const hasSavedReceive = !previousAutomaticTransferId
+    && savedReceiveGwValue !== undefined
+    && savedReceiveGwValue !== null
+    && String(savedReceiveGwValue) !== "";
+  const automaticReceiveGw = automaticTransferMatches ? settingDepartureGrossReceiveWeight(departureTransfer) : 0;
+  const receiveGwValue = hasSavedReceive ? savedReceiveGwValue : automaticReceiveGw > 0 ? automaticReceiveGw : undefined;
   const hasReceive = isReturnable && receiveGwValue !== undefined && receiveGwValue !== null && String(receiveGwValue) !== "";
   const receiveGw = hasReceive ? Number(weight3(receiveGwValue)) : "";
   const plannedHandStoneWeight = isAccessory || isManual ? 0 : plannedHandStoneWeightForLot(lot, currentState);
@@ -29015,15 +29211,25 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const setterLossWeight = isReturnable ? Number(weight3(Math.abs(Number(entry.setterLossWeight ?? entry.lossWeight ?? 0)))) : 0;
   const balanceWeight = Number(weight3(issueGw - Number(receiveNetWeight || 0) - rawaWeight - setterLossWeight));
   const difference = hasReceive ? Number(weight3(Number(receiveNetWeight || 0) - issueGw)) : Number(entry.difference || 0);
-  const sourceTransfer = (lot.transfers || []).at(-1);
+  const sourceTransfer = [...(lot.transfers || [])].reverse().find((transfer) =>
+    isSettingDepartment(`${transfer.toDepartment || ""} ${transfer.toKarigarName || ""}`)
+  ) || (lot.transfers || []).at(-1);
+  const automaticReceipt = Boolean(hasReceive && !hasSavedReceive && automaticTransferMatches);
+  const entryId = entry.id || crypto.randomUUID();
+  const createdAt = entry.createdAt || (!entry.id ? new Date().toISOString() : "");
+  const updatedAt = entry.updatedAt || (automaticReceipt ? departureTransfer?.editedAt || departureTransfer?.createdAt || "" : "");
+  const savedReceiveDate = previousAutomaticTransferId ? "" : entry.receiveDate || "";
+  const savedCloseDate = previousAutomaticTransferId ? "" : entry.closeDate || entry.receiveDate || "";
   return {
-    id: entry.id || crypto.randomUUID(),
+    id: entryId,
+    createdAt,
+    updatedAt,
     entryType,
     workType: entry.workType || (isAccessory ? (returnExpected ? "Accessory / Repair Return" : "Accessory Used In Job") : "Stone Setting"),
     returnExpected,
     issueDate: entry.issueDate || entry.date || today(),
-    receiveDate: isReturnable ? entry.receiveDate || "" : "",
-    closeDate: isReturnable ? entry.closeDate || entry.receiveDate || "" : entry.closeDate || entry.usedDate || entry.issueDate || today(),
+    receiveDate: isReturnable ? savedReceiveDate || (automaticReceipt ? departureTransfer?.date || "" : "") : "",
+    closeDate: isReturnable ? savedCloseDate || (automaticReceipt ? departureTransfer?.date || "" : "") : entry.closeDate || entry.usedDate || entry.issueDate || today(),
     lotId: entry.lotId || lot.id || "",
     lotNumber: entry.lotNumber || lot.number || "",
     jobNumber: entry.jobNumber || lot.orderNumber || "",
@@ -29048,7 +29254,9 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     setterLossWeight,
     balanceWeight,
     difference,
-    status: isAccessory && !returnExpected ? "Used" : (hasReceive || entry.status === "Received" ? "Received" : "Issued"),
+    status: isAccessory && !returnExpected ? "Used" : (hasReceive || (!previousAutomaticTransferId && entry.status === "Received") ? "Received" : "Issued"),
+    autoReceivedFromTransferId: automaticReceipt ? departureTransfer.id || "" : "",
+    autoReceivedToDepartment: automaticReceipt ? departureTransfer.toDepartment || departureTransfer.toKarigarName || "" : "",
     settlementHistory: Array.isArray(entry.settlementHistory) ? entry.settlementHistory.map((line) => ({
       id: line.id || crypto.randomUUID(),
       date: line.date || today(),
@@ -29067,6 +29275,40 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     receiveRemarks: entry.receiveRemarks || "",
     currentDepartment: entry.currentDepartment || lot.currentDepartment || lot.karigarName || "Setting",
   };
+}
+
+function reconcileSettingEntriesForLotDeparture(lot = {}, currentState = state) {
+  let updated = 0;
+  currentState.settingManagerEntries = (currentState.settingManagerEntries || []).map((entry) => {
+    if (entry.lotId !== lot.id || ["Accessory", "Manual"].includes(entry.entryType)) return entry;
+    const before = JSON.stringify({
+      status: entry.status,
+      receiveDate: entry.receiveDate,
+      closeDate: entry.closeDate,
+      receiveGw: entry.receiveGw,
+      receiveNetWeight: entry.receiveNetWeight,
+      balanceWeight: entry.balanceWeight,
+      difference: entry.difference,
+      autoReceivedFromTransferId: entry.autoReceivedFromTransferId,
+    });
+    const normalized = normalizeSettingManagerEntry(entry, currentState);
+    const after = JSON.stringify({
+      status: normalized.status,
+      receiveDate: normalized.receiveDate,
+      closeDate: normalized.closeDate,
+      receiveGw: normalized.receiveGw,
+      receiveNetWeight: normalized.receiveNetWeight,
+      balanceWeight: normalized.balanceWeight,
+      difference: normalized.difference,
+      autoReceivedFromTransferId: normalized.autoReceivedFromTransferId,
+    });
+    if (before !== after) {
+      normalized.updatedAt = new Date().toISOString();
+      updated += 1;
+    }
+    return normalized;
+  });
+  return updated;
 }
 
 function settingManagerLots() {
@@ -29128,6 +29370,7 @@ function applySettingCombinedSettlement(setterId, settlementType, amount, materi
       lossWeight: settlementType === "loss" ? allocated : 0,
       remarks,
     });
+    entry.updatedAt = new Date().toISOString();
     allocations.push({ entryId: entry.id, reference: settingEntryReference(entry), amount: allocated });
     remaining = Number(weight3(Math.max(remaining - allocated, 0)));
   });
@@ -29148,7 +29391,7 @@ function settingLotsAvailableForIssue() {
 
 function settingAccessoryUsedWeight(sourceIssueId = "") {
   return (state.settingManagerEntries || [])
-    .filter((entry) => entry.entryType === "Accessory" && entry.sourceIssueId === sourceIssueId)
+    .filter((entry) => ["Accessory", "Manual"].includes(entry.entryType) && entry.sourceIssueId === sourceIssueId)
     .reduce((total, entry) => {
       const unavailableWeight = entry.status === "Received"
         ? Number(entry.setterLossWeight || 0)
@@ -29157,7 +29400,7 @@ function settingAccessoryUsedWeight(sourceIssueId = "") {
     }, 0);
 }
 
-function settingAccessorySources() {
+function settingUnlinkedDepartmentSources() {
   return safeDepartmentIssuesInHand()
     .filter((issue) =>
       !issue.lotId
@@ -29166,10 +29409,14 @@ function settingAccessorySources() {
     )
     .map((issue) => ({
       id: issue.id,
+      date: issue.date || "",
       materialDescription: issue.itemDescription || issue.itemKind || "Accessory / Direct Material",
       materialType: issue.itemKind || "Accessory / Direct Material",
       purity: issue.purity || issue.locker || "",
       departmentName: issue.process || issue.departmentName || "Setting",
+      source: issue.source || "",
+      sourceLine: issue.sourceLine || "",
+      remarks: issue.remarks || "",
       grossWeight: Number(weight3(issue.grossWeight || 0)),
       availableGw: Number(weight3(Math.max(Number(issue.grossWeight || 0) - settingAccessoryUsedWeight(issue.id), 0))),
     }))
@@ -29177,12 +29424,35 @@ function settingAccessorySources() {
     .sort((left, right) => left.materialDescription.localeCompare(right.materialDescription, undefined, { sensitivity: "base" }));
 }
 
+function isSettingManualProductionSource(source = {}) {
+  const text = `${source.materialType || ""} ${source.materialDescription || ""} ${source.source || ""} ${source.sourceLine || ""}`.toLowerCase();
+  if (/manufactured|production item|unfinished|semi[ -]?finished|\bwip\b|casting item|fitting item/.test(text)) return true;
+  if (/wastage|scrap|\brawa\b|\brava\b|laser wire|\brod\b|alloy|dust|\bloss\b|black bead|\bbb\b|\bmoti\b|\bspring\b|loose stone/.test(text)) return false;
+  return true;
+}
+
+function settingAccessorySources() {
+  return settingUnlinkedDepartmentSources().filter((source) => !isSettingManualProductionSource(source));
+}
+
+function settingManualProductionSources() {
+  return settingUnlinkedDepartmentSources().filter(isSettingManualProductionSource);
+}
+
 function settingAccessorySource(sourceIssueId = "") {
   return settingAccessorySources().find((source) => source.id === sourceIssueId) || null;
 }
 
+function settingManualProductionSource(sourceIssueId = "") {
+  return settingManualProductionSources().find((source) => source.id === sourceIssueId) || null;
+}
+
 function settingAccessorySourceLabel(source = {}) {
   return `${source.materialDescription || "Accessory"} / ${transferPurityLabel(source.purity || "-")} / Available ${gram(source.availableGw)}`;
+}
+
+function settingManualProductionSourceLabel(source = {}) {
+  return `${source.materialDescription || "Manual Production Item"} / No Job Card / ${transferPurityLabel(source.purity || "-")} / GW ${gram(source.availableGw)}`;
 }
 
 function settingEntryReference(entry = {}) {
@@ -29274,6 +29544,11 @@ function settingEntryLedgerStatus(entry = {}) {
   return { label: "RECEIVED / SETTLED", className: "completed" };
 }
 
+function settingAutomaticReceiptText(entry = {}) {
+  if (!entry.autoReceivedFromTransferId) return "";
+  return `Automatically closed when the lot moved from Setting to ${entry.autoReceivedToDepartment || "the next department"}`;
+}
+
 function renderSetterHistory(setterId = "") {
   const data = settingSetterHistoryData(setterId);
   if (!data.setter) return false;
@@ -29293,7 +29568,7 @@ function renderSetterHistory(setterId = "") {
   table.innerHTML = data.entries.map((entry) => {
     const returnlessAccessory = entry.entryType === "Accessory" && !entry.returnExpected;
     const status = settingEntryLedgerStatus(entry);
-    const remarks = [entry.remarks, entry.receiveRemarks, settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-";
+    const remarks = [entry.remarks, entry.receiveRemarks, settingAutomaticReceiptText(entry), settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-";
     const balanceText = returnlessAccessory ? "-" : gram(entry.balanceWeight);
     return `
       <tr>
@@ -29491,6 +29766,18 @@ function renderSettingManagerSelects() {
     select.value = accessorySources.some((source) => source.id === selected) ? selected : "";
   });
 
+  const manualProductionSources = settingManualProductionSources();
+  const manualProductionOptions = manualProductionSources
+    .map((source) => `<option value="${escapeHtml(source.id)}">${escapeHtml(settingManualProductionSourceLabel(source))}</option>`)
+    .join("");
+  document.querySelectorAll('#setting-issue-form select[name="manualSourceIssueId"]').forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = manualProductionOptions
+      ? `<option value="">Select manual production item</option>${manualProductionOptions}`
+      : '<option value="">No no-Job-Card item available in Setting</option>';
+    select.value = manualProductionSources.some((source) => source.id === selected) ? selected : "";
+  });
+
   document.querySelectorAll("#setting-receive-form").forEach((form) => {
     const isClose = (form.settlementType?.value || "close") === "close";
     const relevantEntries = isClose ? settingPendingEntries() : settingSetterBalanceEntries();
@@ -29610,27 +29897,53 @@ function updateSettingIssueSummary(event) {
   if (!form) return;
   const issueType = form.issueType?.value || "lot";
   const isAccessory = issueType === "accessory" || issueType === "accessory-return";
+  const isManualSource = issueType === "manual-source";
   const isManual = issueType === "manual";
   const returnExpected = issueType === "accessory-return";
   const isRepair = issueType === "repair";
-  const isPartial = !isAccessory && form.issueScope?.value === "part";
+  const isPartial = !isAccessory && !isManualSource && !isManual && form.issueScope?.value === "part";
   const lotField = document.getElementById("setting-issue-lot-field");
   const accessoryField = document.getElementById("setting-issue-accessory-field");
+  const manualSourceField = document.getElementById("setting-issue-manual-source-field");
   const manualReferenceField = document.getElementById("setting-issue-manual-reference-field");
   const manualPurityField = document.getElementById("setting-issue-manual-purity-field");
   const scopeField = document.getElementById("setting-issue-scope-field");
   const handStoneField = document.getElementById("setting-issue-hand-stone-field");
-  lotField?.classList.toggle("hidden", isAccessory || isManual);
+  lotField?.classList.toggle("hidden", isAccessory || isManualSource || isManual);
   accessoryField?.classList.toggle("hidden", !isAccessory);
+  manualSourceField?.classList.toggle("hidden", !isManualSource);
   manualReferenceField?.classList.toggle("hidden", !isManual);
   manualPurityField?.classList.toggle("hidden", !isManual);
-  scopeField?.classList.toggle("hidden", isAccessory || isManual);
-  handStoneField?.classList.toggle("hidden", isAccessory || isManual);
-  form.lotId.required = !isAccessory && !isManual;
+  scopeField?.classList.toggle("hidden", isAccessory || isManualSource || isManual);
+  handStoneField?.classList.toggle("hidden", isAccessory || isManualSource || isManual);
+  form.lotId.required = !isAccessory && !isManualSource && !isManual;
   form.accessoryIssueId.required = isAccessory;
+  form.manualSourceIssueId.required = isManualSource;
   form.manualReference.required = isManual;
   form.manualPurity.required = isManual;
-  form.issueScope.required = !isAccessory && !isManual;
+  form.issueScope.required = !isAccessory && !isManualSource && !isManual;
+
+  if (isManualSource) {
+    renderSettingSplitItemPicker(form, null, true);
+    const source = settingManualProductionSource(form.manualSourceIssueId.value);
+    const selectedSourceChanged = form.dataset.selectedManualSourceId !== (source?.id || "");
+    form.issueGw.readOnly = false;
+    form.issueGw.min = "0.001";
+    form.issueGw.max = source ? weight3(source.availableGw) : "";
+    if (selectedSourceChanged) form.issueGw.value = source ? weight3(source.availableGw) : "";
+    form.handStoneWeight.value = "0.000";
+    form.handStoneWeight.readOnly = true;
+    form.dataset.selectedManualSourceId = source?.id || "";
+    form.dataset.selectedAccessoryIssueId = "";
+    form.dataset.selectedLotId = "";
+    const summary = document.getElementById("setting-issue-summary");
+    if (summary) {
+      summary.textContent = source
+        ? `${source.materialDescription} is already in ${source.departmentName}. No Job Card is linked. Available GW ${gram(source.availableGw)} at ${transferPurityLabel(source.purity || "-")}. Select the setter and issue the full or partial weight.`
+        : "Select a Manual Production Item / No Job Card already held in Stone Setting Department.";
+    }
+    return;
+  }
 
   if (isManual) {
     renderSettingSplitItemPicker(form, null, true);
@@ -29639,6 +29952,7 @@ function updateSettingIssueSummary(event) {
     form.issueGw.removeAttribute("max");
     form.handStoneWeight.value = "0.000";
     form.handStoneWeight.readOnly = true;
+    form.dataset.selectedManualSourceId = "";
     form.dataset.selectedAccessoryIssueId = "";
     form.dataset.selectedLotId = "";
     const summary = document.getElementById("setting-issue-summary");
@@ -29656,6 +29970,7 @@ function updateSettingIssueSummary(event) {
     if (selectedSourceChanged) form.issueGw.value = source ? weight3(source.availableGw) : "";
     form.handStoneWeight.value = "0.000";
     form.handStoneWeight.readOnly = true;
+    form.dataset.selectedManualSourceId = "";
     form.dataset.selectedAccessoryIssueId = source?.id || "";
     form.dataset.selectedLotId = "";
     const summary = document.getElementById("setting-issue-summary");
@@ -29699,6 +30014,7 @@ function updateSettingIssueSummary(event) {
   }
   form.dataset.selectedLotId = lot?.id || "";
   form.dataset.selectedIssueScope = form.issueScope?.value || "full";
+  form.dataset.selectedManualSourceId = "";
   form.dataset.selectedAccessoryIssueId = "";
   const label = document.getElementById("setting-issue-hand-stone-label");
   if (label) label.textContent = hasJobCardStone ? "Hand Stone From Job Card (g)" : "Manual Hand Stone Weight (g)";
@@ -29833,6 +30149,48 @@ function issueSettingLotToSetter(event) {
     alert("Select setter.");
     return;
   }
+  if (data.issueType === "manual-source") {
+    const source = settingManualProductionSource(data.manualSourceIssueId);
+    if (!source) {
+      alert("Select a Manual Production Item / No Job Card currently held in Stone Setting Department.");
+      return;
+    }
+    const issueGw = Number(weight3(data.issueGw || 0));
+    if (!Number.isFinite(issueGw) || issueGw <= 0) {
+      alert("Enter valid issue GW for the manual production item.");
+      return;
+    }
+    if (issueGw > source.availableGw + 0.0005) {
+      alert(`Issue GW cannot exceed the available manual production weight ${gram(source.availableGw)}.`);
+      return;
+    }
+    state.settingManagerEntries = state.settingManagerEntries || [];
+    state.settingManagerEntries.unshift(normalizeSettingManagerEntry({
+      entryType: "Manual",
+      workType: "Manual Production Item - No Job Card",
+      issueDate: today(),
+      sourceIssueId: source.id,
+      materialDescription: source.materialDescription || "Manual Production Item",
+      materialType: source.materialType || "Manual Production Item",
+      purity: source.purity || "18K",
+      setterId: setter.id,
+      setterName: setter.name,
+      issueGw,
+      handStoneWeight: 0,
+      handStoneWeightSource: "Manual",
+      status: "Issued",
+      remarks: data.remarks || "",
+      currentDepartment: source.departmentName || "Stone Setting Department",
+    }));
+    form.reset();
+    form.dataset.selectedManualSourceId = "";
+    form.dataset.selectedAccessoryIssueId = "";
+    form.dataset.selectedLotId = "";
+    saveState();
+    render();
+    alert(`${source.materialDescription || "Manual Production Item"} issued to ${setter.name}.\nNo Job Card\nIssue GW: ${gram(issueGw)}\nAvailable balance in Setting: ${gram(Math.max(source.availableGw - issueGw, 0))}`);
+    return;
+  }
   if (data.issueType === "manual") {
     const manualReference = String(data.manualReference || "").trim();
     const issueGw = Number(weight3(data.issueGw || 0));
@@ -29862,6 +30220,7 @@ function issueSettingLotToSetter(event) {
       currentDepartment: "Setting Department",
     }));
     form.reset();
+    form.dataset.selectedManualSourceId = "";
     form.dataset.selectedLotId = "";
     form.dataset.selectedAccessoryIssueId = "";
     saveState();
@@ -29906,6 +30265,7 @@ function issueSettingLotToSetter(event) {
       currentDepartment: source.departmentName || "Setting",
     }));
     form.reset();
+    form.dataset.selectedManualSourceId = "";
     saveState();
     render();
     alert(`${source.materialDescription} ${gram(issueGw)} issued to ${setter.name}.\n${returnExpected ? "Return expected. The item is now pending with the setter." : "Marked Used In Job / No Return Required."}`);
@@ -29986,6 +30346,7 @@ function issueSettingLotToSetter(event) {
     currentDepartment: lot.currentDepartment || lot.karigarName || "Setting",
   }));
   form.reset();
+  form.dataset.selectedManualSourceId = "";
   form.dataset.selectedLotId = "";
   form.dataset.selectedIssueScope = "";
   saveState();
@@ -30091,6 +30452,9 @@ function receiveSettingLotFromSetter(event) {
   entry.difference = Number(weight3(receiveNetWeight - Number(entry.issueGw || 0)));
   entry.status = "Received";
   entry.receiveRemarks = data.remarks || "";
+  entry.autoReceivedFromTransferId = "";
+  entry.autoReceivedToDepartment = "";
+  entry.updatedAt = new Date().toISOString();
   entry.settlementHistory.unshift({
     id: crypto.randomUUID(),
     date: today(),
@@ -30110,6 +30474,23 @@ function receiveSettingLotFromSetter(event) {
   saveState();
   render();
   alert(`${settingEntryReference(entry)} received from ${entry.setterName}.\nReceive Net: ${gram(receiveNetWeight)}\nReturned With Lot: ${settingReturnMaterialBreakdownText(entry)}\nLoss Booked With Lot: ${gram(totalLossWeight)}\nMetal Balance Kept Against Setter: ${gram(entry.balanceWeight)}\nThis balance can be settled later through combined rawa receipt or monthly loss.`);
+}
+
+function openSettingManualProductionSource(sourceIssueId) {
+  if (currentUser && !canAccessProductionPage("setting")) {
+    alert("This login can access only its allowed production work.");
+    return;
+  }
+  switchView("production");
+  switchProductionPage("setting");
+  renderSettingManagerSelects();
+  const form = document.getElementById("setting-issue-form");
+  if (!form) return;
+  form.issueType.value = "manual-source";
+  form.manualSourceIssueId.value = sourceIssueId;
+  form.dataset.selectedManualSourceId = "";
+  updateSettingIssueSummary();
+  form.setterId.focus();
 }
 
 function openSettingIssueForLot(lotId) {
@@ -30195,6 +30576,7 @@ function renderSettingManager() {
   const summary = document.getElementById("setting-manager-summary");
   if (!summary) return;
   const settingLots = settingManagerLots();
+  const manualProductionSources = settingManualProductionSources();
   const pending = settingPendingEntries();
   const setterBalanceEntries = settingSetterBalanceEntries();
   const receivedToday = (state.settingManagerEntries || []).filter((entry) => entry.receiveDate === today()).length;
@@ -30250,6 +30632,20 @@ function renderSettingManager() {
   }).join("");
   document.getElementById("setting-manager-lot-table").innerHTML = lotRows || tableEmpty(7, "No lot is currently in Setting Department.");
 
+  const manualProductionRows = manualProductionSources.map((source) => `
+    <tr>
+      <td>${escapeHtml(source.date || "-")}</td>
+      <td><strong>${escapeHtml(source.materialDescription || "Manual Production Item")}</strong><br><small>${escapeHtml(source.materialType || "Production Item")}</small></td>
+      <td><strong>Manual Production Item</strong><br><small>No Job Card${source.sourceLine ? ` / ${escapeHtml(source.sourceLine)}` : ""}</small></td>
+      <td>${escapeHtml(transferPurityLabel(source.purity || "-"))}</td>
+      <td><strong>${gram(source.availableGw)}</strong><br><small>Original ${gram(source.grossWeight)}</small></td>
+      <td>${escapeHtml(source.departmentName || "Stone Setting Department")}<br><small>${escapeHtml(source.remarks || "Available for setter issue")}</small></td>
+      <td><button type="button" onclick="openSettingManualProductionSource('${source.id}')">Issue / Split To Setter</button></td>
+    </tr>
+  `).join("");
+  const manualProductionTable = document.getElementById("setting-manager-manual-table");
+  if (manualProductionTable) manualProductionTable.innerHTML = manualProductionRows || tableEmpty(7, "No Manual Production Item / No Job Card is currently held in Stone Setting Department.");
+
   const pendingRows = pending.map((entry) => `
     <tr>
       <td>${escapeHtml(entry.issueDate || "-")}</td>
@@ -30280,7 +30676,7 @@ function renderSettingManager() {
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : gram(entry.setterLossWeight)}</td>
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : gram(entry.balanceWeight)}</td>
       <td><span class="status ${entry.status === "Issued" || Number(entry.balanceWeight || 0) > 0.0005 ? "pending" : "completed"}">${entry.entryType === "Accessory" && !entry.returnExpected ? "Used / No Return" : entry.status === "Received" && Number(entry.balanceWeight || 0) > 0.0005 ? "Received / Balance Due" : escapeHtml(entry.status)}</span><br><small>${escapeHtml(entry.workType || "Setter Work")}</small></td>
-      <td>${escapeHtml([entry.splitFromLotNumber ? `Split from ${entry.splitFromLotNumber}` : "", entry.remarks, entry.receiveRemarks, settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-")}</td>
+      <td>${escapeHtml([entry.splitFromLotNumber ? `Split from ${entry.splitFromLotNumber}` : "", entry.remarks, entry.receiveRemarks, settingAutomaticReceiptText(entry), settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-")}</td>
     </tr>
   `).join("");
   document.getElementById("setting-manager-history-table").innerHTML = historyRows || tableEmpty(14, "No setter issue / receive history recorded.");
@@ -34280,6 +34676,7 @@ function renderFactorySummary() {
     factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
     factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
+    factorySummaryCard("Main Stock NG Removed", gram(Math.abs(parts.mainNonGoldRemoval?.grossWeight || 0)), "Physical GW and non-gold reduced equally; fine gold unchanged"),
     factorySummaryCard("Opening Non-Gold Remaining", gram(parts.openingNonGoldAdjustment?.nonGoldWeight || 0), "Automatically adjusted when Wax Stone, Hand Stone, or other embedded non-gold enters production / bill"),
     factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), "Karat-wise non-gold consumed from department stock"),
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
@@ -34301,6 +34698,7 @@ const fineSheetPartOrder = [
   "meltingCasting",
   "xrf",
   "nonGoldDirect",
+  "mainNonGoldRemoval",
   "openingNonGoldAdjustment",
   "billNonGoldAdjustment",
 ];
@@ -34336,6 +34734,7 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
         const percent = purityPercent(bucket.purity);
         let calculation = "No fine-gold effect";
         if (Math.abs(gold) > 0.0005 && percent > 0) calculation = `${weight3(gold)} x ${percent.toFixed(2)}%`;
+        else if (key === "mainNonGoldRemoval") calculation = "Physical non-gold removed; fine gold unchanged";
         else if (key === "openingNonGoldAdjustment") calculation = "Opening non-gold less amount already moved into production / bill";
         else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
         rows.push({
@@ -36335,8 +36734,8 @@ function renderDepartmentTransferTile(department) {
       <span>${escapeHtml(department.name)}</span>
       <strong>${department.inCount} IN / ${department.outCount} OUT</strong>
       <div>
-        <small><b>IN GW</b>${gram(department.inGw)}</small>
-        <small><b>OUT GW</b>${gram(department.outGw)}</small>
+        <small><b>IN RECEIVE GW</b>${gram(department.inGw)}</small>
+        <small><b>OUT RECEIVE GW</b>${gram(department.outGw)}</small>
         <small><b>Reduced</b>${gram(department.difference)}</small>
         <small><b>Fine</b>${gram(department.fineGold)}</small>
       </div>
@@ -36380,8 +36779,8 @@ function refreshOpenDepartmentTransferHistory() {
 
 function renderDepartmentTransferTotals(summary) {
   return [
-    factorySummaryCard("Total IN GW", gram(summary.inGw), `${summary.inCount} inward entries`),
-    factorySummaryCard("Total OUT GW", gram(summary.outGw), `${summary.outCount} outward entries`),
+    factorySummaryCard("Total IN Receive GW", gram(summary.inGw), `${summary.inCount} inward entries`),
+    factorySummaryCard("Total OUT Receive GW", gram(summary.outGw), `${summary.outCount} outward entries`),
     factorySummaryCard("IN Net Wt", gram(summary.inNet), "Net weight received in department"),
     factorySummaryCard("OUT Net Wt", gram(summary.outNet), "Net weight moved out"),
     factorySummaryCard("Total Reduced", gram(summary.difference), "Difference booked to this department", summary.difference ? "payable" : ""),
@@ -36398,7 +36797,7 @@ function renderDepartmentTransferPurityBreakup(events = []) {
     </div>
     <div class="department-transfer-purity-table">
       <div class="department-transfer-purity-head">
-        <span>Karat / Purity</span><span>IN GW</span><span>IN Net</span><span>OUT GW</span><span>OUT Net</span><span>Reduced</span><span>Fine</span>
+        <span>Karat / Purity</span><span>IN Receive GW</span><span>IN Net</span><span>OUT Receive GW</span><span>OUT Net</span><span>Reduced</span><span>Fine</span>
       </div>
       ${rows.map((row) => `
         <div class="department-transfer-purity-row">
@@ -36427,7 +36826,7 @@ function departmentTransferPurityRows(events = []) {
       group.inGw = Number(weight3(group.inGw + Number(event.receiveGw || 0)));
       group.inNet = Number(weight3(group.inNet + Number(event.netWeight || 0)));
     } else {
-      group.outGw = Number(weight3(group.outGw + Number(event.issueGw || 0)));
+      group.outGw = Number(weight3(group.outGw + Number(event.receiveGw || 0)));
       group.outNet = Number(weight3(group.outNet + Number(event.netWeight || 0)));
       group.difference = Number(weight3(group.difference + Number(event.difference || 0)));
       group.fineGold = Number(weight3(group.fineGold + Number(event.fineGold || 0)));
@@ -36446,10 +36845,25 @@ function puritySortValue(value = "") {
 function departmentTransferSummaries() {
   const summaries = new Map();
   (state.karigars || []).forEach((department) => {
-    const groupName = departmentTransferGroupName(department.name, primaryDepartmentProcess(department));
-    const summary = ensureDepartmentTransferSummary(summaries, groupName);
-    summary.details.add(department.name || groupName);
-    departmentProcesses(department).forEach((process) => summary.details.add(process));
+    const processes = departmentProcesses(department);
+    const departmentGroups = new Map();
+    processes.forEach((process) => {
+      const groupName = departmentTransferGroupName(department.name, process);
+      if (!departmentGroups.has(groupName)) departmentGroups.set(groupName, []);
+      departmentGroups.get(groupName).push(process);
+    });
+    if (!departmentGroups.size) {
+      const groupName = departmentTransferGroupName(department.name, department.name);
+      departmentGroups.set(groupName, [department.name]);
+    }
+    departmentGroups.forEach((groupProcesses, groupName) => {
+      const summary = ensureDepartmentTransferSummary(summaries, groupName);
+      summary.details.add(department.name || groupName);
+      groupProcesses.forEach((process) => {
+        const processGroup = departmentTransferGroupName(department.name, process);
+        if (processGroup === groupName && processGroup !== department.name) summary.details.add(process);
+      });
+    });
   });
   departmentTransferEvents().forEach((event) => {
     const summary = ensureDepartmentTransferSummary(summaries, event.department);
@@ -36460,7 +36874,7 @@ function departmentTransferSummaries() {
       summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
     } else {
       summary.outCount += 1;
-      summary.outGw = Number(weight3(summary.outGw + Number(event.issueGw || 0)));
+      summary.outGw = Number(weight3(summary.outGw + Number(event.receiveGw || 0)));
       summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
       summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
       summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
@@ -36485,7 +36899,7 @@ function departmentTransferSummaryFromEvents(name, events = []) {
       summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
     } else {
       summary.outCount += 1;
-      summary.outGw = Number(weight3(summary.outGw + Number(event.issueGw || 0)));
+      summary.outGw = Number(weight3(summary.outGw + Number(event.receiveGw || 0)));
       summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
       summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
       summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
@@ -36687,7 +37101,16 @@ function departmentTransferEvents() {
 }
 
 function departmentTransferGroupName(departmentName = "", processName = "") {
-  return departmentDashboardHeader(processName || departmentName || "Unassigned", departmentName);
+  const department = String(departmentName || "").trim();
+  const process = String(processName || "").trim();
+  const processParts = departmentProcessesFromText(process);
+  if (processParts.length === 1) {
+    const explicitProcess = mergedProductionDepartmentName(processParts[0], department);
+    if (productionDepartmentLabels.has(explicitProcess)) return explicitProcess;
+  }
+  const explicitDepartment = mergedProductionDepartmentName(department, department);
+  if (productionDepartmentLabels.has(explicitDepartment)) return explicitDepartment;
+  return departmentDashboardHeader(process || department || "Unassigned", department);
 }
 
 function departmentTransferHistoryGroupName(departmentName = "") {
@@ -36756,7 +37179,7 @@ function transferOneLinePopupCell(value = "") {
 }
 
 function renderDepartmentTransferRow(event, direction) {
-  const gw = direction === "in" ? event.receiveGw : event.issueGw;
+  const gw = event.receiveGw;
   const difference = direction === "out" ? gram(event.difference) : "-";
   const fineGold = direction === "out" ? gram(event.fineGold) : "-";
   const ownDepartment = event.departmentDetail || event.department || "-";
