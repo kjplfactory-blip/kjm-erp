@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v578";
+const APP_VERSION = "v579";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -1843,6 +1843,7 @@ document.getElementById("production-non-gold-remove-form").addEventListener("sub
 
 document.getElementById("setting-setter-form")?.addEventListener("submit", saveSettingSetter);
 document.getElementById("cancel-setting-setter-edit")?.addEventListener("click", resetSettingSetterForm);
+document.getElementById("close-setter-history")?.addEventListener("click", closeSetterHistory);
 document.getElementById("setting-issue-form")?.addEventListener("input", updateSettingIssueSummary);
 document.getElementById("setting-issue-form")?.addEventListener("change", updateSettingIssueSummary);
 document.getElementById("setting-issue-form")?.addEventListener("submit", issueSettingLotToSetter);
@@ -29203,6 +29204,128 @@ function settingEntryProductionText(entry = {}) {
   return productionNumbers.join(", ") || "PR not available";
 }
 
+function settingEntryOrdersForHistory(entry = {}) {
+  if (["Accessory", "Manual"].includes(entry.entryType)) return [];
+  const lot = findById("lots", entry.lotId) || {};
+  const orderIds = Array.isArray(entry.selectedOrderIds) && entry.selectedOrderIds.length
+    ? entry.selectedOrderIds
+    : getLotOrderIds(lot);
+  return orderIds.map((orderId) => findById("orders", orderId)).filter(Boolean);
+}
+
+function settingEntryStoneAccount(entry = {}) {
+  const orders = settingEntryOrdersForHistory(entry);
+  const rows = orders.flatMap((order) => productionStoneItemsForOrder(order).map((item) => ({
+    ...item,
+    productionNo: order.productionNo || order.number || order.designNo || "PR",
+  })));
+  const wax = productionStoneTotals(rows, "wax");
+  const plannedHand = productionStoneTotals(rows, "hand");
+  const handWeight = Number(weight3(entry.handStoneWeight ?? plannedHand.weight ?? 0));
+  const handPcs = Number(plannedHand.pcs || 0);
+  const totalPcs = Number(wax.pcs || 0) + handPcs;
+  const totalWeight = Number(weight3(Number(wax.weight || 0) + handWeight));
+  return { orders, rows, wax, hand: { pcs: handPcs, weight: handWeight }, totalPcs, totalWeight };
+}
+
+function settingSetterHistoryData(setterId = "") {
+  const setter = (state.settingSetters || []).find((item) => item.id === setterId) || null;
+  const entries = (state.settingManagerEntries || []).filter((entry) => entry.setterId === setterId);
+  const returnableEntries = entries.filter((entry) => entry.entryType !== "Accessory" || entry.returnExpected);
+  const activeEntries = returnableEntries.filter((entry) => entry.status === "Issued");
+  const receivedEntries = returnableEntries.filter((entry) => entry.status === "Received");
+  const activeLotGw = Number(weight3(activeEntries.reduce((total, entry) => total + Number(entry.balanceWeight ?? entry.issueGw ?? 0), 0)));
+  const returnedLotBalance = Number(weight3(receivedEntries.reduce((total, entry) => total + Math.max(Number(entry.balanceWeight || 0), 0), 0)));
+  return {
+    setter,
+    entries,
+    activeEntries,
+    receivedEntries,
+    activeLotGw,
+    returnedLotBalance,
+    totalAccountable: Number(weight3(activeLotGw + returnedLotBalance)),
+    issueGw: Number(weight3(returnableEntries.reduce((total, entry) => total + Number(entry.issueGw || 0), 0))),
+    receiveGw: Number(weight3(receivedEntries.reduce((total, entry) => total + Number(entry.receiveGw || 0), 0))),
+    receiveNet: Number(weight3(receivedEntries.reduce((total, entry) => total + Number(entry.receiveNetWeight || 0), 0))),
+  };
+}
+
+function settingEntryStoneHistoryHtml(entry = {}) {
+  const stone = settingEntryStoneAccount(entry);
+  if (!stone.rows.length && stone.totalWeight <= 0.0005) return '<span class="setter-stone-empty">No stone details</span>';
+  const rows = stone.rows.map((item) => {
+    const settingType = item.settingType === "hand" || item.isAdditionalStone ? "HAND" : "WAX";
+    const description = [item.stoneType || "STONE", item.shape || "-", item.size || "-"].filter(Boolean).join(" / ");
+    return `<span><b>${escapeHtml(item.productionNo)}</b> ${escapeHtml(description)} / ${Number(item.pcs || 0)} PCS / ${gram(item.totalWeight)} / ${settingType}</span>`;
+  }).join("");
+  return `
+    <div class="setter-stone-account">
+      <strong>WAX ${stone.wax.pcs} PCS / ${gram(stone.wax.weight)} &nbsp; HAND ${stone.hand.pcs} PCS / ${gram(stone.hand.weight)}</strong>
+      <small>TOTAL ${stone.totalPcs} PCS / ${gram(stone.totalWeight)}</small>
+      <div class="setter-stone-lines">${rows || `<span>MANUAL HAND STONE / ${gram(stone.hand.weight)}</span>`}</div>
+    </div>
+  `;
+}
+
+function settingEntryLedgerStatus(entry = {}) {
+  if (entry.entryType === "Accessory" && !entry.returnExpected) return { label: "USED / NO RETURN", className: "completed" };
+  if (entry.status === "Issued") return { label: "WITH SETTER", className: "pending" };
+  if (Number(entry.balanceWeight || 0) > 0.0005) return { label: "RECEIVED / BALANCE DUE", className: "pending" };
+  return { label: "RECEIVED / SETTLED", className: "completed" };
+}
+
+function renderSetterHistory(setterId = "") {
+  const data = settingSetterHistoryData(setterId);
+  if (!data.setter) return false;
+  const title = document.getElementById("setter-history-title");
+  const subtitle = document.getElementById("setter-history-subtitle");
+  const summary = document.getElementById("setter-history-summary");
+  const table = document.getElementById("setter-history-table");
+  if (!title || !subtitle || !summary || !table) return false;
+  title.textContent = `${data.setter.name} - Setter Account`;
+  subtitle.textContent = [data.setter.phone, data.setter.rate, data.setter.remarks].filter(Boolean).join(" / ") || "Complete lot issue, receipt, stone and metal-balance history.";
+  summary.innerHTML = `
+    <article class="setter-ledger-total"><span>Total Accountable With Setter</span><strong>${gram(data.totalAccountable)}</strong><small>Current lot GW + returned-lot metal due</small></article>
+    <article><span>Current Lots With Setter</span><strong>${data.activeEntries.length}</strong><small>${gram(data.activeLotGw)} GW</small></article>
+    <article><span>Returned-Lot Metal Due</span><strong>${gram(data.returnedLotBalance)}</strong><small>Remaining balance after lot receipt</small></article>
+    <article><span>All Issue / Receive</span><strong>${gram(data.issueGw)}</strong><small>Receive GW ${gram(data.receiveGw)} / Net ${gram(data.receiveNet)}</small></article>
+  `;
+  table.innerHTML = data.entries.map((entry) => {
+    const returnlessAccessory = entry.entryType === "Accessory" && !entry.returnExpected;
+    const status = settingEntryLedgerStatus(entry);
+    const remarks = [entry.remarks, entry.receiveRemarks, settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-";
+    const balanceText = returnlessAccessory ? "-" : gram(entry.balanceWeight);
+    return `
+      <tr>
+        <td><b>${escapeHtml(entry.issueDate || "-")}</b><br><small>Received ${escapeHtml(entry.receiveDate || entry.closeDate || "-")}</small></td>
+        <td><strong>${escapeHtml(settingEntryReference(entry))}</strong><br><small>${escapeHtml(entry.jobNumber || "No Job Card")}</small><br><small>${escapeHtml(settingEntryProductionText(entry))}</small></td>
+        <td><span>Issue <b>${gram(entry.issueGw)}</b></span><br><span>Receive GW <b>${returnlessAccessory || entry.receiveGw === "" ? "-" : gram(entry.receiveGw)}</b></span><br><span>Receive Net <b>${returnlessAccessory || entry.receiveNetWeight === "" ? "-" : gram(entry.receiveNetWeight)}</b></span></td>
+        <td>${settingEntryStoneHistoryHtml(entry)}</td>
+        <td><b>${returnlessAccessory ? "-" : escapeHtml(settingReturnMaterialBreakdownText(entry))}</b><br><small>LOSS ${returnlessAccessory ? "-" : gram(entry.setterLossWeight)}</small></td>
+        <td><strong class="setter-row-balance">${balanceText}</strong><br><small>${entry.status === "Issued" ? "CURRENTLY WITH SETTER" : Number(entry.balanceWeight || 0) > 0.0005 ? "METAL STILL DUE" : "CLEAR"}</small></td>
+        <td><span class="status ${status.className}">${status.label}</span><br><small>${escapeHtml(entry.workType || "Setter Work")}</small></td>
+        <td>${escapeHtml(remarks)}</td>
+      </tr>
+    `;
+  }).join("") || tableEmpty(8, "No lot issue or receipt history is recorded for this setter.");
+  return true;
+}
+
+function openSetterHistory(setterId = "") {
+  if (!renderSetterHistory(setterId)) {
+    alert("Setter account could not be found.");
+    return;
+  }
+  const dialog = document.getElementById("setter-history-dialog");
+  dialog.dataset.setterId = setterId;
+  dialog.showModal();
+}
+
+function closeSetterHistory() {
+  const dialog = document.getElementById("setter-history-dialog");
+  if (dialog?.open) dialog.close();
+}
+
 function settingLotLabel(lot = {}) {
   const orders = getLotOrders(lot);
   const customers = [...new Set(orders.map((order) => order.customer).filter(Boolean))].join(", ") || "-";
@@ -30087,11 +30210,12 @@ function renderSettingManager() {
     const setterOpenGw = setterPending.reduce((total, entry) => Number(weight3(total + Number(entry.balanceWeight || 0))), 0);
     const setterMetalBalance = settingSetterCombinedBalance(setter.id);
     return `
-      <div class="setter-chip">
+      <div class="setter-chip setter-ledger-tile" role="button" tabindex="0" onclick="openSetterHistory('${setter.id}')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSetterHistory('${setter.id}'); }">
         <strong>${escapeHtml(setter.name)}</strong>
         <span>${escapeHtml([setter.phone, setter.rate].filter(Boolean).join(" / ") || "Setter")}</span>
         <small>${setterPending.length ? `${setterPending.length} lot${setterPending.length === 1 ? "" : "s"} still with setter / ${gram(setterOpenGw)} GW` : "No job lot currently with setter"}<br>Returned-lot metal balance ${gram(setterMetalBalance)}</small>
-        ${setterActionsAllowed ? `<div class="row-actions">
+        <small class="setter-ledger-open-hint">Open complete account history</small>
+        ${setterActionsAllowed ? `<div class="row-actions" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
           <button class="ghost-button" type="button" onclick="editSettingSetter('${setter.id}')">Edit</button>
           <button class="danger-button" type="button" onclick="deleteSettingSetter('${setter.id}')">Delete</button>
         </div>` : ""}
@@ -30160,6 +30284,8 @@ function renderSettingManager() {
     </tr>
   `).join("");
   document.getElementById("setting-manager-history-table").innerHTML = historyRows || tableEmpty(14, "No setter issue / receive history recorded.");
+  const openSetterDialog = document.getElementById("setter-history-dialog");
+  if (openSetterDialog?.open && openSetterDialog.dataset.setterId) renderSetterHistory(openSetterDialog.dataset.setterId);
 }
 
 function renderBills() {

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=578">
+  <link rel="stylesheet" href="styles.css?v=579">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v578</small>
+      <small class="app-version-badge">App v579</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v578</span>
+          <span class="app-version-badge">App v579</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1711,6 +1711,35 @@
       </div>
     </dialog>
 
+    <dialog id="setter-history-dialog">
+      <div class="dialog-card setter-history-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2 id="setter-history-title">Setter Account</h2>
+            <p id="setter-history-subtitle" class="dialog-note">Lot issue, receipt, stone and metal-balance history.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-setter-history">Close</button>
+        </div>
+        <div class="setter-history-dialog-body">
+          <div id="setter-history-summary" class="setter-history-summary"></div>
+          <section class="panel table-panel setter-history-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Lot Issue / Receive Ledger</h2>
+                <p>Each row shows stone details and the remaining metal balance of that individual lot.</p>
+              </div>
+            </div>
+            <div class="table-wrap setter-history-table-wrap">
+              <table class="setter-history-table">
+                <thead><tr><th>Issue / Receive</th><th>Lot / Job Card / PR</th><th>Weight Account</th><th>Stone Details</th><th>Return / Loss</th><th>Metal Balance</th><th>Status</th><th>Remarks</th></tr></thead>
+                <tbody id="setter-history-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="catalogue-order-dialog">
       <form id="catalogue-order-form" class="dialog-card catalogue-order-dialog">
         <div class="dialog-header">
@@ -2994,6 +3023,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=578"></script>
+  <script src="app.js?v=579"></script>
 </body>
 </html>
