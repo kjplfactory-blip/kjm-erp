@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v573";
+const APP_VERSION = "v574";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -1862,10 +1862,13 @@ document.getElementById("setting-receive-form")?.addEventListener("change", (eve
   if (event.target.name === "settlementType") {
     event.currentTarget.rawaWeight.value = "0.000";
     event.currentTarget.setterLossWeight.value = "0.000";
+    event.currentTarget.entryId.value = "";
+    event.currentTarget.dataset.selectedEntryId = "";
+    renderSettingManagerSelects();
+    return;
   }
   updateSettingReceiveSummary();
 });
-document.getElementById("setting-use-balance-loss")?.addEventListener("click", bookSettingBalanceAsLoss);
 document.getElementById("setting-receive-form")?.addEventListener("submit", receiveSettingLotFromSetter);
 
 document.getElementById("stock-form")?.addEventListener("submit", (event) => {
@@ -3431,8 +3434,10 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
     targetOrder.productionStoneUpdatedAt = today();
     targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
   });
+  syncSettingEntriesForUpdatedStoneOrders(targetOrders);
   saveState();
   renderProductionStoneItems(order);
+  updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
@@ -15447,8 +15452,25 @@ function openProductionStoneEntry(orderId) {
   document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order, design)} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
   renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
+  updateProductionStoneMasterReloadState(order);
   void renderProductionStoneChart(order);
   document.getElementById("production-stone-dialog").showModal();
+}
+
+function canReloadProductionStoneFromMaster(order = {}) {
+  return order.productionStoneOverride !== true;
+}
+
+function updateProductionStoneMasterReloadState(order = {}) {
+  const locked = !canReloadProductionStoneFromMaster(order);
+  ["refresh-production-stone-master", "reset-production-stone-design"].forEach((id) => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.disabled = locked;
+    button.title = locked
+      ? "This PR stone plan was already updated. Modify the current rows or add a new stone row."
+      : "Load the starting stone rows before the first item-level update.";
+  });
 }
 
 function productionStoneChartKeysForOrder(design = null, order = {}) {
@@ -15933,8 +15955,8 @@ function directAdditionalStoneItemForOrder(order = {}, weight = 0) {
     manualShelfIssue: false,
     isAdditionalStone: true,
     date: today(),
-    settingType: "additional",
-    manufacturingStage: "Direct",
+    settingType: "hand",
+    manufacturingStage: "Setting",
     itemKey: normalizeStoneItemKey(existing?.itemKey || orderStoneItemKeys(order)[0] || "ITEM"),
     stoneType: "ADDITIONAL STONE",
     shape: "",
@@ -15986,6 +16008,10 @@ function refreshProductionStoneFromMaster() {
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "refresh stone details")) return;
+  if (!canReloadProductionStoneFromMaster(order)) {
+    alert("This PR stone plan was already updated. Modify the current rows or add a new stone row; Stone Master can no longer replace it.");
+    return;
+  }
   const targetOrders = selectedProductionStoneTargetOrders(order);
   let matchedRows = 0;
   let unmatchedRows = 0;
@@ -16014,6 +16040,7 @@ function refreshProductionStoneFromMaster() {
   });
   saveState();
   renderProductionStoneItems(order);
+  updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   alert(`${matchedRows} stone row${matchedRows === 1 ? "" : "s"} refreshed from Stone Master.${unmatchedRows ? ` ${unmatchedRows} row${unmatchedRows === 1 ? "" : "s"} did not have a matching Stone Master weight and were kept unchanged.` : ""}`);
@@ -16024,6 +16051,10 @@ function resetProductionStoneFromDesign() {
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "load Design Master stone details")) return;
+  if (!canReloadProductionStoneFromMaster(order)) {
+    alert("This PR stone plan was already updated. Modify the current rows or add a new stone row; Design Master can no longer replace it.");
+    return;
+  }
   const targetOrders = selectedProductionStoneTargetOrders(order);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const plans = targetOrders.map((targetOrder) => ({
@@ -16041,12 +16072,13 @@ function resetProductionStoneFromDesign() {
   if (!confirm(`Get the latest stone rows for ${targetOrders.length} selected production number${targetOrders.length === 1 ? "" : "s"} from Design Master?\n\n${productionNumbers.join(", ")}\n\nStone Master weights will be applied automatically. This will not change Design Master.`)) return;
   plans.filter((plan) => plan.items.length).forEach(({ targetOrder, items }) => {
     targetOrder.productionStoneItems = items;
-    targetOrder.productionStoneOverride = items.some((item) => item.isAdditionalStone);
+    targetOrder.productionStoneOverride = true;
     targetOrder.productionStoneUpdatedAt = today();
     targetOrder.productionStoneCopiedFrom = "Design Master";
   });
   saveState();
   renderProductionStoneItems(order);
+  updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   alert(`${rowCount} stone row${rowCount === 1 ? "" : "s"} loaded from Design Master and matched with Stone Master.`);
@@ -16060,12 +16092,12 @@ function productionStoneSummaryText(items = []) {
   const totalPcs = total.pcs;
   const totalWeight = total.weight;
   if (!totalPcs && !totalWeight) return "No stone";
-  return `Wax ${wax.pcs} pcs / ${weight3(wax.weight)}g, Hand ${hand.pcs} pcs / ${weight3(hand.weight)}g, Additional ${weight3(additional.weight)}g, Total ${totalPcs} pcs / ${weight3(totalWeight)}g`;
+  return `Wax ${wax.pcs} pcs / ${weight3(wax.weight)}g, Hand Total ${hand.pcs} pcs / ${weight3(hand.weight)}g (Additional ${weight3(additional.weight)}g included), Total ${totalPcs} pcs / ${weight3(totalWeight)}g`;
 }
 
 function productionStoneTotals(items = [], settingType = "") {
   return items
-    .filter((item) => !settingType || item.settingType === settingType)
+    .filter((item) => !settingType || item.settingType === settingType || (settingType === "hand" && item.isAdditionalStone))
     .reduce((total, item) => {
       total.pcs += Number(item.pcs || 0);
       total.weight += Number(item.totalWeight || 0);
@@ -20993,6 +21025,42 @@ function factoryStockHoldingLot(lot = {}) {
 function plannedHandStoneWeightForLot(lot, sourceState = state) {
   if (!lot) return 0;
   return Number(weight3(productionStoneTotalsForOrderList(sourceState, getLotOrders(lot, sourceState), "hand").weight || 0));
+}
+
+function lotHasJobCardStonePlan(lot = {}, sourceState = state) {
+  return getLotOrders(lot, sourceState).some((order) =>
+    order.productionStoneOverride === true || (order.productionStoneItems || []).length > 0
+  );
+}
+
+function syncSettingEntriesForUpdatedStoneOrders(orders = []) {
+  const orderIds = new Set((orders || []).map((order) => order?.id).filter(Boolean));
+  if (!orderIds.size) return 0;
+  let updated = 0;
+  (state.lots || []).forEach((lot) => {
+    if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return;
+    if (!isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)) return;
+    const handStoneWeight = plannedHandStoneWeightForLot(lot);
+    const settingEntries = (state.settingManagerEntries || []).filter((entry) => entry.lotId === lot.id && entry.entryType !== "Accessory");
+    const currentEntry = settingEntries.find((entry) => entry.status === "Issued")
+      || settingEntries.find((entry) => entry.status === "Received");
+    [currentEntry].filter(Boolean).forEach((entry) => {
+      entry.handStoneWeight = handStoneWeight;
+      entry.handStoneWeightSource = "Job Card";
+      if (entry.receiveGw !== undefined && entry.receiveGw !== null && String(entry.receiveGw) !== "") {
+        entry.receiveNetWeight = Number(weight3(Number(entry.receiveGw || 0) - handStoneWeight));
+        entry.balanceWeight = Number(weight3(
+          Number(entry.issueGw || 0)
+          - Number(entry.receiveNetWeight || 0)
+          - Number(entry.rawaWeight || 0)
+          - Number(entry.setterLossWeight || 0)
+        ));
+        entry.difference = Number(weight3(Number(entry.receiveNetWeight || 0) - Number(entry.issueGw || 0)));
+      }
+      updated += 1;
+    });
+  });
+  return updated;
 }
 
 function productionStoneWeightForTransfer(lot) {
@@ -28698,6 +28766,8 @@ function normalizeSettingSetter(setter = {}) {
   };
 }
 
+const SETTING_COMBINED_BALANCE_ID = "__combined-setter-balance__";
+
 function normalizeSettingReturnMaterialType(value = "") {
   const text = String(value || "").toLowerCase().trim();
   if (["laser-wire", "laser wire", "laserwire"].includes(text)) return "laser-wire";
@@ -28826,6 +28896,60 @@ function settingManagerLots() {
 
 function settingPendingEntries() {
   return (state.settingManagerEntries || []).filter((entry) => entry.status === "Issued" && (entry.entryType !== "Accessory" || entry.returnExpected));
+}
+
+function settingSetterBalanceEntries(setterId = "") {
+  return (state.settingManagerEntries || []).filter((entry) =>
+    entry.status === "Received"
+    && (entry.entryType !== "Accessory" || entry.returnExpected)
+    && Number(entry.balanceWeight || 0) > 0.0005
+    && (!setterId || entry.setterId === setterId)
+  );
+}
+
+function settingSetterCombinedBalance(setterId = "") {
+  return Number(weight3(settingSetterBalanceEntries(setterId)
+    .reduce((total, entry) => total + Number(entry.balanceWeight || 0), 0)));
+}
+
+function applySettingCombinedSettlement(setterId, settlementType, amount, materialType = "rawa", remarks = "") {
+  const entries = [...settingSetterBalanceEntries(setterId)].reverse();
+  let remaining = Number(weight3(Math.max(Number(amount || 0), 0)));
+  const allocations = [];
+  entries.forEach((entry) => {
+    if (remaining <= 0.0005) return;
+    const beforeBalance = Number(weight3(entry.balanceWeight || 0));
+    const allocated = Number(weight3(Math.min(beforeBalance, remaining)));
+    if (allocated <= 0) return;
+    if (settlementType === "rawa") {
+      const breakdown = normalizeSettingReturnMaterialBreakdown(entry);
+      const normalizedType = normalizeSettingReturnMaterialType(materialType);
+      breakdown[normalizedType] = Number(weight3(Number(breakdown[normalizedType] || 0) + allocated));
+      entry.returnedMaterialBreakdown = breakdown;
+      entry.rawaWeight = settingReturnMaterialTotal(breakdown);
+      entry.returnedMaterialWeight = entry.rawaWeight;
+    } else {
+      entry.setterLossWeight = Number(weight3(Number(entry.setterLossWeight || 0) + allocated));
+    }
+    entry.balanceWeight = Number(weight3(Math.max(beforeBalance - allocated, 0)));
+    entry.settlementHistory = Array.isArray(entry.settlementHistory) ? entry.settlementHistory : [];
+    entry.settlementHistory.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: new Date().toISOString(),
+      type: settlementType,
+      materialType: normalizeSettingReturnMaterialType(materialType),
+      amount: allocated,
+      receiveGw: 0,
+      receiveNetWeight: 0,
+      rawaWeight: settlementType === "rawa" ? allocated : 0,
+      lossWeight: settlementType === "loss" ? allocated : 0,
+      remarks,
+    });
+    allocations.push({ entryId: entry.id, reference: settingEntryReference(entry), amount: allocated });
+    remaining = Number(weight3(Math.max(remaining - allocated, 0)));
+  });
+  return { allocations, remaining, applied: Number(weight3(Number(amount || 0) - remaining)) };
 }
 
 function settingPendingEntryForLot(lotId) {
@@ -29063,31 +29187,44 @@ function renderSettingManagerSelects() {
     select.value = accessorySources.some((source) => source.id === selected) ? selected : "";
   });
 
-  const pendingEntries = settingPendingEntries();
-  const pendingSetterIds = new Set(pendingEntries.map((entry) => entry.setterId));
-  document.querySelectorAll('#setting-receive-form select[name="setterId"]').forEach((select) => {
-    const selected = select.value;
-    const options = (state.settingSetters || [])
-      .filter((setter) => pendingSetterIds.has(setter.id))
-      .map((setter) => `<option value="${escapeHtml(setter.id)}">${escapeHtml(setter.name)}${setter.phone ? ` - ${escapeHtml(setter.phone)}` : ""}</option>`)
+  document.querySelectorAll("#setting-receive-form").forEach((form) => {
+    const isClose = (form.settlementType?.value || "close") === "close";
+    const relevantEntries = isClose ? settingPendingEntries() : settingSetterBalanceEntries();
+    const relevantSetterIds = new Set(relevantEntries.map((entry) => entry.setterId));
+    const selectedSetterId = form.setterId.value;
+    const setterOptions = (state.settingSetters || [])
+      .filter((setter) => relevantSetterIds.has(setter.id))
+      .map((setter) => `<option value="${escapeHtml(setter.id)}">${escapeHtml(setter.name)}${setter.phone ? ` - ${escapeHtml(setter.phone)}` : ""}${!isClose ? ` / Due ${gram(settingSetterCombinedBalance(setter.id))}` : ""}</option>`)
       .join("");
-    select.innerHTML = options ? `<option value="">Select setter</option>${options}` : '<option value="">No setter has a pending lot</option>';
-    select.value = pendingSetterIds.has(selected) ? selected : "";
-  });
-  document.querySelectorAll('#setting-receive-form select[name="entryId"]').forEach((select) => {
-    const form = select.closest("form");
-    const setterId = form?.setterId?.value || "";
-    const selected = select.value;
-    const setterEntries = setterId ? pendingEntries.filter((entry) => entry.setterId === setterId) : [];
+    form.setterId.innerHTML = setterOptions
+      ? `<option value="">Select setter</option>${setterOptions}`
+      : `<option value="">${isClose ? "No setter has a pending lot" : "No setter metal balance is pending"}</option>`;
+    form.setterId.value = relevantSetterIds.has(selectedSetterId) ? selectedSetterId : "";
+
+    const setterId = form.setterId.value;
+    const selectedEntryId = form.entryId.value;
+    if (!setterId) {
+      form.entryId.innerHTML = '<option value="">Select setter first</option>';
+      form.entryId.value = "";
+      return;
+    }
+    if (!isClose) {
+      const balanceEntries = settingSetterBalanceEntries(setterId);
+      const combinedBalance = settingSetterCombinedBalance(setterId);
+      form.entryId.innerHTML = balanceEntries.length
+        ? `<option value="${SETTING_COMBINED_BALANCE_ID}">Combined Setter Balance / ${balanceEntries.length} returned lot${balanceEntries.length === 1 ? "" : "s"} / ${gram(combinedBalance)}</option>`
+        : '<option value="">No returned-lot balance for this setter</option>';
+      form.entryId.value = balanceEntries.length ? SETTING_COMBINED_BALANCE_ID : "";
+      return;
+    }
+    const setterEntries = settingPendingEntries().filter((entry) => entry.setterId === setterId);
     const pendingOptions = setterEntries
-      .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(settingEntryReference(entry))} / ${escapeHtml(entry.workType || "Setter Work")} / ${escapeHtml(settingEntryProductionText(entry))} / Balance ${gram(entry.balanceWeight)}</option>`)
+      .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(settingEntryReference(entry))} / ${escapeHtml(entry.workType || "Setter Work")} / ${escapeHtml(settingEntryProductionText(entry))} / Issue ${gram(entry.issueGw)}</option>`)
       .join("");
-    select.innerHTML = !setterId
-      ? '<option value="">Select setter first</option>'
-      : pendingOptions
-        ? `<option value="">Select pending setter lot</option>${pendingOptions}`
-        : '<option value="">No pending lot for this setter</option>';
-    select.value = setterEntries.some((entry) => entry.id === selected) ? selected : "";
+    form.entryId.innerHTML = pendingOptions
+      ? `<option value="">Select pending setter lot</option>${pendingOptions}`
+      : '<option value="">No pending lot for this setter</option>';
+    form.entryId.value = setterEntries.some((entry) => entry.id === selectedEntryId) ? selectedEntryId : "";
   });
   updateSettingIssueSummary();
   updateSettingReceiveSummary();
@@ -29282,11 +29419,28 @@ function updateSettingIssueSummary(event) {
 function updateSettingReceiveSummary(event) {
   const form = document.getElementById("setting-receive-form");
   if (!form) return;
-  const entry = (state.settingManagerEntries || []).find((item) => item.id === form.entryId.value);
   const settlementType = ["close", "rawa", "loss"].includes(form.settlementType.value) ? form.settlementType.value : "close";
   const isClose = settlementType === "close";
   const isRawa = settlementType === "rawa";
   const isLoss = settlementType === "loss";
+  const isCombinedBalance = !isClose && form.entryId.value === SETTING_COMBINED_BALANCE_ID;
+  const setter = (state.settingSetters || []).find((item) => item.id === form.setterId.value);
+  const combinedBalanceEntries = isCombinedBalance ? settingSetterBalanceEntries(form.setterId.value) : [];
+  const combinedBalance = isCombinedBalance ? settingSetterCombinedBalance(form.setterId.value) : 0;
+  const entry = isCombinedBalance
+    ? {
+        id: SETTING_COMBINED_BALANCE_ID,
+        setterId: setter?.id || form.setterId.value,
+        setterName: setter?.name || "Setter",
+        issueGw: combinedBalance,
+        balanceWeight: combinedBalance,
+        handStoneWeight: 0,
+        handStoneWeightSource: "Not Applicable",
+        rawaWeight: 0,
+        setterLossWeight: 0,
+        workType: "Combined Monthly Setter Balance",
+      }
+    : (state.settingManagerEntries || []).find((item) => item.id === form.entryId.value);
   const isReturnableAccessory = entry?.entryType === "Accessory" && entry.returnExpected;
   const returnMaterialType = normalizeSettingReturnMaterialType(form.returnMaterialType.value);
   const returnMaterialLabel = settingReturnMaterialLabel(returnMaterialType);
@@ -29296,12 +29450,11 @@ function updateSettingReceiveSummary(event) {
   document.getElementById("setting-return-material-type-field")?.classList.toggle("hidden", isLoss);
   document.getElementById("setting-receive-rawa-field")?.classList.toggle("hidden", isLoss);
   document.getElementById("setting-receive-loss-field")?.classList.toggle("hidden", isRawa);
-  document.getElementById("setting-use-balance-loss")?.classList.toggle("hidden", !isClose);
   form.receiveGw.required = isClose;
   form.rawaWeight.required = isRawa;
   form.setterLossWeight.required = isLoss;
   const submit = document.getElementById("setting-receive-submit");
-  if (submit) submit.textContent = isRawa ? `Save ${returnMaterialLabel} Receipt` : isLoss ? "Book Setter Loss" : "Receive & Close";
+  if (submit) submit.textContent = isRawa ? `Save Combined ${returnMaterialLabel} Receipt` : isLoss ? "Book Combined Setter Loss" : "Receive Lot & Keep Balance";
   if (entry) {
     const isManualStone = !isReturnableAccessory && entry.handStoneWeightSource !== "Job Card";
     const entryChanged = form.dataset.selectedEntryId !== entry.id;
@@ -29355,37 +29508,16 @@ function updateSettingReceiveSummary(event) {
     return;
   }
   const entryReference = settingEntryReference(entry);
-  const previousText = `Already returned: ${settingReturnMaterialBreakdownText(entry)}. Loss ${gram(entry.setterLossWeight)}.`;
+  const previousText = isCombinedBalance
+    ? `${combinedBalanceEntries.length} returned lot${combinedBalanceEntries.length === 1 ? "" : "s"}; combined metal balance ${gram(combinedBalance)}.`
+    : `Already returned: ${settingReturnMaterialBreakdownText(entry)}. Loss ${gram(entry.setterLossWeight)}.`;
   if (isRawa) {
-    summary.textContent = `${entryReference} / ${entry.setterName}. ${previousText} Receive ${returnMaterialLabel} ${gram(form.rawaWeight.value)} now. Remaining balance after save: ${gram(form.balanceWeight.value)}.`;
+    summary.textContent = `${entry.setterName}. ${previousText} Receive ${returnMaterialLabel} ${gram(form.rawaWeight.value)} now. Remaining combined balance after save: ${gram(form.balanceWeight.value)}.`;
   } else if (isLoss) {
-    summary.textContent = `${entryReference} / ${entry.setterName}. ${previousText} Book Loss ${gram(form.setterLossWeight.value)} now. Remaining balance after save: ${gram(form.balanceWeight.value)}.`;
+    summary.textContent = `${entry.setterName}. ${previousText} Book Loss ${gram(form.setterLossWeight.value)} now. Remaining combined balance after save: ${gram(form.balanceWeight.value)}.`;
   } else {
-    summary.textContent = `${entryReference} / ${entry.setterName}. ${entry.workType || "Setter Work"}. ${previousText} Receive Net ${gram(form.receiveNetWeight.value)} + additional ${returnMaterialLabel} ${gram(form.rawaWeight.value)} + additional Loss ${gram(form.setterLossWeight.value)}. Balance ${gram(form.balanceWeight.value)}. ${Math.abs(Number(form.balanceWeight.value || 0)) <= 0.0005 ? "Account is zero and ready to close." : "Balance must be zero before closing."}`;
+    summary.textContent = `${entryReference} / ${entry.setterName}. ${entry.workType || "Setter Work"}. ${previousText} Receive Net ${gram(form.receiveNetWeight.value)} + ${returnMaterialLabel} ${gram(form.rawaWeight.value)} + Loss ${gram(form.setterLossWeight.value)}. Metal balance kept against setter: ${gram(form.balanceWeight.value)}. The job lot can be received now; this balance may be settled later with combined rawa or monthly loss.`;
   }
-}
-
-function bookSettingBalanceAsLoss() {
-  const form = document.getElementById("setting-receive-form");
-  const entry = (state.settingManagerEntries || []).find((item) => item.id === form?.entryId?.value);
-  if (!form || !entry || (entry.entryType === "Accessory" && !entry.returnExpected)) {
-    alert("Select a pending setter lot or returnable item first.");
-    return;
-  }
-  if (form.settlementType.value !== "close") {
-    alert("Book Balance As Loss is available while using Receive Job Lot & Close.");
-    return;
-  }
-  const receiveNetWeight = Number(form.receiveNetWeight.value || 0);
-  const totalRawaWeight = Number(weight3(Number(entry.rawaWeight || 0) + Math.max(Number(form.rawaWeight.value || 0), 0)));
-  const previousLossWeight = Number(weight3(entry.setterLossWeight || 0));
-  const remaining = Number(weight3(Number(entry.issueGw || 0) - receiveNetWeight - totalRawaWeight - previousLossWeight));
-  if (remaining < -0.0005) {
-    alert(`Receive Net plus returned material exceeds Issue GW by ${gram(Math.abs(remaining))}. Correct the received weights first.`);
-    return;
-  }
-  form.setterLossWeight.value = weight3(Math.max(remaining, 0));
-  updateSettingReceiveSummary();
 }
 
 function issueSettingLotToSetter(event) {
@@ -29561,6 +29693,35 @@ function receiveSettingLotFromSetter(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const data = getFormData(form);
+  const settlementType = ["close", "rawa", "loss"].includes(data.settlementType) ? data.settlementType : "close";
+  const returnMaterialType = normalizeSettingReturnMaterialType(data.returnMaterialType);
+  const returnMaterialLabel = settingReturnMaterialLabel(returnMaterialType);
+  const rawaThisEntry = Number(weight3(Math.max(Number(data.rawaWeight || 0), 0)));
+  const lossThisEntry = Number(weight3(Math.max(Number(data.setterLossWeight || 0), 0)));
+  const isCombinedSettlement = data.entryId === SETTING_COMBINED_BALANCE_ID && settlementType !== "close";
+  if (isCombinedSettlement) {
+    const setter = (state.settingSetters || []).find((item) => item.id === data.setterId);
+    const combinedBalance = settingSetterCombinedBalance(data.setterId);
+    const amount = settlementType === "rawa" ? rawaThisEntry : lossThisEntry;
+    if (!setter || combinedBalance <= 0.0005) {
+      alert("Select a setter with an outstanding returned-lot metal balance.");
+      return;
+    }
+    if (amount <= 0) {
+      alert(settlementType === "rawa" ? `Enter the combined ${returnMaterialLabel} weight received.` : "Enter the combined setter loss weight to book.");
+      return;
+    }
+    if (amount > combinedBalance + 0.0005) {
+      alert(`${settlementType === "rawa" ? returnMaterialLabel : "Loss"} cannot exceed ${setter.name}'s combined metal balance of ${gram(combinedBalance)}.`);
+      return;
+    }
+    const result = applySettingCombinedSettlement(data.setterId, settlementType, amount, returnMaterialType, data.remarks || "");
+    form.reset();
+    saveState();
+    render();
+    alert(`${settlementType === "rawa" ? `${returnMaterialLabel} received` : "Setter loss booked"} against ${setter.name}'s combined balance.\nApplied: ${gram(result.applied)} across ${result.allocations.length} returned lot${result.allocations.length === 1 ? "" : "s"}.\nRemaining setter balance: ${gram(settingSetterCombinedBalance(setter.id))}`);
+    return;
+  }
   const entry = (state.settingManagerEntries || []).find((item) => item.id === data.entryId);
   if (!entry) {
     alert("Select pending setter lot.");
@@ -29575,51 +29736,10 @@ function receiveSettingLotFromSetter(event) {
     alert("Select the setter who holds this pending lot.");
     return;
   }
-  const settlementType = ["close", "rawa", "loss"].includes(data.settlementType) ? data.settlementType : "close";
-  const returnMaterialType = normalizeSettingReturnMaterialType(data.returnMaterialType);
-  const returnMaterialLabel = settingReturnMaterialLabel(returnMaterialType);
-  const rawaThisEntry = Number(weight3(Math.max(Number(data.rawaWeight || 0), 0)));
-  const lossThisEntry = Number(weight3(Math.max(Number(data.setterLossWeight || 0), 0)));
-  const currentBalance = Number(weight3(entry.balanceWeight ?? (Number(entry.issueGw || 0) - Number(entry.rawaWeight || 0) - Number(entry.setterLossWeight || 0))));
   entry.settlementHistory = Array.isArray(entry.settlementHistory) ? entry.settlementHistory : [];
 
   if (settlementType === "rawa" || settlementType === "loss") {
-    const amount = settlementType === "rawa" ? rawaThisEntry : lossThisEntry;
-    if (amount <= 0) {
-      alert(settlementType === "rawa" ? `Enter the ${returnMaterialLabel} weight received from this setter.` : "Enter the loss weight to book for this setter.");
-      return;
-    }
-    if (amount > currentBalance + 0.0005) {
-      alert(`${settlementType === "rawa" ? returnMaterialLabel : "Loss"} cannot exceed the setter lot balance of ${gram(currentBalance)}.`);
-      return;
-    }
-    if (currentBalance - amount <= 0.0005) {
-      alert("This entry would make the balance zero without receiving the job lot. Choose Receive Job Lot & Close and enter the final returned material/loss there.");
-      return;
-    }
-    if (settlementType === "rawa") {
-      const returnedMaterialBreakdown = normalizeSettingReturnMaterialBreakdown(entry);
-      returnedMaterialBreakdown[returnMaterialType] = Number(weight3(Number(returnedMaterialBreakdown[returnMaterialType] || 0) + amount));
-      entry.returnedMaterialBreakdown = returnedMaterialBreakdown;
-      entry.rawaWeight = settingReturnMaterialTotal(returnedMaterialBreakdown);
-      entry.returnedMaterialWeight = entry.rawaWeight;
-    } else entry.setterLossWeight = Number(weight3(Number(entry.setterLossWeight || 0) + amount));
-    entry.balanceWeight = Number(weight3(Number(entry.issueGw || 0) - Number(entry.rawaWeight || 0) - Number(entry.setterLossWeight || 0)));
-    entry.settlementHistory.unshift({
-      id: crypto.randomUUID(),
-      date: today(),
-      createdAt: new Date().toISOString(),
-      type: settlementType,
-      materialType: returnMaterialType,
-      amount,
-      receiveGw: 0,
-      receiveNetWeight: 0,
-      remarks: data.remarks || "",
-    });
-    form.reset();
-    saveState();
-    render();
-    alert(`${settlementType === "rawa" ? `${returnMaterialLabel} received` : "Setter loss booked"} for ${entry.setterName} / ${settingEntryReference(entry)}.\nThis entry: ${gram(amount)}\nReturned: ${settingReturnMaterialBreakdownText(entry)}\nTotal Loss: ${gram(entry.setterLossWeight)}\nBalance: ${gram(entry.balanceWeight)}`);
+    alert("Receive the job lot first. Then choose the setter's Combined Setter Balance for monthly rawa receipt or loss booking.");
     return;
   }
 
@@ -29653,10 +29773,6 @@ function receiveSettingLotFromSetter(event) {
     alert(`Receive Net + Returned Material + Loss exceeds Issue GW by ${gram(Math.abs(balanceWeight))}. Correct the entry.`);
     return;
   }
-  if (Math.abs(balanceWeight) > 0.0005) {
-    alert(`Setter balance is ${gram(balanceWeight)}. Enter returned material or click Book Balance As Loss so the balance becomes 0.000 g.`);
-    return;
-  }
   entry.receiveDate = today();
   entry.closeDate = today();
   entry.receiveGw = Number(weight3(receiveGw));
@@ -29667,7 +29783,7 @@ function receiveSettingLotFromSetter(event) {
   entry.returnedMaterialWeight = totalRawaWeight;
   entry.returnedMaterialBreakdown = returnedMaterialBreakdown;
   entry.setterLossWeight = totalLossWeight;
-  entry.balanceWeight = 0;
+  entry.balanceWeight = Number(weight3(Math.max(balanceWeight, 0)));
   entry.difference = Number(weight3(receiveNetWeight - Number(entry.issueGw || 0)));
   entry.status = "Received";
   entry.receiveRemarks = data.remarks || "";
@@ -29689,7 +29805,7 @@ function receiveSettingLotFromSetter(event) {
   form.reset();
   saveState();
   render();
-  alert(`${settingEntryReference(entry)} closed for ${entry.setterName}.\nReceive Net: ${gram(receiveNetWeight)}\nReturned: ${settingReturnMaterialBreakdownText(entry)}\nTotal Setter Loss: ${gram(totalLossWeight)}\nBalance: 0.000 g`);
+  alert(`${settingEntryReference(entry)} received from ${entry.setterName}.\nReceive Net: ${gram(receiveNetWeight)}\nReturned With Lot: ${settingReturnMaterialBreakdownText(entry)}\nLoss Booked With Lot: ${gram(totalLossWeight)}\nMetal Balance Kept Against Setter: ${gram(entry.balanceWeight)}\nThis balance can be settled later through combined rawa receipt or monthly loss.`);
 }
 
 function openSettingIssueForLot(lotId) {
@@ -29757,13 +29873,13 @@ function settingStatusHtml(lot) {
   const pending = settingPendingEntryForLot(lot.id);
   if (pending) return `<span class="status pending">With ${escapeHtml(pending.setterName || "Setter")}</span><br><small>Balance ${gram(pending.balanceWeight)} / Issued ${escapeHtml(pending.issueDate || "-")}</small>`;
   const latest = latestSettingEntryForLot(lot.id);
-  if (latest?.status === "Received") return `<span class="status completed">Received From ${escapeHtml(latest.setterName || "Setter")}</span><br><small>Receive Net ${gram(latest.receiveNetWeight ?? latest.receiveGw)}</small>`;
+  if (latest?.status === "Received") return `<span class="status completed">Received From ${escapeHtml(latest.setterName || "Setter")}</span><br><small>Receive Net ${gram(latest.receiveNetWeight ?? latest.receiveGw)} / Setter Balance ${gram(latest.balanceWeight)}</small>`;
   return '<span class="status transfer">In Setting</span>';
 }
 
 function settingSettlementHistoryText(entry = {}) {
   return (entry.settlementHistory || []).map((line) => {
-    const label = line.type === "rawa" ? settingReturnMaterialLabel(line.materialType) : line.type === "loss" ? "Loss" : "Lot Closed";
+    const label = line.type === "rawa" ? settingReturnMaterialLabel(line.materialType) : line.type === "loss" ? "Loss" : "Lot Received";
     const weight = line.type === "close"
       ? `Receive ${gram(line.receiveGw)} / Net ${gram(line.receiveNetWeight)}${Number(line.rawaWeight || 0) > 0 ? ` / ${settingReturnMaterialLabel(line.materialType)} ${gram(line.rawaWeight)}` : ""}${Number(line.lossWeight || 0) > 0 ? ` / Loss ${gram(line.lossWeight)}` : ""}`
       : gram(line.amount);
@@ -29776,21 +29892,24 @@ function renderSettingManager() {
   if (!summary) return;
   const settingLots = settingManagerLots();
   const pending = settingPendingEntries();
+  const setterBalanceEntries = settingSetterBalanceEntries();
   const receivedToday = (state.settingManagerEntries || []).filter((entry) => entry.receiveDate === today()).length;
   const accessoryEntriesToday = (state.settingManagerEntries || []).filter((entry) => entry.entryType === "Accessory" && entry.issueDate === today());
   const manualEntriesToday = (state.settingManagerEntries || []).filter((entry) => entry.entryType === "Manual" && entry.issueDate === today());
   const accessoriesUsedToday = accessoryEntriesToday.filter((entry) => !entry.returnExpected).length;
   const accessoriesReturnableToday = accessoryEntriesToday.filter((entry) => entry.returnExpected).length;
   const pendingGw = pending.reduce((total, entry) => Number(weight3(total + Number(entry.balanceWeight || 0))), 0);
+  const totalSetterBalance = Number(weight3(setterBalanceEntries.reduce((total, entry) => total + Number(entry.balanceWeight || 0), 0)));
   const setterActionsAllowed = canManageSettingSetters();
   const setterCards = (state.settingSetters || []).map((setter) => {
     const setterPending = pending.filter((entry) => entry.setterId === setter.id);
     const setterOpenGw = setterPending.reduce((total, entry) => Number(weight3(total + Number(entry.balanceWeight || 0))), 0);
+    const setterMetalBalance = settingSetterCombinedBalance(setter.id);
     return `
       <div class="setter-chip">
         <strong>${escapeHtml(setter.name)}</strong>
         <span>${escapeHtml([setter.phone, setter.rate].filter(Boolean).join(" / ") || "Setter")}</span>
-        <small>${setterPending.length ? `${setterPending.length} open lot${setterPending.length === 1 ? "" : "s"} / ${gram(setterOpenGw)} to reconcile` : "Balance 0.000 g / No open lot"}</small>
+        <small>${setterPending.length ? `${setterPending.length} lot${setterPending.length === 1 ? "" : "s"} still with setter / ${gram(setterOpenGw)} GW` : "No job lot currently with setter"}<br>Returned-lot metal balance ${gram(setterMetalBalance)}</small>
         ${setterActionsAllowed ? `<div class="row-actions">
           <button class="ghost-button" type="button" onclick="editSettingSetter('${setter.id}')">Edit</button>
           <button class="danger-button" type="button" onclick="deleteSettingSetter('${setter.id}')">Delete</button>
@@ -29800,7 +29919,7 @@ function renderSettingManager() {
   }).join("");
   summary.innerHTML = `
     <article class="setting-summary-card"><span>Lots In Setting</span><strong>${settingLots.length}</strong><small>Main ERP lots currently at Setting Department</small></article>
-    <article class="setting-summary-card"><span>Pending With Setters</span><strong>${pending.length}</strong><small>${gram(pendingGw)} lot GW to reconcile</small></article>
+    <article class="setting-summary-card"><span>Pending With Setters</span><strong>${pending.length}</strong><small>${gram(pendingGw)} active lot GW / ${gram(totalSetterBalance)} returned-lot metal due</small></article>
     <article class="setting-summary-card"><span>Received Today</span><strong>${receivedToday}</strong><small>Setter returns recorded today</small></article>
     <article class="setting-summary-card"><span>Manual / Accessory Issues Today</span><strong>${manualEntriesToday.length + accessoryEntriesToday.length}</strong><small>${manualEntriesToday.length} no Job Card / ${accessoriesUsedToday} used / ${accessoriesReturnableToday} return expected</small></article>
     <section class="setting-setter-strip">${setterCards || '<div class="setter-chip empty">Add setter name in Setter Master to start.</div>'}</section>
@@ -29808,8 +29927,9 @@ function renderSettingManager() {
 
   const lotRows = settingLots.map((lot) => {
     const pendingEntry = settingPendingEntryForLot(lot.id);
-    const displayedHandStoneWeight = pendingEntry?.handStoneWeight ?? productionStoneWeightForTransfer(lot);
-    const displayedHandStoneSource = pendingEntry?.handStoneWeightSource || (plannedHandStoneWeightForLot(lot) > 0 ? "Job Card" : "Manual");
+    const hasJobCardStonePlan = lotHasJobCardStonePlan(lot);
+    const displayedHandStoneWeight = hasJobCardStonePlan ? plannedHandStoneWeightForLot(lot) : (pendingEntry?.handStoneWeight ?? productionStoneWeightForTransfer(lot));
+    const displayedHandStoneSource = hasJobCardStonePlan ? "Updated Job Card" : (pendingEntry?.handStoneWeightSource || "Manual");
     const historyButton = isSettingManagerUser() ? "" : `<button class="ghost-button" type="button" onclick="openLotHistory('${lot.id}')">History</button>`;
     return `
       <tr>
@@ -29854,7 +29974,7 @@ function renderSettingManager() {
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : `${escapeHtml(settingReturnMaterialBreakdownText(entry))}<br><small>Total ${gram(entry.rawaWeight)}</small>`}</td>
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : gram(entry.setterLossWeight)}</td>
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : gram(entry.balanceWeight)}</td>
-      <td><span class="status ${entry.status === "Issued" ? "pending" : "completed"}">${entry.entryType === "Accessory" && !entry.returnExpected ? "Used / No Return" : escapeHtml(entry.status)}</span><br><small>${escapeHtml(entry.workType || "Setter Work")}</small></td>
+      <td><span class="status ${entry.status === "Issued" || Number(entry.balanceWeight || 0) > 0.0005 ? "pending" : "completed"}">${entry.entryType === "Accessory" && !entry.returnExpected ? "Used / No Return" : entry.status === "Received" && Number(entry.balanceWeight || 0) > 0.0005 ? "Received / Balance Due" : escapeHtml(entry.status)}</span><br><small>${escapeHtml(entry.workType || "Setter Work")}</small></td>
       <td>${escapeHtml([entry.splitFromLotNumber ? `Split from ${entry.splitFromLotNumber}` : "", entry.remarks, entry.receiveRemarks, settingSettlementHistoryText(entry)].filter(Boolean).join(" / ") || "-")}</td>
     </tr>
   `).join("");
@@ -37803,8 +37923,8 @@ function normalizeState(currentState) {
         manualShelfIssue: Boolean(item.manualShelfIssue),
         isAdditionalStone,
         date: item.date || today(),
-        settingType: isAdditionalStone ? "additional" : (item.settingType || automaticSetting.settingType),
-        manufacturingStage: isAdditionalStone ? "Direct" : (item.manufacturingStage || automaticSetting.manufacturingStage),
+        settingType: isAdditionalStone ? "hand" : (item.settingType || automaticSetting.settingType),
+        manufacturingStage: isAdditionalStone ? "Setting" : (item.manufacturingStage || automaticSetting.manufacturingStage),
         itemKey: normalizeStoneItemKey(item.itemKey || matchedDesignStone?.itemKey),
         stoneType: isAdditionalStone ? "ADDITIONAL STONE" : (item.stoneType || matchedDesignStone?.stoneType || ""),
         shape: isAdditionalStone ? "" : shape,

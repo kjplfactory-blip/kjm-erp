@@ -1,0 +1,43 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v574 AUDIT
+Date: 2026-09-22 IST
+
+SCOPE
+- Setter return difference and cumulative setter metal balance.
+- Combined monthly rawa and loss settlement.
+- Item stone-plan locking and live Setting hand-stone synchronization.
+
+SETTER ACCOUNT FLOW
+- A returned lot is marked Received even when Issue GW and Receive Net do not balance to zero.
+- The remaining difference stays against that setter as a returned-lot metal balance.
+- Active lots still physically with a setter remain separate from returned-lot metal due.
+- Setter tiles and the Setting summary display both values.
+- Monthly rawa or loss is entered against one Combined Setter Balance.
+- The combined amount is allocated across the setter's original returned lots and each allocation remains visible in its settlement history.
+- Setter loss allocations continue to appear in the unified Loss Ledger.
+
+STONE FLOW
+- Additional Stone uses Hand Setting and the Setting manufacturing stage.
+- Cumulative Hand Stone equals all Hand Stone rows plus Additional Stone weight.
+- Saving a PR stone plan updates the live Setting lot and current setter entry immediately.
+- If a lot was already received but remains in Setting, its Receive Net and outstanding setter balance are recalculated from the updated hand-stone total.
+- Once the PR item plan is updated, Stone Master and Design Master cannot replace it; current rows remain editable and new rows can be added.
+- Design Master remains unchanged by Job Card item edits.
+
+VERIFIED VALUES
+- Issue 10.000 g, Receive GW 9.700 g, Hand Stone 0.200 g => Receive Net 9.500 g and Setter Balance 0.500 g.
+- Two returned lots with combined balance 1.000 g accepted 0.700 g WSTG/Rawa and 0.300 g loss => Balance 0.000 g.
+- Hand row 0.400 g plus Additional Stone 0.100 g => cumulative Hand Stone 0.500 g.
+
+REGRESSION
+- v573 Setting Manager Job Card permissions: PASS.
+- v572 manual Setting / Daily Tally loss: PASS.
+- v571 casting wax trace: PASS.
+- v570 factory non-gold stage: PASS.
+- v569 setting hand-stone receipt: PASS.
+- v568 Daily GW Tally: PASS.
+- v564 Fine Sheet reconciliation: PASS.
+- v561 transfer and department separation: PASS.
+- JavaScript syntax check: PASS.
+
+DATABASE
+- No Supabase SQL change is required. The new balances and allocations use the existing ERP state and live sync.

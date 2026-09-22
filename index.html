@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v573</small>
+      <small class="app-version-badge">App v574</small>
           </div>
         </div>
         <label>User
@@ -125,7 +125,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v573</span>
+          <span class="app-version-badge">App v574</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -815,14 +815,14 @@
 
             <form id="setting-receive-form" class="form-panel">
               <h2>Setter Account Entry</h2>
-              <label>Setter <select name="setterId" required></select></label>
-              <label>Pending Setter Lot <select name="entryId" required></select></label>
               <label>Account Action <select name="settlementType">
-                <option value="close">Receive Lot / Accessory / Repair &amp; Close</option>
-                <option value="rawa">Receive Rawa / Laser Wire / WSTG</option>
-                <option value="loss">Book Setter Loss</option>
+                <option value="close">Receive Lot / Accessory / Repair</option>
+                <option value="rawa">Receive Combined Rawa / Laser Wire / WSTG</option>
+                <option value="loss">Book Combined Monthly Setter Loss</option>
               </select></label>
-              <label id="setting-receive-issue-field">Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
+              <label>Setter <select name="setterId" required></select></label>
+              <label>Lot / Combined Setter Balance <select name="entryId" required></select></label>
+              <label id="setting-receive-issue-field">Issue / Outstanding (g) <input name="issueGw" type="number" step="0.001" readonly></label>
               <label id="setting-receive-gw-field">Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
               <label id="setting-receive-hand-stone-field"><span id="setting-receive-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
               <label id="setting-receive-net-field">Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
@@ -833,11 +833,10 @@
               </select></label>
               <label id="setting-receive-rawa-field">Returned Material This Entry (g) <input name="rawaWeight" type="number" min="0" step="0.001" value="0"></label>
               <label id="setting-receive-loss-field">Loss This Entry (g) <input name="setterLossWeight" type="number" min="0" step="0.001" value="0"></label>
-              <label>Balance To Close (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
-              <button class="ghost-button setting-balance-loss-button" type="button" id="setting-use-balance-loss">Book Balance As Loss</button>
+              <label>Setter Metal Balance (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
               <p id="setting-receive-summary" class="dialog-note">Select a setter, pending lot or returnable item, and account action.</p>
-              <button type="submit" id="setting-receive-submit">Receive &amp; Close</button>
+              <button type="submit" id="setting-receive-submit">Receive Lot &amp; Keep Balance</button>
             </form>
           </div>
 
@@ -2995,6 +2994,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=573"></script>
+  <script src="app.js?v=574"></script>
 </body>
 </html>
