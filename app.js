@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v571";
+const APP_VERSION = "v573";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -427,6 +427,7 @@ const demoState = {
   fineSheetSnapshots: [],
   dailyTallies: [],
   dailyTallyContainers: [],
+  departmentLosses: [],
   designs: [],
   catalogueItems: [],
   stones: [],
@@ -3249,6 +3250,7 @@ document.getElementById("print-order-a6").addEventListener("click", () => {
 document.getElementById("print-transfer-bag").addEventListener("click", printOpenJobTransferBag);
 
 document.getElementById("edit-order-details").addEventListener("click", () => {
+  if (isSettingManagerUser()) return;
   document.getElementById("update-order-form").classList.toggle("hidden");
 });
 
@@ -3290,6 +3292,10 @@ function updateFittingAccessoriesNarration(event) {
 
 document.getElementById("update-order-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details.");
+    return;
+  }
   if (!validateOrderDueDate(event.target)) return;
   const data = getFormData(event.target);
   const order = findById("orders", data.orderId);
@@ -3394,6 +3400,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   event.preventDefault();
   const order = findById("orders", event.target.orderId.value);
   if (!order) return;
+  if (!requireProductionStoneEditPermission(order, "save stone details")) return;
   const targetOrders = selectedProductionStoneTargetOrders(order);
   if (!targetOrders.length) {
     alert("Select at least one production number.");
@@ -3410,7 +3417,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   if (additionalStoneWeight > 0) {
     stoneItems.push(directAdditionalStoneItemForOrder(order, additionalStoneWeight));
   }
-  const masterWeightUpdates = saveMissingProductionStoneWeightsToMaster(stoneItems, order);
+  const masterWeightUpdates = isSettingManagerUser() ? 0 : saveMissingProductionStoneWeightsToMaster(stoneItems, order);
   const additionalStoneItems = stoneItems.filter((item) => item.isAdditionalStone);
   const regularStoneItems = stoneItems.filter((item) => !item.isAdditionalStone);
   targetOrders.forEach((targetOrder) => {
@@ -3426,7 +3433,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   });
   saveState();
   renderProductionStoneItems(order);
-  renderJobItemsDetail(getJobOrders(order));
+  renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const savedAdditionalWeight = productionStoneTotals(additionalStoneItems).weight;
@@ -3453,6 +3460,10 @@ document.getElementById("production-stone-form").addEventListener("input", (even
 });
 
 document.getElementById("issue-from-order").addEventListener("click", () => {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details from this Job Card.");
+    return;
+  }
   const orderId = document.getElementById("update-order-form").orderId.value;
   const order = findById("orders", orderId);
   const pendingOrders = order ? getJobOrders(order).filter((item) => item.status === "Pending") : [];
@@ -3769,6 +3780,7 @@ function stateBusinessProfile(source = {}) {
     nonGoldIssues: (source.productionNonGoldIssues || []).length,
     settingEntries: (source.settingManagerEntries || []).length,
     dailyTallies: (source.dailyTallies || []).length,
+    departmentLosses: (source.departmentLosses || []).length,
     officeCustomers: (source.officeCustomers || []).length,
     customUsers: (source.customUsers || []).length + Object.keys(source.userAccessOverrides || {}).length,
   };
@@ -3791,6 +3803,7 @@ function stateBusinessProfile(source = {}) {
     + profile.nonGoldIssues * 3
     + profile.settingEntries * 3
     + profile.dailyTallies
+    + profile.departmentLosses * 2
     + profile.officeCustomers
     + profile.customUsers * 2;
   return profile;
@@ -3992,6 +4005,23 @@ function defaultAllowedPage() {
 
 function isSettingManagerUser() {
   return currentUserConfig()?.role === "setting-manager";
+}
+
+function settingManagerLotForOrder(orderOrId, preferredLotId = "") {
+  const orderId = typeof orderOrId === "string" ? orderOrId : orderOrId?.id;
+  if (!orderId) return null;
+  const matchingLots = settingManagerLots().filter((lot) => getLotOrderIds(lot).includes(orderId));
+  return matchingLots.find((lot) => lot.id === preferredLotId) || matchingLots[0] || null;
+}
+
+function canSettingManagerEditProductionStone(orderOrId) {
+  return !isSettingManagerUser() || Boolean(settingManagerLotForOrder(orderOrId));
+}
+
+function requireProductionStoneEditPermission(orderOrId, action = "edit Job Card stone details") {
+  if (canSettingManagerEditProductionStone(orderOrId)) return true;
+  alert(`Setting Manager can only ${action} for a live lot currently in the Setting Department.`);
+  return false;
 }
 
 function allowedProductionPages() {
@@ -12876,6 +12906,7 @@ function factoryPhysicalStock() {
     billPending: blankFactoryStockPart("Completed / Bill Pending"),
     departmentIssues: blankFactoryStockPart("Safe Items In Departments"),
     departmentReturns: blankFactoryStockPart("Department Receipts / Loss Adjustment"),
+    departmentTallyLosses: blankFactoryStockPart("Daily Department Tally Loss"),
     meltingCasting: blankFactoryStockPart("Melting / Casting In Hand"),
     xrf: blankFactoryStockPart("XRF Sample Pending"),
     nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Factory"),
@@ -12930,6 +12961,21 @@ function factoryPhysicalStock() {
         -Number(entry.nonGoldWeight || 0)
       );
     });
+
+  (state.departmentLosses || []).map(normalizeDepartmentLoss).forEach((loss) => {
+    departmentLossAllocations(loss).forEach((allocation) => {
+      addFactoryStockPart(
+        parts,
+        "departmentTallyLosses",
+        "Daily Department Tally Loss",
+        -allocation.grossWeight,
+        -allocation.grossWeight,
+        allocation.purity,
+        -allocation.fineGold,
+        0,
+      );
+    });
+  });
 
   (state.melting || [])
     .filter((item) => (item.status || "Issued") !== "Received")
@@ -12992,9 +13038,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.openingNonGoldAdjustment.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.openingNonGoldAdjustment.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
@@ -13703,6 +13749,7 @@ function clearJobCards(resetAt = new Date().toISOString()) {
   state.safeItems = [];
   state.safeDepartmentIssues = [];
   state.safeDepartmentReturns = [];
+  state.departmentLosses = [];
   state.productionNonGoldIssues = [];
   state.settingManagerEntries = [];
   state.nextOrder = 1001;
@@ -13766,6 +13813,7 @@ function clearFactoryInventoryToZero(resetAt = new Date().toISOString()) {
   state.safeItems = [];
   state.safeDepartmentIssues = [];
   state.safeDepartmentReturns = [];
+  state.departmentLosses = [];
   state.productionNonGoldIssues = [];
   state.settingManagerEntries = [];
   state.ledger = [];
@@ -13784,12 +13832,18 @@ function closeOpenDialogs() {
   document.querySelectorAll("dialog[open]").forEach((dialog) => dialog.close());
 }
 
-function openOrderDetail(orderId, editMode = false, bucket = "all") {
+function openOrderDetail(orderId, editMode = false, bucket = "all", preferredLotId = "") {
   const order = findById("orders", orderId);
   if (!order) return;
   const form = document.getElementById("update-order-form");
   const dialog = document.getElementById("order-dialog");
+  const settingLot = isSettingManagerUser() ? settingManagerLotForOrder(order, preferredLotId) : null;
+  if (isSettingManagerUser() && !settingLot) {
+    alert("Setting Manager can open only a live Job Card currently in the Setting Department.");
+    return;
+  }
   dialog.dataset.orderId = order.id;
+  dialog.dataset.settingManagerLotId = settingLot?.id || "";
   form.orderId.value = order.id;
   renderUpdateOrderCustomerOptions(order.customer || findById("customers", order.customerId)?.name || "");
   form.color.value = order.color || "Pink";
@@ -13797,7 +13851,9 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   form.productionDays.value = order.productionDays;
   form.dueDate.value = order.dueDate;
   if (dialog) dialog.dataset.bucket = bucket;
-  const jobOrders = filterJobOrdersForBucket(getJobOrders(order), bucket);
+  const scopedOrderIds = new Set(settingLot ? getLotOrderIds(settingLot) : []);
+  const jobOrders = filterJobOrdersForBucket(getJobOrders(order), bucket)
+    .filter((jobOrder) => !settingLot || scopedOrderIds.has(jobOrder.id));
   document.getElementById("order-dialog-summary").textContent = [
     order.jobNumber || order.number,
     `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
@@ -13809,11 +13865,48 @@ function openOrderDetail(orderId, editMode = false, bucket = "all") {
   renderJobItemsDetail(jobOrders);
   renderFittingAccessoriesNarrationForm(order);
   closeJobItemDetail();
-  renderOrderLots(order);
+  renderOrderLots(order, settingLot?.id || "");
   updateFittingItemsJobToolbar(order);
+  applySettingManagerJobCardMode();
   document.getElementById("order-production-panel")?.classList.remove("hidden");
   document.getElementById("update-order-form").classList.toggle("hidden", !editMode);
   if (!dialog.open) dialog.showModal();
+}
+
+function jobOrdersForOpenOrderDialog(order = {}) {
+  const jobOrders = getJobOrders(order);
+  if (!isSettingManagerUser()) return jobOrders;
+  const lotId = document.getElementById("order-dialog")?.dataset.settingManagerLotId || "";
+  const lot = settingManagerLotForOrder(order, lotId);
+  if (!lot) return [];
+  const orderIds = new Set(getLotOrderIds(lot));
+  return jobOrders.filter((jobOrder) => orderIds.has(jobOrder.id));
+}
+
+function applySettingManagerJobCardMode() {
+  const restricted = isSettingManagerUser();
+  const dialog = document.getElementById("order-dialog");
+  dialog?.classList.toggle("setting-manager-job-card", restricted);
+  const title = document.getElementById("order-dialog-title");
+  if (title) title.textContent = restricted ? "Setting Job Card" : "Open Job Order";
+  [
+    "edit-order-details",
+    "print-order",
+    "print-order-a6",
+    "print-transfer-bag",
+    "issue-from-order",
+  ].forEach((id) => document.getElementById(id)?.classList.toggle("hidden", restricted));
+  if (restricted) {
+    [
+      "add-job-card-item",
+      "standard-split-job-gw",
+      "split-job-items",
+      "split-fitting-items-card",
+      "standard-split-job-picker",
+    ].forEach((id) => document.getElementById(id)?.classList.add("hidden"));
+    document.getElementById("update-order-form")?.classList.add("hidden");
+    document.getElementById("fitting-accessories-narration-form")?.classList.add("hidden");
+  }
 }
 
 function isFittingAccessoriesOrder(order = {}) {
@@ -13850,8 +13943,9 @@ function filterJobOrdersForBucket(orders = [], bucket = "all") {
 }
 
 function renderJobItemsDetail(orders) {
+  const settingManagerMode = isSettingManagerUser();
   document.getElementById("order-items-detail").innerHTML = `
-    <section class="job-split-picker" id="standard-split-job-picker">
+    <section class="job-split-picker ${settingManagerMode ? "hidden" : ""}" id="standard-split-job-picker">
       <div class="job-split-search-row">
         <label>Search Item
           <input id="job-split-search" type="search" placeholder="PR no, design, sub item, category or item" autocomplete="off">
@@ -13888,7 +13982,7 @@ function renderJobItemsDetail(orders) {
         ].filter(Boolean).join(" ").toLowerCase();
         return `
           <article class="job-item-select-card" data-job-split-card="${escapeHtml(order.id)}" data-job-split-search="${escapeHtml(searchText)}">
-            <label class="job-split-select ${isFittingAccessoriesOrder(order) ? "hidden" : ""}">
+            <label class="job-split-select ${isFittingAccessoriesOrder(order) || settingManagerMode ? "hidden" : ""}">
               <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
               <span>Split</span>
             </label>
@@ -14131,14 +14225,19 @@ function updateFittingItemsJobToolbar(order = {}) {
   const isFittingAccessoriesCard = isFittingAccessoriesOrder(order);
   const isSpecialCard = isFittingItemsCard || isFittingAccessoriesCard;
   const canSplit = Boolean(lot && lot.status !== "Completed" && (lot.transfers || []).every((transfer) => transfer.splitAdjustment));
-  document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard);
-  document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard);
-  document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard);
-  document.getElementById("standard-split-job-picker")?.classList.toggle("hidden", isSpecialCard);
-  document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit);
+  const restricted = isSettingManagerUser();
+  document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("standard-split-job-picker")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit || restricted);
 }
 
 function openFittingItemsSplitDialog() {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager cannot split a Job Card from the stone-details view.");
+    return;
+  }
   const orderId = document.getElementById("update-order-form")?.orderId?.value;
   const order = findById("orders", orderId);
   const lot = order ? fittingItemsLotForOrder(order) : null;
@@ -14295,6 +14394,10 @@ function splitFittingItemsJobCard(event) {
 }
 
 function splitSelectedJobItems() {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager cannot split a Job Card from the stone-details view.");
+    return;
+  }
   const form = document.getElementById("update-order-form");
   const currentOrder = findById("orders", form.orderId.value);
   if (!currentOrder) {
@@ -14459,14 +14562,28 @@ function jobItemDetailHtml(order) {
       </div>
       ${jobItemFittingAccessoryPanelHtml(order)}
       ${jobItemTransferHistoryHtml(lotEntries)}
+      ${jobItemDetailActionsHtml(order)}
+    </div>
+  `;
+}
+
+function jobItemDetailActionsHtml(order = {}) {
+  if (isSettingManagerUser()) {
+    return `
       <div class="row-actions job-item-detail-actions">
-        <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
-        <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
-        <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
-        <button type="button" onclick="openJobItemFittingAccessoryDialog('${escapeHtml(order.id)}')">Add Fitting Accessory</button>
-        <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
-        <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
+        <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Edit Stone Details</button>
+        <small>Job Card details are read only for Setting Manager.</small>
       </div>
+    `;
+  }
+  return `
+    <div class="row-actions job-item-detail-actions">
+      <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
+      <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
+      <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
+      <button type="button" onclick="openJobItemFittingAccessoryDialog('${escapeHtml(order.id)}')">Add Fitting Accessory</button>
+      <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
+      <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
     </div>
   `;
 }
@@ -15319,6 +15436,7 @@ function productionStoneDesignForOrder(order = {}, sourceState = state) {
 function openProductionStoneEntry(orderId) {
   const order = findById("orders", orderId);
   if (!order) return;
+  if (!requireProductionStoneEditPermission(order, "open stone details")) return;
   const form = document.getElementById("production-stone-form");
   form.orderId.value = order.id;
   form.additionalStoneWeight.value = formatStoneWeight(productionAdditionalStoneWeightForOrder(order)) || "";
@@ -15410,6 +15528,7 @@ function matchingDesignJobOrders(order = {}) {
   const designId = String(order.designId || "");
   const designName = normalizeSearchText(order.designNumber || designLabel(order.designId));
   return getJobOrders(order).filter((candidate) => {
+    if (isSettingManagerUser() && !canSettingManagerEditProductionStone(candidate)) return false;
     const candidateDesignName = normalizeSearchText(candidate.designNumber || designLabel(candidate.designId));
     if (designName) return candidateDesignName === designName;
     if (designId && candidate.designId) return String(candidate.designId) === designId;
@@ -15548,7 +15667,7 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
         : escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
       <td><select data-production-stone-field="settingType">${productionSettingOptions(item.settingType || automaticProductionStoneSetting(item).settingType)}</select></td>
       <td><select data-production-stone-field="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage || automaticProductionStoneSetting(item).manufacturingStage)}</select></td>
-      <td><button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove</button></td>
+      <td>${isSettingManagerUser() ? '<small>Owner / Manager only</small>' : '<button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove</button>'}</td>
     </tr>
   `;
 }
@@ -15831,6 +15950,7 @@ function addProductionStoneRow() {
   const form = document.getElementById("production-stone-form");
   const order = findById("orders", form.orderId.value);
   if (!order) return;
+  if (!requireProductionStoneEditPermission(order, "add stone rows")) return;
   const container = document.getElementById("production-stone-details");
   const design = productionStoneDesignForOrder(order);
   const blank = {
@@ -15865,6 +15985,7 @@ function refreshProductionStoneFromMaster() {
   const form = document.getElementById("production-stone-form");
   const order = findById("orders", form.orderId.value);
   if (!order) return;
+  if (!requireProductionStoneEditPermission(order, "refresh stone details")) return;
   const targetOrders = selectedProductionStoneTargetOrders(order);
   let matchedRows = 0;
   let unmatchedRows = 0;
@@ -15893,7 +16014,7 @@ function refreshProductionStoneFromMaster() {
   });
   saveState();
   renderProductionStoneItems(order);
-  renderJobItemsDetail(getJobOrders(order));
+  renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   alert(`${matchedRows} stone row${matchedRows === 1 ? "" : "s"} refreshed from Stone Master.${unmatchedRows ? ` ${unmatchedRows} row${unmatchedRows === 1 ? "" : "s"} did not have a matching Stone Master weight and were kept unchanged.` : ""}`);
 }
@@ -15902,6 +16023,7 @@ function resetProductionStoneFromDesign() {
   const form = document.getElementById("production-stone-form");
   const order = findById("orders", form.orderId.value);
   if (!order) return;
+  if (!requireProductionStoneEditPermission(order, "load Design Master stone details")) return;
   const targetOrders = selectedProductionStoneTargetOrders(order);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const plans = targetOrders.map((targetOrder) => ({
@@ -15925,7 +16047,7 @@ function resetProductionStoneFromDesign() {
   });
   saveState();
   renderProductionStoneItems(order);
-  renderJobItemsDetail(getJobOrders(order));
+  renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
   openJobItemDetail(order.id);
   alert(`${rowCount} stone row${rowCount === 1 ? "" : "s"} loaded from Design Master and matched with Stone Master.`);
 }
@@ -15998,6 +16120,10 @@ function manufacturingStageOptions(selected = "") {
 }
 
 function openItemEdit(orderId) {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details.");
+    return;
+  }
   const order = findById("orders", orderId);
   if (!order) return;
   if (isFittingAccessoriesOrder(order)) {
@@ -16037,6 +16163,10 @@ function openItemEdit(orderId) {
 }
 
 function openJobCardAddItem() {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details.");
+    return;
+  }
   const baseOrder = findById("orders", document.getElementById("update-order-form").orderId.value);
   if (!baseOrder) {
     alert("Open a job card first.");
@@ -16904,6 +17034,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("billPending", "Completed / Bill Pending", "Completed factory stock not yet out"),
     partRow("departmentIssues", "Dept Issued Safe Items", "Safe item issued directly to department"),
     partRow("departmentReturns", "Dept Receipt / Loss Adjustment", "Returned material and department loss adjustment"),
+    partRow("departmentTallyLosses", "Daily Department Tally Loss", "Saved physical tally loss removed from factory stock"),
     partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
     partRow("nonGoldDirect", "Direct Non-Gold In Factory", "Physical only, no fine gold"),
@@ -19064,10 +19195,14 @@ function saveGoldIssueCorrection(event) {
   alert(`${lot.number} Gold Issue corrected successfully.\n${target.jobNumber} / GW ${gram(gross)} / Wax ${gram(wax)} / Net Gold ${gram(net)} / ${karigar.name}.`);
 }
 
-function renderOrderLots(order) {
-  const jobOrders = getJobOrders(order);
+function renderOrderLots(order, scopedLotId = "") {
+  const scopedLot = scopedLotId ? findById("lots", scopedLotId) : null;
+  const jobOrders = scopedLot ? getLotOrders(scopedLot) : getJobOrders(order);
   const orderIds = new Set(jobOrders.map((item) => item.id));
-  const lots = state.lots.filter((lot) => getLotOrderIds(lot).some((id) => orderIds.has(id)));
+  const lots = state.lots.filter((lot) =>
+    getLotOrderIds(lot).some((id) => orderIds.has(id))
+    && (!scopedLotId || lot.id === scopedLotId)
+  );
   const status = document.getElementById("order-current-status");
   if (status) status.innerHTML = orderCurrentLotStatusHtml(jobOrders, lots);
   updateIssueGoldFromOrderButton(jobOrders);
@@ -19154,7 +19289,9 @@ function renderOrderLotCard(lot) {
   const waxStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "wax");
   const handStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "hand");
   const nonGoldTotals = productionNonGoldTotalsForLot(lot);
-  const primaryActions = lot.status === "Completed"
+  const primaryActions = isSettingManagerUser()
+    ? '<span class="status transfer">Stone details only</span>'
+    : lot.status === "Completed"
     ? `<button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
     : lot.fittingItemsJobCard
       ? `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer To Fitting</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
@@ -20312,11 +20449,19 @@ function updateProductionNonGoldRemoveSummary() {
 }
 
 function openTransferFromOrder(lotId) {
+  if (isSettingManagerUser()) {
+    alert("Use the Setting Manager Issue / Receive controls for this lot.");
+    return;
+  }
   document.getElementById("order-dialog").close();
   openTransferLot(lotId);
 }
 
 function openCompleteFromOrder(lotId) {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager cannot complete a production lot from the Job Card.");
+    return;
+  }
   document.getElementById("order-dialog").close();
   openCompleteLot(lotId);
 }
@@ -20327,6 +20472,10 @@ function openHistoryFromOrder(lotId) {
 }
 
 function openNonGoldIssueForLot(lotId) {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details from this Job Card.");
+    return;
+  }
   const orderDialog = document.getElementById("order-dialog");
   if (orderDialog?.open) orderDialog.close();
   switchView("production");
@@ -20340,6 +20489,10 @@ function openNonGoldIssueForLot(lotId) {
 }
 
 function openNonGoldRemoveForLot(lotId) {
+  if (isSettingManagerUser()) {
+    alert("Setting Manager can edit only item stone details from this Job Card.");
+    return;
+  }
   const orderDialog = document.getElementById("order-dialog");
   if (orderDialog?.open) orderDialog.close();
   switchView("production");
@@ -24831,6 +24984,18 @@ function departmentMetalInHand() {
       });
     }
   });
+  (state.departmentLosses || []).map(normalizeDepartmentLoss).forEach((loss) => {
+    departmentLossAllocations(loss).forEach((allocation) => {
+      addDepartmentWeight(departments, loss.department || "Unassigned", {
+        gross: -allocation.grossWeight,
+        gold: -allocation.grossWeight,
+        fineGold: -allocation.fineGold,
+        loss: allocation.grossWeight,
+        lossFineGold: allocation.fineGold,
+        purity: allocation.purity,
+      });
+    });
+  });
   trackedNonGoldStockAllocation().allocations.forEach((allocation) => {
     addDepartmentWeight(departments, allocation.department, {
       gross: -Number(allocation.weight || 0),
@@ -24992,6 +25157,101 @@ function addDepartmentWeight(departments, department, totals = {}) {
 
 function dailyTallyModeLabel(value = "") {
   return DAILY_TALLY_MODES.find((mode) => mode.value === value)?.label || value || "-";
+}
+
+function normalizeDepartmentLoss(entry = {}) {
+  const department = departmentDashboardHeader(entry.department || entry.target || "");
+  const allocations = (Array.isArray(entry.allocations) ? entry.allocations : [])
+    .map((allocation) => {
+      const grossWeight = Number(weight3(Math.abs(Number(allocation.grossWeight ?? allocation.weight ?? 0))));
+      const purity = karatPurityKey(allocation.purity || entry.purity || "") || allocation.purity || entry.purity || "";
+      return {
+        purity,
+        grossWeight,
+        fineGold: Number(weight3(allocation.fineGold ?? fineGoldWeight(grossWeight, purity))),
+      };
+    })
+    .filter((allocation) => allocation.grossWeight > 0.0005);
+  const savedWeight = Number(weight3(Math.abs(Number(entry.grossWeight ?? entry.weight ?? 0))));
+  if (!allocations.length && savedWeight > 0.0005) {
+    const purity = karatPurityKey(entry.purity || "") || entry.purity || "18K";
+    allocations.push({ purity, grossWeight: savedWeight, fineGold: Number(weight3(entry.fineGold ?? fineGoldWeight(savedWeight, purity))) });
+  }
+  return {
+    id: entry.id || crypto.randomUUID(),
+    date: entry.date || isoToday(),
+    createdAt: entry.createdAt || new Date().toISOString(),
+    updatedAt: entry.updatedAt || "",
+    department,
+    purity: karatPurityKey(entry.purity || allocations[0]?.purity || "") || entry.purity || allocations[0]?.purity || "",
+    grossWeight: Number(weight3(allocations.reduce((total, allocation) => total + allocation.grossWeight, 0))),
+    fineGold: Number(weight3(allocations.reduce((total, allocation) => total + allocation.fineGold, 0))),
+    allocations,
+    sourceType: entry.sourceType || "daily-tally",
+    sourceId: entry.sourceId || entry.dailyTallyId || "",
+    reference: entry.reference || "Department Stock Tally",
+    remarks: entry.remarks || "",
+    createdBy: entry.createdBy || "",
+  };
+}
+
+function departmentLossAllocations(entry = {}) {
+  return normalizeDepartmentLoss(entry).allocations;
+}
+
+function departmentLossesForSource(sourceId = "") {
+  return (state.departmentLosses || []).map(normalizeDepartmentLoss).filter((loss) => loss.sourceId === sourceId);
+}
+
+function dailyTallyLossAllocations(entry = {}) {
+  const lossWeight = Number(weight3(entry.tallyLoss || 0));
+  if (lossWeight <= 0.0005) return [];
+  const target = departmentDashboardHeader(entry.target || "");
+  const totals = departmentMetalInHand()[target] || {};
+  const selectedKarat = karatPurityKey(entry.karat || "");
+  if (selectedKarat) {
+    return [{
+      purity: selectedKarat,
+      grossWeight: lossWeight,
+      fineGold: fineGoldWeight(lossWeight, selectedKarat),
+    }];
+  }
+  const available = Object.entries(totals.purities || {})
+    .map(([purity, values]) => ({ purity: karatPurityKey(purity) || purity, grossWeight: Math.max(Number(values.gross || 0), 0) }))
+    .filter((item) => item.grossWeight > 0.0005);
+  const availableTotal = available.reduce((total, item) => total + item.grossWeight, 0);
+  if (!available.length || availableTotal <= 0.0005) {
+    return [{ purity: "18K", grossWeight: lossWeight, fineGold: fineGoldWeight(lossWeight, "18K") }];
+  }
+  let allocated = 0;
+  return available.map((item, index) => {
+    const grossWeight = index === available.length - 1
+      ? Number(weight3(lossWeight - allocated))
+      : Number(weight3(lossWeight * item.grossWeight / availableTotal));
+    allocated = Number(weight3(allocated + grossWeight));
+    return { purity: item.purity, grossWeight, fineGold: fineGoldWeight(grossWeight, item.purity) };
+  }).filter((item) => item.grossWeight > 0.0005);
+}
+
+function syncDailyTallyDepartmentLoss(entry = {}) {
+  state.departmentLosses = (state.departmentLosses || []).filter((loss) => normalizeDepartmentLoss(loss).sourceId !== entry.id);
+  if (Number(entry.tallyLoss || 0) <= 0.0005) return null;
+  const loss = normalizeDepartmentLoss({
+    id: crypto.randomUUID(),
+    date: entry.date,
+    createdAt: entry.createdAt || new Date().toISOString(),
+    updatedAt: entry.updatedAt || "",
+    department: entry.target,
+    purity: entry.karat,
+    allocations: dailyTallyLossAllocations(entry),
+    sourceType: "daily-tally",
+    sourceId: entry.id,
+    reference: `Daily Stock Tally / Physical GW ${weight3(entry.tallyWeight)}`,
+    remarks: entry.remarks || entry.contents || "",
+    createdBy: entry.createdBy || "",
+  });
+  state.departmentLosses.unshift(loss);
+  return loss;
 }
 
 function normalizeDailyTallyEntry(entry = {}) {
@@ -25309,6 +25569,7 @@ function dailyTallyStockTargets() {
     [departmentDashboardHeader("Completed / Bill Pending")]: { source: "Bill Pending", ...(parts.billPending || {}) },
     [departmentDashboardHeader("Dept Issued Items")]: { source: "Safe Items In Departments", ...(parts.departmentIssues || {}) },
     [departmentDashboardHeader("Dept Receipt Adjustment")]: { source: "Department Receipts / Loss", ...(parts.departmentReturns || {}) },
+    [departmentDashboardHeader("Daily Tally Loss")]: { source: "Daily Department Tally Loss", ...(parts.departmentTallyLosses || {}) },
     [departmentDashboardHeader("Melting / Casting")]: { source: "Melting / Casting", ...(parts.meltingCasting || {}) },
     [departmentDashboardHeader("XRF Pending")]: { source: "XRF Pending", ...(parts.xrf || {}) },
     [departmentDashboardHeader("Direct Non-Gold")]: { source: "Direct Non-Gold", ...(parts.nonGoldDirect || {}) },
@@ -25322,17 +25583,33 @@ function dailyTallyStockTargets() {
   };
 }
 
-function dailyTallyExpectedForTarget(target = "", karat = "") {
+function dailyTallyExpectedForTarget(target = "", karat = "", excludedLossSourceId = "") {
   const cleanTarget = departmentDashboardHeader(target);
   const departments = departmentMetalInHand();
   if (departments[cleanTarget]) {
     const totals = departments[cleanTarget];
+    const excludedAllocations = (state.departmentLosses || [])
+      .map(normalizeDepartmentLoss)
+      .filter((loss) => loss.sourceId === excludedLossSourceId && departmentDashboardHeader(loss.department) === cleanTarget)
+      .flatMap(departmentLossAllocations);
     if (dailyTallyUsesKarat(cleanTarget) && karatPurityKey(karat)) {
       const karatKey = karatPurityKey(karat);
       const purityTotals = Object.entries(totals.purities || {}).find(([purity]) => karatPurityKey(purity) === karatKey)?.[1] || {};
-      return dailyTallyExpectedFromTotals(purityTotals, `${karatKey} Department Holding`);
+      const expected = dailyTallyExpectedFromTotals(purityTotals, `${karatKey} Department Holding`);
+      excludedAllocations.filter((allocation) => karatPurityKey(allocation.purity) === karatKey).forEach((allocation) => {
+        expected.gross = Number(weight3(expected.gross + allocation.grossWeight));
+        expected.gold = Number(weight3(expected.gold + allocation.grossWeight));
+        expected.fine = Number(weight3(expected.fine + allocation.fineGold));
+      });
+      return expected;
     }
-    return dailyTallyExpectedFromTotals(totals, "Department Dashboard");
+    const expected = dailyTallyExpectedFromTotals(totals, "Department Dashboard");
+    excludedAllocations.forEach((allocation) => {
+      expected.gross = Number(weight3(expected.gross + allocation.grossWeight));
+      expected.gold = Number(weight3(expected.gold + allocation.grossWeight));
+      expected.fine = Number(weight3(expected.fine + allocation.fineGold));
+    });
+    return expected;
   }
   const stockTargets = dailyTallyStockTargets();
   if (stockTargets[cleanTarget]) return dailyTallyExpectedFromTotals(stockTargets[cleanTarget], stockTargets[cleanTarget].source || "Stock Summary");
@@ -25380,7 +25657,7 @@ function dailyTallyFormPayload() {
   const totalWeight = Number(form.totalWeight.value || 0);
   const boxWeight = Number(form.boxWeight.value || 0);
   const tallyWeight = Number(weight3(totalWeight - boxWeight));
-  const expected = dailyTallyExpectedForTarget(target, karat);
+  const expected = dailyTallyExpectedForTarget(target, karat, form.tallyId.value || "");
   const difference = Number(weight3(expected.gross - tallyWeight));
   const tallyLoss = Number(weight3(Math.max(difference, 0)));
   const tallyGain = Number(weight3(Math.max(-difference, 0)));
@@ -25433,6 +25710,7 @@ function handleDailyTallyFormInput(event) {
   if (event.target.name === "target" || event.target.name === "karat") {
     updateDailyTallyDepartmentRules(true);
     updateDailyTallyCalculation();
+    renderDailyTallyHistoryTables();
     return;
   }
   if (event.target.name === "containerId") {
@@ -25440,6 +25718,7 @@ function handleDailyTallyFormInput(event) {
     event.currentTarget.elements.boxWeight.value = weight3(container?.weight || 0);
   }
   updateDailyTallyCalculation();
+  renderDailyTallyHistoryTables();
 }
 
 function resetDailyTallyForm() {
@@ -25455,6 +25734,7 @@ function resetDailyTallyForm() {
   renderDailyTallyDepartmentOptions();
   updateDailyTallyDepartmentRules(false);
   updateDailyTallyCalculation();
+  renderDailyTallyHistoryTables();
 }
 
 function saveDailyTally(event) {
@@ -25492,6 +25772,7 @@ function saveDailyTally(event) {
   } else {
     state.dailyTallies.unshift(entry);
   }
+  syncDailyTallyDepartmentLoss(entry);
   saveState();
   render();
   resetDailyTallyForm();
@@ -25519,6 +25800,7 @@ function editDailyTally(entryId) {
   document.getElementById("daily-tally-submit").textContent = "Update Tally";
   document.getElementById("cancel-daily-tally-edit").classList.remove("hidden");
   updateDailyTallyCalculation();
+  renderDailyTallyHistoryTables();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -25528,6 +25810,7 @@ function deleteDailyTally(entryId) {
   if (!entry) return;
   if (!confirm("Delete this daily tally entry?")) return;
   state.dailyTallies = (state.dailyTallies || []).filter((item) => item.id !== entryId);
+  state.departmentLosses = (state.departmentLosses || []).filter((loss) => normalizeDepartmentLoss(loss).sourceId !== entryId);
   saveDeletionAndRefresh();
 }
 
@@ -25568,26 +25851,7 @@ function renderDailyTally() {
       factorySummaryCard("Calculated Gain", gram(todayTotals.tallyGain), "Physical GW is more than ERP GW", todayTotals.tallyGain > 0.01 ? "receivable" : "owned"),
     ].join("");
   }
-  if (!table) return;
-  const query = (document.getElementById("daily-tally-search")?.value || "").trim().toLowerCase();
-  const rows = entries
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
-    .filter((entry) => !query || [
-      entry.date,
-      entry.target,
-      entry.karat,
-      entry.containerName,
-      dailyTallyModeLabel(entry.mode),
-      entry.contents,
-      entry.remarks,
-      entry.tallyLoss,
-      entry.tallyGain,
-      entry.createdBy,
-    ].join(" ").toLowerCase().includes(query))
-    .slice(0, 100)
-    .map(renderDailyTallyRow)
-    .join("");
-  table.innerHTML = rows || tableEmpty(8, "No department tally saved yet.");
+  renderDailyTallyHistoryTables(entries);
 }
 
 function renderDailyTallyRow(entry) {
@@ -25611,6 +25875,168 @@ function renderDailyTallyRow(entry) {
       <td><div class="row-actions"><button type="button" onclick="editDailyTally('${entry.id}')">Edit</button><button class="delete-btn" type="button" onclick="deleteDailyTally('${entry.id}')">Delete</button></div></td>
     </tr>
   `;
+}
+
+function selectedDailyTallyHistoryDepartment() {
+  const form = document.getElementById("daily-tally-form");
+  return departmentDashboardHeader(form?.elements.target.value || "");
+}
+
+function lossLedgerRow(data = {}) {
+  const weight = Number(weight3(Math.abs(Number(data.weight || 0))));
+  const purity = karatPurityKey(data.purity || "") || data.purity || "-";
+  return {
+    id: data.id || crypto.randomUUID(),
+    date: data.date || "-",
+    createdAt: data.createdAt || "",
+    department: departmentDashboardHeader(data.department || "Unassigned"),
+    purity,
+    weight,
+    fineGold: Number(weight3(data.fineGold ?? fineGoldWeight(weight, purity))),
+    source: data.source || "Loss",
+    reference: data.reference || "-",
+    remarks: data.remarks || "",
+    createdBy: data.createdBy || "",
+  };
+}
+
+function allLossLedgerRows() {
+  const rows = [];
+  (state.departmentLosses || []).map(normalizeDepartmentLoss).forEach((loss) => {
+    departmentLossAllocations(loss).forEach((allocation, index) => rows.push(lossLedgerRow({
+      id: `${loss.id}-${index}`,
+      date: loss.date,
+      createdAt: loss.updatedAt || loss.createdAt,
+      department: loss.department,
+      purity: allocation.purity,
+      weight: allocation.grossWeight,
+      fineGold: allocation.fineGold,
+      source: "Daily Stock Tally",
+      reference: loss.reference,
+      remarks: loss.remarks,
+      createdBy: loss.createdBy,
+    })));
+  });
+  (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry)).filter((entry) => entry.lossWeight > 0.0005).forEach((entry) => rows.push(lossLedgerRow({
+    id: entry.id,
+    date: entry.date,
+    createdAt: entry.createdAt,
+    department: entry.process || entry.departmentName,
+    purity: entry.purity,
+    weight: entry.lossWeight,
+    fineGold: entry.lossFineGold,
+    source: "Department Receipt",
+    reference: entry.sourceItemDescription || safeDepartmentReturnLabel(entry.returnType),
+    remarks: entry.remarks,
+  })));
+  (state.settingManagerEntries || []).map(normalizeSettingManagerEntry).forEach((entry) => {
+    const recordedLoss = (entry.settlementHistory || []).filter((line) => Number(line.lossWeight || (line.type === "loss" ? line.amount : 0)) > 0.0005);
+    if (recordedLoss.length) {
+      recordedLoss.forEach((line) => {
+        const weight = Number(weight3(line.lossWeight || line.amount || 0));
+        rows.push(lossLedgerRow({
+          id: `${entry.id}-${line.id}`,
+          date: line.date || entry.receiveDate || entry.issueDate,
+          createdAt: line.createdAt,
+          department: "Setting Department",
+          purity: entry.purity,
+          weight,
+          source: "Setter Loss",
+          reference: `${settingEntryReference(entry)} / ${entry.setterName || "Setter"}`,
+          remarks: line.remarks || entry.receiveRemarks || entry.remarks,
+        }));
+      });
+    } else if (Number(entry.setterLossWeight || 0) > 0.0005) {
+      rows.push(lossLedgerRow({
+        id: entry.id,
+        date: entry.receiveDate || entry.issueDate,
+        createdAt: entry.closeDate || "",
+        department: "Setting Department",
+        purity: entry.purity,
+        weight: entry.setterLossWeight,
+        source: "Setter Loss",
+        reference: `${settingEntryReference(entry)} / ${entry.setterName || "Setter"}`,
+        remarks: entry.receiveRemarks || entry.remarks,
+      }));
+    }
+  });
+  (state.lots || []).filter((lot) => Number(lot.actualWastage || 0) > 0.0005).forEach((lot) => rows.push(lossLedgerRow({
+    id: lot.id,
+    date: lot.completeDate || lot.receiveDate || lot.issueDate,
+    createdAt: lot.completedAt || lot.createdAt,
+    department: lot.wastageDepartment || lot.currentDepartment || lot.karigarName || "Production",
+    purity: lot.wastagePurity || lot.metalPurity,
+    weight: lot.actualWastage,
+    fineGold: lot.wastageFineGold,
+    source: "Job Card Manufacturing Loss",
+    reference: `${lot.number || "Lot"} / ${lot.orderNumber || "-"}`,
+    remarks: lot.receiveRemarks || "",
+  })));
+  (state.melting || []).filter((entry) => Number(entry.meltingLoss || 0) > 0.0005).forEach((entry) => rows.push(lossLedgerRow({
+    id: entry.id,
+    date: entry.receiveDate || entry.date,
+    createdAt: entry.updatedAt || entry.createdAt,
+    department: entry.departmentName || meltingDashboardDepartmentName(entry),
+    purity: entry.targetPurity || entry.sourcePurity,
+    weight: entry.meltingLoss,
+    source: `${meltingBatchType(entry)} Loss`,
+    reference: entry.batchName || entry.id,
+    remarks: entry.remarks || "",
+  })));
+  (state.xrfTests || []).map(normalizeXrfEntry).filter((entry) => Number(entry.loss || 0) > 0.0005).forEach((entry) => rows.push(lossLedgerRow({
+    id: entry.id,
+    date: entry.returnedDate || entry.date,
+    createdAt: entry.updatedAt || entry.createdAt,
+    department: "XRF Department",
+    purity: entry.sourcePurity || entry.karat,
+    weight: entry.loss,
+    source: "XRF Gold Loss",
+    reference: entry.castingBatchName,
+    remarks: entry.remarks,
+  })));
+  return rows.sort((left, right) => transferHistoryTime(right.createdAt, right.date) - transferHistoryTime(left.createdAt, left.date));
+}
+
+function renderDailyTallyHistoryTables(entries = null) {
+  const table = document.getElementById("daily-tally-table");
+  const lossTable = document.getElementById("daily-tally-loss-table");
+  const selectedDepartment = selectedDailyTallyHistoryDepartment();
+  const query = (document.getElementById("daily-tally-search")?.value || "").trim().toLowerCase();
+  const tallyEntries = (entries || (state.dailyTallies || []).map(normalizeDailyTallyEntry))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))
+    .filter((entry) => !selectedDepartment || departmentDashboardHeader(entry.target) === selectedDepartment)
+    .filter((entry) => !query || [entry.date, entry.target, entry.karat, entry.containerName, dailyTallyModeLabel(entry.mode), entry.contents, entry.remarks, entry.tallyLoss, entry.tallyGain, entry.createdBy].join(" ").toLowerCase().includes(query));
+  if (table) {
+    table.innerHTML = tallyEntries.slice(0, 100).map(renderDailyTallyRow).join("")
+      || tableEmpty(8, selectedDepartment ? `No tally saved for ${selectedDepartment}.` : "No department tally saved yet.");
+  }
+  const lossRows = allLossLedgerRows()
+    .filter((row) => !selectedDepartment || departmentDashboardHeader(row.department) === selectedDepartment)
+    .filter((row) => !query || [row.date, row.department, row.purity, row.source, row.reference, row.remarks, row.createdBy].join(" ").toLowerCase().includes(query));
+  if (lossTable) {
+    lossTable.innerHTML = lossRows.slice(0, 500).map((row) => `
+      <tr>
+        <td>${escapeHtml(row.date || "-")}</td>
+        <td><strong>${escapeHtml(row.department || "-")}</strong></td>
+        <td>${escapeHtml(transferPurityLabel(row.purity || "-"))}</td>
+        <td><strong>${gram(row.weight)}</strong></td>
+        <td>${gram(row.fineGold)}</td>
+        <td><strong>${escapeHtml(row.source)}</strong><small>${escapeHtml(row.reference || "-")}</small></td>
+        <td>${escapeHtml(row.remarks || "-")}<small>${row.createdBy ? `By ${escapeHtml(row.createdBy)}` : ""}</small></td>
+      </tr>
+    `).join("") || tableEmpty(7, selectedDepartment ? `No loss recorded for ${selectedDepartment}.` : "No loss recorded yet.");
+  }
+  const lossTotal = document.getElementById("daily-tally-loss-total");
+  if (lossTotal) lossTotal.textContent = `${weight3(lossRows.reduce((total, row) => total + Number(row.weight || 0), 0))} g Loss`;
+}
+
+function switchDailyTallyHistoryTab(tab = "history") {
+  const showLoss = tab === "loss";
+  document.getElementById("daily-tally-history-panel")?.classList.toggle("hidden", showLoss);
+  document.getElementById("daily-tally-loss-panel")?.classList.toggle("hidden", !showLoss);
+  document.getElementById("daily-tally-history-tab")?.classList.toggle("active", !showLoss);
+  document.getElementById("daily-tally-loss-tab")?.classList.toggle("active", showLoss);
+  renderDailyTallyHistoryTables();
 }
 
 function renderOrders() {
@@ -28311,15 +28737,20 @@ function settingReturnMaterialBreakdownText(entry = {}) {
 function normalizeSettingManagerEntry(entry = {}, currentState = state) {
   const lot = (currentState.lots || []).find((item) => item.id === entry.lotId) || {};
   const setter = (currentState.settingSetters || []).find((item) => item.id === entry.setterId) || {};
-  const entryType = entry.entryType === "Accessory" || entry.sourceIssueId ? "Accessory" : "Lot";
+  const entryType = entry.entryType === "Manual"
+    ? "Manual"
+    : entry.entryType === "Accessory" || entry.sourceIssueId
+      ? "Accessory"
+      : "Lot";
   const isAccessory = entryType === "Accessory";
+  const isManual = entryType === "Manual";
   const returnExpected = isAccessory && Boolean(entry.returnExpected || entry.accessoryReturnExpected);
   const isReturnable = !isAccessory || returnExpected;
   const issueGw = Number(weight3(entry.issueGw ?? entry.transferWeight ?? entry.weight ?? currentTransferIssueWeight(lot, currentState)));
   const receiveGwValue = entry.receiveGw ?? entry.receivedGw ?? entry.grossReceivedWeight;
   const hasReceive = isReturnable && receiveGwValue !== undefined && receiveGwValue !== null && String(receiveGwValue) !== "";
   const receiveGw = hasReceive ? Number(weight3(receiveGwValue)) : "";
-  const plannedHandStoneWeight = isAccessory ? 0 : plannedHandStoneWeightForLot(lot, currentState);
+  const plannedHandStoneWeight = isAccessory || isManual ? 0 : plannedHandStoneWeightForLot(lot, currentState);
   const handStoneWeight = isAccessory
     ? 0
     : Number(weight3(entry.handStoneWeight ?? (plannedHandStoneWeight > 0 ? plannedHandStoneWeight : lot.manualHandStoneWeight || 0)));
@@ -28449,13 +28880,13 @@ function settingAccessorySourceLabel(source = {}) {
 }
 
 function settingEntryReference(entry = {}) {
-  return entry.entryType === "Accessory"
+  return ["Accessory", "Manual"].includes(entry.entryType)
     ? entry.materialDescription || entry.materialType || "Accessory / Direct Material"
     : entry.lotNumber || "-";
 }
 
 function settingEntryProductionText(entry = {}) {
-  if (entry.entryType === "Accessory") return "No PR / No Job Card";
+  if (["Accessory", "Manual"].includes(entry.entryType)) return "No PR / No Job Card";
   const orderIds = Array.isArray(entry.selectedOrderIds) && entry.selectedOrderIds.length
     ? entry.selectedOrderIds
     : getLotOrderIds(findById("lots", entry.lotId) || {});
@@ -28738,20 +29169,41 @@ function updateSettingIssueSummary(event) {
   if (!form) return;
   const issueType = form.issueType?.value || "lot";
   const isAccessory = issueType === "accessory" || issueType === "accessory-return";
+  const isManual = issueType === "manual";
   const returnExpected = issueType === "accessory-return";
   const isRepair = issueType === "repair";
   const isPartial = !isAccessory && form.issueScope?.value === "part";
   const lotField = document.getElementById("setting-issue-lot-field");
   const accessoryField = document.getElementById("setting-issue-accessory-field");
+  const manualReferenceField = document.getElementById("setting-issue-manual-reference-field");
+  const manualPurityField = document.getElementById("setting-issue-manual-purity-field");
   const scopeField = document.getElementById("setting-issue-scope-field");
   const handStoneField = document.getElementById("setting-issue-hand-stone-field");
-  lotField?.classList.toggle("hidden", isAccessory);
+  lotField?.classList.toggle("hidden", isAccessory || isManual);
   accessoryField?.classList.toggle("hidden", !isAccessory);
-  scopeField?.classList.toggle("hidden", isAccessory);
-  handStoneField?.classList.toggle("hidden", isAccessory);
-  form.lotId.required = !isAccessory;
+  manualReferenceField?.classList.toggle("hidden", !isManual);
+  manualPurityField?.classList.toggle("hidden", !isManual);
+  scopeField?.classList.toggle("hidden", isAccessory || isManual);
+  handStoneField?.classList.toggle("hidden", isAccessory || isManual);
+  form.lotId.required = !isAccessory && !isManual;
   form.accessoryIssueId.required = isAccessory;
-  form.issueScope.required = !isAccessory;
+  form.manualReference.required = isManual;
+  form.manualPurity.required = isManual;
+  form.issueScope.required = !isAccessory && !isManual;
+
+  if (isManual) {
+    renderSettingSplitItemPicker(form, null, true);
+    form.issueGw.readOnly = false;
+    form.issueGw.min = "0.001";
+    form.issueGw.removeAttribute("max");
+    form.handStoneWeight.value = "0.000";
+    form.handStoneWeight.readOnly = true;
+    form.dataset.selectedAccessoryIssueId = "";
+    form.dataset.selectedLotId = "";
+    const summary = document.getElementById("setting-issue-summary");
+    if (summary) summary.textContent = "Enter the old production item reference, karat and GW. No Job Card is required. On receipt, enter the actual total hand-stone weight and reconcile the setter balance.";
+    return;
+  }
 
   if (isAccessory) {
     renderSettingSplitItemPicker(form, null, true);
@@ -28943,6 +29395,42 @@ function issueSettingLotToSetter(event) {
   const setter = (state.settingSetters || []).find((item) => item.id === data.setterId);
   if (!setter) {
     alert("Select setter.");
+    return;
+  }
+  if (data.issueType === "manual") {
+    const manualReference = String(data.manualReference || "").trim();
+    const issueGw = Number(weight3(data.issueGw || 0));
+    if (!manualReference) {
+      alert("Enter the old production item or inventory reference.");
+      return;
+    }
+    if (!Number.isFinite(issueGw) || issueGw <= 0) {
+      alert("Enter valid issue GW for the manual setting item.");
+      return;
+    }
+    state.settingManagerEntries = state.settingManagerEntries || [];
+    state.settingManagerEntries.unshift(normalizeSettingManagerEntry({
+      entryType: "Manual",
+      workType: "Manual Old Production Setting",
+      issueDate: today(),
+      materialDescription: manualReference,
+      materialType: "Old Production Item",
+      purity: karatPurityKey(data.manualPurity) || data.manualPurity || "18K",
+      setterId: setter.id,
+      setterName: setter.name,
+      issueGw,
+      handStoneWeight: 0,
+      handStoneWeightSource: "Manual",
+      status: "Issued",
+      remarks: data.remarks || "",
+      currentDepartment: "Setting Department",
+    }));
+    form.reset();
+    form.dataset.selectedLotId = "";
+    form.dataset.selectedAccessoryIssueId = "";
+    saveState();
+    render();
+    alert(`${manualReference} ${gram(issueGw)} issued to ${setter.name} without Job Card.\nEnter the actual total hand-stone weight when receiving it.`);
     return;
   }
   if (data.issueType === "accessory" || data.issueType === "accessory-return") {
@@ -29247,6 +29735,24 @@ function openSettingReceive(entryId) {
   form.receiveGw.focus();
 }
 
+function openSettingManagerJobCard(lotId) {
+  const lot = findById("lots", lotId);
+  if (!lot) {
+    alert("Setting lot was not found.");
+    return;
+  }
+  if (isSettingManagerUser() && !settingManagerLots().some((item) => item.id === lot.id)) {
+    alert("Setting Manager can open only a live lot currently in the Setting Department.");
+    return;
+  }
+  const orders = getLotOrders(lot);
+  if (!orders.length) {
+    alert("No Job Card item is linked to this Setting lot.");
+    return;
+  }
+  openOrderDetail(orders[0].id, false, "all", lot.id);
+}
+
 function settingStatusHtml(lot) {
   const pending = settingPendingEntryForLot(lot.id);
   if (pending) return `<span class="status pending">With ${escapeHtml(pending.setterName || "Setter")}</span><br><small>Balance ${gram(pending.balanceWeight)} / Issued ${escapeHtml(pending.issueDate || "-")}</small>`;
@@ -29272,6 +29778,7 @@ function renderSettingManager() {
   const pending = settingPendingEntries();
   const receivedToday = (state.settingManagerEntries || []).filter((entry) => entry.receiveDate === today()).length;
   const accessoryEntriesToday = (state.settingManagerEntries || []).filter((entry) => entry.entryType === "Accessory" && entry.issueDate === today());
+  const manualEntriesToday = (state.settingManagerEntries || []).filter((entry) => entry.entryType === "Manual" && entry.issueDate === today());
   const accessoriesUsedToday = accessoryEntriesToday.filter((entry) => !entry.returnExpected).length;
   const accessoriesReturnableToday = accessoryEntriesToday.filter((entry) => entry.returnExpected).length;
   const pendingGw = pending.reduce((total, entry) => Number(weight3(total + Number(entry.balanceWeight || 0))), 0);
@@ -29295,7 +29802,7 @@ function renderSettingManager() {
     <article class="setting-summary-card"><span>Lots In Setting</span><strong>${settingLots.length}</strong><small>Main ERP lots currently at Setting Department</small></article>
     <article class="setting-summary-card"><span>Pending With Setters</span><strong>${pending.length}</strong><small>${gram(pendingGw)} lot GW to reconcile</small></article>
     <article class="setting-summary-card"><span>Received Today</span><strong>${receivedToday}</strong><small>Setter returns recorded today</small></article>
-    <article class="setting-summary-card"><span>Accessory / Repair Issues Today</span><strong>${accessoryEntriesToday.length}</strong><small>${accessoriesUsedToday} used / ${accessoriesReturnableToday} return expected</small></article>
+    <article class="setting-summary-card"><span>Manual / Accessory Issues Today</span><strong>${manualEntriesToday.length + accessoryEntriesToday.length}</strong><small>${manualEntriesToday.length} no Job Card / ${accessoriesUsedToday} used / ${accessoriesReturnableToday} return expected</small></article>
     <section class="setting-setter-strip">${setterCards || '<div class="setter-chip empty">Add setter name in Setter Master to start.</div>'}</section>
   `;
 
@@ -29312,7 +29819,7 @@ function renderSettingManager() {
         <td>${gram(currentTransferIssueWeight(lot))}</td>
         <td>${gram(displayedHandStoneWeight)}<br><small>${escapeHtml(displayedHandStoneSource)}</small></td>
         <td>${settingStatusHtml(lot)}</td>
-        <td><div class="row-actions">${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue / Split</button>`}${historyButton}</div></td>
+        <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openSettingManagerJobCard('${lot.id}')">Open Job Card</button>${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue / Split</button>`}${historyButton}</div></td>
       </tr>
     `;
   }).join("");
@@ -29321,7 +29828,7 @@ function renderSettingManager() {
   const pendingRows = pending.map((entry) => `
     <tr>
       <td>${escapeHtml(entry.issueDate || "-")}</td>
-      <td>${escapeHtml(settingEntryReference(entry))}<br><small>${escapeHtml(entry.entryType === "Accessory" ? `${entry.materialType || "Accessory"} / No Job Card` : entry.jobNumber || "-")} / ${escapeHtml(entry.workType || "Setter Work")}<br>${escapeHtml(settingEntryProductionText(entry))}</small></td>
+      <td>${escapeHtml(settingEntryReference(entry))}<br><small>${escapeHtml(["Accessory", "Manual"].includes(entry.entryType) ? `${entry.materialType || "Manual Item"} / No Job Card` : entry.jobNumber || "-")} / ${escapeHtml(entry.workType || "Setter Work")}<br>${escapeHtml(settingEntryProductionText(entry))}</small></td>
       <td>${escapeHtml(entry.setterName || "-")}</td>
       <td>${gram(entry.issueGw)}</td>
       <td>${entry.entryType === "Accessory" ? "-" : gram(entry.handStoneWeight)}<br><small>${escapeHtml(entry.handStoneWeightSource || "Manual")}</small></td>
@@ -29338,7 +29845,7 @@ function renderSettingManager() {
       <td>${escapeHtml(entry.issueDate || "-")}</td>
       <td>${escapeHtml(entry.closeDate || entry.receiveDate || "-")}</td>
       <td>${escapeHtml(settingEntryReference(entry))}<br><small>${escapeHtml(settingEntryProductionText(entry))}</small></td>
-      <td>${escapeHtml(entry.jobNumber || (entry.entryType === "Accessory" ? "No Job Card" : "-"))}</td>
+      <td>${escapeHtml(entry.jobNumber || (["Accessory", "Manual"].includes(entry.entryType) ? "No Job Card" : "-"))}</td>
       <td>${escapeHtml(entry.setterName || "-")}</td>
       <td>${gram(entry.issueGw)}</td>
       <td>${(entry.entryType === "Accessory" && !entry.returnExpected) || entry.receiveGw === "" ? "-" : gram(entry.receiveGw)}</td>
@@ -33342,6 +33849,7 @@ function renderFactorySummary() {
     factorySummaryCard("Bill Pending", gram(parts.billPending?.grossWeight || 0), factoryStockPartNote(parts.billPending)),
     factorySummaryCard("Dept Issued Items", gram(parts.departmentIssues?.grossWeight || 0), factoryStockPartNote(parts.departmentIssues)),
     factorySummaryCard("Dept Receipt / Loss Adj.", gram(parts.departmentReturns?.grossWeight || 0), factoryStockPartNote(parts.departmentReturns)),
+    factorySummaryCard("Daily Tally Loss", gram(Math.abs(parts.departmentTallyLosses?.grossWeight || 0)), factoryStockPartNote(parts.departmentTallyLosses)),
     factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
     factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
@@ -33362,6 +33870,7 @@ const fineSheetPartOrder = [
   "billPending",
   "departmentIssues",
   "departmentReturns",
+  "departmentTallyLosses",
   "meltingCasting",
   "xrf",
   "nonGoldDirect",
@@ -36770,6 +37279,7 @@ function normalizeState(currentState) {
     .slice(0, LOGIN_HISTORY_LIMIT);
   currentState.fineSheetSnapshots = normalizeFineSheetSnapshots(currentState.fineSheetSnapshots);
   currentState.dailyTallies = (currentState.dailyTallies || []).map(normalizeDailyTallyEntry);
+  currentState.departmentLosses = (currentState.departmentLosses || []).map(normalizeDepartmentLoss);
   currentState.dailyTallyContainers = (currentState.dailyTallyContainers || currentState.dabbaMaster || [])
     .map(normalizeDailyTallyContainer)
     .filter((container) => container.name);
