@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v577";
+const APP_VERSION = "v578";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3443,7 +3443,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const savedAdditionalWeight = productionStoneTotals(additionalStoneItems).weight;
-  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed Setting-to-Filing transfer${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight.` : ""}`);
+  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed lot transfer chain${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight and department net weight.` : ""}`);
 });
 
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
@@ -5676,7 +5676,7 @@ function runPostCloudMigrations() {
     const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
     if (correctedSetterBalances || correctedFilingTransfers) {
-      saveState({ context: "LOT-203 setter balance and Filing stone transfer correction" });
+      saveState({ context: "LOT-203 setter balance and downstream department net-weight correction" });
       render();
     }
     await migrateLegacyDesignImages();
@@ -21120,65 +21120,99 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       break;
     }
   }
-  if (transferIndex < 0 || transferIndex !== transfers.length - 1) return null;
+  if (transferIndex < 0) return null;
 
-  const transfer = transfers[transferIndex];
   const orders = getLotOrders(lot, sourceState);
   const handStoneWeight = Number(weight3(productionStoneTotalsForOrderList(sourceState, orders, "hand").weight || 0));
-  const previousHandStoneWeight = Number(weight3(transfer.handStoneWeight ?? transfer.stoneWeight ?? 0));
-  if (Math.abs(handStoneWeight - previousHandStoneWeight) <= 0.0005) return null;
+  const settingReceipt = (sourceState.settingManagerEntries || []).find((entry) =>
+    entry.lotId === lot.id
+    && entry.entryType !== "Accessory"
+    && entry.status === "Received"
+    && entry.receiveGw !== undefined
+    && entry.receiveGw !== null
+    && String(entry.receiveGw) !== ""
+  );
+  let previousHandStoneWeight = handStoneWeightBeforeTransfer(lot, transferIndex);
+  const updatedTransfers = [];
 
-  const handStoneDifference = Number(weight3(handStoneWeight - previousHandStoneWeight));
-  const waxStoneWeight = Number(weight3(transfer.waxStoneWeight ?? transferWaxStoneWeight(lot, sourceState)));
-  const transferWeight = Number(weight3(transfer.transferWeight || 0));
-  const previousGrossReceivedWeight = Number(weight3(transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transferWeight));
-  const grossReceivedWeight = Number(weight3(Math.max(previousGrossReceivedWeight + handStoneDifference, 0)));
-  const handStoneBefore = handStoneWeightBeforeTransfer(lot, transferIndex);
-  const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight));
-  const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
-  const issuedNetWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - handStoneBefore, 0)));
-  const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
-  const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
-  const syncedAt = new Date().toISOString();
+  for (let index = transferIndex; index < transfers.length; index += 1) {
+    const transfer = transfers[index];
+    const savedHandStoneWeight = Number(weight3(transfer.handStoneWeight ?? transfer.stoneWeight ?? previousHandStoneWeight));
+    const waxStoneWeight = Number(weight3(transfer.waxStoneWeight ?? transferWaxStoneWeight(lot, sourceState)));
+    const transferWeight = Number(weight3(transfer.transferWeight || 0));
+    const savedGrossReceivedWeight = Number(weight3(transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transferWeight));
+    const grossReceivedWeight = index === transferIndex && settingReceipt
+      ? Number(weight3(settingReceipt.receiveGw || 0))
+      : savedGrossReceivedWeight;
+    const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight));
+    const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
+    const issuedNetWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - previousHandStoneWeight, 0)));
+    const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+    const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
+    const differenceFineGold = fineGoldWeight(departmentBalance, differencePurity);
+    const changed = Math.abs(savedHandStoneWeight - handStoneWeight) > 0.0005
+      || Math.abs(savedGrossReceivedWeight - grossReceivedWeight) > 0.0005
+      || Math.abs(Number(transfer.reducedWeight || 0) - reducedWeight) > 0.0005
+      || Math.abs(Number(transfer.receivedWeight || 0) - receivedWeight) > 0.0005
+      || Math.abs(Number(transfer.departmentBalance || 0) - departmentBalance) > 0.0005
+      || Math.abs(Number(transfer.differenceFineGold || 0) - differenceFineGold) > 0.0005;
 
-  Object.assign(transfer, {
-    grossReceivedWeight,
-    waxStoneWeight,
-    stoneWeight: handStoneWeight,
-    handStoneWeight,
-    reducedWeight,
-    receivedWeight,
-    departmentBalance,
-    differencePurity,
-    differenceFineGold: fineGoldWeight(departmentBalance, differencePurity),
-    stonePlanPreviousHandStoneWeight: previousHandStoneWeight,
-    stonePlanSyncedAt: syncedAt,
-    stonePlanSyncReason: reason,
-  });
+    Object.assign(transfer, {
+      grossReceivedWeight,
+      waxStoneWeight,
+      stoneWeight: handStoneWeight,
+      handStoneWeight,
+      reducedWeight,
+      receivedWeight,
+      departmentBalance,
+      differencePurity,
+      differenceFineGold,
+    });
 
-  const ledgerEntry = (sourceState.ledger || []).find((entry) => entry.sourceId === transfer.id && ["transfer", "transfer-edit"].includes(entry.sourceType));
-  if (ledgerEntry) {
-    ledgerEntry.weight = receivedWeight;
-    ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Setting"} to ${transfer.toDepartment || transfer.toKarigarName || "Filing"}; receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
-    ledgerEntry.stonePlanSyncedAt = syncedAt;
+    if (changed) {
+      const syncedAt = new Date().toISOString();
+      transfer.stonePlanPreviousHandStoneWeight = savedHandStoneWeight;
+      transfer.stonePlanActualGrossPreserved = true;
+      transfer.stonePlanSyncedAt = syncedAt;
+      transfer.stonePlanSyncReason = reason;
+      const ledgerEntry = (sourceState.ledger || []).find((entry) => entry.sourceId === transfer.id && ["transfer", "transfer-edit"].includes(entry.sourceType));
+      if (ledgerEntry) {
+        ledgerEntry.weight = receivedWeight;
+        ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Department"} to ${transfer.toDepartment || transfer.toKarigarName || "Department"}; actual receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
+        ledgerEntry.stonePlanSyncedAt = syncedAt;
+      }
+      updatedTransfers.push({
+        transferId: transfer.id,
+        previousHandStoneWeight: savedHandStoneWeight,
+        handStoneWeight,
+        previousGrossReceivedWeight: savedGrossReceivedWeight,
+        grossReceivedWeight,
+        receivedWeight,
+        departmentBalance,
+      });
+    }
+    previousHandStoneWeight = handStoneWeight;
   }
 
+  if (!updatedTransfers.length) return null;
+  const latest = transfers.at(-1);
+  if (latest && isBillTransferDestination({ toDepartment: latest.toDepartment }, { name: latest.toKarigarName })) {
+    lot.finishedWeight = Number(latest.receivedWeight || 0);
+    lot.actualWastage = Number(latest.departmentBalance || 0);
+  }
   return {
     lotId: lot.id,
-    transferId: transfer.id,
-    previousHandStoneWeight,
+    transferId: transfers[transferIndex].id,
     handStoneWeight,
-    handStoneDifference,
-    previousGrossReceivedWeight,
-    grossReceivedWeight,
-    receivedWeight,
-    departmentBalance,
+    updatedTransfers,
+    currentDepartmentNetWeight: Number(latest?.receivedWeight || 0),
   };
 }
 
 function syncFilingTransfersForUpdatedStoneOrders(orders = [], reason = "Job Card stone plan updated") {
   const orderIds = new Set((orders || []).map((order) => order?.id).filter(Boolean));
   if (!orderIds.size) return 0;
+  syncSettingEntriesForUpdatedStoneOrders(orders, reason);
   return (state.lots || []).reduce((updated, lot) => {
     if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return updated;
     return updated + (syncLatestFilingTransferStoneForLot(state, lot, reason) ? 1 : 0);
@@ -21202,7 +21236,7 @@ function migrateLot203SetterMetalBalance() {
 function migrateJob1689S2FilingTransferStone() {
   const jobOrders = (state.orders || []).filter((order) => departmentTextKey(order.jobNumber) === "job 1689 s2");
   if (!jobOrders.length) return 0;
-  const updated = syncFilingTransfersForUpdatedStoneOrders(jobOrders, "JOB-1689-S2 stone weight correction v576");
+  const updated = syncFilingTransfersForUpdatedStoneOrders(jobOrders, "JOB-1689-S2 full transfer-chain stone correction v578");
   if (updated) {
     state.job1689S2FilingStoneTransferCorrectedAt = new Date().toISOString();
     state.job1689S2FilingStoneTransferCorrectionCount = updated;
