@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v576";
+const APP_VERSION = "v577";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -5673,9 +5673,10 @@ function runPostCloudMigrations() {
   if (supabaseStartupProtectionActive) return;
   postCloudMigrationsStarted = true;
   (async () => {
+    const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
-    if (correctedFilingTransfers) {
-      saveState({ context: "JOB-1689-S2 Filing stone transfer correction" });
+    if (correctedSetterBalances || correctedFilingTransfers) {
+      saveState({ context: "LOT-203 setter balance and Filing stone transfer correction" });
       render();
     }
     await migrateLegacyDesignImages();
@@ -21045,32 +21046,52 @@ function lotHasJobCardStonePlan(lot = {}, sourceState = state) {
   );
 }
 
-function syncSettingEntriesForUpdatedStoneOrders(orders = []) {
+function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card stone plan updated") {
   const orderIds = new Set((orders || []).map((order) => order?.id).filter(Boolean));
   if (!orderIds.size) return 0;
   let updated = 0;
   (state.lots || []).forEach((lot) => {
     if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return;
-    if (!isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)) return;
     const handStoneWeight = plannedHandStoneWeightForLot(lot);
     const settingEntries = (state.settingManagerEntries || []).filter((entry) => entry.lotId === lot.id && entry.entryType !== "Accessory");
     const currentEntry = settingEntries.find((entry) => entry.status === "Issued")
       || settingEntries.find((entry) => entry.status === "Received");
-    [currentEntry].filter(Boolean).forEach((entry) => {
-      entry.handStoneWeight = handStoneWeight;
-      entry.handStoneWeightSource = "Job Card";
-      if (entry.receiveGw !== undefined && entry.receiveGw !== null && String(entry.receiveGw) !== "") {
-        entry.receiveNetWeight = Number(weight3(Number(entry.receiveGw || 0) - handStoneWeight));
-        entry.balanceWeight = Number(weight3(
-          Number(entry.issueGw || 0)
-          - Number(entry.receiveNetWeight || 0)
-          - Number(entry.rawaWeight || 0)
-          - Number(entry.setterLossWeight || 0)
-        ));
-        entry.difference = Number(weight3(Number(entry.receiveNetWeight || 0) - Number(entry.issueGw || 0)));
-      }
-      updated += 1;
+    if (!currentEntry) return;
+
+    const before = JSON.stringify({
+      handStoneWeight: currentEntry.handStoneWeight,
+      handStoneWeightSource: currentEntry.handStoneWeightSource,
+      receiveNetWeight: currentEntry.receiveNetWeight,
+      balanceWeight: currentEntry.balanceWeight,
+      difference: currentEntry.difference,
     });
+    currentEntry.handStoneWeight = handStoneWeight;
+    currentEntry.handStoneWeightSource = "Job Card";
+    if (currentEntry.receiveGw !== undefined && currentEntry.receiveGw !== null && String(currentEntry.receiveGw) !== "") {
+      const receiveNetWeight = Number(weight3(Number(currentEntry.receiveGw || 0) - handStoneWeight));
+      const returnedMaterialWeight = settingReturnMaterialTotal(normalizeSettingReturnMaterialBreakdown(currentEntry));
+      const balanceWeight = Number(weight3(
+        Number(currentEntry.issueGw || 0)
+        - receiveNetWeight
+        - returnedMaterialWeight
+        - Number(currentEntry.setterLossWeight || 0)
+      ));
+      currentEntry.receiveNetWeight = receiveNetWeight;
+      currentEntry.balanceWeight = Number(weight3(Math.max(balanceWeight, 0)));
+      currentEntry.difference = Number(weight3(receiveNetWeight - Number(currentEntry.issueGw || 0)));
+    }
+    const after = JSON.stringify({
+      handStoneWeight: currentEntry.handStoneWeight,
+      handStoneWeightSource: currentEntry.handStoneWeightSource,
+      receiveNetWeight: currentEntry.receiveNetWeight,
+      balanceWeight: currentEntry.balanceWeight,
+      difference: currentEntry.difference,
+    });
+    if (before !== after) {
+      currentEntry.stonePlanSyncedAt = new Date().toISOString();
+      currentEntry.stonePlanSyncReason = reason;
+      updated += 1;
+    }
   });
   return updated;
 }
@@ -21162,6 +21183,20 @@ function syncFilingTransfersForUpdatedStoneOrders(orders = [], reason = "Job Car
     if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return updated;
     return updated + (syncLatestFilingTransferStoneForLot(state, lot, reason) ? 1 : 0);
   }, 0);
+}
+
+function migrateLot203SetterMetalBalance() {
+  const lot203Orders = (state.lots || [])
+    .filter((lot) => departmentTextKey(lot.number) === "lot 203")
+    .flatMap((lot) => getLotOrders(lot, state));
+  const uniqueOrders = [...new Map(lot203Orders.map((order) => [order.id, order])).values()];
+  if (!uniqueOrders.length) return 0;
+  const updated = syncSettingEntriesForUpdatedStoneOrders(uniqueOrders, "LOT-203 setter metal balance correction v577");
+  if (updated) {
+    state.lot203SetterBalanceCorrectedAt = new Date().toISOString();
+    state.lot203SetterBalanceCorrectionCount = updated;
+  }
+  return updated;
 }
 
 function migrateJob1689S2FilingTransferStone() {
