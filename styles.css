@@ -11994,6 +11994,45 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   color: #61716d;
 }
 
+#daily-tally .daily-tally-history-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #cfe2dc;
+  border-radius: 7px;
+  background: #eef6f3;
+}
+
+#daily-tally .daily-tally-history-tabs button {
+  width: auto;
+  min-width: 180px;
+  padding: 9px 14px;
+  border-color: transparent;
+  background: transparent;
+  color: #42615a;
+}
+
+#daily-tally .daily-tally-history-tabs button.active {
+  border-color: #147a68;
+  background: #147a68;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(20, 122, 104, 0.18);
+}
+
+#daily-tally .daily-tally-loss-total {
+  color: #a3261d;
+  font-size: 16px;
+}
+
+#daily-tally #daily-tally-loss-panel th:nth-child(1) { width: 9%; }
+#daily-tally #daily-tally-loss-panel th:nth-child(2) { width: 17%; }
+#daily-tally #daily-tally-loss-panel th:nth-child(3) { width: 10%; }
+#daily-tally #daily-tally-loss-panel th:nth-child(4),
+#daily-tally #daily-tally-loss-panel th:nth-child(5) { width: 11%; }
+#daily-tally #daily-tally-loss-panel th:nth-child(6) { width: 22%; }
+#daily-tally #daily-tally-loss-panel th:nth-child(7) { width: 20%; }
+
 /* V410: compact, normally scrolling collective wastage shelf. */
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .safe-locker-panel {
   overflow-x: hidden;
@@ -15925,4 +15964,60 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: 1fr; }
   #fine-sheet .fine-sheet-reconciliation > div { border-right: 0; border-bottom: 1px solid #d7e9e2; }
   #fine-sheet .fine-sheet-reconciliation > div:last-child { border-bottom: 0; }
+}
+
+/* Keep the Production Stone Entry rows clear of the fixed save controls. */
+#production-stone-dialog .production-stone-dialog {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#production-stone-dialog .production-stone-target-panel {
+  max-height: 104px;
+  overflow: auto;
+}
+
+#production-stone-dialog .production-stone-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+#production-stone-dialog .production-stone-chart-panel,
+#production-stone-dialog .design-stone-details {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  scroll-padding-bottom: 24px;
+}
+
+#production-stone-dialog .design-stone-details {
+  padding-bottom: 24px;
+}
+
+#production-stone-dialog .production-stone-dialog > .dialog-actions {
+  position: relative;
+  bottom: auto;
+  z-index: 4;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1050px) {
+  #production-stone-dialog .production-stone-dialog {
+    overflow: auto;
+  }
+
+  #production-stone-dialog .production-stone-workspace {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  #production-stone-dialog .production-stone-chart-panel,
+  #production-stone-dialog .design-stone-details {
+    height: auto;
+    max-height: 58vh;
+  }
 }
