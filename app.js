@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v575";
+const APP_VERSION = "v576";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3435,6 +3435,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
     targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
   });
   syncSettingEntriesForUpdatedStoneOrders(targetOrders);
+  const syncedFilingTransfers = syncFilingTransfersForUpdatedStoneOrders(targetOrders);
   saveState();
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
@@ -3442,7 +3443,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const savedAdditionalWeight = productionStoneTotals(additionalStoneItems).weight;
-  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}`);
+  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed Setting-to-Filing transfer${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight.` : ""}`);
 });
 
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
@@ -5672,6 +5673,11 @@ function runPostCloudMigrations() {
   if (supabaseStartupProtectionActive) return;
   postCloudMigrationsStarted = true;
   (async () => {
+    const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
+    if (correctedFilingTransfers) {
+      saveState({ context: "JOB-1689-S2 Filing stone transfer correction" });
+      render();
+    }
     await migrateLegacyDesignImages();
     await migrateGeneralDesignStoneEntries();
   })().catch((error) => {
@@ -15634,6 +15640,8 @@ function removeProductionStoneItem(orderId, stoneItemId) {
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.id !== stoneItemId);
   order.productionStoneOverride = true;
   order.productionStoneUpdatedAt = today();
+  syncSettingEntriesForUpdatedStoneOrders([order]);
+  syncFilingTransfersForUpdatedStoneOrders([order]);
   saveState();
   renderProductionStoneItems(order);
   renderJobItemsDetail(getJobOrders(order));
@@ -16038,6 +16046,8 @@ function refreshProductionStoneFromMaster() {
     targetOrder.productionStoneUpdatedAt = today();
     targetOrder.productionStoneCopiedFrom = "Stone Master";
   });
+  syncSettingEntriesForUpdatedStoneOrders(targetOrders);
+  syncFilingTransfersForUpdatedStoneOrders(targetOrders);
   saveState();
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
@@ -16076,6 +16086,8 @@ function resetProductionStoneFromDesign() {
     targetOrder.productionStoneUpdatedAt = today();
     targetOrder.productionStoneCopiedFrom = "Design Master";
   });
+  syncSettingEntriesForUpdatedStoneOrders(targetOrders);
+  syncFilingTransfersForUpdatedStoneOrders(targetOrders);
   saveState();
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
@@ -21060,6 +21072,106 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = []) {
       updated += 1;
     });
   });
+  return updated;
+}
+
+function isFilingTransferDestination(transfer = {}) {
+  const destination = departmentTextKey(`${transfer.toDepartment || ""} ${transfer.toKarigarName || ""}`);
+  return destination.includes("filing") || (destination.includes("filer") && !destination.includes("paper"));
+}
+
+function handStoneWeightBeforeTransfer(lot = {}, transferIndex = 0) {
+  const earlierTransfers = (lot.transfers || []).slice(0, Math.max(Number(transferIndex || 0), 0));
+  const previous = [...earlierTransfers]
+    .reverse()
+    .find((transfer) => Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? 0) > 0);
+  return Number(weight3(previous?.handStoneWeight ?? previous?.stoneWeight ?? lot.initialHandStoneWeight ?? 0));
+}
+
+function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reason = "Job Card stone plan updated") {
+  const transfers = lot.transfers || [];
+  let transferIndex = -1;
+  for (let index = transfers.length - 1; index >= 0; index -= 1) {
+    const transfer = transfers[index];
+    const source = `${transfer.fromDepartment || ""} ${transfer.fromKarigarName || ""}`;
+    if (isSettingDepartment(source) && isFilingTransferDestination(transfer)) {
+      transferIndex = index;
+      break;
+    }
+  }
+  if (transferIndex < 0 || transferIndex !== transfers.length - 1) return null;
+
+  const transfer = transfers[transferIndex];
+  const orders = getLotOrders(lot, sourceState);
+  const handStoneWeight = Number(weight3(productionStoneTotalsForOrderList(sourceState, orders, "hand").weight || 0));
+  const previousHandStoneWeight = Number(weight3(transfer.handStoneWeight ?? transfer.stoneWeight ?? 0));
+  if (Math.abs(handStoneWeight - previousHandStoneWeight) <= 0.0005) return null;
+
+  const handStoneDifference = Number(weight3(handStoneWeight - previousHandStoneWeight));
+  const waxStoneWeight = Number(weight3(transfer.waxStoneWeight ?? transferWaxStoneWeight(lot, sourceState)));
+  const transferWeight = Number(weight3(transfer.transferWeight || 0));
+  const previousGrossReceivedWeight = Number(weight3(transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transferWeight));
+  const grossReceivedWeight = Number(weight3(Math.max(previousGrossReceivedWeight + handStoneDifference, 0)));
+  const handStoneBefore = handStoneWeightBeforeTransfer(lot, transferIndex);
+  const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight));
+  const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
+  const issuedNetWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - handStoneBefore, 0)));
+  const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+  const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
+  const syncedAt = new Date().toISOString();
+
+  Object.assign(transfer, {
+    grossReceivedWeight,
+    waxStoneWeight,
+    stoneWeight: handStoneWeight,
+    handStoneWeight,
+    reducedWeight,
+    receivedWeight,
+    departmentBalance,
+    differencePurity,
+    differenceFineGold: fineGoldWeight(departmentBalance, differencePurity),
+    stonePlanPreviousHandStoneWeight: previousHandStoneWeight,
+    stonePlanSyncedAt: syncedAt,
+    stonePlanSyncReason: reason,
+  });
+
+  const ledgerEntry = (sourceState.ledger || []).find((entry) => entry.sourceId === transfer.id && ["transfer", "transfer-edit"].includes(entry.sourceType));
+  if (ledgerEntry) {
+    ledgerEntry.weight = receivedWeight;
+    ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Setting"} to ${transfer.toDepartment || transfer.toKarigarName || "Filing"}; receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
+    ledgerEntry.stonePlanSyncedAt = syncedAt;
+  }
+
+  return {
+    lotId: lot.id,
+    transferId: transfer.id,
+    previousHandStoneWeight,
+    handStoneWeight,
+    handStoneDifference,
+    previousGrossReceivedWeight,
+    grossReceivedWeight,
+    receivedWeight,
+    departmentBalance,
+  };
+}
+
+function syncFilingTransfersForUpdatedStoneOrders(orders = [], reason = "Job Card stone plan updated") {
+  const orderIds = new Set((orders || []).map((order) => order?.id).filter(Boolean));
+  if (!orderIds.size) return 0;
+  return (state.lots || []).reduce((updated, lot) => {
+    if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return updated;
+    return updated + (syncLatestFilingTransferStoneForLot(state, lot, reason) ? 1 : 0);
+  }, 0);
+}
+
+function migrateJob1689S2FilingTransferStone() {
+  const jobOrders = (state.orders || []).filter((order) => departmentTextKey(order.jobNumber) === "job 1689 s2");
+  if (!jobOrders.length) return 0;
+  const updated = syncFilingTransfersForUpdatedStoneOrders(jobOrders, "JOB-1689-S2 stone weight correction v576");
+  if (updated) {
+    state.job1689S2FilingStoneTransferCorrectedAt = new Date().toISOString();
+    state.job1689S2FilingStoneTransferCorrectionCount = updated;
+  }
   return updated;
 }
 
