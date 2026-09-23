@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v585";
+const APP_VERSION = "v586";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -21576,6 +21576,7 @@ function mergedProductionDepartmentName(value = "", departmentName = "") {
   const text = String(value || "").trim();
   const departmentText = String(departmentName || "").trim();
   const source = text || departmentText;
+  if (isCentrifugalFinishingDepartment(`${text} ${departmentText}`)) return "Centrifugal Finishing";
   if (isPaperFilingDepartment(source)) return "Paper Filing";
   if (isPrePolishDepartment(source)) return "Pre-Final Polish";
   if (isElectroPolishDepartment(source)) return "EP";
@@ -21596,6 +21597,8 @@ function isPaperFilingDepartment(value = "") {
 
 function departmentDashboardHeader(value = "", departmentName = "") {
   const canonicalName = mergedProductionDepartmentName(value || "Unassigned", departmentName);
+  if (isCentrifugalFinishingDepartment(`${value} ${departmentName} ${canonicalName}`)) return centrifugalFinishingMasterName();
+  if (isCombinedPolishDepartment(canonicalName)) return polishingMasterDepartmentName();
   if (productionDepartmentLabels.has(canonicalName)) return canonicalName;
   const masterName = dashboardMasterDepartmentName(value);
   return masterName ? mergedProductionDepartmentName(masterName, masterName) : canonicalName;
@@ -21629,9 +21632,31 @@ function isPrePolishDepartment(value = "") {
   return textMatchesAny(value, ["pp", "pre polish", "pre polishing", "pre final polish", "pre-final polish"]);
 }
 
+function isCentrifugalFinishingDepartment(value = "") {
+  return textMatchesAny(value, ["centrifugal finishing", "centrifugal finish", "centrifugal"]);
+}
+
 function isPolishDepartment(value = "") {
   return !isPrePolishDepartment(value)
     && textMatchesAny(value, ["final polish", "final polishing", "polishing department", "polishing dept", "polishing", "polish", "fp"]);
+}
+
+function isCombinedPolishDepartment(value = "") {
+  return !isElectroPolishDepartment(value) && (isPrePolishDepartment(value) || isPolishDepartment(value));
+}
+
+function polishingMasterDepartmentName() {
+  const department = (state?.karigars || []).find((item) =>
+    isPolishDepartment(item.name || "")
+    && !isPrePolishDepartment(item.name || "")
+    && !isElectroPolishDepartment(item.name || "")
+  );
+  return department?.name || "Polishing Department";
+}
+
+function centrifugalFinishingMasterName() {
+  const department = (state?.karigars || []).find((item) => isCentrifugalFinishingDepartment(item.name || ""));
+  return department?.name || "Centrifugal Finishing Department";
 }
 
 function isElectroPolishDepartment(value = "") {
@@ -37226,6 +37251,9 @@ function departmentTransferGroupName(departmentName = "", processName = "") {
 function departmentTransferMasterGroupName(departmentName = "", processName = "") {
   const department = String(departmentName || "").trim();
   const process = String(processName || "").trim();
+  const combinedText = `${department} ${process}`;
+  if (isCentrifugalFinishingDepartment(combinedText)) return centrifugalFinishingMasterName();
+  if (isCombinedPolishDepartment(combinedText)) return polishingMasterDepartmentName();
   const departmentKey = departmentTextKey(department);
   const exactDepartment = (state.karigars || []).find((item) =>
     departmentTextKey(item.name) === departmentKey
@@ -37240,14 +37268,7 @@ function departmentTransferMasterGroupName(departmentName = "", processName = ""
 function departmentTransferHistoryGroupName(departmentName = "") {
   const source = String(departmentName || "").trim();
   if (!source) return "Unassigned";
-  const sourceKey = departmentTextKey(source);
-  const masterDepartment = (state.karigars || []).find((department) =>
-    departmentTextKey(department.name) === sourceKey
-      || departmentProcesses(department).some((process) => departmentTextKey(process) === sourceKey)
-  );
-  return masterDepartment
-    ? masterDepartment.name
-    : departmentTransferMasterGroupName(source, source);
+  return departmentTransferMasterGroupName(source, source);
 }
 
 function departmentTransferDetail(departmentName = "", processName = "") {
