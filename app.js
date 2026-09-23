@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v597";
+const APP_VERSION = "v598";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -22383,11 +22383,13 @@ function isPaperFilingDepartment(value = "") {
 }
 
 function departmentDashboardHeader(value = "", departmentName = "") {
-  const canonicalName = mergedProductionDepartmentName(value || "Unassigned", departmentName);
-  if (isCentrifugalFinishingDepartment(`${value} ${departmentName} ${canonicalName}`)) return centrifugalFinishingMasterName();
+  const masterDepartment = String(departmentName || "").trim();
+  const departmentIdentity = masterDepartment || String(value || "Unassigned").trim() || "Unassigned";
+  const canonicalName = mergedProductionDepartmentName(departmentIdentity, departmentIdentity);
+  if (isCentrifugalFinishingDepartment(`${departmentIdentity} ${canonicalName}`)) return centrifugalFinishingMasterName();
   if (isCombinedPolishDepartment(canonicalName)) return polishingMasterDepartmentName();
   if (productionDepartmentLabels.has(canonicalName)) return canonicalName;
-  const masterName = dashboardMasterDepartmentName(value);
+  const masterName = dashboardMasterDepartmentName(departmentIdentity);
   return masterName ? mergedProductionDepartmentName(masterName, masterName) : canonicalName;
 }
 
@@ -26170,7 +26172,7 @@ function departmentMetalInHand() {
   seedDashboardDepartments(departments);
   state.lots.forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
-      addDepartmentWeight(departments, transfer.balanceDepartment || transfer.fromDepartment || transfer.fromKarigarName || "Unassigned", {
+      addDepartmentWeight(departments, dashboardDepartmentNameFromId(transfer.fromKarigarId) || transfer.fromKarigarName || transfer.balanceDepartment || transfer.fromDepartment || "Unassigned", {
         gold: Number(transfer.departmentBalance || 0),
         gross: Number(transfer.departmentBalance || 0),
         purity: transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
@@ -26178,7 +26180,7 @@ function departmentMetalInHand() {
     });
 
     if (factoryStockHoldingLot(lot)) {
-      addDepartmentWeight(departments, lot.currentDepartment || lot.karigarName || "Unassigned", departmentCurrentLotTotals(lot));
+      addDepartmentWeight(departments, dashboardDepartmentNameFromId(lot.karigarId) || lot.karigarName || lot.currentDepartment || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
   productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
@@ -26189,7 +26191,7 @@ function departmentMetalInHand() {
     });
   });
   safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
-    addDepartmentWeight(departments, issue.process || issue.departmentName || "Unassigned", {
+    addDepartmentWeight(departments, dashboardDepartmentNameFromId(issue.departmentId) || issue.departmentName || issue.process || "Unassigned", {
       gross: Number(issue.grossWeight || 0),
       gold: Number(issue.netWeight || 0),
       waxStone: Number(issue.waxStoneWeight || 0),
@@ -26198,7 +26200,7 @@ function departmentMetalInHand() {
     });
   });
   (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry)).forEach((entry) => {
-    const departmentName = entry.process || entry.departmentName || "Unassigned";
+    const departmentName = dashboardDepartmentNameFromId(entry.departmentId) || entry.departmentName || entry.process || "Unassigned";
     if (!entry.issueId) {
       const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
       const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
@@ -38493,7 +38495,13 @@ function departmentTransferEvents() {
   state.lots.forEach((lot) => {
     const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + Number(lot.waxStoneWeight || 0)));
     if (lot.issueDate || issueGw > 0) {
-      const firstDepartment = lot.issueKarigarName || lot.karigarName || lot.issueDepartment || lot.currentDepartment || "Unassigned";
+      const firstDepartment = dashboardDepartmentNameFromId(lot.issueKarigarId)
+        || lot.issueKarigarName
+        || dashboardDepartmentNameFromId(lot.karigarId)
+        || lot.karigarName
+        || lot.issueDepartment
+        || lot.currentDepartment
+        || "Unassigned";
       const firstProcess = lot.issueDepartment || lot.currentDepartment || firstDepartment;
       const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
       events.push({
@@ -38520,9 +38528,9 @@ function departmentTransferEvents() {
       });
     }
     (lot.transfers || []).forEach((transfer) => {
-      const fromDepartment = transfer.fromKarigarName || transfer.fromDepartment || "Unassigned";
+      const fromDepartment = dashboardDepartmentNameFromId(transfer.fromKarigarId) || transfer.fromKarigarName || transfer.fromDepartment || "Unassigned";
       const fromProcess = transfer.fromDepartment || fromDepartment;
-      const toDepartment = transfer.toKarigarName || transfer.toDepartment || "Unassigned";
+      const toDepartment = dashboardDepartmentNameFromId(transfer.toKarigarId) || transfer.toKarigarName || transfer.toDepartment || "Unassigned";
       const toProcess = transfer.toDepartment || toDepartment;
       const common = {
         id: transfer.id || `${lot.id}-${sortIndex}`,
@@ -38672,36 +38680,25 @@ function departmentTransferEvents() {
 }
 
 function departmentTransferGroupName(departmentName = "", processName = "") {
-  const department = String(departmentName || "").trim();
-  const process = String(processName || "").trim();
-  const processParts = departmentProcessesFromText(process);
-  if (processParts.length === 1) {
-    const explicitProcess = mergedProductionDepartmentName(processParts[0], department);
-    if (productionDepartmentLabels.has(explicitProcess)) return explicitProcess;
-  }
-  const explicitDepartment = mergedProductionDepartmentName(department, department);
-  if (productionDepartmentLabels.has(explicitDepartment)) return explicitDepartment;
-  return departmentDashboardHeader(process || department || "Unassigned", department);
+  return departmentTransferMasterGroupName(departmentName, processName);
 }
 
 function departmentTransferMasterGroupName(departmentName = "", processName = "") {
   const department = String(departmentName || "").trim();
   const process = String(processName || "").trim();
-  const combinedText = `${department} ${process}`;
-  if (isCentrifugalFinishingDepartment(combinedText)) return centrifugalFinishingMasterName();
-  if (isCombinedPolishDepartment(combinedText)) return polishingMasterDepartmentName();
-  const departmentProductionName = mergedProductionDepartmentName(department, department);
-  const processProductionName = mergedProductionDepartmentName(process, process);
-  if (departmentProductionName === "Fitting" || (!department && processProductionName === "Fitting")) return "Fitting";
-  const departmentKey = departmentTextKey(department);
+  const masterIdentity = department || process || "Unassigned";
+  const departmentProductionName = mergedProductionDepartmentName(masterIdentity, masterIdentity);
+  if (isCentrifugalFinishingDepartment(`${masterIdentity} ${departmentProductionName}`)) return centrifugalFinishingMasterName();
+  if (isCombinedPolishDepartment(departmentProductionName)) return polishingMasterDepartmentName();
+  if (productionDepartmentLabels.has(departmentProductionName)) return departmentProductionName;
+  const departmentKey = departmentTextKey(masterIdentity);
   const exactDepartment = (state.karigars || []).find((item) =>
     departmentTextKey(item.name) === departmentKey
   );
   if (exactDepartment?.name) return exactDepartment.name;
-  const masterDepartmentName = dashboardMasterDepartmentName(department);
+  const masterDepartmentName = dashboardMasterDepartmentName(masterIdentity);
   if (masterDepartmentName) return masterDepartmentName;
-  const processDepartmentName = dashboardMasterDepartmentName(process);
-  return processDepartmentName || department || process || "Unassigned";
+  return masterIdentity;
 }
 
 function departmentTransferHistoryGroupName(departmentName = "") {
