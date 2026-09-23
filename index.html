@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=593">
+  <link rel="stylesheet" href="styles.css?v=594">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v593</small>
+      <small class="app-version-badge">App v594</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v593</span>
+          <span class="app-version-badge">App v594</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -576,8 +576,20 @@
         <div class="order-page" id="order-page-active">
           <section class="panel table-panel">
             <div class="panel-heading">
-              <h2>Job Orders</h2>
-              <input id="barcode-scan" class="search" placeholder="Scan barcode / QR / PR">
+              <div class="job-order-list-title">
+                <h2>Job Orders</h2>
+                <small id="job-order-search-summary" class="job-order-search-summary">Active Job Cards</small>
+              </div>
+              <div class="job-order-list-tools">
+                <label class="job-order-search-field" for="job-order-search">
+                  <span>Find Job Order</span>
+                  <input id="job-order-search" class="search" type="search" placeholder="Customer name, job no or job details" autocomplete="off">
+                </label>
+                <label class="job-order-search-field" for="barcode-scan">
+                  <span>Scan Product</span>
+                  <input id="barcode-scan" class="search" placeholder="Scan barcode / QR / PR">
+                </label>
+              </div>
             </div>
             <div class="table-wrap">
               <table>
@@ -590,7 +602,14 @@
         <div class="order-page" id="order-page-completed">
           <section class="panel table-panel">
             <div class="panel-heading">
-              <h2>Completed Job Orders</h2>
+              <div class="job-order-list-title">
+                <h2>Completed Job Orders</h2>
+                <small id="completed-job-order-search-summary" class="job-order-search-summary">Completed Job Cards</small>
+              </div>
+              <label class="job-order-search-field" for="completed-job-order-search">
+                <span>Find Completed Job Order</span>
+                <input id="completed-job-order-search" class="search" type="search" placeholder="Customer name, job no or job details" autocomplete="off">
+              </label>
             </div>
             <div class="table-wrap">
               <table>
@@ -3066,6 +3085,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=593"></script>
+  <script src="app.js?v=594"></script>
 </body>
 </html>

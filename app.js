@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v593";
+const APP_VERSION = "v594";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -794,6 +794,8 @@ function openDefaultOperationPage(view) {
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
 });
+document.getElementById("job-order-search")?.addEventListener("input", renderOrders);
+document.getElementById("completed-job-order-search")?.addEventListener("input", renderOrders);
 
 document.getElementById("merge-split-job-cards")?.addEventListener("click", openMergeJobCardsDialog);
 document.getElementById("close-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
@@ -27134,15 +27136,143 @@ function switchDailyTallyHistoryTab(tab = "history") {
 }
 
 function renderOrders() {
-  const activeRows = groupedJobOrders((order) => !isCompletedOrder(order), "active")
-    .map(orderTableRow)
-    .join("");
-  const completedRows = groupedJobOrders(isCompletedOrder, "completed")
-    .map(orderTableRow)
-    .join("");
-  document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, "No active job orders recorded.");
-  document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, "No completed job orders recorded.");
+  const activeQuery = jobOrderSearchQuery("job-order-search");
+  const completedQuery = jobOrderSearchQuery("completed-job-order-search");
+  const activeJobs = activeQuery
+    ? searchedJobOrderFamilies(activeQuery)
+    : groupedJobOrders((order) => !isCompletedOrder(order), "active");
+  const completedJobs = completedQuery
+    ? searchedJobOrderFamilies(completedQuery)
+    : groupedJobOrders(isCompletedOrder, "completed");
+  const activeRows = activeQuery
+    ? jobOrderFamilySearchRows(activeJobs)
+    : activeJobs.map(orderTableRow).join("");
+  const completedRows = completedQuery
+    ? jobOrderFamilySearchRows(completedJobs)
+    : completedJobs.map(orderTableRow).join("");
+  document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, activeQuery ? "No Job Order matches this search." : "No active job orders recorded.");
+  document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, completedQuery ? "No Job Order matches this search." : "No completed job orders recorded.");
+  renderJobOrderSearchSummary("job-order-search-summary", activeJobs, activeQuery, "active");
+  renderJobOrderSearchSummary("completed-job-order-search-summary", completedJobs, completedQuery, "completed");
   renderRepairJobOrders();
+}
+
+function jobOrderSearchQuery(inputId) {
+  return String(document.getElementById(inputId)?.value || "").trim().toLowerCase();
+}
+
+function jobOrderFamilyRoot(job = {}) {
+  const jobNumber = job.jobNumber || job.orders?.[0]?.jobNumber || "";
+  const explicitParent = job.orders?.find((order) => order.splitFromJobNumber)?.splitFromJobNumber || "";
+  return splitJobRootNumber(jobNumber || explicitParent) || splitJobRootNumber(explicitParent) || jobNumber;
+}
+
+function jobOrderSearchText(job = {}) {
+  const itemDetails = (job.orders || []).flatMap((order) => [
+    order.jobNumber,
+    order.number,
+    order.productionNo,
+    order.customer,
+    order.category,
+    order.designNumber,
+    order.designNo,
+    designLabel(order.designId),
+    order.item,
+    order.designSubItemType,
+    order.ringType,
+    order.cmItemType,
+    order.size,
+    order.clSize,
+    order.cgSize,
+    order.color,
+    order.purity,
+    order.remarks,
+    order.status,
+    order.dueDate,
+    order.splitFromJobNumber,
+  ]);
+  return [
+    job.jobNumber,
+    jobOrderFamilyRoot(job),
+    job.customer,
+    job.categories,
+    job.currentStage,
+    job.status,
+    job.dueDate,
+    jobDetailsText(job),
+    ...itemDetails,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function jobOrderMatchesSearch(job, query = "") {
+  const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const text = jobOrderSearchText(job);
+  return tokens.every((token) => text.includes(token));
+}
+
+function searchedJobOrderFamilies(query = "") {
+  const allJobs = groupedJobOrders(null, "all");
+  const matchedRoots = new Set(allJobs
+    .filter((job) => jobOrderMatchesSearch(job, query))
+    .map(jobOrderFamilyRoot));
+  return allJobs
+    .filter((job) => matchedRoots.has(jobOrderFamilyRoot(job)))
+    .sort(compareJobOrderFamilyMembers);
+}
+
+function compareJobOrderFamilyMembers(left = {}, right = {}) {
+  const leftRoot = jobOrderFamilyRoot(left);
+  const rightRoot = jobOrderFamilyRoot(right);
+  const rootComparison = leftRoot.localeCompare(rightRoot, undefined, { numeric: true, sensitivity: "base" });
+  if (rootComparison) return rootComparison;
+  if (left.jobNumber === leftRoot && right.jobNumber !== rightRoot) return -1;
+  if (right.jobNumber === rightRoot && left.jobNumber !== leftRoot) return 1;
+  return String(left.jobNumber || "").localeCompare(String(right.jobNumber || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function jobOrderFamilyRole(job = {}) {
+  const root = jobOrderFamilyRoot(job);
+  if (job.jobNumber === root) return "Main Job";
+  const split = String(job.jobNumber || "").match(/-(S\d+)$/i)?.[1];
+  return split ? `Split ${split.toUpperCase()}` : "Split Job";
+}
+
+function jobOrderFamilySearchRows(jobs = []) {
+  const families = new Map();
+  jobs.forEach((job) => {
+    const root = jobOrderFamilyRoot(job);
+    if (!families.has(root)) families.set(root, []);
+    families.get(root).push(job);
+  });
+  return [...families.entries()].map(([root, familyJobs]) => {
+    const sortedJobs = familyJobs.sort(compareJobOrderFamilyMembers);
+    const itemCount = sortedJobs.reduce((total, job) => total + (job.orders?.length || 0), 0);
+    const hasMain = sortedJobs.some((job) => job.jobNumber === root);
+    const heading = `
+      <tr class="job-order-family-heading">
+        <td colspan="3">
+          <div>
+            <span>Main Job Family</span>
+            <strong>${escapeHtml(root || "Job Order")}</strong>
+            <small>${sortedJobs.length} card${sortedJobs.length === 1 ? "" : "s"} / ${itemCount} item${itemCount === 1 ? "" : "s"}${hasMain ? " / Main included" : " / Main card not available"}</small>
+          </div>
+        </td>
+      </tr>`;
+    return `${heading}${sortedJobs.map((job) => orderTableRow(job, { familyRole: jobOrderFamilyRole(job), familyRoot: root })).join("")}`;
+  }).join("");
+}
+
+function renderJobOrderSearchSummary(elementId, jobs = [], query = "", defaultBucket = "active") {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  if (!query) {
+    node.textContent = `${jobs.length} ${defaultBucket === "completed" ? "completed" : "active"} Job Card${jobs.length === 1 ? "" : "s"}`;
+    return;
+  }
+  const familyCount = new Set(jobs.map(jobOrderFamilyRoot)).size;
+  const itemCount = jobs.reduce((total, job) => total + (job.orders?.length || 0), 0);
+  node.textContent = `${jobs.length} related card${jobs.length === 1 ? "" : "s"} / ${familyCount} main job famil${familyCount === 1 ? "y" : "ies"} / ${itemCount} item${itemCount === 1 ? "" : "s"}`;
 }
 
 function mergeJobNumber(order = {}) {
@@ -27479,16 +27609,24 @@ function renderRepairJobOrderCard({ lot, bill, item, order }) {
   `;
 }
 
-function orderTableRow(job) {
+function orderTableRow(job, options = {}) {
   const urgency = job.urgent ? '<span class="job-badge urgent">Urgent</span>' : "";
   const delivery = isCompletedJob(job) ? "" : deliveryBadgeHtml(job.dueDate);
+  const familyRole = options.familyRole
+    ? `<span class="job-badge job-family-role ${options.familyRole === "Main Job" ? "main" : "split"}">${escapeHtml(options.familyRole)}</span>`
+    : "";
+  const completion = options.familyRole
+    ? `<span class="job-badge ${isCompletedJob(job) ? "family-completed" : "family-active"}">${isCompletedJob(job) ? "Completed" : "Active"}</span>`
+    : "";
   return `
-    <tr>
+    <tr class="${options.familyRole ? "job-order-family-member" : ""}" data-job-family-root="${escapeHtml(options.familyRoot || "")}">
       <td>${customerOrderDisplayHtml(job.customer)}</td>
       <td>
         <div class="job-order-summary-line">
           <strong>${escapeHtml(jobDetailsText(job))}</strong>
           <div class="job-badge-row">
+            ${familyRole}
+            ${completion}
             ${urgency}
             <span class="job-badge stage">${escapeHtml(job.currentStage)}</span>
             ${delivery}
