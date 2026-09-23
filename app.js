@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v600";
+const APP_VERSION = "v601";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -26074,7 +26074,7 @@ function renderDepartmentMetal() {
     })
     .map(([department, totals]) => {
       const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
-      const issueReceiveDifference = departmentIssueReceiveDifference(transferSummary);
+      const issueReceiveDifference = Number(weight3(totals.gross || 0));
       return `
       <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}" tabindex="0">
         <span>${escapeHtml(department)}</span>
@@ -26106,7 +26106,7 @@ function renderDepartmentMetal() {
 }
 
 function renderDepartmentHoldingDetail(totals, transferSummary = {}) {
-  const issueReceiveDifference = departmentIssueReceiveDifference(transferSummary);
+  const issueReceiveDifference = Number(weight3(totals.gross || 0));
   return `
     <div class="department-breakup">
       <small><b>Total GW</b>${gram(totals.gross)}</small>
