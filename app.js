@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v599";
+const APP_VERSION = "v600";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -26116,8 +26116,8 @@ function renderDepartmentHoldingDetail(totals, transferSummary = {}) {
       <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
       <small><b>Net Gold</b>${gram(totals.gold)}</small>
       <small><b>Fine Gold</b>${gram(totals.fineGold + totals.lossFineGold)}</small>
-      <small><b>Transfer Issue GW</b>${gram(transferSummary.outIssueGw || 0)}</small>
-      <small><b>Transfer Receive GW</b>${gram(transferSummary.outGw || 0)}</small>
+      <small><b>Issued To Department</b>${gram(transferSummary.inGw || 0)}</small>
+      <small><b>Received From Department</b>${gram(transferSummary.outGw || 0)}</small>
       <small><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
       ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
       ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
@@ -38374,7 +38374,7 @@ function renderDepartmentTransferTotals(summary) {
     factorySummaryCard("Total IN Receive GW", gram(summary.inGw), `${summary.inCount} inward entries`),
     factorySummaryCard("Total OUT Receive GW", gram(summary.outGw), `${summary.outCount} outward entries`),
     factorySummaryCard("Balance GW", gram(summary.balanceGw), "IN Receive GW - OUT Receive GW", summary.balanceGw ? "receivable" : ""),
-    factorySummaryCard("Issue - Receive GW", gram(summary.issueReceiveDifference), "Outgoing Issue GW - outgoing Receive GW"),
+    factorySummaryCard("Issue - Receive GW", gram(summary.issueReceiveDifference), "Issued into department - received from department"),
     factorySummaryCard("IN Net Wt", gram(summary.inNet), "Net weight received in department"),
     factorySummaryCard("OUT Net Wt", gram(summary.outNet), "Net weight moved out"),
     factorySummaryCard("Manufacturing Reduced", gram(summary.difference), "Booked production difference, separate from Balance GW", summary.difference ? "payable" : ""),
@@ -38502,7 +38502,7 @@ function departmentTransferBalanceGw(summary = {}) {
 }
 
 function departmentIssueReceiveDifference(summary = {}) {
-  return Number(weight3(Number(summary.outIssueGw || 0) - Number(summary.outGw || 0)));
+  return Number(weight3(Number(summary.inGw || 0) - Number(summary.outGw || 0)));
 }
 
 function ensureDepartmentTransferSummary(map, name) {
