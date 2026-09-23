@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v598";
+const APP_VERSION = "v599";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -26064,12 +26064,18 @@ function dashboardTransferItem(entry) {
 
 function renderDepartmentMetal() {
   const departments = departmentMetalInHand();
+  const transferSummaries = new Map(
+    departmentTransferSummaries().map((summary) => [departmentTextKey(summary.name), summary])
+  );
   const rows = Object.entries(departments)
     .sort((a, b) => {
       const scoreDiff = departmentHoldingScore(b[1]) - departmentHoldingScore(a[1]);
       return scoreDiff || a[0].localeCompare(b[0]);
     })
-    .map(([department, totals]) => `
+    .map(([department, totals]) => {
+      const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
+      const issueReceiveDifference = departmentIssueReceiveDifference(transferSummary);
+      return `
       <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}" tabindex="0">
         <span>${escapeHtml(department)}</span>
         <small class="department-holding-label">Gross Weight (GW)</small>
@@ -26077,6 +26083,7 @@ function renderDepartmentMetal() {
         <div class="department-card-summary">
           <small><b>Net Weight</b>${gram(totals.gold)}</small>
           <small><b>Other</b>${gram(Number(totals.waxStone || 0) + Number(totals.handStone || 0) + Number(totals.nonGold || 0))}</small>
+          <small class="transfer-difference"><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
           <small><b>Fine</b>${gram(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0))}</small>
         </div>
         <div class="department-hover-popup" role="tooltip">
@@ -26084,7 +26091,7 @@ function renderDepartmentMetal() {
             <strong>${escapeHtml(department)}</strong>
             <small>Karat-wise holding detail</small>
           </div>
-          ${renderDepartmentHoldingDetail(totals)}
+          ${renderDepartmentHoldingDetail(totals, transferSummary)}
         </div>
         <div class="department-card-actions">
           <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
@@ -26092,12 +26099,14 @@ function renderDepartmentMetal() {
           <button class="dashboard-open-button department-receive-button" type="button" onclick="openSafeDepartmentReceiveByName('${encodeURIComponent(department)}')">Receive / Book Loss</button>
         </div>
       </article>
-    `)
+    `;
+    })
     .join("");
   document.getElementById("department-metal-list").innerHTML = rows || '<div class="empty">No department gold or stone in hand yet.</div>';
 }
 
-function renderDepartmentHoldingDetail(totals) {
+function renderDepartmentHoldingDetail(totals, transferSummary = {}) {
+  const issueReceiveDifference = departmentIssueReceiveDifference(transferSummary);
   return `
     <div class="department-breakup">
       <small><b>Total GW</b>${gram(totals.gross)}</small>
@@ -26107,6 +26116,9 @@ function renderDepartmentHoldingDetail(totals) {
       <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
       <small><b>Net Gold</b>${gram(totals.gold)}</small>
       <small><b>Fine Gold</b>${gram(totals.fineGold + totals.lossFineGold)}</small>
+      <small><b>Transfer Issue GW</b>${gram(transferSummary.outIssueGw || 0)}</small>
+      <small><b>Transfer Receive GW</b>${gram(transferSummary.outGw || 0)}</small>
+      <small><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
       ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
       ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
     </div>
@@ -38362,6 +38374,7 @@ function renderDepartmentTransferTotals(summary) {
     factorySummaryCard("Total IN Receive GW", gram(summary.inGw), `${summary.inCount} inward entries`),
     factorySummaryCard("Total OUT Receive GW", gram(summary.outGw), `${summary.outCount} outward entries`),
     factorySummaryCard("Balance GW", gram(summary.balanceGw), "IN Receive GW - OUT Receive GW", summary.balanceGw ? "receivable" : ""),
+    factorySummaryCard("Issue - Receive GW", gram(summary.issueReceiveDifference), "Outgoing Issue GW - outgoing Receive GW"),
     factorySummaryCard("IN Net Wt", gram(summary.inNet), "Net weight received in department"),
     factorySummaryCard("OUT Net Wt", gram(summary.outNet), "Net weight moved out"),
     factorySummaryCard("Manufacturing Reduced", gram(summary.difference), "Booked production difference, separate from Balance GW", summary.difference ? "payable" : ""),
@@ -38442,6 +38455,7 @@ function departmentTransferSummaries() {
       summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
     } else {
       summary.outCount += 1;
+      summary.outIssueGw = Number(weight3(summary.outIssueGw + Number(event.issueGw || 0)));
       summary.outGw = Number(weight3(summary.outGw + Number(event.receiveGw || 0)));
       summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
       summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
@@ -38452,6 +38466,7 @@ function departmentTransferSummaries() {
     .map((summary) => ({
       ...summary,
       balanceGw: departmentTransferBalanceGw(summary),
+      issueReceiveDifference: departmentIssueReceiveDifference(summary),
       detail: [...summary.details].filter((item) => item && item !== summary.name).slice(0, 4).join(" / "),
     }))
     .filter((summary) => summary.inCount || summary.outCount || summary.detail)
@@ -38468,23 +38483,32 @@ function departmentTransferSummaryFromEvents(name, events = []) {
       summary.inNet = Number(weight3(summary.inNet + Number(event.netWeight || 0)));
     } else {
       summary.outCount += 1;
+      summary.outIssueGw = Number(weight3(summary.outIssueGw + Number(event.issueGw || 0)));
       summary.outGw = Number(weight3(summary.outGw + Number(event.receiveGw || 0)));
       summary.outNet = Number(weight3(summary.outNet + Number(event.netWeight || 0)));
       summary.difference = Number(weight3(summary.difference + Number(event.difference || 0)));
       summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
     }
   });
-  return { ...summary, balanceGw: departmentTransferBalanceGw(summary) };
+  return {
+    ...summary,
+    balanceGw: departmentTransferBalanceGw(summary),
+    issueReceiveDifference: departmentIssueReceiveDifference(summary),
+  };
 }
 
 function departmentTransferBalanceGw(summary = {}) {
   return Number(weight3(Number(summary.inGw || 0) - Number(summary.outGw || 0)));
 }
 
+function departmentIssueReceiveDifference(summary = {}) {
+  return Number(weight3(Number(summary.outIssueGw || 0) - Number(summary.outGw || 0)));
+}
+
 function ensureDepartmentTransferSummary(map, name) {
   const key = name || "Unassigned";
   if (!map.has(key)) {
-    map.set(key, { name: key, detail: "", details: new Set(), inCount: 0, outCount: 0, inGw: 0, outGw: 0, inNet: 0, outNet: 0, difference: 0, fineGold: 0 });
+    map.set(key, { name: key, detail: "", details: new Set(), inCount: 0, outCount: 0, inGw: 0, outIssueGw: 0, outGw: 0, inNet: 0, outNet: 0, difference: 0, fineGold: 0 });
   }
   return map.get(key);
 }
