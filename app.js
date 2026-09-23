@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v584";
+const APP_VERSION = "v585";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -61,6 +61,7 @@ const SUPABASE_REQUEST_TIMEOUT_MS = 120000;
 const SUPABASE_FULL_LOAD_TIMEOUT_MS = 180000;
 const SUPABASE_REVISION_TIMEOUT_MS = 45000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
+const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const CLOUD_BACKUP_TABLE = "erp_state_backups";
 const CLOUD_BACKUP_SETUP_FILE = "ENABLE-CLOUD-SAFETY-BACKUPS.sql";
 const LOGIN_LOCATION_TIMEOUT_MS = 6000;
@@ -5304,9 +5305,17 @@ function isSupabaseTimeoutError(error) {
   return detail.includes("supabase_timeout") || detail.includes("timeout") || detail.includes("abort");
 }
 
+function isSupabaseGatewayUnavailableError(error) {
+  const status = Number(error?.status || String(error?.code || "").replace(/^HTTP_/, ""));
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return SUPABASE_GATEWAY_UNAVAILABLE_STATUSES.has(status)
+    || [...SUPABASE_GATEWAY_UNAVAILABLE_STATUSES].some((code) => detail.includes(`http ${code}`) || detail.includes(`http_${code}`));
+}
+
 function isSupabaseDatabaseUnavailableError(error) {
   const detail = `${error?.code || ""} ${error?.status || ""} ${error?.message || error || ""}`.toLowerCase();
-  return detail.includes("pgrst000")
+  return isSupabaseGatewayUnavailableError(error)
+    || detail.includes("pgrst000")
     || detail.includes("pgrst001")
     || detail.includes("pgrst002")
     || detail.includes("pgrst003")
@@ -5339,6 +5348,9 @@ async function fetchSupabaseStateRow(columns = "data,updated_at", timeoutMs = SU
         detail = payload.message || payload.error || JSON.stringify(payload);
       } catch {
         detail = await response.text().catch(() => "");
+      }
+      if (SUPABASE_GATEWAY_UNAVAILABLE_STATUSES.has(response.status)) {
+        detail = `Supabase project gateway returned HTTP ${response.status}.`;
       }
       const responseError = new Error(detail || `${response.status} ${response.statusText}`);
       responseError.code = payload?.code || `HTTP_${response.status}`;
@@ -5561,6 +5573,7 @@ function setSyncStatus(status, message, detail = "") {
 function syncStatusForError(error, fallback) {
   const message = String(error?.message || error || "").toLowerCase();
   if (message.includes("older erp app version") || message.includes("app version downgrade")) return "Sync: Update Required";
+  if (isSupabaseGatewayUnavailableError(error)) return "Sync: Project Unreachable";
   if (isSupabaseDatabaseUnavailableError(error)) return "Sync: Database Unavailable";
   if (message.includes("timeout") || message.includes("abort") || message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
     return "Sync: Internet Error";
@@ -5580,6 +5593,9 @@ function syncErrorDetail(error) {
   const normalized = detail.toLowerCase();
   if (normalized.includes("older erp app version") || normalized.includes("app version downgrade")) {
     return `This laptop is using an older ERP version and cannot replace newer cloud data. Open the latest ERP website and try again. ${detail}`;
+  }
+  if (isSupabaseGatewayUnavailableError(error)) {
+    return `Supabase project gateway is not responding (${error?.status || error?.code || "HTTP 522"}). Local ERP data remains protected and automatic retry continues every 15 seconds. If this persists, restart the project from the Supabase Dashboard. ${detail}`;
   }
   if (isSupabaseDatabaseUnavailableError(error)) {
     return `Supabase database API is unavailable. Retrying every 15 seconds; local ERP data remains protected. If it continues, run RECOVER-PGRST002-SCHEMA-CACHE.sql in Supabase. ${detail}`;
@@ -6106,7 +6122,7 @@ async function loadSupabaseState(options = {}) {
   if (!isAuto) setSyncStatus("connecting", "Sync: Loading");
   const wakeNoticeTimer = setTimeout(() => {
     if (!supabaseIsLoading) return;
-    setSyncStatus("connecting", "Database Waking - Local Safe", "Supabase is responding slowly. This laptop data remains available while cloud loading continues.");
+    setSyncStatus("connecting", "Cloud Project Waking - Local Safe", "Supabase has not replied yet. This laptop data remains available and protected while automatic cloud loading continues.");
   }, SUPABASE_WAKE_NOTICE_MS);
   let data = null;
   let error = null;
@@ -6122,7 +6138,9 @@ async function loadSupabaseState(options = {}) {
   }
   if (error) {
     console.warn("Supabase load failed", error);
-    if (isSupabaseDatabaseUnavailableError(error)) {
+    if (isSupabaseGatewayUnavailableError(error)) {
+      setSyncStatus("connecting", "Project Unreachable - Local Safe", syncErrorDetail(error));
+    } else if (isSupabaseDatabaseUnavailableError(error)) {
       setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds; no local ERP data was cleared or replaced.");
     } else if (isSupabaseTimeoutError(error)) {
       setSyncStatus("connecting", "Database Waking - Local Safe", "Supabase has not replied yet. Retrying automatically; no local ERP data was cleared or replaced.");
@@ -6160,7 +6178,10 @@ async function pollSupabaseStateRevision() {
     supabaseIsPollingRevision = false;
   }
   if (result?.error) {
-    if (isSupabaseDatabaseUnavailableError(result.error)) {
+    if (isSupabaseGatewayUnavailableError(result.error)) {
+      setSyncStatus("connecting", "Project Unreachable - Local Safe", syncErrorDetail(result.error));
+      scheduleSupabaseReconnect();
+    } else if (isSupabaseDatabaseUnavailableError(result.error)) {
       setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds without changing local ERP data.");
       scheduleSupabaseReconnect();
     } else if (isSupabaseTimeoutError(result.error)) {
@@ -6168,7 +6189,7 @@ async function pollSupabaseStateRevision() {
     } else {
       setSyncStatus("offline", syncStatusForError(result.error, "Sync: Check Failed"), syncErrorDetail(result.error));
     }
-    if (!isSupabaseTimeoutError(result.error)) scheduleSupabaseReconnect();
+    if (!isSupabaseTimeoutError(result.error) && !isSupabaseGatewayUnavailableError(result.error)) scheduleSupabaseReconnect();
     return false;
   }
   const cloudUpdatedAt = result?.data?.updated_at || "";
