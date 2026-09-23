@@ -1613,7 +1613,7 @@ form.active-operation-page,
 }
 
 .department-transfer-total-cards {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
 }
 
 .department-transfer-total-cards .factory-summary-card {
@@ -1653,7 +1653,7 @@ form.active-operation-page,
 .department-transfer-purity-head,
 .department-transfer-purity-row {
   display: grid;
-  grid-template-columns: 1.2fr repeat(6, minmax(0, 1fr));
+  grid-template-columns: 1.2fr repeat(7, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
 }
@@ -16969,5 +16969,134 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .manual-wip-fields-grid,
   .manual-wip-source-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* V596: auditable wastage pools and a compact full-screen IN / OUT ledger. */
+.safe-wastage-collective-card.clickable {
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.safe-wastage-collective-card.clickable:hover,
+.safe-wastage-collective-card.clickable:focus-visible {
+  background: #eaf8ef;
+  border-color: #75b88d;
+  box-shadow: 0 5px 14px rgba(27, 105, 65, 0.12);
+  outline: none;
+}
+
+.safe-wastage-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.safe-wastage-card-actions:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+.safe-wastage-card-actions button {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+}
+
+#safe-wastage-history-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.safe-wastage-history-dialog-card {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.safe-wastage-history-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.safe-wastage-history-panel {
+  min-height: 0;
+  margin: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.safe-wastage-history-table-wrap {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.safe-wastage-history-table-wrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.safe-wastage-history-table-wrap th,
+.safe-wastage-history-table-wrap td {
+  padding: 7px 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.safe-wastage-history-table-wrap th:nth-child(1) { width: 13%; }
+.safe-wastage-history-table-wrap th:nth-child(2) { width: 7%; }
+.safe-wastage-history-table-wrap th:nth-child(3) { width: 30%; }
+.safe-wastage-history-table-wrap th:nth-child(4) { width: 12%; }
+.safe-wastage-history-table-wrap th:nth-child(n + 5) { width: 9.5%; }
+
+.wastage-movement-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.wastage-movement-badge.in {
+  color: #17623c;
+  background: #ddf5e6;
+}
+
+.wastage-movement-badge.out {
+  color: #8b2c2c;
+  background: #fde6e6;
+}
+
+@media (max-width: 760px) {
+  .safe-wastage-history-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .safe-wastage-history-table-wrap {
+    overflow-x: auto;
+  }
+
+  .safe-wastage-history-table-wrap table {
+    min-width: 760px;
   }
 }

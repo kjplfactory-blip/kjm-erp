@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v595";
+const APP_VERSION = "v597";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3692,6 +3692,9 @@ document.getElementById("undo-gold-issue")?.addEventListener("click", () => {
 
 document.getElementById("close-safe-item-issue-history")?.addEventListener("click", () => {
   document.getElementById("safe-item-issue-history-dialog")?.close();
+});
+document.getElementById("close-safe-wastage-history")?.addEventListener("click", () => {
+  document.getElementById("safe-wastage-history-dialog")?.close();
 });
 
 document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
@@ -9840,6 +9843,126 @@ function wastageSourceGroups(purity = "") {
 
 function findWastageSourceGroup(groupId = "") {
   return wastageSourceGroups().find((group) => group.id === groupId) || null;
+}
+
+function wastagePoolItemMatches(item = {}, group = {}) {
+  return ["wastage", "ghiss"].includes(safeItemKind(item))
+    && safeLockerForPurity(item.locker || item.purity) === group.locker
+    && safeWastageColour(item) === group.colour;
+}
+
+function wastagePoolMovementChild(item = {}) {
+  return item.status === "Out" && Boolean(item.sourceSafeItemId);
+}
+
+function wastagePoolHistory(groupId = "") {
+  const group = findWastageSourceGroup(groupId);
+  if (!group) return null;
+  const poolItems = (state.safeItems || []).filter((item) => wastagePoolItemMatches(item, group));
+  const movementChildren = poolItems.filter(wastagePoolMovementChild);
+  const sourceItems = poolItems.filter((item) => !wastagePoolMovementChild(item));
+  const childrenBySource = movementChildren.reduce((map, item) => {
+    if (!map.has(item.sourceSafeItemId)) map.set(item.sourceSafeItemId, []);
+    map.get(item.sourceSafeItemId).push(item);
+    return map;
+  }, new Map());
+  const entries = [];
+
+  sourceItems.forEach((item) => {
+    const purity = item.purity || item.locker || group.locker;
+    const category = safeWastageCategory(item);
+    const initialNet = Number(weight3(item.initialNetWeight ?? safeItemAvailableWeight(item)));
+    const initialGross = Number(weight3(item.initialGrossWeight ?? item.grossWeight ?? initialNet));
+    const currentNet = item.status === "Out" ? 0 : Number(weight3(safeItemAvailableWeight(item)));
+    const currentGross = item.status === "Out" ? 0 : Number(weight3(item.grossWeight ?? currentNet));
+    const sourceReference = [item.description, item.source, item.remarks].filter(Boolean).join(" / ") || "Wastage stock entry";
+    if (initialNet > 0.0005 || initialGross > 0.0005) {
+      entries.push({
+        id: `${item.id}-in`,
+        direction: "in",
+        date: item.date || "-",
+        createdAt: item.createdAt || "",
+        reference: sourceReference,
+        category,
+        grossWeight: initialGross,
+        netWeight: initialNet,
+        fineGold: fineGoldWeight(initialNet, purity),
+      });
+    }
+
+    let childNet = 0;
+    let childGross = 0;
+    (childrenBySource.get(item.id) || []).forEach((child) => {
+      const netWeight = Number(weight3(safeItemAvailableWeight(child)));
+      const grossWeight = Number(weight3(child.grossWeight ?? netWeight));
+      childNet = Number(weight3(childNet + netWeight));
+      childGross = Number(weight3(childGross + grossWeight));
+      const melting = (state.melting || []).find((entry) => entry.id === child.sourceId);
+      entries.push({
+        id: `${child.id}-out`,
+        direction: "out",
+        date: child.outDate || child.date || "-",
+        createdAt: child.updatedAt || child.createdAt || "",
+        reference: [melting?.batchName, child.source, child.remarks].filter(Boolean).join(" / ") || "Issued from wastage pool",
+        category,
+        grossWeight,
+        netWeight,
+        fineGold: fineGoldWeight(netWeight, purity),
+      });
+    });
+
+    const totalOutNet = Number(weight3(Math.max(initialNet - currentNet, 0)));
+    const totalOutGross = Number(weight3(Math.max(initialGross - currentGross, 0)));
+    const residualNet = Number(weight3(Math.max(totalOutNet - childNet, 0)));
+    const residualGross = Number(weight3(Math.max(totalOutGross - childGross, 0)));
+    if (residualNet > 0.0005 || residualGross > 0.0005) {
+      entries.push({
+        id: `${item.id}-out`,
+        direction: "out",
+        date: item.outDate || item.date || "-",
+        createdAt: item.updatedAt || item.createdAt || "",
+        reference: item.remarks || item.issueReference || `Removed from ${group.locker} ${group.colour} wastage`,
+        category,
+        grossWeight: residualGross,
+        netWeight: residualNet,
+        fineGold: fineGoldWeight(residualNet, purity),
+      });
+    }
+  });
+
+  const chronological = entries.sort((left, right) => {
+    const timeDifference = transferHistoryTime(left.createdAt, left.date) - transferHistoryTime(right.createdAt, right.date);
+    if (timeDifference) return timeDifference;
+    return left.direction === right.direction ? 0 : left.direction === "in" ? -1 : 1;
+  });
+  let runningNet = 0;
+  chronological.forEach((entry) => {
+    runningNet = Number(weight3(runningNet + (entry.direction === "in" ? entry.netWeight : -entry.netWeight)));
+    entry.runningNet = runningNet;
+  });
+  const inEntries = entries.filter((entry) => entry.direction === "in");
+  const outEntries = entries.filter((entry) => entry.direction === "out");
+  const inGross = Number(weight3(inEntries.reduce((total, entry) => total + entry.grossWeight, 0)));
+  const outGross = Number(weight3(outEntries.reduce((total, entry) => total + entry.grossWeight, 0)));
+  const inNet = Number(weight3(inEntries.reduce((total, entry) => total + entry.netWeight, 0)));
+  const outNet = Number(weight3(outEntries.reduce((total, entry) => total + entry.netWeight, 0)));
+  const inFine = Number(weight3(inEntries.reduce((total, entry) => total + entry.fineGold, 0)));
+  const outFine = Number(weight3(outEntries.reduce((total, entry) => total + entry.fineGold, 0)));
+  return {
+    group,
+    rows: [...chronological].reverse(),
+    inCount: inEntries.length,
+    outCount: outEntries.length,
+    inGross,
+    outGross,
+    inNet,
+    outNet,
+    currentGross: Number(weight3(inGross - outGross)),
+    currentNet: Number(weight3(inNet - outNet)),
+    inFine,
+    outFine,
+    currentFine: Number(weight3(inFine - outFine)),
+  };
 }
 
 function ghissSourceGroupId(parts = []) {
@@ -31643,11 +31766,19 @@ function manualWipSourceNonGoldBreakdown(issue = {}) {
   return normalizeNonGoldBreakdown(breakdown);
 }
 
+function isManualWipBillingDepartment(issue = {}) {
+  return isBillTransferDestination(
+    { toDepartment: issue.process || issue.departmentName || "" },
+    { name: issue.departmentName || "", speciality: issue.process || "" },
+  );
+}
+
 function manualWipBillingSources() {
   const sources = [];
   (state.safeDepartmentIssues || []).forEach((rawIssue) => {
     const normalized = normalizeSafeDepartmentIssue(rawIssue, rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {});
     if (normalized.status !== "In Department" || normalized.lotId || normalized.jobNumber || normalized.goldIssueLotId) return;
+    if (!isManualWipBillingDepartment(normalized)) return;
     if (!isSettingManualProductionSource({
       materialType: normalized.itemKind,
       materialDescription: normalized.itemDescription,
@@ -31677,35 +31808,6 @@ function manualWipBillingSources() {
       nonGoldBreakdown,
       date: normalized.date || "",
       remarks: normalized.remarks || "",
-    });
-  });
-  (state.safeItems || []).forEach((item) => {
-    const kind = safeItemKind(item);
-    if (item.status === "Out" || !["unfinished", "wip"].includes(kind)) return;
-    const grossWeight = Number(weight3(item.grossWeight ?? item.netWeight ?? 0));
-    if (grossWeight <= 0.0005) return;
-    const nonGoldBreakdown = safeItemFactoryNonGoldBreakdown(item);
-    const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
-    const goldWeight = Number(weight3(Math.max(grossWeight - nonGoldWeight, 0)));
-    const locker = safeLockerForPurity(item.locker || item.purity || "18K");
-    sources.push({
-      key: `safe:${item.id}`,
-      sourceType: "safe",
-      sourceId: item.id,
-      raw: item,
-      description: item.description || safeKindLabel(item) || "Safe Locker WIP",
-      location: `${locker} Safe Locker`,
-      departmentId: "",
-      departmentName: "",
-      process: "",
-      purity: karatLogicPurity(item.purity || item.locker || "18K"),
-      colour: safeItemColour(item),
-      grossWeight,
-      goldWeight,
-      nonGoldWeight,
-      nonGoldBreakdown,
-      date: item.date || "",
-      remarks: item.remarks || "",
     });
   });
   return sources.sort((left, right) =>
@@ -31800,7 +31902,7 @@ function openManualWipBillingDialog() {
   }
   const sources = manualWipBillingSources();
   if (!sources.length) {
-    alert("No unfinished or WIP holding without a Job Card is currently available in a department or Safe Locker.");
+    alert("No non-job-card WIP is currently held in the Billing / Bill department. Issue the item to Billing first, then open this list again.");
     return;
   }
   const form = document.getElementById("manual-wip-billing-form");
@@ -32098,6 +32200,18 @@ function saveManualWipBillingDisposition(event) {
   alert(`WIP assigned successfully.\n${result.lot.orderNumber} / ${result.order.productionNo || result.order.number || "PR"} / ${result.lot.number}\nCurrent department: ${result.lot.currentDepartment}\nGW ${gram(result.source.grossWeight)} / Gold ${gram(result.source.goldWeight)}.`);
 }
 
+function lotIsAtBillingDepartment(lot = {}) {
+  const latestTransfer = (lot.transfers || []).at(-1);
+  if (latestTransfer && isBillTransferDestination(
+    { toDepartment: latestTransfer.toDepartment || latestTransfer.toKarigarName || "" },
+    { name: latestTransfer.toKarigarName || "", speciality: latestTransfer.toDepartment || "" },
+  )) return true;
+  return isBillTransferDestination(
+    { toDepartment: lot.currentDepartment || lot.issueDepartment || lot.billingStage || "" },
+    { name: lot.karigarName || lot.issueKarigarName || "", speciality: lot.currentDepartment || "" },
+  );
+}
+
 function renderBills() {
   const query = (document.getElementById("bill-search")?.value || "").toLowerCase();
   const rows = state.lots
@@ -32105,7 +32219,7 @@ function renderBills() {
       const hasBill = Boolean(lot.bill || state.bills?.some((item) => item.lotId === lot.id));
       if ((lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) && !hasBill) return false;
       if (isBillQcOnlyMode()) return hasBill;
-      return lot.status === "Completed" || hasBill;
+      return hasBill || (lot.status === "Completed" && lotIsAtBillingDepartment(lot));
     })
     .filter((lot) => {
       const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
@@ -35320,7 +35434,7 @@ function renderSafeWastageCollective(filter = "") {
       <small>Fine ${gram(totalFine)} / ${groups.length} pools / ${totalEntries} entries</small>
     </article>
     ${groups.map((group) => `
-      <article class="safe-wastage-collective-card">
+      <article class="safe-wastage-collective-card clickable" role="button" tabindex="0" onclick="openWastagePoolHistory('${encodeURIComponent(group.id)}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault();openWastagePoolHistory('${encodeURIComponent(group.id)}');}">
         <div class="safe-wastage-card-head">
           <span>${escapeHtml(transferPurityLabel(group.locker))}</span>
           <b>${escapeHtml(group.colour)}</b>
@@ -35333,10 +35447,50 @@ function renderSafeWastageCollective(filter = "") {
           <span>Entries <b>${group.items.length}</b></span>
         </div>
         <small class="safe-wastage-categories">${escapeHtml([...group.categories].sort().join(" / "))}</small>
-        ${canAccessPage("melting") ? `<button type="button" class="ghost-button" onclick="openWastagePoolInMelting('${escapeHtml(encodeURIComponent(group.id))}')">Use For Melting</button>` : ""}
+        <div class="safe-wastage-card-actions">
+          <button type="button" class="ghost-button" onclick="event.stopPropagation(); openWastagePoolHistory('${encodeURIComponent(group.id)}')">View IN / OUT</button>
+          ${canAccessPage("melting") ? `<button type="button" class="ghost-button" onclick="event.stopPropagation(); openWastagePoolInMelting('${escapeHtml(encodeURIComponent(group.id))}')">Use For Melting</button>` : ""}
+        </div>
       </article>
     `).join("")}
   `;
+}
+
+function openWastagePoolHistory(encodedGroupId = "") {
+  const groupId = decodeURIComponent(encodedGroupId || "");
+  const history = wastagePoolHistory(groupId);
+  if (!history) {
+    alert("This wastage pool is no longer available.");
+    renderSafeLockers();
+    return;
+  }
+  const { group } = history;
+  const balanceDifference = Number(weight3(history.currentNet - Number(group.netWeight || 0)));
+  document.getElementById("safe-wastage-history-title").textContent = `${transferPurityLabel(group.locker)} ${group.colour} Wastage`;
+  document.getElementById("safe-wastage-history-summary").textContent =
+    `Current wastage NT ${gram(history.currentNet)} = IN ${gram(history.inNet)} - OUT ${gram(history.outNet)}. ${Math.abs(balanceDifference) <= 0.0005 ? "The entry calculation matches the shelf tile." : `Review difference ${gram(balanceDifference)} against the shelf tile.`}`;
+  document.getElementById("safe-wastage-history-totals").innerHTML = [
+    factorySummaryCard("Total IN Wastage NT", gram(history.inNet), `${history.inCount} incoming entries`),
+    factorySummaryCard("Total OUT Wastage NT", gram(history.outNet), `${history.outCount} outgoing entries`),
+    factorySummaryCard("Current Wastage NT", gram(history.currentNet), `GW ${gram(history.currentGross)}`),
+    factorySummaryCard("Current Fine Gold", gram(history.currentFine), `${transferPurityLabel(group.locker)} / ${group.colour}`),
+  ].join("");
+  document.getElementById("safe-wastage-history-table").innerHTML = history.rows.length
+    ? history.rows.map((entry) => `
+      <tr>
+        <td>${escapeHtml(transferHistoryDateTime(entry.date, entry.createdAt))}</td>
+        <td><span class="wastage-movement-badge ${entry.direction}">${entry.direction.toUpperCase()}</span></td>
+        <td>${transferOneLinePopupCell(entry.reference)}</td>
+        <td>${escapeHtml(entry.category || "Wastage")}</td>
+        <td>${gram(entry.grossWeight)}</td>
+        <td>${gram(entry.netWeight)}</td>
+        <td>${gram(entry.fineGold)}</td>
+        <td><strong>${gram(entry.runningNet)}</strong></td>
+      </tr>
+    `).join("")
+    : tableEmpty(8, "No source entries were found for this wastage pool.");
+  const dialog = document.getElementById("safe-wastage-history-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
 }
 
 function openWastagePoolInMelting(encodedGroupId = "") {
@@ -38156,7 +38310,7 @@ function renderDepartmentTransferTile(department) {
       <div>
         <small><b>IN RECEIVE GW</b>${gram(department.inGw)}</small>
         <small><b>OUT RECEIVE GW</b>${gram(department.outGw)}</small>
-        <small><b>Reduced</b>${gram(department.difference)}</small>
+        <small><b>Balance GW</b>${gram(department.balanceGw)}</small>
         <small><b>Fine</b>${gram(department.fineGold)}</small>
       </div>
       ${department.detail ? `<em>${escapeHtml(department.detail)}</em>` : ""}
@@ -38167,7 +38321,11 @@ function renderDepartmentTransferTile(department) {
 function openDepartmentTransferHistory(departmentName) {
   const dialog = document.getElementById("department-transfer-dialog");
   if (!dialog) return;
-  const historyDepartmentName = departmentTransferHistoryGroupName(departmentName);
+  const requestedName = String(departmentName || "").trim();
+  const exactSummary = departmentTransferSummaries().find((summary) =>
+    departmentTextKey(summary.name) === departmentTextKey(requestedName)
+  );
+  const historyDepartmentName = exactSummary?.name || departmentTransferHistoryGroupName(requestedName);
   dialog.dataset.departmentName = historyDepartmentName;
   const events = departmentTransferEvents().filter((event) => event.department === historyDepartmentName);
   const inRows = events.filter((event) => event.direction === "in");
@@ -38175,7 +38333,7 @@ function openDepartmentTransferHistory(departmentName) {
   const summary = departmentTransferSummaryFromEvents(historyDepartmentName, events);
   document.getElementById("department-transfer-title").textContent = `${historyDepartmentName} Transfer History`;
   document.getElementById("department-transfer-summary").textContent =
-    `${summary.inCount} inward entries and ${summary.outCount} outward entries. Difference and fine are counted when item goes out from this department.`;
+    `${summary.inCount} inward entries and ${summary.outCount} outward entries. Balance GW is IN Receive GW minus OUT Receive GW; manufacturing reduction is shown separately.`;
   document.getElementById("department-transfer-total-cards").innerHTML = renderDepartmentTransferTotals(summary);
   document.getElementById("department-transfer-purity-panel").innerHTML = renderDepartmentTransferPurityBreakup(events);
   document.getElementById("department-transfer-in-title").textContent = `IN To Department (${inRows.length})`;
@@ -38201,9 +38359,10 @@ function renderDepartmentTransferTotals(summary) {
   return [
     factorySummaryCard("Total IN Receive GW", gram(summary.inGw), `${summary.inCount} inward entries`),
     factorySummaryCard("Total OUT Receive GW", gram(summary.outGw), `${summary.outCount} outward entries`),
+    factorySummaryCard("Balance GW", gram(summary.balanceGw), "IN Receive GW - OUT Receive GW", summary.balanceGw ? "receivable" : ""),
     factorySummaryCard("IN Net Wt", gram(summary.inNet), "Net weight received in department"),
     factorySummaryCard("OUT Net Wt", gram(summary.outNet), "Net weight moved out"),
-    factorySummaryCard("Total Reduced", gram(summary.difference), "Difference booked to this department", summary.difference ? "payable" : ""),
+    factorySummaryCard("Manufacturing Reduced", gram(summary.difference), "Booked production difference, separate from Balance GW", summary.difference ? "payable" : ""),
     factorySummaryCard("Fine Gold Reduced", gram(summary.fineGold), "Fine gold of department difference", summary.fineGold ? "receivable" : ""),
   ].join("");
 }
@@ -38217,7 +38376,7 @@ function renderDepartmentTransferPurityBreakup(events = []) {
     </div>
     <div class="department-transfer-purity-table">
       <div class="department-transfer-purity-head">
-        <span>Karat / Purity</span><span>IN Receive GW</span><span>IN Net</span><span>OUT Receive GW</span><span>OUT Net</span><span>Reduced</span><span>Fine</span>
+        <span>Karat / Purity</span><span>IN Receive GW</span><span>IN Net</span><span>OUT Receive GW</span><span>OUT Net</span><span>Balance GW</span><span>Reduced</span><span>Fine</span>
       </div>
       ${rows.map((row) => `
         <div class="department-transfer-purity-row">
@@ -38226,6 +38385,7 @@ function renderDepartmentTransferPurityBreakup(events = []) {
           <span>${gram(row.inNet)}</span>
           <span>${gram(row.outGw)}</span>
           <span>${gram(row.outNet)}</span>
+          <span>${gram(row.balanceGw)}</span>
           <span>${gram(row.difference)}</span>
           <span>${gram(row.fineGold)}</span>
         </div>
@@ -38253,6 +38413,7 @@ function departmentTransferPurityRows(events = []) {
     }
   });
   return [...groups.values()]
+    .map((row) => ({ ...row, balanceGw: departmentTransferBalanceGw(row) }))
     .filter((row) => row.inGw || row.inNet || row.outGw || row.outNet || row.difference || row.fineGold)
     .sort((a, b) => puritySortValue(b.purity) - puritySortValue(a.purity) || a.purity.localeCompare(b.purity));
 }
@@ -38288,6 +38449,7 @@ function departmentTransferSummaries() {
   return [...summaries.values()]
     .map((summary) => ({
       ...summary,
+      balanceGw: departmentTransferBalanceGw(summary),
       detail: [...summary.details].filter((item) => item && item !== summary.name).slice(0, 4).join(" / "),
     }))
     .filter((summary) => summary.inCount || summary.outCount || summary.detail)
@@ -38310,7 +38472,11 @@ function departmentTransferSummaryFromEvents(name, events = []) {
       summary.fineGold = Number(weight3(summary.fineGold + Number(event.fineGold || 0)));
     }
   });
-  return summary;
+  return { ...summary, balanceGw: departmentTransferBalanceGw(summary) };
+}
+
+function departmentTransferBalanceGw(summary = {}) {
+  return Number(weight3(Number(summary.inGw || 0) - Number(summary.outGw || 0)));
 }
 
 function ensureDepartmentTransferSummary(map, name) {
@@ -38524,6 +38690,9 @@ function departmentTransferMasterGroupName(departmentName = "", processName = ""
   const combinedText = `${department} ${process}`;
   if (isCentrifugalFinishingDepartment(combinedText)) return centrifugalFinishingMasterName();
   if (isCombinedPolishDepartment(combinedText)) return polishingMasterDepartmentName();
+  const departmentProductionName = mergedProductionDepartmentName(department, department);
+  const processProductionName = mergedProductionDepartmentName(process, process);
+  if (departmentProductionName === "Fitting" || (!department && processProductionName === "Fitting")) return "Fitting";
   const departmentKey = departmentTextKey(department);
   const exactDepartment = (state.karigars || []).find((item) =>
     departmentTextKey(item.name) === departmentKey

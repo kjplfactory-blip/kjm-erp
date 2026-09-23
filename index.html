@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=595">
+  <link rel="stylesheet" href="styles.css?v=597">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v595</small>
+      <small class="app-version-badge">App v597</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v595</span>
+          <span class="app-version-badge">App v597</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1862,6 +1862,33 @@
       </div>
     </dialog>
 
+    <dialog id="safe-wastage-history-dialog">
+      <div class="dialog-card history-dialog safe-wastage-history-dialog-card">
+        <div class="dialog-header">
+          <div>
+            <h2 id="safe-wastage-history-title">Wastage Pool In / Out</h2>
+            <p id="safe-wastage-history-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-safe-wastage-history">Close</button>
+        </div>
+        <div id="safe-wastage-history-totals" class="safe-wastage-history-totals"></div>
+        <section class="panel table-panel safe-wastage-history-panel">
+          <div class="panel-heading compact-heading">
+            <div>
+              <h2>Entries Included In This Balance</h2>
+              <small>IN adds wastage to the pool. OUT shows the amount consumed or removed.</small>
+            </div>
+          </div>
+          <div class="table-wrap safe-wastage-history-table-wrap">
+            <table>
+              <thead><tr><th>Date / Time</th><th>IN / OUT</th><th>Source / Reference</th><th>Category</th><th>GW</th><th>Wastage NT</th><th>Fine Gold</th><th>Running NT</th></tr></thead>
+              <tbody id="safe-wastage-history-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
     <dialog id="office-details-dialog">
       <div class="dialog-card history-dialog office-details-card">
         <div class="dialog-header">
@@ -2370,7 +2397,7 @@
         <div class="dialog-header">
           <div>
             <h2>Clear Non-Job-Card WIP</h2>
-            <p class="dialog-note">Select one complete WIP holding, then make a manual Bill or assign it to an existing Job Card item.</p>
+            <p class="dialog-note">Shows only non-job-card WIP currently issued to the Billing / Bill department. Make a manual Bill or assign the holding to an existing Job Card item.</p>
           </div>
           <button type="button" class="ghost-button" id="close-manual-wip-billing">Close</button>
         </div>
@@ -3175,6 +3202,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=595"></script>
+  <script src="app.js?v=597"></script>
 </body>
 </html>
