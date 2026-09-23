@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v592";
+const APP_VERSION = "v593";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -14557,6 +14557,8 @@ function renderJobItemsDetail(orders) {
         const deliveryText = orderDeliveryText(order);
         const subcategory = jobItemSubcategoryLabel(order);
         const itemDisplay = jobItemDisplayName(order);
+        const stoneEntryEdited = Boolean(order.productionStoneOverride);
+        const stoneEntryTitle = stoneEntryEdited ? productionStoneEditStatusText(order) : "";
         const searchText = [
           order.productionNo,
           order.number,
@@ -14570,17 +14572,18 @@ function renderJobItemsDetail(orders) {
           order.customer,
         ].filter(Boolean).join(" ").toLowerCase();
         return `
-          <article class="job-item-select-card" data-job-split-card="${escapeHtml(order.id)}" data-job-split-search="${escapeHtml(searchText)}">
+          <article class="job-item-select-card ${stoneEntryEdited ? "stone-entry-edited" : ""}" data-job-split-card="${escapeHtml(order.id)}" data-job-split-search="${escapeHtml(searchText)}" data-stone-entry-edited="${stoneEntryEdited ? "true" : "false"}">
             <label class="job-split-select ${isFittingAccessoriesOrder(order) || settingManagerMode ? "hidden" : ""}">
               <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
               <span>Split</span>
             </label>
-            <button type="button" class="job-item-open-button" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
+            <button type="button" class="job-item-open-button ${stoneEntryEdited ? "has-stone-entry-edit" : ""}" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
               <strong>${escapeHtml(order.productionNo || order.number)}</strong>
-              <span>${escapeHtml(itemDisplay)}</span>
+              <span class="job-item-design-name">${escapeHtml(itemDisplay)}</span>
               <span class="job-item-subcategory"><b>Sub Item</b>${escapeHtml(subcategory)}</span>
-              <small>${escapeHtml(stage)}</small>
-              ${deliveryText ? `<em>${escapeHtml(deliveryText)}</em>` : ""}
+              <small class="job-item-stage">${escapeHtml(stage)}</small>
+              ${deliveryText ? `<em class="job-item-delivery">${escapeHtml(deliveryText)}</em>` : ""}
+              ${stoneEntryEdited ? `<span class="job-item-stone-edited-badge" title="${escapeHtml(stoneEntryTitle)}" aria-label="Stone entry edited"><b>STONE</b><i>EDITED</i></span>` : ""}
               ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
             </button>
           </article>

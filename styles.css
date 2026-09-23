@@ -7709,6 +7709,184 @@ dialog::backdrop {
   }
 }
 
+/* V593: high-clarity Job Item tiles and compact saved stone-entry marker. */
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-button-grid {
+  grid-template-columns: repeat(auto-fill, minmax(225px, 1fr));
+  gap: 12px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card {
+  padding: 7px;
+  border: 1px solid #d4e2dd;
+  background: #f8fbfa;
+  box-shadow: 0 4px 12px rgba(19, 58, 49, 0.06);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card:hover {
+  border-color: #8bc9b2;
+  background: #f1faf6;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card.stone-entry-edited {
+  border-color: #69ae91;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button {
+  width: 100%;
+  min-height: 142px;
+  align-content: start;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid #c9d9d3;
+  background: #ffffff !important;
+  color: #172a24 !important;
+  box-shadow: 0 2px 8px rgba(18, 58, 49, 0.07);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button.has-stone-entry-edit {
+  padding-right: 76px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button.active {
+  border-color: #3b9b79;
+  background: #e9f8f1 !important;
+  color: #102c24 !important;
+  box-shadow: inset 4px 0 0 #2e8c6b, 0 7px 18px rgba(18, 96, 72, 0.12);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button > strong {
+  color: #064f48;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-design-name {
+  color: #1b302a;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stage,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-delivery {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 5px;
+  line-height: 1.25;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stage {
+  border: 1px solid #c9d9d3;
+  background: #f1f5f3;
+  color: #34554c;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-delivery {
+  border: 1px solid #ead598;
+  background: #fff8df;
+  color: #705412;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stone-edited-badge {
+  position: absolute;
+  right: 11px;
+  bottom: 11px;
+  display: grid !important;
+  place-content: center;
+  width: 52px;
+  height: 52px;
+  gap: 2px;
+  padding: 4px;
+  border: 2px solid #29906b;
+  border-radius: 6px;
+  background: #e1f7ec;
+  color: #075b42 !important;
+  text-align: center;
+  box-shadow: 0 3px 10px rgba(20, 122, 79, 0.14);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge b,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge i {
+  color: inherit;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge b {
+  font-size: 8px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge i {
+  font-size: 9px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-card {
+  padding: 16px;
+  border-color: #c7dcd4;
+  background: #f7fbf9;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-head {
+  padding: 13px 14px;
+  border: 1px solid #c6ddd4;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 9px;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-grid > span {
+  min-height: 64px;
+  padding: 10px 11px;
+  border-color: #d2e0db;
+  background: #ffffff;
+  color: #1b302a;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-grid > span b {
+  margin-bottom: 4px;
+  color: #526d64;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+@media (max-width: 620px) {
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-button-grid,
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button {
+    min-height: 132px;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stone-edited-badge {
+    width: 48px;
+    height: 48px;
+  }
+
+  body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-detail-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 900px) {
   .production-stone-dialog table,
   .production-stone-dialog tbody {
