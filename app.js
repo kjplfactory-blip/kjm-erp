@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v591";
+const APP_VERSION = "v592";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -59,9 +59,11 @@ const IMAGE_PREVIEW_BATCH_SIZE = 8;
 const DESIGN_IMAGE_CACHE_LIMIT = 96;
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
-const AUTO_SYNC_INTERVAL_MS = 15000;
-const SUPABASE_RECONNECT_INTERVAL_MS = 15000;
-const SUPABASE_SAVE_DELAY_MS = 300;
+const AUTO_SYNC_INTERVAL_MS = 45000;
+const SUPABASE_RETRY_BASE_MS = 10000;
+const SUPABASE_RETRY_MAX_MS = 5 * 60 * 1000;
+const SUPABASE_RETRY_JITTER_RATIO = 0.2;
+const SUPABASE_SAVE_DELAY_MS = 750;
 const SUPABASE_CDN_TIMEOUT_MS = 12000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 120000;
 const SUPABASE_FULL_LOAD_TIMEOUT_MS = 180000;
@@ -315,6 +317,10 @@ let supabaseIsConnecting = false;
 let supabaseIsSaving = false;
 let supabaseIsLoading = false;
 let supabaseIsPollingRevision = false;
+let supabaseConsecutiveFailures = 0;
+let supabaseRetryNotBefore = 0;
+let supabaseReconnectDueAt = 0;
+let supabaseVersionWriteBlocked = false;
 let supabaseInitialReadComplete = false;
 let supabaseCloudBaselineVerified = false;
 let supabaseVerifiedCloudProfile = null;
@@ -5688,6 +5694,61 @@ function isSupabaseDatabaseUnavailableError(error) {
     || detail.includes("could not query the database for the schema cache");
 }
 
+function isSupabaseVersionConflictError(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return detail.includes("older erp app version") || detail.includes("app version downgrade");
+}
+
+function isTransientSupabaseError(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return isSupabaseTimeoutError(error)
+    || isSupabaseGatewayUnavailableError(error)
+    || isSupabaseDatabaseUnavailableError(error)
+    || detail.includes("failed to fetch")
+    || detail.includes("networkerror")
+    || detail.includes("load failed")
+    || detail.includes("connect_timeout")
+    || detail.includes("connection terminated");
+}
+
+function supabaseRetryRemainingMs() {
+  return Math.max(0, supabaseRetryNotBefore - Date.now());
+}
+
+function supabaseRetryDelayForFailure(error, failureCount = supabaseConsecutiveFailures + 1) {
+  const base = isTransientSupabaseError(error) ? SUPABASE_RETRY_BASE_MS : 60 * 1000;
+  const exponent = Math.max(0, Math.min(6, Number(failureCount || 1) - 1));
+  const bounded = Math.min(SUPABASE_RETRY_MAX_MS, base * (2 ** exponent));
+  const jitterRange = bounded * SUPABASE_RETRY_JITTER_RATIO;
+  const jitter = (Math.random() * 2 - 1) * jitterRange;
+  return Math.max(SUPABASE_RETRY_BASE_MS, Math.round(Math.min(SUPABASE_RETRY_MAX_MS, bounded + jitter)));
+}
+
+function registerSupabaseFailure(error) {
+  supabaseConsecutiveFailures = Math.min(20, supabaseConsecutiveFailures + 1);
+  const delay = supabaseRetryDelayForFailure(error, supabaseConsecutiveFailures);
+  supabaseRetryNotBefore = Math.max(supabaseRetryNotBefore, Date.now() + delay);
+  return supabaseRetryRemainingMs();
+}
+
+function clearSupabaseRetryBackoff() {
+  supabaseConsecutiveFailures = 0;
+  supabaseRetryNotBefore = 0;
+  supabaseReconnectDueAt = 0;
+  clearTimeout(supabaseReconnectTimer);
+  supabaseReconnectTimer = null;
+}
+
+function handleSupabaseVersionWriteBlock(error) {
+  if (!isSupabaseVersionConflictError(error)) return false;
+  supabaseVersionWriteBlocked = true;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  setSyncStatus("offline", "Sync: Update Required", syncErrorDetail(error));
+  if (isHostedErpPage()) checkForAppVersionUpdate();
+  return true;
+}
+
 async function fetchSupabaseStateRow(columns = "data,updated_at", timeoutMs = SUPABASE_FULL_LOAD_TIMEOUT_MS) {
   if (!window.fetch) return { data: null, error: new Error("Browser fetch is not available.") };
   const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
@@ -5732,9 +5793,23 @@ async function fetchSupabaseStateRow(columns = "data,updated_at", timeoutMs = SU
   }
 }
 
-function supabaseFetch(input, init = {}) {
+async function supabaseFetch(input, init = {}) {
   if (!window.fetch) return Promise.reject(new Error("Browser fetch is not available."));
-  return withSupabaseTimeout(fetch(input, init));
+  const controller = new AbortController();
+  const upstreamSignal = init.signal;
+  const abortFromUpstream = () => controller.abort();
+  if (upstreamSignal?.aborted) controller.abort();
+  else upstreamSignal?.addEventListener?.("abort", abortFromUpstream, { once: true });
+  const timer = setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw supabaseTimeoutError("Supabase request timeout.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    upstreamSignal?.removeEventListener?.("abort", abortFromUpstream);
+  }
 }
 
 function createFetchSupabaseClient(url, anonKey) {
@@ -5804,17 +5879,20 @@ function createFetchSupabaseClient(url, anonKey) {
         update(row) {
           return createWriteBuilder("PATCH", row);
         },
-        async upsert(row) {
+        async upsert(row, options = {}) {
+          const conflictColumns = options.onConflict || "id";
+          const resolution = options.ignoreDuplicates ? "ignore-duplicates" : "merge-duplicates";
           try {
-            const response = await supabaseFetch(`${tableUrl}?on_conflict=id`, {
+            const response = await supabaseFetch(`${tableUrl}?on_conflict=${encodeURIComponent(conflictColumns)}`, {
               method: "POST",
               headers: headers({
                 "Content-Type": "application/json",
-                Prefer: "resolution=merge-duplicates,return=representation",
+                Prefer: `resolution=${resolution},return=${options.ignoreDuplicates ? "minimal" : "representation"}`,
               }),
               body: JSON.stringify(row),
             });
             if (!response.ok) return { data: null, error: await asError(response) };
+            if (options.ignoreDuplicates) return { data: null, error: null };
             const rows = await response.json().catch(() => []);
             return { data: Array.isArray(rows) ? rows[0] || null : rows, error: null };
           } catch (error) {
@@ -5976,10 +6054,10 @@ function syncErrorDetail(error) {
     return `This laptop is using an older ERP version and cannot replace newer cloud data. Open the latest ERP website and try again. ${detail}`;
   }
   if (isSupabaseGatewayUnavailableError(error)) {
-    return `Supabase project gateway is not responding (${error?.status || error?.code || "HTTP 522"}). Local ERP data remains protected and automatic retry continues every 15 seconds. If this persists, restart the project from the Supabase Dashboard. ${detail}`;
+    return `Supabase project gateway is not responding (${error?.status || error?.code || "HTTP 522"}). Local ERP data remains protected and automatic retry uses increasing wait times to reduce API pressure. If this persists, check project health in the Supabase Dashboard. ${detail}`;
   }
   if (isSupabaseDatabaseUnavailableError(error)) {
-    return `Supabase database API is unavailable. Retrying every 15 seconds; local ERP data remains protected. If it continues, run RECOVER-PGRST002-SCHEMA-CACHE.sql in Supabase. ${detail}`;
+    return `Supabase database API is unavailable. Automatic retry uses increasing wait times; local ERP data remains protected. If it continues, check project health and run RECOVER-PGRST002-SCHEMA-CACHE.sql in Supabase. ${detail}`;
   }
   if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
     return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
@@ -5987,11 +6065,38 @@ function syncErrorDetail(error) {
   return detail;
 }
 
-function scheduleSupabaseReconnect() {
+function scheduleSupabaseReconnect(error = null) {
+  if (error && handleSupabaseVersionWriteBlock(error)) return false;
+  const delay = error
+    ? registerSupabaseFailure(error)
+    : Math.max(SUPABASE_RETRY_BASE_MS, supabaseRetryRemainingMs());
+  const dueAt = Date.now() + delay;
+  if (supabaseReconnectTimer && supabaseReconnectDueAt && supabaseReconnectDueAt <= dueAt) return true;
   clearTimeout(supabaseReconnectTimer);
-  supabaseReconnectTimer = setTimeout(() => {
-    initializeSupabase();
-  }, SUPABASE_RECONNECT_INTERVAL_MS);
+  supabaseReconnectDueAt = dueAt;
+  supabaseReconnectTimer = setTimeout(async () => {
+    supabaseReconnectTimer = null;
+    supabaseReconnectDueAt = 0;
+    const remaining = supabaseRetryRemainingMs();
+    if (remaining > 0) {
+      scheduleSupabaseReconnect();
+      return;
+    }
+    if (!supabaseClient) {
+      await initializeSupabase({ retry: true });
+      return;
+    }
+    if (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified) {
+      await loadSupabaseState({ initial: true, retry: true });
+      return;
+    }
+    if (supabaseLocalDirty) {
+      await syncStateToSupabase({ retry: true });
+      return;
+    }
+    await pollSupabaseStateRevision({ retry: true });
+  }, delay);
+  return true;
 }
 
 function stopSupabaseRealtime() {
@@ -6029,7 +6134,7 @@ function startSupabaseRealtime() {
         if (status === "SUBSCRIBED") setSyncStatus("online", "Live Sync: Realtime");
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           supabaseRealtimeChannel = null;
-          setSyncStatus("connecting", "Live Sync: Auto", "Realtime unavailable, polling every few seconds.");
+          setSyncStatus("connecting", "Live Sync: Auto", "Realtime unavailable; a lightweight revision check runs every 45 seconds.");
         }
       });
     return true;
@@ -6040,8 +6145,12 @@ function startSupabaseRealtime() {
   }
 }
 
-async function initializeSupabase() {
+async function initializeSupabase(options = {}) {
   if (supabaseIsConnecting) return;
+  if (!options.manual && !options.retry && supabaseRetryRemainingMs() > 0) {
+    scheduleSupabaseReconnect();
+    return false;
+  }
   await localFullStateRecoveryPromise;
   if (!supabaseSettings.url || !supabaseSettings.anonKey) {
     setSyncStatus("offline", "Sync: Local Only");
@@ -6050,6 +6159,8 @@ async function initializeSupabase() {
   supabaseIsConnecting = true;
   try {
     clearTimeout(supabaseReconnectTimer);
+    supabaseReconnectTimer = null;
+    supabaseReconnectDueAt = 0;
     setSyncStatus("connecting", "Sync: Connecting");
     supabaseClient = await createSupabaseClient();
     await validateRestoredLoginSession();
@@ -6058,13 +6169,12 @@ async function initializeSupabase() {
       startSupabaseAutoRefresh();
       runPostCloudMigrations();
     }
-    else scheduleSupabaseReconnect();
   } catch (error) {
     console.warn("Supabase is not connected. Local browser data is still working.", error);
     stopSupabaseRealtime();
     supabaseClient = null;
     setSyncStatus("offline", syncStatusForError(error, "Sync: Offline"), syncErrorDetail(error));
-    scheduleSupabaseReconnect();
+    scheduleSupabaseReconnect(error);
   } finally {
     supabaseIsConnecting = false;
   }
@@ -6137,6 +6247,10 @@ function startSupabaseAutoRefresh() {
     if (document.hidden) return;
     if (applyPendingCloudState("auto")) return;
     if (retryPendingLocalCloudSave()) return;
+    if (supabaseRetryRemainingMs() > 0) {
+      scheduleSupabaseReconnect();
+      return;
+    }
     pollSupabaseStateRevision();
   }, AUTO_SYNC_INTERVAL_MS);
   if (!supabaseStartupProtectionActive) {
@@ -6146,7 +6260,12 @@ function startSupabaseAutoRefresh() {
 
 function retryPendingLocalCloudSave() {
   if (!supabaseLocalDirty || !supabaseClient || supabaseIsSaving || supabaseSaveTimer) return false;
+  if (supabaseVersionWriteBlocked) return true;
   if (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified || supabaseStartupProtectionActive) return false;
+  if (supabaseRetryRemainingMs() > 0) {
+    scheduleSupabaseReconnect();
+    return true;
+  }
   queueSupabaseSave();
   return true;
 }
@@ -6159,9 +6278,10 @@ window.addEventListener("focus", () => {
 });
 
 window.addEventListener("online", () => {
+  clearSupabaseRetryBackoff();
   if (retryPendingLocalCloudSave()) return;
   if (supabaseClient) pollSupabaseStateRevision();
-  else initializeSupabase();
+  else initializeSupabase({ manual: true });
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -6184,6 +6304,16 @@ function queueSupabaseSave() {
     setSyncStatus("offline", "Sync: Offline");
     return;
   }
+  if (supabaseVersionWriteBlocked) {
+    setSyncStatus("offline", "Sync: Update Required", "This browser has an older ERP build. Local changes remain queued until the latest website version opens.");
+    if (isHostedErpPage()) checkForAppVersionUpdate();
+    return;
+  }
+  if (supabaseRetryRemainingMs() > 0) {
+    setSyncStatus("connecting", "Cloud Retry Queued - Local Safe", `Supabase is temporarily unavailable. One automatic retry is scheduled in ${Math.ceil(supabaseRetryRemainingMs() / 1000)} seconds.`);
+    scheduleSupabaseReconnect();
+    return;
+  }
   if (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified || supabaseStartupProtectionActive) {
     setSyncStatus("connecting", "Cloud Save Pending - Local Safe", "The update is saved on this laptop and will upload immediately after the protected cloud baseline is available.");
   } else {
@@ -6199,7 +6329,7 @@ function queueSupabaseSave() {
 }
 
 function flushSupabaseSave() {
-  if (!supabaseClient || !supabaseSaveTimer) return;
+  if (!supabaseClient || !supabaseSaveTimer || supabaseVersionWriteBlocked || supabaseRetryRemainingMs() > 0) return;
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
   syncStateToSupabase({ keepalive: true });
@@ -6284,6 +6414,16 @@ async function syncStateToSupabase(options = {}) {
     scheduleSupabaseReconnect();
     return false;
   }
+  if (supabaseVersionWriteBlocked) {
+    setSyncStatus("offline", "Sync: Update Required", "This browser cannot write until the latest ERP version opens. Local changes remain protected.");
+    if (isHostedErpPage()) checkForAppVersionUpdate();
+    return false;
+  }
+  if (!options.retry && supabaseRetryRemainingMs() > 0) {
+    setSyncStatus("connecting", "Cloud Retry Queued - Local Safe", `One automatic retry is scheduled in ${Math.ceil(supabaseRetryRemainingMs() / 1000)} seconds.`);
+    scheduleSupabaseReconnect();
+    return false;
+  }
   if (!options.force && (!supabaseInitialReadComplete || !supabaseCloudBaselineVerified)) {
     setSyncStatus("connecting", "Startup Data Protected", "Cloud data must be read successfully before this laptop can save automatically.");
     return false;
@@ -6335,12 +6475,11 @@ async function syncStateToSupabase(options = {}) {
         targetVersion: APP_VERSION,
         sourceUpdatedAt: versionBackup.updatedAt,
       });
-      if (versionBackupResult.ok) pendingCloudVersionBackup = null;
+      if (versionBackupResult.ok) {
+        pendingCloudVersionBackup = null;
+        supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
+      }
       else console.warn("The optional version backup could not be added, so the main conditional ERP save continued.", versionBackupResult.error);
-    }
-    const dailyBackupResult = await saveCloudSafetySnapshotBeforeOverwrite();
-    if (!dailyBackupResult.ok) {
-      console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
     }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const preflight = await prepareSafeCloudOverwrite(stateToSave, {
@@ -6349,6 +6488,12 @@ async function syncStateToSupabase(options = {}) {
         savingMutationSerial,
       });
       if (!preflight.ok) throw preflight.error;
+      if (attempt === 0) {
+        const dailyBackupResult = await saveCloudSafetySnapshotForRow(preflight.row);
+        if (!dailyBackupResult.ok) {
+          console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
+        }
+      }
       stateToSave = preflight.stateToSave || stateToSave;
       mergedConcurrentData = mergedConcurrentData || Boolean(preflight.mergedConcurrentData);
       stampCurrentAppVersion(stateToSave, updatedAt);
@@ -6357,6 +6502,9 @@ async function syncStateToSupabase(options = {}) {
       if (error || !preflight.row || result?.data) break;
       if (attempt === 2) {
         error = new Error("Another laptop saved repeatedly during this upload. This laptop data remains protected and automatic retry will continue.");
+      } else {
+        const conflictDelay = Math.round((250 * (2 ** attempt)) + (Math.random() * 150));
+        await new Promise((resolve) => setTimeout(resolve, conflictDelay));
       }
     }
   } catch (caughtError) {
@@ -6367,9 +6515,11 @@ async function syncStateToSupabase(options = {}) {
   if (error) {
     console.warn("Supabase save failed", error);
     setSyncStatus("offline", syncStatusForError(error, "Sync: Save Protected"), syncErrorDetail(error));
-    scheduleSupabaseReconnect();
+    scheduleSupabaseReconnect(error);
     return false;
   }
+  clearSupabaseRetryBackoff();
+  supabaseVersionWriteBlocked = false;
   supabaseLastCloudUpdatedAt = updatedAt;
   supabaseStartupProtectionActive = false;
   rememberVerifiedCloudBaseline(stateToSave, updatedAt);
@@ -6438,7 +6588,10 @@ async function saveCloudBackupRecord(source, metadata = {}) {
   };
   try {
     const result = await withSupabaseTimeout(
-      supabaseClient.from(CLOUD_BACKUP_TABLE).insert(row),
+      supabaseClient.from(CLOUD_BACKUP_TABLE).upsert(row, {
+        onConflict: "state_id,backup_key",
+        ignoreDuplicates: true,
+      }),
       "Supabase cloud backup timeout."
     );
     if (!result?.error || isDuplicateCloudBackupError(result.error)) return { ok: true };
@@ -6459,22 +6612,13 @@ async function saveCloudBackupRecord(source, metadata = {}) {
   }
 }
 
-async function saveCloudSafetySnapshotBeforeOverwrite() {
+async function saveCloudSafetySnapshotForRow(currentRow = null) {
   const bucket = cloudSafetySnapshotBucket();
   if (!supabaseClient) return { ok: false, error: new Error("Live sync is not connected.") };
   if (supabaseLastSafetySnapshotBucket === bucket) return { ok: true, skipped: true };
+  if (!currentRow?.data) return { ok: true, skipped: true };
   try {
-    const currentResult = await withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .select("data, updated_at")
-        .eq("id", supabaseStateId)
-        .maybeSingle(),
-      "Supabase safety snapshot read timeout."
-    );
-    if (currentResult?.error) return { ok: false, error: currentResult.error };
-    if (!currentResult?.data?.data) return { ok: true, skipped: true };
-    const currentCloudState = currentResult.data.data;
+    const currentCloudState = currentRow.data;
     const sourceVersion = cloudBackupVersionLabel(currentCloudState);
     const isVersionUpgrade = cloudStateNeedsCurrentVersionSave(currentCloudState);
     const snapshotResult = await saveCloudBackupRecord(currentCloudState, {
@@ -6484,12 +6628,12 @@ async function saveCloudSafetySnapshotBeforeOverwrite() {
         : `daily-${bucket}`,
       sourceVersion,
       targetVersion: APP_VERSION,
-      sourceUpdatedAt: currentResult.data.updated_at || "",
+      sourceUpdatedAt: currentRow.updated_at || "",
     });
     if (snapshotResult.ok) supabaseLastSafetySnapshotBucket = bucket;
     return snapshotResult;
   } catch (error) {
-    console.warn("Cloud safety snapshot could not be saved. Main cloud overwrite was stopped.", error);
+    console.warn("Cloud safety snapshot could not be saved. The main conditional save can continue.", error);
     return { ok: false, error };
   }
 }
@@ -6497,6 +6641,10 @@ async function saveCloudSafetySnapshotBeforeOverwrite() {
 async function loadSupabaseState(options = {}) {
   if (!supabaseClient) {
     setSyncStatus("offline", "Sync: Offline");
+    scheduleSupabaseReconnect();
+    return false;
+  }
+  if (!options.manual && !options.retry && supabaseRetryRemainingMs() > 0) {
     scheduleSupabaseReconnect();
     return false;
   }
@@ -6526,15 +6674,16 @@ async function loadSupabaseState(options = {}) {
     if (isSupabaseGatewayUnavailableError(error)) {
       setSyncStatus("connecting", "Project Unreachable - Local Safe", syncErrorDetail(error));
     } else if (isSupabaseDatabaseUnavailableError(error)) {
-      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds; no local ERP data was cleared or replaced.");
+      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Bounded automatic retry is active; no local ERP data was cleared or replaced.");
     } else if (isSupabaseTimeoutError(error)) {
       setSyncStatus("connecting", "Database Waking - Local Safe", "Supabase has not replied yet. Retrying automatically; no local ERP data was cleared or replaced.");
     } else {
       setSyncStatus("offline", syncStatusForError(error, "Sync: Load Failed"), syncErrorDetail(error));
     }
-    scheduleSupabaseReconnect();
+    scheduleSupabaseReconnect(error);
     return false;
   }
+  clearSupabaseRetryBackoff();
   let handledCloudState = false;
   if (data?.data) {
     rememberVerifiedCloudBaseline(data.data, data.updated_at || "");
@@ -6552,8 +6701,12 @@ async function loadSupabaseState(options = {}) {
   return true;
 }
 
-async function pollSupabaseStateRevision() {
+async function pollSupabaseStateRevision(options = {}) {
   if (!supabaseClient || supabaseIsConnecting || supabaseIsPollingRevision || supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
+  if (!options.retry && supabaseRetryRemainingMs() > 0) {
+    scheduleSupabaseReconnect();
+    return false;
+  }
   if (Date.now() - supabaseLastLocalChangeAt < 1500) return false;
   supabaseIsPollingRevision = true;
   let result;
@@ -6565,18 +6718,17 @@ async function pollSupabaseStateRevision() {
   if (result?.error) {
     if (isSupabaseGatewayUnavailableError(result.error)) {
       setSyncStatus("connecting", "Project Unreachable - Local Safe", syncErrorDetail(result.error));
-      scheduleSupabaseReconnect();
     } else if (isSupabaseDatabaseUnavailableError(result.error)) {
-      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Retrying every 15 seconds without changing local ERP data.");
-      scheduleSupabaseReconnect();
+      setSyncStatus("connecting", "Database Unavailable - Local Safe", "Supabase cannot currently connect its Data API to the database. Bounded automatic retry is active without changing local ERP data.");
     } else if (isSupabaseTimeoutError(result.error)) {
       setSyncStatus("connecting", "Cloud Slow - Local Safe", "Background cloud check timed out. Retrying automatically without changing local data.");
     } else {
       setSyncStatus("offline", syncStatusForError(result.error, "Sync: Check Failed"), syncErrorDetail(result.error));
     }
-    if (!isSupabaseTimeoutError(result.error) && !isSupabaseGatewayUnavailableError(result.error)) scheduleSupabaseReconnect();
+    scheduleSupabaseReconnect(result.error);
     return false;
   }
+  clearSupabaseRetryBackoff();
   const cloudUpdatedAt = result?.data?.updated_at || "";
   if (cloudUpdatedAt && isNewerCloudData(cloudUpdatedAt)) return loadSupabaseState({ auto: true, revisionPoll: true });
   setSyncStatus("online", supabaseRealtimeChannel ? "Live Sync: Realtime" : "Live Sync: Auto");
@@ -6587,6 +6739,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
   rememberVerifiedCloudBaseline(row.data, row.updated_at || "");
   if (cloudStateRequiresNewerApp(row.data)) {
     const newerVersion = String(row.data?.appVersion || `build ${stateSyncBuild(row.data)}`);
+    supabaseVersionWriteBlocked = true;
     supabaseStartupProtectionActive = true;
     if (options.initial && !isEmptyBusinessState(row.data)) {
       applyCloudState(row.data, row.updated_at || "", { ...options, newerCloudReadOnly: true });
@@ -6595,6 +6748,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     setSyncStatus("offline", "Update Required", `Cloud data uses ${newerVersion}. Data can be viewed, but this older app cannot save. Open the latest ERP version.`);
     return true;
   }
+  supabaseVersionWriteBlocked = false;
   if (options.initial && hasUnsyncedLocalState() && isSuspiciouslyReducedLocalState(row.data)) {
     savePreCloudRecoveryCopy("startup-loaded-richer-cloud-copy");
     clearTimeout(supabaseSaveTimer);

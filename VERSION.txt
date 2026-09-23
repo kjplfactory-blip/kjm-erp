@@ -1,6 +1,429 @@
 KHUSHALI JEWELLS MANUFACTURING
-App version: v490
-Updated: 2026-08-12 IST
+App version: v592
+Updated: 2026-09-23 IST
+Supabase API requests are now coalesced behind one retry window with exponential backoff and jitter, preventing polling, focus, reconnect, and save retries from multiplying during an outage.
+Realtime remains immediate while fallback revision polling now runs every 45 seconds; timed-out requests are cancelled instead of continuing in the background.
+Daily cloud safety backup now reuses the existing pre-save state read, removing one full erp_state JSON download from the save path.
+Cloud backup writes are duplicate-safe for state_id plus backup_key and no longer generate expected unique-constraint errors.
+Outdated website builds stop repeatedly attempting writes that the app-version guard has blocked; local work remains protected until the latest build opens.
+SUPABASE-API-HEALTH-v592.sql verifies indexes, JSON/table size, query plan, active waits, blocking sessions, and backup volume without changing ERP records.
+No ERP business data is reset or replaced by this update.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v591
+Updated: 2026-09-23 IST
+Setting Manager can now add, edit, and remove stone rows from any saved Job Card item available to the Setting workflow; the previous live-Setting-lot restriction was removed.
+The first item-level stone change immediately shows EDITED - NOT SAVED and disables both Get Stone Data buttons.
+After saving, the Job Card permanently shows EDITED with the editor name and date/time, and master-data reload remains locked for that PR item.
+Production Stone Entry now has a precise summary for Job Card, PR, design, sub-item, lot/department, wax stone, hand stone, total stone, and edit status.
+Stone rows use clearer labels, compact controls, responsive card rows on smaller screens, and no sideways page scrolling.
+Changes remain item-specific and never alter Design Master; Setting Manager entries do not update Stone Master weights.
+No Supabase SQL change is required and no ERP business data is reset.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v590
+Updated: 2026-09-23 IST
+Fixed the incorrect This login does not have access to this page alert affecting restored logins.
+Page routing now waits until Supabase has validated the saved login session before evaluating that user's permissions.
+After validation, Owner, Manager, department, sales, QC, demo, and custom-user page restrictions continue to be enforced normally.
+No user permissions, passwords, job cards, stock, production, designs, bills, or erp_state data were changed.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v589
+Updated: 2026-09-23 IST
+Repaired the login-limit setup for Supabase schema-cache errors.
+ENABLE-LOGIN-LIMITS.sql now safely recreates the three login session functions with the exact parameter names used by the website, reloads the API schema cache, and verifies all functions are ready.
+Corrected the login error formatter that was removing the letter S from Supabase messages.
+Missing login-session functions now show a clear setup instruction instead of a damaged technical message.
+No ERP job card, design, stock, production, bill, or erp_state data is changed by this repair.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v588
+Updated: 2026-09-23 IST
+Concurrent login limits are now enforced through an atomic Supabase session register.
+Owner and Manager can each use a maximum of 2 active devices; every other built-in or custom user can use 1 active device.
+Login reserves a device slot before opening the ERP, heartbeat refreshes every 30 seconds, Logout releases immediately, and abandoned sessions expire after 2 minutes.
+Restored browser logins remain blocked behind the login screen until Supabase validates the session.
+Older untracked login cookies are removed once after upgrading so every v588 login is counted.
+Owner Login Details now shows the limit assigned to each user.
+Run ENABLE-LOGIN-LIMITS.sql once after Supabase is healthy.
+No job card, stock, design, bill, production, or erp_state data is modified by the setup.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v587
+Updated: 2026-09-23 IST
+Large ERP data now uses persistent large browser storage after the small localStorage quota is reached.
+A tiny verified recovery pointer replaces the oversized small-storage copy only after the complete IndexedDB write succeeds.
+Reloading the ERP follows that pointer and restores the full local data before Supabase connection starts.
+The previous Small browser storage is full warning is replaced by a normal Local Save: Protected status.
+A real IndexedDB failure is now reported separately as Save Failed - Large Storage.
+Existing ERP data, job cards, production logic, and Supabase schema remain unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v586
+Updated: 2026-09-23 IST
+Dashboard holdings and Department Transfer History now combine Pre Polish and Final Polish under one Polish Department heading.
+The individual process remains visible as Pre-Final Polish or Final Polish inside the combined department view.
+Centrifugal Finishing is protected as its own department and is never grouped under Filing, including older entries registered with Filing.
+Existing transfer weights, routes, job cards, and ERP data remain unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v585
+Updated: 2026-09-23 IST
+Live sync now recognizes Supabase gateway errors HTTP 520, 522, 523, and 524 as a project-level outage.
+The header now reports Project Unreachable - Local Safe instead of leaving the laptop in a misleading cloud-loading state.
+Local ERP data and unsynced work remain protected while automatic reconnection continues every 15 seconds.
+When Supabase recovers or the project is restarted, the protected initial cloud read resumes automatically before any pending local save.
+Added SUPABASE-522-RECOVERY.txt with the safe recovery steps.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v584
+Updated: 2026-09-23 IST
+Setting Manager now has a dedicated Receive Manual Production Item - No Job Card account action.
+The receive entry accepts actual Receive GW and manually entered Hand Stone, and automatically calculates Receive Net as GW minus Hand Stone.
+For an existing manual production source, the Hand Stone is added to that item's GW and non-gold holding while net gold remains unchanged.
+An old manual item without a previous source is created as a proper Setting Department holding when received.
+Outstanding setter metal remains excluded from the available manual-item balance until it is returned or booked as loss.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v583
+Updated: 2026-09-23 IST
+Department Transfer History is now separated by the actual Department Master name, not by process.
+Processes such as Filing, Fitting, and Repair remain visible inside each transfer row but no longer create separate department tiles.
+All processes registered under FILING DEPT therefore appear in one FILING DEPT history, while VINOD FITTING remains a separate department history.
+Existing transfer routing, Receive GW totals, karat bifurcation, and process details remain unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v582
+Updated: 2026-09-22 IST
+Department Transfer History now shows Receive GW for both IN and OUT movement rows.
+OUT department tiles, total cards, and karat-wise bifurcation also use Receive GW instead of Issue GW.
+Issue-to-receive difference, net weight, and fine-gold reduction remain separately visible and unchanged.
+Filing and Fitting continue to use separate transfer-history sheets.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v581
+Updated: 2026-09-22 IST
+Owner and Manager can now remove Stone, Black Beads, Moti, Spring, or Other non-gold directly from main factory stock with karat, weight, pieces, and a required reason.
+Main-stock non-gold removal reduces factory GW and non-gold by the same weight while fine gold remains unchanged.
+Every removal is retained in Non-Gold Movement History and shown separately in the karat-wise Virtual Non-Gold Shelf and Fine Sheet calculation.
+Filing and Fitting now have separate Department Transfer History tiles and separate IN / OUT sheets, including departments whose master contains both processes.
+Old combined process labels use the department name to resolve Filing versus Fitting without combining their ledgers.
+Setter entries are still reconciled automatically when a received lot moves out of Setting, so received S7-style lots no longer remain in the active setter holding.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v580
+Updated: 2026-09-22 IST
+Setter lots are now reconciled automatically with the main Production transfer flow.
+When a lot moves from Stone Setting to the next department, its setter entry changes from Issued to Received and is removed from the active "with setter" count.
+Any genuine metal difference remains separately visible as returned-lot metal due; it is not incorrectly counted as an active lot.
+Old Setting-to-next-department movements are corrected automatically when live data loads, including stale S7-style entries.
+Items issued directly to Stone Setting without a Job Card now appear as Manual Production Item / No Job Card.
+The Setting Manager can issue the full available GW or split it by entering a smaller GW for each setter; the unissued balance remains available.
+Manufactured/WIP items are separated from rawa, wastage, laser wire and other direct accessories to prevent duplicate choices.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v579
+Updated: 2026-09-22 IST
+Each setter tile in Setting Manager now opens a full-screen setter account ledger.
+The ledger separates current lot GW, returned-lot metal due and total accountable metal with the setter.
+Every issue/receive row shows Lot, Job Card, PR items, Issue GW, Receive GW, Receive Net, wax/hand stone totals, full stone lines, returned material, loss, individual metal balance, status and settlement remarks.
+The open setter ledger refreshes automatically after account changes.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v576
+Updated: 2026-09-22 IST
+JOB-1689-S2 now receives a one-time live-data correction when its latest completed movement is from Setting to Filing.
+The Filing transfer hand-stone weight is recalculated from the current Job Card stone entries.
+Receive GW changes by exactly the hand-stone difference, preserving the transfer's net gold weight and department difference.
+Wax stone, hand stone, reduced weight, net weight, fine difference and the linked transfer ledger reference are updated together.
+Future Production Stone Entry saves, removals and master refreshes automatically resync a latest Setting-to-Filing transfer.
+The correction is idempotent, so refreshing or loading the app again cannot add the stone weight twice.
+The normal protected cloud-save process is used after the targeted JOB-1689-S2 correction.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v575
+Updated: 2026-09-22 IST
+Production Stone Entry now reserves a separate footer row for Save Production Stone Plan and the other action buttons.
+The stone chart and stone-detail table scroll inside the remaining full-screen workspace, so the final stone row stays fully visible above the save controls.
+The product selector is height-limited with its own scroll when many matching PR items are shown.
+On tablet and mobile, the dialog returns to a natural vertical scroll while retaining clearance below the final stone row.
+The stylesheet cache key is refreshed so the corrected layout loads immediately after deployment.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v574
+Updated: 2026-09-22 IST
+Receiving a Setting lot no longer forces its metal difference to zero; the returned lot closes while its remaining metal balance stays due against that setter.
+Setter tiles and the Setting summary now show both active lots still with the setter and the combined returned-lot metal balance due.
+Receive Combined Rawa / Laser Wire / WSTG and Book Combined Monthly Setter Loss apply one amount across that setter's outstanding returned lots while preserving each lot's individual audit history.
+Additional Stone is now treated as Hand Stone at the Setting manufacturing stage and is included in cumulative Hand Stone totals.
+Saving item stone changes immediately refreshes the live Setting lot and its current setter entry with the updated cumulative Hand Stone weight.
+After a PR stone plan is updated, Stone Master and Design Master reload buttons are locked; users may modify the current rows or add stones without replacing the saved item plan.
+Verified 10.000 g issue, 9.700 g return GW and 0.200 g hand stone produces 9.500 g receive net and keeps 0.500 g due against the setter.
+Verified combined 1.000 g setter balance settles through 0.700 g rawa and 0.300 g monthly loss with zero remaining balance.
+Previous Setting permissions, stock, wax-stone, hand-stone, Fine Sheet and transfer regressions passed.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v573
+Updated: 2026-09-22 IST
+Setting Manager can now open each live Setting lot as a Job Card directly from the Setting Manager table.
+The Setting Job Card shows only items linked to that current Setting lot and keeps customer, dates, gold issue, transfer, split, fitting accessory, item edit and item deletion controls unavailable.
+Opening an individual PR provides Edit Stone Details with cropped stone-chart verification, item-level Type, Shape, Size, Pcs, Wt/Pc, Wax or Hand Setting, Manufacturing Stage and Additional Stone Weight.
+Stone changes are saved only to the selected Job Card PR item and do not alter Design Master.
+Setting Manager cannot delete stone rows and cannot update a PR outside a live Setting lot; Owner and Manager deletion rules remain unchanged.
+Same-design multi-PR selection is limited to PR items that are currently in Setting.
+Focused Setting Manager permissions and previous v572-v568 production/stock regressions passed.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v572
+Updated: 2026-09-22 IST
+Setting Manager now supports Manual Production Item - No Job Card for old production inventory.
+The manual issue records item reference, karat, GW and setter without requiring a Job Card or PR number.
+At receipt, the actual total hand-stone weight can be entered manually; Receive Net is calculated as Receive GW - Hand Stone and the setter account must balance to zero.
+Daily Stock Tally history now filters immediately to the department selected in the tally dropdown.
+A saved Daily Stock Tally loss is removed once from the concerned department holding, factory GW, net gold and fine gold using the selected or department purity split.
+Editing a tally replaces its linked loss adjustment; deleting the tally restores the same stock automatically.
+The new Loss Ledger tab shows Daily Tally, department receipt, setter, Job Card, melting/casting and XRF loss records with department, purity, GW and fine gold.
+Verified manual 10.000 g setter issue / 10.400 g receipt / 0.400 g hand stone closes at 10.000 g net and zero balance.
+Verified a 0.500 g tally loss reduces department and factory GW by exactly 0.500 g and restores exactly on deletion.
+Previous wax-stone, hand-stone, Daily GW Tally, transfer-chain and Fine Sheet regressions passed.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v571
+Updated: 2026-09-22 IST
+Audited ROSECASTING/1/21SEPTEMBER2026 against the current live cloud ERP data.
+The casting receipt correctly contained 6.430 g GW, 0.173 g wax stone, and 6.257 g net gold.
+Corrected the linked LOT-208 / JOB-1701 from the Job Card estimate of 0.174 g to the physical casting wax of 0.173 g.
+Safe Locker wax stone now appears in Factory Non-Gold immediately after casting receipt and is deducted from Safe Locker net gold and fine gold.
+When a casting item is issued to a Job Card, the physical casting wax is authoritative; the Job Card estimate cannot create extra wax weight.
+Existing lots and transfer entries recover actual wax from their saved Safe issue movement automatically.
+Moving wax from Safe Locker to Production changes only its location and does not duplicate Total Factory Non-Gold.
+Exact casting trace, Safe Locker classification, transfer normalization, and production stage regression tests passed.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v570
+Updated: 2026-09-22 IST
+Factory Non-Gold now follows the actual wax-stone and hand-stone production stages automatically.
+Wax stone is moved into Production Non-Gold as soon as the casting/job lot carries that wax-stone weight.
+Hand stone remains excluded while the lot is pending in Stone Setting and moves into Production Non-Gold only after the Setting receipt records it.
+Every stone weight moved into production reduces Opening Non-Gold by the same amount, preventing duplicate factory non-gold stock.
+For the audited data, Production Non-Gold increased from 6.774 g to 12.102 g and Opening Non-Gold reduced from 273.096 g to 267.768 g.
+Total Factory Non-Gold remains 357.362 g because the 5.328 g wax stone moved location rather than entering the factory twice.
+The correction removed a duplicate fine-gold deduction. Correct audited values are Physical GW 6457.109 g, Physical Fine 4575.686 g, and Net Factory Fine 4235.597 g.
+Testing confirmed that adding 0.500 g casting wax immediately adds 0.500 g to tracked production stone, and a 1.436 g Setting receipt moves exactly 1.436 g from Opening Non-Gold to Production Non-Gold.
+Setting receipt timing, Daily GW Tally, Online Transfer count, individual rods, and Fine Sheet backup regressions passed.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v569
+Updated: 2026-09-21 IST
+Planned hand-setting stone is no longer counted in department Other weight, factory GW, or production GW while a lot is still pending in Stone Setting.
+Wax stone remains included because it was already present before the lot entered production.
+Hand stone is added only after the lot is received from Stone Setting and the outbound transfer records its actual hand-stone weight.
+The audited Stone Setting Other weight changed from 9.719 g to 5.328 g: Wax 5.328 g remains, while planned Hand 4.391 g is excluded until receipt.
+After a Setting receipt is recorded, that lot's hand stone appears automatically in its next department holding.
+Corrected physical factory GW for the verification data is 6457.109 g, reduced by the same unreceived 4.391 g. Physical Fine remains 4571.676 g and Net Factory Fine remains 4231.587 g.
+Daily GW Tally, Online Transfer count, individual rod selection, and Fine Sheet backup regressions passed unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v568
+Updated: 2026-09-21 IST
+Daily Stock Tally now compares ERP Gross Weight (GW) with the physical product GW after deducting the selected dabba or container weight.
+The loss formula is now ERP GW - Physical GW, instead of ERP net gold weight - physical weight.
+ERP net gold and fine gold remain visible as reference values but are not used to calculate the daily physical loss or gain.
+Daily Tally form, summary, history headings, and saved-row details now consistently use GW terminology.
+Corrected an older save issue that discarded the calculated difference; loss or gain now remains available after refresh and cloud synchronization.
+Existing Daily Tally entries are recalculated on load using their saved ERP gross reference. Legacy entries without a gross value fall back safely to their saved ERP weight.
+Verified example: ERP GW 120.000 g, physical total 105.000 g, dabba 5.000 g gives physical GW 100.000 g and calculated loss 20.000 g.
+Online Transfer count, individual rod selection, Fine Sheet backup, and Net Factory Fine reconciliation regressions passed unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v567
+Updated: 2026-09-21 IST
+Online Transfer History now shows today's total entry count for quick comparison with the manual paper register.
+The summary separately shows Gold Issues, Job Transfers, and direct Shelf / Department movements.
+Today's total always counts the complete online history for the current local date, even when the table search is filtering visible rows.
+Deleted transfer entries are excluded; editing an entry keeps it as one counted entry.
+Verified with a controlled test containing three entries today and one older entry: today's count was 3 with one entry in each category.
+Current verification data reported 18 online entries today: 5 Gold Issues, 0 Job Transfers, and 13 Shelf / Department movements.
+Individual rod selection, Fine Sheet daily backup, and Net Factory Fine reconciliation regressions passed unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v566
+Updated: 2026-09-21 IST
+Rod and casting-item stock is now shown and selected as individual Safe Locker records instead of one combined purity/colour pool.
+Melting Conversion > Add Rod From Safe now shows each rod's reference or batch, locker, colour, purity, date, GW, wax stone, and available net weight.
+Issue Gold to Job Card now lists every eligible casting item separately with its own batch/reference and remaining balance.
+Issuing one rod or casting item reduces only that selected record; another item of the same karat and colour remains unchanged.
+Safe Locker now shows Individual Casting Items cards rather than combined casting shelf cards.
+Old saved melting entries that used a combined rod selection remain readable and editable for backward compatibility.
+Collective wastage remains combined by karat and colour for remelting, as before.
+Verified with two matching rods: Rod A changed from 10.000 g to 7.000 g after a 3.000 g issue, while Rod B remained 20.000 g.
+Fine Sheet backup and Net Factory Fine reconciliation regressions passed unchanged.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v565
+Updated: 2026-09-21 IST
+Fine Sheet now keeps one dated calculation backup per working day and retains the latest 8 daily backups.
+Today's backup refreshes automatically whenever ERP data is saved, without creating duplicate entries for the same date.
+Added Save Today Backup, Print Yesterday, and Print Selected Backup controls inside Fine Sheet.
+Each backup freezes the physical GW, non-gold, net gold, physical fine, party balance, Net Factory Fine, calculation rows, party rows, and latest 200 Factory In / Out rows as they were at save time.
+Printing an older backup never recalculates it from current stock, so later transactions cannot change the saved balance.
+Verified against the live-state copy: yesterday and today each calculate Net Factory Fine 4231.587 g, yesterday stays unchanged, and repeated saves keep one backup per date.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v564
+Updated: 2026-09-21 IST
+Corrected Net Factory Fine when a synchronized state restores Safe Locker metal that was already consumed by a saved melting conversion.
+The live audit found ROSEMELTING/2/21SEPTEMBER2026 had consumed 55.150 g of 18K rose wastage, but that same source weight had reappeared in the Safe shelf.
+At 75.25% purity, the duplicate raised fine gold by 41.499 g: 4273.086 g instead of the correct 4231.587 g.
+The app now reconciles each saved rod, wastage, or Ghiss melting source against its Safe issue records and removes only a proven duplicate source balance.
+Already-correct melting sources remain unchanged, and the verified earlier snapshot still calculates 4231.587 g.
+Safe item creation and issue records now retain original weight, source-item linkage, created time, and updated time so concurrent laptop merging can prefer the true latest stock state.
+Verified live values after reconciliation: Factory GW 6461.500 g, Net Gold 6094.419 g, Physical Fine 4571.676 g, Party Fine 340.089 g, Net Factory Fine 4231.587 g.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v563
+Updated: 2026-09-21 IST
+Owner and Manager can now correct Issue GW even when a Gold Issue has an open, unreceived Setting Manager assignment.
+The controlled mode locks Job Card, purity, first department, and existing production history; only Issue GW and its correction reason can change.
+An increased GW deducts only the additional difference from the selected compatible Safe holding; a decreased GW returns only the difference to Safe stock.
+The linked lot, Gold Issue ledger, Safe stock, linked Safe issue, and pending setter Issue GW / balance are updated together with rollback protection.
+The correction is blocked after setter receipt, returned Rawa / WSTG, setter loss, department transfer, Bill, completion, split, repair, or dependent non-gold activity.
+Every correction records the acting user, time, old and new GW / Net Gold, Safe adjustment, reason, and linked Setting update.
+Verified LOT-205 correction: GW 38.390 g to 39.570 g, Net Gold 37.121 g to 38.301 g, Shelf 18K OUT 1.180 g, setter balance 39.570 g, with unchanged total factory GW and fine gold.
+Filing and Fitting are now independent production departments with separate holdings, transfer-history tiles, and From / To identities.
+EP and Pre-Final Polish are now independent production departments with separate holdings and transfer histories.
+The default production flow is Filing, Paper Filing, EP, Pre-Final Polish, Setting, Fitting, and Final Polish.
+Automatic transfer defaults use the process names registered in Department Master while saving the canonical independent stage.
+Older Filing / Fitting transfer labels are separated using their saved master department: Vinod / Fitting remains Fitting and other legacy entries remain Filing.
+Existing GW, stone, non-gold, loss, purity, and fine-gold values are unchanged by the department-label migration.
+Setting Manager can now issue a full Job Lot or select individual PR items and split only that part for a setter.
+The Setting split keeps the original Job Card and production numbers, creates a traceable child lot, leaves unselected PR items in the original lot, and books no factory stock movement.
+The selected part requires its exact GW; planned hand-set stone is calculated only from the selected PR items.
+Added Repair Job Item as a setter work type, available for both full-lot and selected-PR issue.
+Accessory issue now clearly supports Used In Job / No Return or Accessory / Repair Item Return Expected.
+Return-expected accessory and repair entries stay pending with the setter and can be received, reconciled with returned Rawa / Laser Wire / WSTG, or closed with setter loss.
+Pending setter lists and history now show work type, Job Card, child/original lot relationship, and the exact PR numbers assigned to the setter.
+Existing historical accessory entries remain Used / No Return and are not changed by this update.
+Added Correct Issue controls for newly issued Gold lots in Job Card view, Production Lots, and Lot Transfer History.
+Owner or Manager can move an untouched Gold Issue to a compatible Gold Pending Job Card or undo the issue completely.
+Change Job Card is restricted to matching karat and wax-stone totals so GW, net gold, and Safe Locker stock remain correct.
+Undo restores the original Safe Locker item balance, removes the initial Gold Issue ledger/lot records, and returns the Job Card to Gold Pending.
+Issues already transferred, split, adjusted with non-gold, handled by Setting, completed, returned, or billed are protected from unsafe correction.
+New Gold Issues retain exact Safe Locker source snapshots, and older records use a compatible stock-recovery fallback when possible.
+Every undo or Job Card reassignment is retained in the Gold Issue correction audit with user and time.
+Added a Merge Split Job Cards tile in Job Orders for Owner, Manager, and Order Dept.
+The merge screen allows the Main / First Job Card to be chosen explicitly; that card number is kept after merging.
+Only Job Cards from the same original split family can be selected, preventing unrelated orders from being combined.
+Search, Select All Related, Clear Selection, and selected-card chips make large split families easy to manage.
+Every PR item from the selected split cards is retained under the Main Job Card with its original production number, status, dates, stone data, and item details.
+Existing production lots remain separate, preserving GW, stone/non-gold weight, current department, transfers, bills, and physical stock calculations.
+Current lot, bill, Safe Locker, non-gold, setting, and Factory references are updated to the Main Job Card, while merge-source numbers and a dated ledger audit are retained.
+The merge saves locally first, rolls back if local saving fails, protects the merged Job Orders in local backup, and then confirms Supabase cloud saving or automatic retry.
+Added a search bar to Job Card Split so large job cards can be filtered by PR number, design, sub item, category, or item name.
+Selected split items now remain checked while the search changes and appear in a separate Selected For Split panel, matching the Create Job Order selection experience.
+Each selected item can be removed directly from the selected panel, with the item card, checkbox, and selected count refreshing immediately.
+Existing split numbering, production-number retention, live-lot GW validation, inventory, and transfer calculations are unchanged.
+Made department transfer selection explicit on every receive row: choose Action = Transfer To Department, then select the required Department / Process in a separate dropdown.
+The destination dropdown remains disabled for Receive To Safe and Manufacturing Loss, preventing accidental or incomplete routing.
+Added per-item destination selection while receiving multiple items or wastage from a department: return to Safe Locker or transfer directly to another department/process.
+Direct department transfers now move the same GW, wax stone, non-gold, and net weight from source to destination without creating an unnecessary Safe Locker item.
+Online and department transfer histories show one direct source-to-destination movement, while dashboard holdings show the matching OUT and IN balances.
+Corrected the Safe Locker factory-stock calculation so explicit non-gold is deducted once from gross weight; wax stone remains separately tracked for production and issue workflows.
+The verified 18K Safe Locker values are GW 2628.413 g, Non-Gold 77.492 g, and Factory Net Gold 2550.921 g.
+Fine Sheet and Dashboard Net Fine now reconcile at 4231.379 g with a 0.000 g difference.
+Added a read-only Fine Sheet tab with location/purity rows, party adjustments, running fine balances, exact Dashboard reconciliation, filters, and a dated Factory In / Out audit ledger.
+Remote-only fields and nested records are now preserved during three-way merge, while deliberate authorised deletions still remain deleted.
+This specifically protects Factory Out confirmation timestamps, bill links, ledger metadata, job-card item additions, and other newly added record details.
+The complete v501 audit passed JavaScript syntax, required asset, duplicate-ID, direct event binding, navigation, permission, karat, fine-gold, black-bead, bill non-gold, stone OCR/code, and multi-laptop merge checks.
+The live Supabase integrity audit found no duplicate record IDs, no missing record IDs, no broken lot/order links, and no broken bill/lot links.
+The audit confirmed that four Factory Out confirmations saved earlier were later removed by the old merge behavior; the protected v500 backup still contains all four exact entries.
+Added RECOVER-FACTORY-OUT-v501.sql to restore only those four Factory Out fields and ledger rows from the protected backup without replacing newer orders, stock, designs, bills, or other live data.
+No Supabase schema change is required for the v501 application fix.
+Rebuilt multi-laptop synchronization so each laptop uploads only its pending changed records onto the newest verified cloud copy.
+Factory Out, bills, job orders, transfers, stock, and master-data changes from different laptops are merged instead of replacing unrelated work.
+Added a persistent local pending-change journal so unsynced work survives refresh, restart, slow internet, and temporary Supabase outages.
+Any pending local save is retried on internet recovery, window focus, page visibility, and the 15-second background sync cycle.
+Added three-way field merging when two laptops modify different details of the same record.
+Added explicit deletion tracking so records deleted by an authorised user are not restored by an older laptop.
+Cloud saves now retry conditional writes up to three times when another laptop saves during the same upload.
+Factory Out ledger rows are rebuilt from the merged Bill state before cloud save, keeping exactly one ledger entry per posted Bill.
+Successful concurrent saves display Live Sync: Merged; ordinary saves display Live Sync: Saved.
+Verified the live Supabase row contains all four posted Bills and all four matching Factory Out ledger records before packaging v500.
+No Supabase schema change is required for v500.
+Fixed a stalled cloud-save timer that could leave a locally saved Factory Out bill permanently waiting after Supabase startup or database recovery.
+Pending local work now automatically schedules a fresh upload as soon as the protected cloud baseline becomes available.
+Save Bill Factory Out now waits for the immediate Supabase result and only reports cloud success after Supabase confirms the update.
+When cloud is unavailable, Factory Out clearly reports that the bill is saved locally and pending sync, while retaining automatic retry protection.
+After a bill is posted, the Factory Out form now clears instead of continuing to display the previous last bill details.
+The Factory Out submit button is locked during processing to prevent accidental double posting.
+Supabase PGRST002 and related database-connection errors are now identified as a temporary Database Unavailable condition instead of missing ERP setup.
+The app keeps local ERP data protected and retries the cloud connection every 15 seconds without clearing or replacing any records.
+Cloud errors now retain their Supabase code and HTTP status, making live-sync diagnosis accurate on every laptop.
+Added RECOVER-PGRST002-SCHEMA-CACHE.sql and PGRST002-RECOVERY-v499.txt for a non-destructive Supabase schema-cache recovery.
+Factory Ledger Reference now stays on one clear line, with long text shortened by an ellipsis inside the table.
+Moving the cursor over the Reference, or focusing it with the keyboard, opens the complete Factory Reference in a readable popup.
+The popup includes Bill, Job Card, Lot, pieces, order destination, production numbers, full category-wise weight breakup, and remarks.
+The popup stays inside the visible screen and closes automatically when the cursor leaves, focus moves away, or the ledger scrolls.
+The Completed Bill / Office Transfer dropdown is now a pending Factory Out queue.
+After Save Bill Factory Out succeeds, the bill is marked as posted and immediately removed from the dropdown.
+Posted bills remain permanently available in Factory Ledger with their complete weight breakup and View Bill action.
+Pending Office bills no longer count in the Factory Out ledger until Factory Out is actually saved.
+Repeated synchronisation keeps exactly one ledger row for each posted bill and never recreates a processed bill in the dropdown.
+Bills saved through v495 are recognised as already posted and are also removed from the pending dropdown automatically.
+Completed bills now appear in a dedicated Completed Bill / Office Transfer dropdown inside Factory Out after QC OK items are transferred to Office.
+Selecting a Bill No automatically captures its item count, GW, stone, black beads, moti, spring, other non-gold, total non-gold, net weight, purity, job card, and lot details.
+Bill-derived GW, non-gold weights, net weight, party, purity, and reference are locked to the saved Bill so they cannot be entered differently in Factory Out.
+WSTG percentage remains manually editable for the selected Bill and is included in the Factory Out fine-gold calculation.
+Saving a selected Bill updates its existing linked Factory Out ledger row instead of creating a duplicate entry.
+Partially completed Bills include only QC OK items already transferred to Office; remaining items are added automatically when they later reach Office.
+Factory Out Bill rows now retain an auditable category-wise weight breakup and provide the existing View Bill action.
+Previously completed Office Bills are automatically upgraded and displayed in the new Factory Out selector without re-entering their data.
+Fixed v493 Supabase load timeout for sleeping or heavily delayed projects.
+Initial full cloud load now allows up to three minutes and shows Database Waking - Local Safe after eight seconds instead of reporting a raw permanent timeout.
+Local browser data remains visible and protected throughout a slow cloud load; a timeout triggers automatic retry without clearing or replacing local records.
+Removed the previous full 3 MB ERP download every three seconds on every laptop.
+Background synchronization now checks only the lightweight updated_at timestamp every 15 seconds and downloads the full ERP state only when the cloud timestamp changes.
+Supabase Realtime remains enabled for immediate updates, with the lightweight timestamp poll as its fallback.
+Focus and tab-visibility refreshes now use the lightweight revision check rather than downloading all cloud data.
+General Supabase requests now have a two-minute safety window while the CDN loader retains its short 12-second fallback to direct REST connection.
+Fixed QR rendering so each product now displays and prints one QR square instead of the QR library's canvas and image fallback appearing as two boxes.
+Existing barcodes remain available beside the single QR code.
+The top header is now Search Job Card / Scan Product and accepts Job Card, PR, HUID, barcode, or QR input.
+Typing an exact Job Card number and pressing Enter opens the complete Job Card at its current status, including all active and completed items.
+Typing only the numeric part also matches standard JOB-number cards, while PR/barcode/QR lookup continues opening the individual product item.
+Added automatic live-app version checking for every laptop on the hosted ERP website.
+Each open laptop checks app-version.json every 20 seconds and also checks when the tab regains focus or internet reconnects.
+When a newer version is found, the ERP preserves the Create Job Order draft, waits briefly for pending cloud data to save, and reloads the same page automatically.
+Open non-Job-Order forms and popups are not interrupted; the update continues automatically after they are closed, with an Update Now option available.
+Automatic reload adds a unique version query to bypass old browser/server cache while preserving the current page link and PR QR parameters.
+Local file copies do not auto-refresh; this update runs only on the live http/https website.
+Added no-cache page metadata and a small live version manifest so future GitHub deployments can be detected without changing Supabase data.
+Fixed saved Job Order restoration so production stone lookup uses the state currently being loaded instead of an uninitialized global state.
+Automatic version reload can therefore restore old local Job Orders safely without falling back to starter data.
+Fixed the same saved-state restoration path for Setting Manager lot GW, wax stone, and hand stone calculations.
 Job Bag design-image area increased to 125% of its previous size: 38.75 mm wide by 48.75 mm high in normal mode.
 Design images continue to use contain fitting, preserving their proportions without cropping or stretching.
 Existing compact fallback heights remain available automatically when a large stone chart needs more room above the barcode.
@@ -13,6 +436,12 @@ Design deletion and merge now include Master Image storage, while image repair/s
 Job Bag stone-chart headings, column labels, row details, and totals are now 200% of the previous size: 17.6px in normal mode, including combined multi-item bags.
 Job Bag fitting now preserves the full 17.6px stone font first and reclaims image space before considering any stone-text reduction.
 Only stone tables that still exceed their actual space above the barcode shrink, using readable 14px, 11px, and 8px fallback levels.
+Added a phone-scannable QR code beside every existing Job Card item barcode without removing the barcode.
+Job Bag A4/A6 print, individual Job Card item view, and Barcode + QR print now show both code formats for each PR number.
+Combined bags generate a separate barcode and QR pair for every included production number.
+On the live website, the QR contains a direct ERP `?pr=` item link; after login it opens the same trace/details flow as barcode scanning.
+QR links wait for the initial Supabase data load on a new phone before searching, preventing false Product Not Found results.
+The packaged QR generator works offline and is included with its MIT license; no external QR image service is required.
 Job Bag stone-detail boxes now keep their natural content height instead of stretching through all unused page space.
 Normal-size stone rows remain unchanged when they fit; compact, dense, and ultra-compact sizing is applied only when the chart would cross its available area above the barcode.
 Added View Design to every item row inside Make Bill, View Bill, and QC Check.
@@ -630,3 +1059,503 @@ Final Bill and Packing List print only QC OK items transferred to Office.
 Office Hallmarking now opens HM lots as batch tiles with lot-wise item view, Select All, and lot-wise receive.
 If the website shows text starting "const currency", the website is opening app.js instead of index.html. Upload index.html as the home page and keep app.js as a separate file beside it.
 If the website does not show App v429, the latest files were not uploaded or the browser/server cache is still serving old files.
+
+v502
+- Factory Out bill selection is retained independently from FormData so a redraw cannot silently submit the selected bill as a manual metal/stock entry.
+- Manual Factory Out is blocked whenever the form is still in selected-bill mode but the Bill No cannot be confirmed.
+- Bill IDs are matched consistently as strings across dropdown, state, and ledger lookup.
+- Bill Factory Out is now an atomic transaction: bill marker, lot bill copy, and exactly one linked ledger row must all validate before local save.
+- A failed local save restores bills, lots, vendors, and Factory Ledger to their prior state.
+- Each bill posting has a stable posting ID and timestamp for duplicate protection and traceability.
+- Supabase success is reported only after a read-back confirms the posted bill and exactly one bill-linked Factory Ledger row.
+- A failed cloud read-back keeps the complete local posting protected and queued for automatic retry.
+- Ledger rebuilding now repairs missing bill posting markers from any surviving bill-linked row before rebuilding history.
+- Added RECOVER-FACTORY-OUT-v502.sql to selectively restore the four earlier confirmed postings from the protected cloud backup.
+- Completed source parse, duplicate-ID, inline-handler, conflict-marker, local-asset, Factory Out merge, transaction, duplicate-row, and ledger self-repair checks.
+
+v503
+- Added Repair Item Factory In as a dedicated Factory tile.
+- Repair items can be found by ERP QR, barcode, PR number, or HUID using the shared phone scanner.
+- A scan is review-only until the returned GW and non-gold breakup are confirmed.
+- Stone, Black Beads, Moti, Spring, Other non-gold, Total Non-Gold, and Net Gold are returned to the matching karat Production Shelf together.
+- The Factory In ledger row is linked to the same party used by the original bill Factory Out entry.
+- Returned inward fine gold now reverses that party balance while physical non-gold remains separately traceable in the shelf item.
+- A returned PR is protected from duplicate Factory In posting.
+- Repair Factory In validates shelf, bill item, and party ledger as one transaction before local save.
+- Cloud success is shown only after Supabase read-back confirms the complete transaction; otherwise the local copy remains protected and queued for retry.
+- Factory Ledger repair-return rows show bill, job, lot, PR, GW, every non-gold component, and Net Gold, with direct View Bill access.
+
+v504
+- Create Job Order now reads each selected design's saved Sub Items from Design Master.
+- Any uploaded design with custom sub-items receives a Sub Item / Combination dropdown during job creation.
+- Users can select one sub-item, multiple sub-items, or all available sub-items without changing the Design Master.
+- Every selected sub-item becomes an individual production item with its own PR number.
+- Production stone data is selected using the matching saved design sub-item key.
+- Existing CB/CBR ring selection and CM/PS/TM/MM family combination logic remain unchanged.
+- Generic sub-item selection is saved in job-card drafts, saved item rows, job records, and item details.
+- Multiple-design job entry safely falls back to each design's first valid sub-item when a selected combination is not available for that design.
+- Large sub-item lists avoid exponential dropdown growth by showing individual choices plus an All combination.
+
+v505
+- Job Bag design-image box is 20% larger in both width and height.
+- Normal image box increased from 38.75 x 48.75 mm to 46.5 x 58.5 mm.
+- Compact, dense, and ultra print variants also retain the same 20% size increase.
+- Design photos use contain fitting, centered alignment, and bounded dimensions so the complete image stays inside the printed box without stretching or cropping.
+
+v506
+- Job Bag design photos now use intrinsic proportional sizing inside the enlarged image box.
+- Oversized photos shrink automatically until their complete width and height fit inside the box.
+- A small inner print margin keeps the jewellery design clear of the image-box border.
+- Images remain centered and are never stretched, enlarged beyond their available space, or cropped by the print layout.
+
+v507
+- Job Bag printing now loads the untouched full Master Image for every design.
+- Cropped Design Master display images are no longer used when a full Master Image is available.
+- Older designs without a stored Master Image safely fall back to their current Design Image.
+- The complete Master Image is proportionally shrunk and centered inside the enlarged Job Bag image box without layout cropping.
+
+v508
+- Job Bag image fitting now uses an exact absolute inset rectangle inside the design-image box.
+- Large source-image dimensions can no longer enlarge the grid item or push image edges outside the printable area.
+- The browser must scale the complete source into the fixed inner rectangle using object-fit contain.
+- A 1.5 mm inset remains on all four sides, with the full image centered and no stretching or crop.
+
+v509
+- Job Bag printing now always uses the saved cropped Design Image as its primary image source.
+- The complete cropped Design Image is fitted inside the box with no additional printing crop.
+- The untouched Master Image is used only as a fallback when a design has no saved cropped image.
+- Strict contain fitting, centered placement, and the enlarged image box from v508 remain unchanged.
+
+v510
+- Removed the visible GENERAL stone item from every Design Master workflow.
+- Existing General-only stone rows are preserved by moving them to the design category or first saved sub-item.
+- If item-specific stone rows already exist, obsolete General rows are removed instead of duplicated.
+- Existing General-only stone chart images are moved to the design category or first sub-item, then the old General chart image is deleted.
+- General is no longer offered in stone-entry, stone-crop, production-stone, Design Master, Job Card, or Job Bag selectors and fallbacks.
+- New regular designs use their category as the stone item; uncategorised designs use ITEM.
+- CB, CBR, CM, PS, TM, MM, ring, and custom uploaded sub-item logic remains item-specific.
+
+v511
+- Job Order Edit now includes a searchable, editable Customer Name field.
+- Existing Customer Master names appear as type-ahead suggestions.
+- A newly typed customer is added to Customer Master with blank optional contact details.
+- Changing the customer updates every item belonging to the same job card.
+- Other job cards and previously generated bills remain unchanged.
+
+v512
+- Added a separate Moti Library to the main ERP navigation.
+- Added Add Moti and Moti Master tile pages.
+- Moti records contain Type, Shape, Size, automatic Lookup Code, Weight/Pc in grams, Price/Pc, and Remarks.
+- Weight/Pc is stored to five decimal places, matching Stone Master precision.
+- Added searchable Type / Shape / Size dropdowns, text search, and 100-record pagination.
+- Added edit, delete, duplicate matching, and shared dropdown-option management.
+- Order and Manager logins receive Moti Library access; Owner and Demo retain their existing full access behavior.
+- Moti records and dropdown options are saved in the shared ERP state and merge safely between laptops.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v513
+- Added a dedicated Moti Entry tile inside Designs.
+- Moti Entry opens the full-screen design-material window directly at the Moti section.
+- Moti rows are saved separately for every design and every design sub-item such as CL, CG, CM, CME, or CMB.
+- Type, Shape, and Size are selected from Moti Library; No. Pcs is entered for the design item.
+- Lookup Code, Weight/Pc, and Total Moti Weight are calculated automatically from Moti Library.
+- Added item-wise Moti row editing, correction, reassignment, and removal.
+- Design tiles show whether Moti rows are saved, while opened Design Details show full Moti rows, pieces, and total weight.
+- Design merging now moves Moti rows along with image, stone charts, and stone details.
+- Existing designs safely receive an empty motiItems collection during upgrade; no existing ERP data is reset.
+- No Supabase SQL change is required.
+
+v514
+- Moti Type, Shape, and Size options added in Moti Library now appear immediately in Design Moti Entry dropdowns.
+- The Design Moti dropdowns refresh after adding an option, opening Moti Entry, and refreshing any ERP screen.
+- Existing Design Moti selections remain selected while the shared option lists refresh.
+- Newly saved Moti Library records continue to supply Lookup Code, Weight/Pc, and Total Weight automatically.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v515
+- Job Card numbers and Production (PR) numbers now use two independent serial counters.
+- Creating multiple items advances only the PR serial; it does not consume additional Job Card serials.
+- Regular Job Orders, Fitting Accessories cards, Casting-created Fitting Items, split items, and items added during editing all use the correct independent counter.
+- Existing Job Card and PR numbers are preserved; the next safe serial is derived from saved records without renumbering old data.
+- The legacy nextOrder value remains synchronized only for compatibility with protected older ERP versions.
+- Cloud conflict merging retains the highest Job, PR, legacy, and Lot counters independently.
+- Owner resets initialize Job Card and PR serials separately at 1001.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v516
+- Fixed Job Order saving when browser localStorage reports that its quota has been exceeded.
+- The complete ERP state is now mirrored automatically into a separate large-capacity IndexedDB safety store on the same laptop.
+- When small browser storage is full, the ERP removes redundant local recovery copies and retries with a compact state that excludes embedded image data.
+- Design and stone-chart images remain protected in dedicated image storage; the complete uncompressed ERP state remains in the new IndexedDB safety store and Supabase.
+- If even the compact copy cannot fit, Job Order saving continues through IndexedDB and immediate Supabase synchronization instead of being rejected.
+- Startup can restore a newer or richer IndexedDB safety copy before connecting to Supabase.
+- Startup recovery is blocked after any new local work begins, preventing an older safety copy from replacing a newly created Job Order.
+- Pre-cloud recovery records now use IndexedDB and leave only a small pointer in localStorage, preventing another full duplicate from refilling the quota.
+- Existing ERP records, Job Card serials, and PR serials are preserved; no Supabase SQL change is required.
+
+v517
+- Every Job Bag item now prints both the original Main Upload image and the Current Image used in production.
+- The untouched master image and current cropped design image are loaded independently from their separate saved image records.
+- Both image boxes are clearly labelled Main Upload and Current Image.
+- Older designs containing only one image source use that image as a safe fallback in both labelled boxes.
+- The two-image panel fits inside the existing Job Bag without taking additional vertical space from stone details.
+- Dense stone-detail cards automatically reduce both image boxes together before reducing stone text size.
+- The dual-image layout applies to A4 four-bag printing and individual A6 Job Bag printing.
+- Existing ERP records and image files are unchanged; no Supabase SQL change is required.
+
+v518
+- Restored the Job Bag to one Current/Cropped Design Image so the bag remains clear and compact.
+- The untouched Main Upload now prints on a separate full A6 image sheet immediately after its matching Job Bag.
+- The A6 image sheet uses contain fitting so the complete original image is visible without cropping or stretching.
+- Individual A6 printing now produces the Job Bag first and the full Main Upload sheet second.
+- A4 printing treats every Job Bag and Main Upload as an A6 panel and keeps four panels per A4 page.
+- Existing ERP records and saved images are unchanged; no Supabase SQL change is required.
+
+v519
+- Added Add Additional Stone To This PR in every production item Stone Entry.
+- Additional stones store their manually measured Actual Total Weight for the selected PR item only.
+- The user can enter either Wt/Pc or Actual Total Weight; the other value is calculated when possible.
+- Additional stones are clearly highlighted and included in wax/hand setting, total stone weight, Job Bag, transfer, and bill calculations.
+- Additional stone rows are never copied into Design Master or Stone Master and are not copied to another PR when matching designs are updated together.
+- Getting fresh Design Master or Stone Master data preserves existing PR-specific additional stones.
+- Existing Job Orders and stone records are preserved; no Supabase SQL change is required.
+
+v520
+- Simplified Additional Stone to one direct Additional Stone Weight field for each PR item.
+- Type, Shape, Size, Pieces, Wt/Pc, Setting Type, and Manufacturing Stage are not required for this direct weight.
+- The entered weight is added directly to that PR item total stone weight and is included in net weight, Job Bag, transfer, department, and bill calculations.
+- Additional Stone is not treated as Wax Stone or Hand Stone and does not trigger Setting-stage subtraction.
+- Job Bag prints Additional Stone as a separate Direct Weight line.
+- Existing v519 additional rows are combined in the weight field and preserved during upgrade.
+- Design Master and Stone Master remain unchanged; no Supabase SQL change is required.
+
+v521
+- Order Dept login now has access to the Billing page.
+- Order Dept can create and save the first bill for a completed job card.
+- After the bill is created, Order Dept automatically receives a QC-only bill view with generated bill weights locked.
+- Order Dept can mark individual items QC OK, apply QC OK to all items, and transfer QC OK items to Office.
+- Sending QC Failed items back to Production remains restricted to QC, Office Main, and Owner.
+- Existing Order ID access overrides receive Billing once during upgrade; Owner can change the access later from Login Details.
+- Generated bill weight editing remains restricted to Manager and Owner, and ERP deletion permissions are unchanged.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v522
+- Added a dedicated Job Card Search field in the top header, separate from the Product scanner.
+- Enter accepts the exact Job Card number, JOB-1667 format, or only the numeric serial such as 1667.
+- Pressing Enter or Open Job Card opens the complete Job Card with all items and their current production status.
+- A clear Found / Not Found message appears beside the search field.
+- Product PR, HUID, barcode, and QR scanning remains available in its own header field.
+- Job Card search respects each login's existing Job Order access permission and remains available to Demo View.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v523
+- Category NS now provides NS, NSE, and NS + NSE choices while creating or editing a Job Order item.
+- Choosing NS + NSE creates two individual production items with separate PR numbers.
+- NS and NSE remain grouped as one set for Job Bag printing.
+- Existing NS designs receive both choices automatically without changing saved design or Job Order data.
+- Stone and Moti item matching recognizes NS and NSE as separate sub-items.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v524
+- Product Stone Entry now shows the cropped Design Master stone chart beside the editable stone rows.
+- The preview automatically matches the Job Order item's sub-item or PR, including CL, CG, CME, NSE, and other saved item keys.
+- When no exact item crop exists, the available saved crop is shown with a clear status; multiple saved crops are shown only when needed.
+- Missing or unsynced chart images display a clear message without blocking stone-entry editing.
+- The wider responsive workspace keeps the chart and stone table side by side on desktop and stacked on smaller screens.
+- This is a read-only chart preview. Product-level stone changes still do not alter Design Master.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v525
+- The opened Design Master view now separates stone details into an individual section for every design item.
+- Each item section shows its own No. Pcs and Total Weight in the top-right corner.
+- Stone rows are no longer mixed into one combined list.
+- Design sub-items with no saved stone rows remain visible with zero totals so missing entries are easy to identify.
+- The section heading reports item and row counts without combining the item weights.
+- Existing Design Master, stone, and ERP data is preserved and no Supabase SQL change is required.
+
+v526
+- Every Design Master item now has an Add Fitting Accessory option.
+- A fitting accessory is selected from another saved Design Master design and its item-specific stone rows.
+- The fitting name is shown as a prefix before the target item name and its copied stone rows.
+- Copied fitting stone pieces and weights are included automatically in that item's No. Pcs and Total Weight.
+- Future Job Orders, Product Stone Entry, and Job Bag stone details include the fitting rows and fitting-name prefix.
+- The original fitting design remains unchanged and duplicate links to the same target item are prevented.
+- Owner or Manager can remove a linked fitting accessory without deleting the original fitting design.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v527
+- Every existing Job Card item now has its own Add Fitting Accessory action.
+- The fitting source is selected from item-specific stone details already saved in Design Master.
+- Copied fitting stones are saved only in the selected PR item; Design Master remains unchanged.
+- The fitting stone pieces and weight are included automatically and only once in that item's stone totals.
+- Duplicate links to the same fitting design item are blocked to prevent double stone weight.
+- The fitting name prefixes the item name in the Job Card, Product Stone Entry, and both Job Bag print pages.
+- The opened Job Card item shows each included fitting accessory with its source item, pieces, and weight.
+- Owner or Manager can remove a PR-only fitting accessory without changing its source design.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v528
+- Transfer Bag Item Details now shows Wax Stone and Hand Stone separately for every PR item.
+- Each stone column shows both the number of pieces and the total weight in grams.
+- Item-wise figures come from that PR's current Product Stone Entry, including its fitting-accessory stones.
+- Job-level Wax Stone, Hand Stone, and Total Stone summaries remain visible at the top of the first page.
+- The A6 Transfer Bag table was rebalanced to keep all columns inside the printable width.
+- Overflow item rows continue automatically onto item-list continuation pages before the transfer-history page.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v529
+- Fitting Accessory dropdowns now use only designs saved under the Design Master Fitting category.
+- Every design in the Fitting category is listed, including designs without stone rows.
+- Empty fitting designs are clearly marked NO STONE YET and cannot be applied until their stone entry is added.
+- Design names or item names containing the word fitting no longer appear unless their category is Fitting.
+- Product names now use slash format: Original Product / Fitting Accessory.
+- Multiple fitting accessories are shown as Original Product / Fitting 1 / Fitting 2.
+- Slash naming is applied consistently in Design Master, Job Card items, Product Stone Entry, and Job Bag printing.
+- Existing fitting links and ERP data are preserved and no Supabase SQL change is required.
+
+v530
+- Design Master categories Fitting and Fittings are now treated as the same fitting-accessory category.
+- Designs stored under either singular or plural category appear together in the fitting dropdown.
+- NO STONE YET status and slash-based fitting names work identically for both category spellings.
+- Existing design categories and ERP data are preserved; no manual renaming is required.
+- No Supabase SQL change is required.
+
+v531
+- Fixed the false No Fitting Design error when fitting category words are combined with other category text.
+- Fitting and Fittings are recognised anywhere in the Design Master Category field.
+- Categories such as Fitting, Fittings, Jewellery Fittings, and Fitting / Fittings now use one accessory dropdown.
+- Matching remains restricted to the category field and does not use design names.
+- The empty-category message now clearly identifies the accepted Fitting / Fittings category values.
+- Existing designs and ERP data are preserved and no Supabase SQL change is required.
+
+v532
+- The fitting accessory dialog now supports adding multiple fitting rows before one final save.
+- Add Fitting Row places the selected fitting into a review list with source item, stone rows, pieces, and weight.
+- Users can repeat the selection for additional fittings and remove incorrect pending rows before saving.
+- Add All Fittings saves the complete reviewed list together to the Design Master item or selected Job Card PR.
+- Duplicate fitting design/item combinations are blocked both while adding rows and during final save.
+- The final save is all-or-nothing, preventing partial stone-weight updates when a fitting becomes invalid.
+- Stone totals and slash naming update together after the batch is saved.
+- Existing fitting links and ERP data are preserved and no Supabase SQL change is required.
+
+v533
+- Category CN now provides CN, CNE, and CN + CNE choices while creating or editing a Job Order item.
+- The selected CN item combination remains visible when designs are added through Multiple Designs In Same Category.
+- Choosing CN + CNE creates two individual production items with separate PR numbers.
+- CN and CNE items from the same design and piece are grouped into one Job Bag.
+- The combined bag prints separate CN and CNE stone rows, item totals, production numbers, and one combined bag total.
+- Existing CN/CNE Job Orders and Design Master stone entries are recognised without changing saved ERP data.
+- No Supabase SQL change is required.
+
+v534
+- Every individual PR tile inside an opened Job Order now shows a highlighted Sub Item badge.
+- Set items display their exact saved subcategory, such as CN, CNE, CM, CME, CMB, CL, or CG.
+- CN + CNE orders therefore show CN and CNE separately on their corresponding PR tiles for quick verification.
+- The badge is shown in active, completed, and mixed Job Order views that use the same item screen.
+- Older compatible Job Orders derive the sub-item from their saved item, ring, or stone-item information.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v535
+- Job Bag printing now includes a separate Moti Details table whenever Moti is saved for the design item.
+- Moti rows show Item, Type, Shape and Size, No. of Pcs, Wt/Pc, and Total Weight.
+- Every PR item receives its own Moti total with production number.
+- Combined-item bags show the Moti rows for every included item and one Bag Moti Total.
+- Bags without Moti remain unchanged and do not show an empty Moti section.
+- Stone and Moti tables are measured together by the automatic print fitter so both remain inside the A6 bag area.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v536
+- Smart rendering now refreshes only the currently open ERP page instead of rebuilding every hidden module after each action.
+- Opening a menu page or dashboard shortcut immediately refreshes that page, so hidden screens never depend on stale content.
+- Repeated Design, Job Order, Lot, Bill, Office, and ID lookups are cached for the duration of each screen refresh.
+- Design Master and stone-chart thumbnails now load only near the visible screen and continue loading while scrolling.
+- The in-memory design-image cache is bounded to prevent long sessions from consuming unnecessary memory.
+- After browser small-storage capacity is reached, later saves go directly to the compact local copy while the full IndexedDB and Supabase safety copies remain active.
+- Dashboard and other pages without live form dropdowns skip expensive hidden dropdown rebuilding.
+- Existing ERP records, images, production logic, permissions, cloud sync, and backups are preserved.
+- No Supabase schema or SQL change is required.
+
+v537
+- Added an editable WSTG percentage to every individual Bill item.
+- Fine Weight now recalculates live as Net Weight x (Purity % + WSTG %).
+- Bill totals show the added wastage fine weight and final fine weight separately.
+- Saved Bill items retain WSTG %, base fine, wastage fine, and final fine values.
+- The effective Bill wastage automatically becomes the Factory Out default until that Factory Out is posted.
+- A6 Bill print shows Bill WSTG, wastage fine, and final fine weight.
+- Landscape Packing List shows WSTG and Fine Weight for every item and in the total summary.
+- Existing Bills remain compatible and use 0% WSTG until a value is entered.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v538
+- Added a highlighted Bill Wastage (%) field at the top of the Bill form.
+- Entering one percentage applies it immediately to every item in the Bill.
+- Every item Fine Weight and the Bill Fine Weight total recalculate automatically.
+- Individual item WSTG percentages remain editable for item-specific exceptions.
+- When item rates differ, the Bill-level field shows Mixed item percentages.
+- The common Bill wastage percentage is saved with the Bill for reporting and Factory Out use.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v539
+- Removed individual WSTG and Fine Weight controls from every Bill item row.
+- Bill now uses only the single Bill Wastage (%) field above the item list.
+- The Bill-level percentage is applied uniformly to all Bill items for calculation and saving.
+- Combined Wastage Fine and final Fine Weight remain visible in the Bill totals.
+- Removed individual WSTG and Fine columns from Packing List item details.
+- Existing item wastage data is safely normalised to the Bill-level percentage when an older Bill is opened and saved.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v540
+- Added an Added Items manager to Create Job Order for large Job Cards.
+- Saved items are shown 20 per page with Previous and Next controls, supporting 100 or more items without hiding later entries.
+- Search finds any added item by item number, design, category, sub-item, size, colour, purity, or remark.
+- Every saved row shows its permanent item number, so the correct item can be identified and removed.
+- Removing an item immediately refreshes the count, search results, page number, Job Card totals, and saved draft.
+- Newly added items open on the final page automatically so they remain visible.
+- Draft restoration now rebuilds large item lists in one refresh for better performance.
+- All hidden pages remain part of the Job Order and are included when the Job Order is saved.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v541
+- Added a separate Owner-only one-time reset that keeps all Job Order items from JOB-1681 onward.
+- JOB-1680 and all earlier Job Orders are removed by the special reset.
+- Retained Job Orders keep customer, design, item, colour, purity, size, remark, stone, and production-number details.
+- Retained Job Orders return to Pending so metal can be issued again after actual inventory is entered.
+- All production lots, bills, melting, casting, XRF, safe lockers, metal safe, factory ledger, and non-gold movements are cleared to zero.
+- Job Card and PR counters are recalculated above the retained records, preventing duplicate numbers.
+- A complete JSON backup downloads before the reset is applied.
+- The current Owner password and a detailed confirmation are required.
+- The special reset records when it was used and cannot be run a second time.
+- The existing Reset Inventory To Zero action remains unchanged and available.
+- No Supabase SQL change is required.
+
+v542
+- Added Unfinished Item and WIP Item as separate Safe Locker entry types.
+- Both types retain locker, karat, colour, GW, wax stone, non-gold breakdown, net gold, source, and remarks.
+- New entries appear with their correct type in Safe Entry History and remain available for normal Safe Locker issue and movement workflows.
+- Existing Safe Locker records and all ERP data are preserved.
+- No Supabase SQL change is required.
+
+v543
+- Expanded Casting To Wastage into Shelf Item To Wastage for eligible Safe Locker stock.
+- Each eligible shelf row now has a direct To Wastage action.
+- A shelf item can be transferred fully or partially while remaining inside its original karat locker.
+- The user selects the wastage colour, GW, and stone contained in the moved portion.
+- The source shelf balance is reduced and the new wastage appears in collective wastage by karat and colour.
+- Existing wastage, ghiss, non-gold-only, zero-gold, and moved-out entries cannot be transferred again.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v544
+- KJPL-STOCK Factory Out is now classified as metal sold instead of a vendor receivable.
+- KJPL-STOCK sold entries remain visible in Factory Ledger and Vendor Current Balance.
+- The sold fine weight is excluded from payable, receivable, party balance, and Net Factory Fine Stock.
+- Vendor Current Balance identifies these entries as Metal Sold / Entry Only and shows the excluded fine weight.
+- Factory Summary separately displays KJPL-STOCK Metal Sold for reference.
+- External vendor balances and all physical stock calculations remain unchanged.
+- Existing and future KJPL-STOCK bill entries use the corrected calculation automatically.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v545
+- The Dashboard Non-Gold tile now opens the full Non-Gold detail page.
+- Added a karat-wise opening adjustment for non-gold already included inside existing physical GW.
+- The 18K form is prefilled with Stone 284.300 g, Black Beads 24.810 g, Moti 42.622 g, and Spring 5.630 g.
+- The cumulative opening non-gold total is 357.362 g and its 18K fine-stock correction is 268.022 g.
+- Saving the adjustment keeps physical GW unchanged while reducing net gold and fine gold.
+- Owner and Manager can save, update, or clear the adjustment; other permitted users can view it.
+- Karat-wise non-gold detail now separates Safe, Production, Opening In Existing GW, Final Bill Used, and available balance.
+- Future exact bill allocations can consume the opening pool without reducing physical GW twice.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v546
+- The supplied Stone, Black Beads, Moti, and Spring figures are now treated as final non-gold stock targets, not additional stock.
+- The ERP deducts non-gold already tracked in the selected karat and posts only the missing opening adjustment.
+- For current 18K stock: final target 357.362 g - already tracked 77.492 g = adjustment 279.870 g.
+- The additional 18K fine-stock correction is 209.903 g at the ERP 75% karat logic.
+- Applying the final stock replaces any earlier v545 opening adjustment for 18K, preventing duplication.
+- The screen clearly displays Final Non-Gold Target, Already Tracked, and Adjustment To Add.
+- Existing physical GW remains unchanged.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v547
+- Updated standard karat purity logic to 9K 37.50%, 14K 58.75%, 18K 75.25%, and 22K 91.70%.
+- All current standard-karat fine-gold calculations now use the revised percentages.
+- Department holdings, Safe Locker stock, job lots, bills, factory summaries, transfer/loss calculations, daily tally, and non-gold adjustments inherit the revised central logic.
+- Existing Factory In / Out ledger rows with an explicit karat are recalculated from their recorded weight instead of retaining an old stored fine value.
+- Exact manually entered purity percentages without a karat remain exact for melting and pure-metal records.
+- The 18K non-gold adjustment of 279.870 g now carries 210.602 g fine at 75.25%.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+v556
+Added Undo directly inside Online Transfer History for Owner and Manager.
+The latest Job Lot transfer can be undone and the lot, linked Job Card status, current department, GW, received weight, and net weight return to the previous production step.
+Gold Issue history now includes Undo Issue using the protected Safe Locker restoration workflow.
+Simple Safe Locker-to-department issues can be undone when their exact pre-issue shelf snapshot is available and no later receipt or linked Job Card activity exists.
+Department receipts, direct department transfers, and manufacturing-loss rows can be undone when their returned Safe item or destination holding has not moved onward.
+Older transfer steps remain protected until newer movements are undone first; billed, split, repaired, setter-processed, or otherwise dependent rows cannot be reversed unsafely.
+Protected Undo buttons remain visible to Owner and Manager and show the exact blocking reason on hover or click.
+Every successful undo is saved in a dedicated transfer-undo audit and as a zero-weight ledger audit row with user and timestamp.
+Undo saves through the existing multi-laptop mutation journal, so removed transfer/receipt records remain removed after Supabase synchronization.
+No operational ERP records were changed while building or testing this update.
+
+v557
+- Online Transfer History gives an Undo action on every supported movement row exclusively to the Owner login.
+- Manager and all other users cannot see or invoke Online Transfer History undo actions.
+- Owner can undo Gold Issue, latest Job Lot transfer, Safe-to-Department issue, Department receipt, direct department transfer, and manufacturing-loss entries when their stock dependencies allow a safe reversal.
+- Older movements remain visible with Undo, but show the exact blocking reason until the newer dependent movement is undone first.
+- Every successful undo restores the affected lot, department holding, Safe Locker balance, Job Card status, GW, net weight, and linked movement data as applicable.
+- Every successful undo remains recorded in the Transfer Undo audit and zero-weight ledger audit with Owner identity and timestamp.
+
+v558
+- Owner and Manager can edit Job Lot transfer-history entries; all other logins cannot see or invoke Edit.
+- Issue GW and Receive GW are both editable during correction, while Issue GW remains automatic and locked during a new transfer.
+- Corrected weights recalculate Net Weight, department Difference, purity-wise Fine Gold, lot status, and current department without creating a duplicate transfer row.
+- The original transfer date and timestamp remain unchanged after correction.
+- Every correction stores before/after values, editing user, edit time, and a Transfer Edit ledger audit.
+- Failed local saves roll back the complete correction, preventing partial transfer changes.
+
+v559
+- Opening non-gold already included in stock now adjusts automatically when Wax Stone, Hand Stone, or other embedded non-gold enters an active production lot.
+- Existing active lots, including split Job Cards such as JOB-1689-S2, are recalculated dynamically; no historical transfer record needs to be edited.
+- Production demand consumes only the Opening In Existing GW pool, so current Safe / Department non-gold and final bill allocations are not deducted twice.
+- When a final bill adjustment is posted, it replaces the active-production demand for that lot and continues through the existing exact bill allocation flow.
+- Production stock Non-Gold now includes Wax Stone + Hand Stone + other non-gold, while GW remains unchanged and net gold excludes each component once.
+- The karat-wise non-gold table separately shows Moved Into Production and Final Bill Used.
+- Factory Summary and Fine Sheet now label the opening figure as the remaining opening non-gold after production / bill usage.
+- At 18K 75.25%, moving 6.774 g of opening Wax Stone prevents a 5.097 g false fine-stock reduction.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+
+v560
+- Corrected opening non-gold movement so only physically traceable Wax Stone and actually received Hand Stone leave the opening pool.
+- Planned Hand Stone in Setting no longer changes factory stock before the stone is actually received.
+- Legacy WIP issues that moved only net gold no longer consume opening non-gold or inflate fine stock.
+- Safe Locker factory-issue rows and complete source-item issues are traced back to their Job Lot before Wax Stone is reclassified into Production.
+- Total non-gold remains constant while the same physical weight moves from Opening Stock into Production.
+- Corrected initial state normalization so Setting Manager data cannot cause a valid local or cloud state to fall back during app startup.
+- Existing ERP records are not rewritten and no Supabase SQL change is required.
+
+v561
+- Added Owner / Manager Gold Issue correction for Job Card, Safe holding, first department, issued GW, and expected wastage.
+- Gold Issue correction restores the original Safe balance before applying the corrected issue and recalculates Wax Stone and Net Gold from the selected Job Card.
+- Added Delete Gold Issue with Safe restoration, Job Card rollback to Gold Pending, saved-state rollback protection, and correction audit history.
+- Owner and Manager can edit production transfer weights, destination, process, and remarks from transfer history.
+- Owner and Manager can delete eligible transfer entries; remaining department steps are rewired and the current lot status is recalculated.
+- Later bills, non-gold issues, Setting activity, and dependent Safe movements continue to block unsafe corrections.
+- Added Print Detailed Fine Sheet in A4 landscape with complete accumulated calculation, reconciliation, Factory In / Out ledger, running fine balance, and party balances.
+- Existing ERP data is preserved and no Supabase SQL change is required.
+KHUSHALI JEWELLS MANUFACTURING
+App version: v577
+Updated: 2026-09-22 IST
+LOT-203 now recalculates its returned-lot metal balance against the assigned setter after the corrected Job Card hand-stone weight is applied.
+The setter receipt keeps its actual Receive GW unchanged and recalculates Receive Net, Difference and Metal Balance from the current Job Card stone plan.
+The synchronization now works after the lot has moved from Setting to Filing, not only while it remains in Setting.
+The resulting balance appears in the setter tile, combined setter balance and Setting Manager history.
+Future Production Stone Entry changes use the same correction automatically and repeated refreshes do not add the balance twice.
+No Supabase SQL change is required.
+KHUSHALI JEWELLS MANUFACTURING
+App version: v578
+Updated: 2026-09-22 IST
+Changing a Job Card stone entry after setter receipt now updates both the setter metal balance and every downstream department transfer for that lot.
+Actual Issue GW and Receive GW entries remain unchanged; only wax stone, hand stone, reduced weight, net weight, department difference and fine difference are recalculated.
+The correction begins at the latest Setting-to-Filing movement and continues through every later department already reached by the lot.
+Transfer ledger weights and references are refreshed for each affected movement, and a completed Bill transfer receives the corrected final net weight.
+LOT-203 receives the correction automatically after live cloud data loads.
+Repeated refreshes are idempotent and cannot apply the stone correction twice.
+No Supabase SQL change is required.
