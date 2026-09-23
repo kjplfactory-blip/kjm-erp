@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v582";
+const APP_VERSION = "v583";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -11130,13 +11130,10 @@ function updateSafeIssueCalculation() {
 }
 
 function safeIssueDepartmentForHistory(departmentName = "") {
-  const targetGroup = departmentTransferGroupName(departmentName, departmentName);
-  const targetHeader = departmentDashboardHeader(departmentName);
-  return (state.karigars || []).find((department) => {
-    const processes = departmentProcesses(department);
-    return processes.some((process) => departmentTransferGroupName(department.name, process) === targetGroup)
-      || departmentDashboardHeader(department.name || primaryDepartmentProcess(department)) === targetHeader;
-  }) || null;
+  const targetGroup = departmentTransferHistoryGroupName(departmentName);
+  return (state.karigars || []).find((department) =>
+    departmentTransferMasterGroupName(department.name, primaryDepartmentProcess(department)) === targetGroup
+  ) || null;
 }
 
 function openSafeIssueToDepartment(itemId = "", departmentName = "") {
@@ -11299,7 +11296,7 @@ function safeDepartmentReceiveDestinationOptions(selectedValue = "", sourceDepar
     const destinations = processes.length ? processes : [primaryDepartmentProcess(department) || department.name];
     destinations.forEach((process) => {
       const value = safeDepartmentReceiveDestinationValue(department, process);
-      const targetGroup = departmentTransferGroupName(department.name, process);
+      const targetGroup = departmentTransferMasterGroupName(department.name, process);
       const disabled = sourceGroup && targetGroup === sourceGroup ? "disabled" : "";
       const label = destinations.length > 1 ? `${department.name} / ${process}` : department.name;
       options.push(`<option value="${escapeHtml(value)}" ${disabled}>${escapeHtml(label)}</option>`);
@@ -11474,7 +11471,7 @@ function safeDepartmentIssuesForDepartment(departmentName = "") {
   const source = String(departmentName || "").trim();
   const target = source ? departmentTransferHistoryGroupName(source) : "";
   return safeDepartmentIssuesInHand().filter((issue) =>
-    !target || departmentTransferGroupName(issue.departmentName || issue.process, issue.process || issue.departmentName) === target
+    !target || departmentTransferMasterGroupName(issue.departmentName || issue.process, issue.process || issue.departmentName) === target
   );
 }
 
@@ -11498,9 +11495,7 @@ function renderSafeDepartmentReceiveDepartmentOptions(selectedDepartment = "") {
   const selectedHeader = selectedDepartment ? departmentDashboardHeader(selectedDepartment) : "";
   const selectedHistoryGroup = selectedDepartment ? departmentTransferHistoryGroupName(selectedDepartment) : "";
   const selectedMasterDepartment = (state.karigars || []).find((department) =>
-    departmentProcesses(department).some((process) =>
-      departmentTransferGroupName(department.name, process) === selectedHistoryGroup
-    )
+    departmentTransferMasterGroupName(department.name, primaryDepartmentProcess(department)) === selectedHistoryGroup
   );
   form.departmentName.innerHTML = names.length
     ? names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")
@@ -11695,7 +11690,7 @@ function saveSafeDepartmentReceive(event) {
   }
   const sourceDepartmentGroup = departmentTransferHistoryGroupName(departmentName);
   const sameDepartmentLine = receivedLines.find((line) => line.destination?.mode === "department"
-    && departmentTransferGroupName(line.destination.department?.name, line.destination.process) === sourceDepartmentGroup);
+    && departmentTransferMasterGroupName(line.destination.department?.name, line.destination.process) === sourceDepartmentGroup);
   if (sameDepartmentLine) {
     alert(`Return line ${sameDepartmentLine.lineNumber}: select another department or Safe Locker.`);
     sameDepartmentLine.row.querySelector('[name="returnLineDestination"]')?.focus();
@@ -36846,24 +36841,9 @@ function departmentTransferSummaries() {
   const summaries = new Map();
   (state.karigars || []).forEach((department) => {
     const processes = departmentProcesses(department);
-    const departmentGroups = new Map();
-    processes.forEach((process) => {
-      const groupName = departmentTransferGroupName(department.name, process);
-      if (!departmentGroups.has(groupName)) departmentGroups.set(groupName, []);
-      departmentGroups.get(groupName).push(process);
-    });
-    if (!departmentGroups.size) {
-      const groupName = departmentTransferGroupName(department.name, department.name);
-      departmentGroups.set(groupName, [department.name]);
-    }
-    departmentGroups.forEach((groupProcesses, groupName) => {
-      const summary = ensureDepartmentTransferSummary(summaries, groupName);
-      summary.details.add(department.name || groupName);
-      groupProcesses.forEach((process) => {
-        const processGroup = departmentTransferGroupName(department.name, process);
-        if (processGroup === groupName && processGroup !== department.name) summary.details.add(process);
-      });
-    });
+    const groupName = departmentTransferMasterGroupName(department.name, primaryDepartmentProcess(department));
+    const summary = ensureDepartmentTransferSummary(summaries, groupName);
+    processes.forEach((process) => summary.details.add(process));
   });
   departmentTransferEvents().forEach((event) => {
     const summary = ensureDepartmentTransferSummary(summaries, event.department);
@@ -36932,7 +36912,7 @@ function departmentTransferEvents() {
         createdAtInferred: Boolean(lot.createdAtInferred),
         direction: "in",
         type: lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
-        department: departmentTransferGroupName(firstDepartment, firstProcess),
+        department: departmentTransferMasterGroupName(firstDepartment, firstProcess),
         departmentDetail: departmentTransferDetail(firstDepartment, firstProcess),
         date: lot.issueDate || "-",
         lotNumber: lot.number || "-",
@@ -36973,7 +36953,7 @@ function departmentTransferEvents() {
       events.push({
         ...common,
         direction: "out",
-        department: departmentTransferGroupName(fromDepartment, fromProcess),
+        department: departmentTransferMasterGroupName(fromDepartment, fromProcess),
         departmentDetail: departmentTransferDetail(fromDepartment, fromProcess),
         counterparty: departmentTransferDetail(toDepartment, toProcess),
         process: fromProcess,
@@ -36982,7 +36962,7 @@ function departmentTransferEvents() {
         ...common,
         id: `${common.id}-in`,
         direction: "in",
-        department: departmentTransferGroupName(toDepartment, toProcess),
+        department: departmentTransferMasterGroupName(toDepartment, toProcess),
         departmentDetail: departmentTransferDetail(toDepartment, toProcess),
         counterparty: departmentTransferDetail(fromDepartment, fromProcess),
         process: toProcess,
@@ -37031,7 +37011,7 @@ function departmentTransferEvents() {
       createdAtInferred: Boolean(data.createdAtInferred),
       direction: isReturn ? "out" : "in",
       type: movementLabel,
-      department: departmentTransferGroupName(departmentName, processName),
+      department: departmentTransferMasterGroupName(departmentName, processName),
       departmentDetail: departmentTransferDetail(departmentName, processName),
       date: data.date || "-",
       lotNumber: data.lotNumber || movementLabel,
@@ -37055,7 +37035,7 @@ function departmentTransferEvents() {
         id: `${baseEvent.id}-direct-in`,
         sortIndex: sortIndex++,
         direction: "in",
-        department: departmentTransferGroupName(data.destinationDepartmentName, destinationProcess),
+        department: departmentTransferMasterGroupName(data.destinationDepartmentName, destinationProcess),
         departmentDetail: departmentTransferDetail(data.destinationDepartmentName, destinationProcess),
         counterparty: departmentTransferDetail(departmentName, processName),
         process: destinationProcess,
@@ -37070,7 +37050,7 @@ function departmentTransferEvents() {
     const isRemove = productionNonGoldMovementLabel(issue) === "Remove";
     const weight = Math.abs(Number(issue.weight || 0));
     if (weight <= 0) return;
-    const departmentName = issue.department || dashboardDepartmentNameFromId(issue.departmentId) || "Unassigned";
+    const departmentName = dashboardDepartmentNameFromId(issue.departmentId) || issue.department || "Unassigned";
     events.push({
       id: `production-non-gold-${issue.id}`,
       sortIndex: sortIndex++,
@@ -37078,7 +37058,7 @@ function departmentTransferEvents() {
       createdAtInferred: Boolean(issue.createdAtInferred),
       direction: isRemove ? "out" : "in",
       type: isRemove ? "NON-GOLD REMOVED" : "NON-GOLD ISSUE",
-      department: departmentTransferGroupName(departmentName, departmentName),
+      department: departmentTransferMasterGroupName(departmentName, issue.department || departmentName),
       departmentDetail: departmentTransferDetail(departmentName, departmentName),
       date: issue.date || "-",
       lotNumber: "DIRECT NON-GOLD",
@@ -37113,21 +37093,31 @@ function departmentTransferGroupName(departmentName = "", processName = "") {
   return departmentDashboardHeader(process || department || "Unassigned", department);
 }
 
+function departmentTransferMasterGroupName(departmentName = "", processName = "") {
+  const department = String(departmentName || "").trim();
+  const process = String(processName || "").trim();
+  const departmentKey = departmentTextKey(department);
+  const exactDepartment = (state.karigars || []).find((item) =>
+    departmentTextKey(item.name) === departmentKey
+  );
+  if (exactDepartment?.name) return exactDepartment.name;
+  const masterDepartmentName = dashboardMasterDepartmentName(department);
+  if (masterDepartmentName) return masterDepartmentName;
+  const processDepartmentName = dashboardMasterDepartmentName(process);
+  return processDepartmentName || department || process || "Unassigned";
+}
+
 function departmentTransferHistoryGroupName(departmentName = "") {
   const source = String(departmentName || "").trim();
   if (!source) return "Unassigned";
-  const canonicalSource = mergedProductionDepartmentName(source, source);
-  if (productionDepartmentLabels.has(canonicalSource)) {
-    return canonicalSource;
-  }
   const sourceKey = departmentTextKey(source);
   const masterDepartment = (state.karigars || []).find((department) =>
     departmentTextKey(department.name) === sourceKey
       || departmentProcesses(department).some((process) => departmentTextKey(process) === sourceKey)
   );
   return masterDepartment
-    ? departmentTransferGroupName(masterDepartment.name, primaryDepartmentProcess(masterDepartment))
-    : departmentTransferGroupName(source, source);
+    ? masterDepartment.name
+    : departmentTransferMasterGroupName(source, source);
 }
 
 function departmentTransferDetail(departmentName = "", processName = "") {
