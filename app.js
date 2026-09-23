@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v587";
+const APP_VERSION = "v588";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -40,6 +40,11 @@ const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
+const LOGIN_SESSION_POLICY_VERSION = 1;
+const LOGIN_DEVICE_STORAGE_KEY = "gold-jewellery-erp-device-id";
+const LOGIN_SESSION_HEARTBEAT_MS = 30 * 1000;
+const LOGIN_SESSION_STALE_MS = 2 * 60 * 1000;
+const LOGIN_SESSION_REQUEST_TIMEOUT_MS = 20 * 1000;
 const FINE_SHEET_BACKUP_RETENTION_DAYS = 8;
 const FINE_SHEET_BACKUP_LEDGER_LIMIT = 200;
 const FACTORY_RESET_REASON = "Clear job cards + reset factory stock";
@@ -322,6 +327,9 @@ let pendingCloudVersionBackup = null;
 let cloudBackupUnavailable = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
+let loginSessionHeartbeatTimer = null;
+let loginSessionHeartbeatInProgress = false;
+let loginSessionLastConfirmedAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
 let supabaseLocalRevision = supabaseLocalDirty ? 1 : 0;
 let appVersionCheckTimer = null;
@@ -469,6 +477,7 @@ let pendingSyncMutations = loadPendingSyncMutations();
 let lastLocallyPersistedState = structuredClone(state);
 let localFullStateRecoveryPromise = restoreFullErpStateFromIndexedDb();
 let currentUser = loadCurrentUser();
+let loginSessionValidated = false;
 let viewHistory = [];
 let restoringViewFromHistory = false;
 let stoneLibraryPage = 1;
@@ -989,32 +998,15 @@ document.getElementById("show-login-details").addEventListener("click", () => {
   document.getElementById("login-details-list").classList.toggle("hidden");
 });
 
-document.getElementById("login-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const data = getFormData(event.target);
-  const user = allUsers()[data.user];
-  if (!user || userPassword(data.user) !== data.password) {
-    document.getElementById("login-error").textContent = "Wrong user or password.";
-    return;
-  }
-
-  currentUser = {
-    id: data.user,
-    name: user.name,
-    role: user.role,
-    salesTeam: user.salesTeam || "",
-  };
-  localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
-  document.getElementById("login-error").textContent = "";
-  event.target.reset();
-  applyLoginState();
-  recordLoginAudit(data.user, user);
-});
+document.getElementById("login-form").addEventListener("submit", handleLoginSubmit);
 
 document.getElementById("logout").addEventListener("click", () => {
+  const session = currentUser ? { ...currentUser } : null;
+  stopLoginSessionHeartbeat();
   currentUser = null;
   localStorage.removeItem("gold-jewellery-erp-user");
   applyLoginState();
+  if (session) releaseUserLoginSession(session);
 });
 
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
@@ -3983,11 +3975,271 @@ async function restoreErpDataBackup(event) {
   }
 }
 
+function loginSessionLimitForUser(userId = "") {
+  return ["owner", "manager"].includes(String(userId || "").trim()) ? 2 : 1;
+}
+
+function loginSessionLimitText(userId = "") {
+  const limit = loginSessionLimitForUser(userId);
+  return String(limit) + " active " + (limit === 1 ? "device" : "devices");
+}
+
+function loginDeviceId() {
+  try {
+    let deviceId = localStorage.getItem(LOGIN_DEVICE_STORAGE_KEY) || "";
+    if (!deviceId) {
+      deviceId = crypto.randomUUID();
+      localStorage.setItem(LOGIN_DEVICE_STORAGE_KEY, deviceId);
+    }
+    return deviceId;
+  } catch (error) {
+    return crypto.randomUUID();
+  }
+}
+
+async function supabaseClientForLoginSession() {
+  if (!supabaseSettings.url || !supabaseSettings.anonKey) {
+    throw new Error("Live sync must be configured before login limits can be checked.");
+  }
+  if (!supabaseClient && !supabaseIsConnecting) initializeSupabase();
+  const deadline = Date.now() + LOGIN_SESSION_REQUEST_TIMEOUT_MS;
+  while (!supabaseClient && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (!supabaseClient) {
+    throw new Error("Supabase is unavailable. Login could not be safely verified.");
+  }
+  if (typeof supabaseClient.rpc !== "function") {
+    throw new Error("Supabase login-session service is unavailable.");
+  }
+  return supabaseClient;
+}
+
+async function loginSessionRpc(functionName, params = {}) {
+  const client = await supabaseClientForLoginSession();
+  return withSupabaseTimeout(
+    client.rpc(functionName, params),
+    "Login session verification timed out.",
+    LOGIN_SESSION_REQUEST_TIMEOUT_MS
+  );
+}
+
+function loginSessionRpcData(data) {
+  if (Array.isArray(data)) return data[0] ?? null;
+  return data;
+}
+
+function loginSessionErrorText(error) {
+  const detail = String(error?.message || error || "").replace(/s+/g, " ").trim();
+  const normalized = detail.toLowerCase();
+  if (
+    normalized.includes("acquire_erp_user_session")
+    || normalized.includes("touch_erp_user_session")
+    || normalized.includes("release_erp_user_session")
+    || normalized.includes("erp_user_sessions")
+    || normalized.includes("schema cache")
+    || normalized.includes("pgrst202")
+  ) {
+    return "Login limit setup is incomplete. Owner must run ENABLE-LOGIN-LIMITS.sql in Supabase.";
+  }
+  if (isSupabaseGatewayUnavailableError(error) || isSupabaseDatabaseUnavailableError(error) || isSupabaseTimeoutError(error)) {
+    return "Supabase is unavailable, so the active-login limit cannot be checked. Restart Supabase and try again.";
+  }
+  return detail || "Login availability could not be checked.";
+}
+
+async function acquireUserLoginSession(userId, user = {}, existingSession = {}) {
+  const sessionId = existingSession.sessionId || crypto.randomUUID();
+  const deviceId = existingSession.deviceId || loginDeviceId();
+  const { data, error } = await loginSessionRpc("acquire_erp_user_session", {
+    p_state_id: supabaseStateId,
+    p_session_id: sessionId,
+    p_user_id: userId,
+    p_user_name: user.name || userId,
+    p_role: user.role || "",
+    p_device_id: deviceId,
+    p_app_version: APP_VERSION,
+    p_stale_after_seconds: Math.ceil(LOGIN_SESSION_STALE_MS / 1000),
+  });
+  if (error) throw error;
+  const result = loginSessionRpcData(data) || {};
+  return {
+    allowed: result.allowed === true,
+    activeCount: Number(result.active_count || 0),
+    limit: Number(result.limit || loginSessionLimitForUser(userId)),
+    message: result.message || "",
+    sessionId,
+    deviceId,
+  };
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = form.querySelector('button[type="submit"]');
+  const errorNode = document.getElementById("login-error");
+  const data = getFormData(form);
+  const user = allUsers()[data.user];
+  if (!user || userPassword(data.user) !== data.password) {
+    errorNode.textContent = "Wrong user or password.";
+    return;
+  }
+
+  submitButton.disabled = true;
+  errorNode.textContent = "Checking active login availability...";
+  try {
+    const session = await acquireUserLoginSession(data.user, user);
+    if (!session.allowed) {
+      errorNode.textContent = session.message
+        || user.name + " already has " + session.activeCount + " active login(s). Maximum allowed: " + session.limit + ". Logout from another device or wait 2 minutes.";
+      return;
+    }
+    currentUser = {
+      id: data.user,
+      name: user.name,
+      role: user.role,
+      salesTeam: user.salesTeam || "",
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+      sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
+    };
+    loginSessionValidated = true;
+    loginSessionLastConfirmedAt = Date.now();
+    localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+    errorNode.textContent = "";
+    form.reset();
+    applyLoginState();
+    startLoginSessionHeartbeat();
+    recordLoginAudit(data.user, user);
+  } catch (error) {
+    console.warn("Login session check failed.", error);
+    errorNode.textContent = loginSessionErrorText(error);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function stopLoginSessionHeartbeat() {
+  clearInterval(loginSessionHeartbeatTimer);
+  loginSessionHeartbeatTimer = null;
+  loginSessionHeartbeatInProgress = false;
+}
+
+function forceLoginSessionLogout(message = "This login is no longer active.") {
+  stopLoginSessionHeartbeat();
+  loginSessionValidated = false;
+  currentUser = null;
+  localStorage.removeItem("gold-jewellery-erp-user");
+  applyLoginState();
+  const errorNode = document.getElementById("login-error");
+  if (errorNode) errorNode.textContent = message;
+}
+
+async function touchCurrentLoginSession() {
+  if (!currentUser?.sessionId || loginSessionHeartbeatInProgress) return false;
+  loginSessionHeartbeatInProgress = true;
+  try {
+    const { data, error } = await loginSessionRpc("touch_erp_user_session", {
+      p_state_id: supabaseStateId,
+      p_session_id: currentUser.sessionId,
+      p_user_id: currentUser.id,
+      p_device_id: currentUser.deviceId,
+      p_stale_after_seconds: Math.ceil(LOGIN_SESSION_STALE_MS / 1000),
+    });
+    if (error) throw error;
+    if (loginSessionRpcData(data) !== true) {
+      forceLoginSessionLogout("This user was logged in on another device or the active session expired. Please log in again.");
+      return false;
+    }
+    loginSessionLastConfirmedAt = Date.now();
+    return true;
+  } catch (error) {
+    console.warn("Login heartbeat could not be confirmed.", error);
+    if (loginSessionLastConfirmedAt && Date.now() - loginSessionLastConfirmedAt >= LOGIN_SESSION_STALE_MS) {
+      forceLoginSessionLogout("The active login could not be verified for 2 minutes. Please reconnect to Supabase and log in again.");
+    }
+    return false;
+  } finally {
+    loginSessionHeartbeatInProgress = false;
+  }
+}
+
+function startLoginSessionHeartbeat() {
+  stopLoginSessionHeartbeat();
+  if (!currentUser?.sessionId) return;
+  loginSessionLastConfirmedAt = Date.now();
+  loginSessionHeartbeatTimer = setInterval(() => {
+    touchCurrentLoginSession();
+  }, LOGIN_SESSION_HEARTBEAT_MS);
+}
+
+async function releaseUserLoginSession(session = currentUser) {
+  if (!session?.sessionId || !supabaseClient?.rpc) return false;
+  try {
+    const { data, error } = await withSupabaseTimeout(
+      supabaseClient.rpc("release_erp_user_session", {
+        p_state_id: supabaseStateId,
+        p_session_id: session.sessionId,
+        p_user_id: session.id,
+        p_device_id: session.deviceId,
+      }),
+      "Logout session release timed out.",
+      LOGIN_SESSION_REQUEST_TIMEOUT_MS
+    );
+    return !error && loginSessionRpcData(data) === true;
+  } catch (error) {
+    console.warn("Login session will expire automatically after logout.", error);
+    return false;
+  }
+}
+
+async function validateRestoredLoginSession() {
+  if (!currentUser) return true;
+  const user = allUsers()[currentUser.id];
+  if (!user) {
+    forceLoginSessionLogout("This login user no longer exists.");
+    return false;
+  }
+  try {
+    const session = await acquireUserLoginSession(currentUser.id, user, currentUser);
+    if (!session.allowed) {
+      forceLoginSessionLogout(session.message || "Maximum active logins reached for " + user.name + ".");
+      return false;
+    }
+    currentUser = {
+      ...currentUser,
+      name: user.name,
+      role: user.role,
+      salesTeam: user.salesTeam || "",
+      sessionId: session.sessionId,
+      deviceId: session.deviceId,
+      sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
+    };
+    localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+    loginSessionValidated = true;
+    loginSessionLastConfirmedAt = Date.now();
+    startLoginSessionHeartbeat();
+    applyLoginState();
+    return true;
+  } catch (error) {
+    forceLoginSessionLogout(loginSessionErrorText(error));
+    return false;
+  }
+}
+
 function loadCurrentUser() {
   try {
     const saved = localStorage.getItem("gold-jewellery-erp-user");
     const user = saved ? JSON.parse(saved) : null;
-    if (user && !allUsers()[user.id]) {
+    if (
+      user
+      && (
+        !allUsers()[user.id]
+        || user.sessionPolicyVersion !== LOGIN_SESSION_POLICY_VERSION
+        || !user.sessionId
+        || !user.deviceId
+      )
+    ) {
       localStorage.removeItem("gold-jewellery-erp-user");
       return null;
     }
@@ -3999,7 +4251,7 @@ function loadCurrentUser() {
 }
 
 function applyLoginState() {
-  const isLoggedIn = Boolean(currentUser);
+  const isLoggedIn = Boolean(currentUser && loginSessionValidated);
   document.body.classList.toggle("logged-out", !isLoggedIn);
   document.body.classList.toggle("is-owner", isOwner());
   document.getElementById("active-user").textContent = isLoggedIn ? `${currentUser.name}${isReadOnlyUser() ? " / Read Only" : ""}` : "Not logged in";
@@ -4010,7 +4262,7 @@ function applyLoginState() {
 }
 
 function currentUserConfig() {
-  return currentUser ? allUsers()[currentUser.id] : null;
+  return currentUser && loginSessionValidated ? allUsers()[currentUser.id] : null;
 }
 
 function allowedPages() {
@@ -5482,6 +5734,22 @@ function createFetchSupabaseClient(url, anonKey) {
     return error;
   };
   return {
+    async rpc(functionName, params = {}) {
+      try {
+        const response = await supabaseFetch(baseUrl + "/rest/v1/rpc/" + encodeURIComponent(functionName), {
+          method: "POST",
+          headers: headers({
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          }),
+          body: JSON.stringify(params),
+        });
+        if (!response.ok) return { data: null, error: await asError(response) };
+        return { data: await response.json().catch(() => null), error: null };
+      } catch (error) {
+        return { data: null, error };
+      }
+    },
     from(table) {
       const query = { select: "*", filters: {} };
       const tableUrl = `${baseUrl}/rest/v1/${encodeURIComponent(table)}`;
@@ -5759,6 +6027,7 @@ async function initializeSupabase() {
     clearTimeout(supabaseReconnectTimer);
     setSyncStatus("connecting", "Sync: Connecting");
     supabaseClient = await createSupabaseClient();
+    await validateRestoredLoginSession();
     const connected = await loadSupabaseState({ initial: true });
     if (connected) {
       startSupabaseAutoRefresh();
@@ -5858,6 +6127,7 @@ function retryPendingLocalCloudSave() {
 }
 
 window.addEventListener("focus", () => {
+  if (currentUser) touchCurrentLoginSession();
   if (applyPendingCloudState("auto")) return;
   if (retryPendingLocalCloudSave()) return;
   if (supabaseClient) pollSupabaseStateRevision();
@@ -5871,9 +6141,11 @@ window.addEventListener("online", () => {
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    if (currentUser) touchCurrentLoginSession();
     flushSupabaseSave();
     return;
   }
+  if (currentUser) touchCurrentLoginSession();
   if (applyPendingCloudState("auto")) return;
   if (retryPendingLocalCloudSave()) return;
   if (supabaseClient) pollSupabaseStateRevision();
@@ -21823,6 +22095,7 @@ function renderLoginUsers() {
       <td><strong>${escapeHtml(id)}</strong></td>
       <td><input name="userName" value="${escapeHtml(user.name)}" ${isOwnerRow ? "readonly" : ""}></td>
       <td>${isOwnerRow ? "Full software" : renderUserAccessCheckboxes(id, user.pages)}</td>
+      <td><strong>${escapeHtml(loginSessionLimitText(id))}</strong></td>
       <td><span class="password-pill">${escapeHtml(userPassword(id))}</span></td>
       <td><input name="newPassword" type="text" placeholder="Enter new password"></td>
       <td>
@@ -21834,7 +22107,7 @@ function renderLoginUsers() {
     </tr>
   `;
   }).join("");
-  table.innerHTML = isOwner() ? rows : tableEmpty(6, "Only Owner can view login details.");
+  table.innerHTML = isOwner() ? rows : tableEmpty(7, "Only Owner can view login details.");
   renderLoginHistory();
 }
 
@@ -37632,7 +37905,7 @@ function statusClass(status) {
 }
 
 function isOwner() {
-  return currentUser?.id === "owner";
+  return loginSessionValidated && currentUser?.id === "owner";
 }
 
 function renderTransferHistory(lot) {
