@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v588";
+const APP_VERSION = "v589";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -4030,7 +4030,7 @@ function loginSessionRpcData(data) {
 }
 
 function loginSessionErrorText(error) {
-  const detail = String(error?.message || error || "").replace(/s+/g, " ").trim();
+  const detail = String(error?.message || error || "").replace(/\s+/g, " ").trim();
   const normalized = detail.toLowerCase();
   if (
     normalized.includes("acquire_erp_user_session")
@@ -4040,7 +4040,7 @@ function loginSessionErrorText(error) {
     || normalized.includes("schema cache")
     || normalized.includes("pgrst202")
   ) {
-    return "Login limit setup is incomplete. Owner must run ENABLE-LOGIN-LIMITS.sql in Supabase.";
+    return "Login limit setup is not active in Supabase. Owner must run the v589 ENABLE-LOGIN-LIMITS.sql, confirm LOGIN LIMITS READY, and then log in again.";
   }
   if (isSupabaseGatewayUnavailableError(error) || isSupabaseDatabaseUnavailableError(error) || isSupabaseTimeoutError(error)) {
     return "Supabase is unavailable, so the active-login limit cannot be checked. Restart Supabase and try again.";
