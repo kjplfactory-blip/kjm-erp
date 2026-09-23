@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v590";
+const APP_VERSION = "v591";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3430,10 +3430,10 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
     targetOrder.productionStoneItems = targetOrder.id === order.id
       ? stoneItems
       : [...cloneProductionStonePlan(regularStoneItems), ...existingAdditionalItems];
-    targetOrder.productionStoneOverride = true;
-    targetOrder.productionStoneUpdatedAt = today();
+    stampProductionStoneEdit(targetOrder, "Manual Stone Entry");
     targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
   });
+  event.target.dataset.stoneEdited = "false";
   syncSettingEntriesForUpdatedStoneOrders(targetOrders);
   const syncedFilingTransfers = syncFilingTransfersForUpdatedStoneOrders(targetOrders);
   saveState();
@@ -3451,15 +3451,23 @@ document.getElementById("refresh-production-stone-master")?.addEventListener("cl
 document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
 
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
-  if (event.target.dataset.productionStoneField) handleProductionStoneRowChange(event);
+  if (event.target.dataset.productionStoneField) {
+    handleProductionStoneRowChange(event);
+    const order = findById("orders", event.currentTarget.orderId.value);
+    if (order) markProductionStoneDialogEdited(order);
+  }
 });
 
 document.getElementById("production-stone-form").addEventListener("input", (event) => {
   if (event.target.name === "additionalStoneWeight") {
+    const order = findById("orders", event.currentTarget.orderId.value);
+    if (order) markProductionStoneDialogEdited(order);
     updateProductionStoneDialogSummary();
     return;
   }
   if (event.target.dataset.productionStoneField) {
+    const order = findById("orders", event.currentTarget.orderId.value);
+    if (order) markProductionStoneDialogEdited(order);
     updateProductionStoneRowPreview(event.target.closest("[data-production-stone-row]"));
     updateProductionStoneDialogSummary();
   }
@@ -4299,12 +4307,25 @@ function settingManagerLotForOrder(orderOrId, preferredLotId = "") {
 }
 
 function canSettingManagerEditProductionStone(orderOrId) {
-  return !isSettingManagerUser() || Boolean(settingManagerLotForOrder(orderOrId));
+  if (!isSettingManagerUser()) return true;
+  const orderId = typeof orderOrId === "string" ? orderOrId : orderOrId?.id;
+  return Boolean(orderId && findById("orders", orderId));
 }
 
 function requireProductionStoneEditPermission(orderOrId, action = "edit Job Card stone details") {
   if (canSettingManagerEditProductionStone(orderOrId)) return true;
-  alert(`Setting Manager can only ${action} for a live lot currently in the Setting Department.`);
+  alert(`Setting Manager can only ${action} for a saved Job Card item.`);
+  return false;
+}
+
+function canRemoveProductionStoneRowForOrder(orderOrId) {
+  if (isOwner() || isManagerUser()) return true;
+  return isSettingManagerUser() && canSettingManagerEditProductionStone(orderOrId);
+}
+
+function requireProductionStoneRowRemovePermission(orderOrId) {
+  if (canRemoveProductionStoneRowForOrder(orderOrId)) return true;
+  alert("Only Owner, Manager, or Setting Manager can remove Job Card stone rows.");
   return false;
 }
 
@@ -11413,8 +11434,7 @@ function applySafeIssueStoneAdjustment(order, issue = {}, traceOrders = []) {
     });
   });
   order.productionStoneItems = existingItems;
-  order.productionStoneOverride = true;
-  order.productionStoneUpdatedAt = today();
+  stampProductionStoneEdit(order, "Shelf Non-Gold Adjustment");
   order.productionStoneCopiedFrom = `Shelf Issue ${issue.id || ""}`.trim();
   const waxTotal = productionStoneTotals(existingItems, "wax").weight;
   const handTotal = productionStoneTotals(existingItems, "hand").weight;
@@ -12367,7 +12387,7 @@ function fittingItemsStoneRows(waxStoneWeight = 0, existingRows = []) {
 function applyFittingItemsOrderWeights(order, grossWeight, waxStoneWeight) {
   if (!order) return;
   order.productionStoneItems = fittingItemsStoneRows(waxStoneWeight, order.productionStoneItems || []);
-  order.productionStoneOverride = true;
+  stampProductionStoneEdit(order, "Casting Fitting Item");
   order.castingReceiveGrossWeight = Number(weight3(grossWeight || 0));
   order.castingReceiveWaxStoneWeight = Number(weight3(waxStoneWeight || 0));
   order.castingReceiveNetWeight = safeItemNetFromGross(grossWeight, waxStoneWeight);
@@ -14970,6 +14990,7 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Net Wt", billItem.netWeight !== undefined ? gram(billItem.netWeight) : "-")}
         ${jobItemDetailCell("Wax Stone", `${waxStone.pcs} pcs / ${weight3(waxStone.weight)}g`)}
         ${jobItemDetailCell("Hand Stone", `${handStone.pcs} pcs / ${weight3(handStone.weight)}g`)}
+        ${jobItemDetailCell("Stone Entry", productionStoneEditStatusText(order))}
         ${jobItemDetailCell("Safe Non-Gold Added", safeNonGold.text)}
         ${jobItemDetailCell("Repair Status", billItem.repairStatus || "-")}
         ${jobItemDetailCell("Repair Days", billItem.repairStatus ? repairDayText(billItem) : "-")}
@@ -15854,12 +15875,13 @@ function openProductionStoneEntry(orderId) {
   if (!requireProductionStoneEditPermission(order, "open stone details")) return;
   const form = document.getElementById("production-stone-form");
   form.orderId.value = order.id;
+  form.dataset.stoneEdited = "false";
   form.additionalStoneWeight.value = formatStoneWeight(productionAdditionalStoneWeightForOrder(order)) || "";
   const design = productionStoneDesignForOrder(order);
   const designItems = designStoneItemsForOrder(design, order);
   const itemItems = productionStoneItemsForOrder(order);
   const itemText = orderStoneItemKeys(order).map(stoneItemInputValue).join(" + ");
-  document.getElementById("production-stone-summary").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order, design)} / ${itemText} / ${itemItems.length || 0} item stone row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
+  document.getElementById("production-stone-summary").textContent = `${order.jobNumber || order.number} / ${order.productionNo || order.number} / ${jobItemDisplayName(order, design)} / ${itemText} / Job Item ${itemItems.length || 0} row${itemItems.length === 1 ? "" : "s"} / Design Master ${designItems.length || 0} row${designItems.length === 1 ? "" : "s"}`;
   renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
@@ -15868,11 +15890,101 @@ function openProductionStoneEntry(orderId) {
 }
 
 function canReloadProductionStoneFromMaster(order = {}) {
-  return order.productionStoneOverride !== true;
+  return order.productionStoneOverride !== true && !productionStoneDialogHasUnsavedEdits(order);
+}
+
+function productionStoneDialogHasUnsavedEdits(order = {}) {
+  const form = document.getElementById("production-stone-form");
+  return Boolean(form && form.orderId?.value === order.id && form.dataset.stoneEdited === "true");
+}
+
+function productionStoneEntryEdited(order = {}) {
+  return order.productionStoneOverride === true || productionStoneDialogHasUnsavedEdits(order);
+}
+
+function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry") {
+  if (!order?.id) return order;
+  order.productionStoneOverride = true;
+  order.productionStoneUpdatedAt = today();
+  order.productionStoneEditedAt = new Date().toISOString();
+  order.productionStoneEditedBy = currentUser?.name || currentUserConfig()?.name || currentUser?.id || "ERP User";
+  order.productionStoneEditSource = source;
+  return order;
+}
+
+function productionStoneEditedTimeText(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function productionStoneEditStatusText(order = {}) {
+  if (productionStoneDialogHasUnsavedEdits(order)) return "EDITED - NOT SAVED";
+  if (!order.productionStoneOverride) return "DESIGN MASTER REFERENCE";
+  const detail = [
+    order.productionStoneEditedBy ? `BY ${order.productionStoneEditedBy}` : "",
+    productionStoneEditedTimeText(order.productionStoneEditedAt || order.productionStoneUpdatedAt),
+  ].filter(Boolean).join(" / ");
+  return detail ? `EDITED / ${detail}` : "EDITED";
+}
+
+function renderProductionStoneMeta(order = {}, items = null) {
+  const container = document.getElementById("production-stone-meta");
+  if (!container || !order?.id) return;
+  const rows = Array.isArray(items) ? items : productionStoneItemsForOrder(order);
+  const design = productionStoneDesignForOrder(order);
+  const lot = lotsForOrder(order)[0] || null;
+  const wax = productionStoneTotals(rows, "wax");
+  const hand = productionStoneTotals(rows, "hand");
+  const total = productionStoneTotals(rows);
+  const itemKeys = [...new Set(rows.map((item) => stoneItemInputValue(item.itemKey)).filter(Boolean))];
+  const values = [
+    ["Job Card", order.jobNumber || order.number || "-"],
+    ["PR Number", order.productionNo || order.number || "-"],
+    ["Design / Item", jobItemDisplayName(order, design)],
+    ["Sub Item", itemKeys.join(" + ") || orderStoneItemKeys(order).map(stoneItemInputValue).join(" + ") || "-"],
+    ["Lot / Department", lot ? `${lot.number || "-"} / ${lot.currentDepartment || lot.karigarName || "-"}` : "Not Issued"],
+    ["Wax Stone", `${wax.pcs} pcs / ${weight3(wax.weight)} g`],
+    ["Hand Stone", `${hand.pcs} pcs / ${weight3(hand.weight)} g`],
+    ["Total Stone", `${total.pcs} pcs / ${weight3(total.weight)} g`],
+    ["Stone Status", productionStoneEditStatusText(order)],
+  ];
+  container.innerHTML = values.map(([label, value], index) => `
+    <article class="${index === 8 && productionStoneEntryEdited(order) ? "edited" : ""}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `).join("");
+}
+
+function markProductionStoneDialogEdited(order = {}) {
+  const form = document.getElementById("production-stone-form");
+  if (!form || form.orderId?.value !== order.id) return;
+  form.dataset.stoneEdited = "true";
+  updateProductionStoneMasterReloadState(order);
 }
 
 function updateProductionStoneMasterReloadState(order = {}) {
   const locked = !canReloadProductionStoneFromMaster(order);
+  const editedStatus = document.getElementById("production-stone-edit-status");
+  if (editedStatus) {
+    editedStatus.classList.toggle("hidden", !productionStoneEntryEdited(order));
+    editedStatus.textContent = productionStoneEntryEdited(order) ? productionStoneEditStatusText(order) : "";
+  }
+  const sourceLock = document.getElementById("production-stone-source-lock");
+  if (sourceLock) {
+    sourceLock.classList.toggle("locked", locked);
+    sourceLock.innerHTML = locked
+      ? `<strong>GET STONE DATA LOCKED</strong><span>This PR stone plan is edited. Continue by changing, adding, or removing its current rows.</span>`
+      : `<strong>MASTER DATA AVAILABLE</strong><span>Get Stone Data can be used only before the first item-level edit.</span>`;
+  }
   ["refresh-production-stone-master", "reset-production-stone-design"].forEach((id) => {
     const button = document.getElementById(id);
     if (!button) return;
@@ -15880,7 +15992,9 @@ function updateProductionStoneMasterReloadState(order = {}) {
     button.title = locked
       ? "This PR stone plan was already updated. Modify the current rows or add a new stone row."
       : "Load the starting stone rows before the first item-level update.";
+    button.setAttribute("aria-disabled", locked ? "true" : "false");
   });
+  renderProductionStoneMeta(order);
 }
 
 function productionStoneChartKeysForOrder(design = null, order = {}) {
@@ -16015,6 +16129,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
   const designItems = designStoneItemsForOrder(design, order);
   const items = Array.isArray(forcedItems) ? forcedItems : productionStoneItemsForOrder(order);
   const regularItems = items.filter((item) => !item.isAdditionalStone);
+  renderProductionStoneMeta(order, items);
   container.dataset.orderId = order.id;
   container.classList.toggle("empty", !items.length);
   if (!regularItems.length) {
@@ -16027,10 +16142,16 @@ function renderProductionStoneItems(order, forcedItems = null) {
   container.innerHTML = `
     <div class="stone-total-summary">${productionStoneSummaryText(items)}</div>
     <p class="dialog-note">${escapeHtml(productionStonePlanSourceText(order, designItems.length))}</p>
-    <table>
-      <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Actual Total Wt (g)</th><th>Setting Type</th><th>Manufacturing Stage</th><th></th></tr></thead>
-      <tbody>${regularItems.map((item) => productionStoneRowHtml(item, order, design)).join("")}</tbody>
-    </table>`;
+    <div class="production-stone-details-head">
+      <div><strong>Item Stone Rows</strong><span>Edit values directly. Design Master remains unchanged.</span></div>
+      <b>${regularItems.length} ROW${regularItems.length === 1 ? "" : "S"}</b>
+    </div>
+    <div class="production-stone-table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Actual Total Wt (g)</th><th>Setting Type</th><th>Manufacturing Stage</th><th>Action</th></tr></thead>
+        <tbody data-production-stone-row-list>${regularItems.map((item) => productionStoneRowHtml(item, order, design)).join("")}</tbody>
+      </table>
+    </div>`;
   container.querySelectorAll("[data-production-stone-row]").forEach((row) => {
     refreshProductionStoneRowOptions(row);
     updateProductionStoneRowPreview(row);
@@ -16038,12 +16159,11 @@ function renderProductionStoneItems(order, forcedItems = null) {
 }
 
 function removeProductionStoneItem(orderId, stoneItemId) {
-  if (!requireDeletePermission("delete saved production stone rows")) return;
   const order = findById("orders", orderId);
   if (!order) return;
+  if (!requireProductionStoneRowRemovePermission(order)) return;
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.id !== stoneItemId);
-  order.productionStoneOverride = true;
-  order.productionStoneUpdatedAt = today();
+  stampProductionStoneEdit(order, "Stone Row Removed");
   syncSettingEntriesForUpdatedStoneOrders([order]);
   syncFilingTransfersForUpdatedStoneOrders([order]);
   saveState();
@@ -16053,7 +16173,8 @@ function removeProductionStoneItem(orderId, stoneItemId) {
 
 function productionStonePlanSourceText(order = {}, designRowCount = 0) {
   if (order.productionStoneOverride) {
-    return "This is a job-card item stone plan. Changes here do not affect Design Master.";
+    const editor = order.productionStoneEditedBy ? ` Edited by ${order.productionStoneEditedBy}${order.productionStoneEditedAt ? ` on ${productionStoneEditedTimeText(order.productionStoneEditedAt)}` : ""}.` : "";
+    return `This is a job-card item stone plan.${editor} Changes here do not affect Design Master.`;
   }
   if (order.productionStoneItems?.length) {
     return "This job-card item has its own copied stone plan from Design Master. Edit here for this item only.";
@@ -16089,19 +16210,19 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       data-additional-stone="${isAdditionalStone ? "true" : ""}"
       data-safe-department-issue-id="${escapeHtml(item.safeDepartmentIssueId || "")}"
     >
-      <td><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select>${item.fittingAccessoryName ? `<small class="production-fitting-accessory-name">${escapeHtml(stoneItemDisplayName(item))}</small>` : ""}</td>
-      <td data-production-stone-code>${isAdditionalStone ? '<span class="additional-stone-badge">Additional</span>' : ""}${escapeHtml(item.code || stoneLookupCode({ stoneType, shape, size }) || "-")}</td>
-      <td><select data-production-stone-field="stoneType">${stoneEditOptions("stoneType", stoneType)}</select></td>
-      <td><select data-production-stone-field="shape">${stoneEditOptions("shape", shape)}</select></td>
-      <td><select data-production-stone-field="size">${stoneEditOptions("size", size)}</select></td>
-      <td><input data-production-stone-field="pcs" type="number" min="0" step="1" value="${escapeHtml(item.pcs || "")}"></td>
-      <td><input data-production-stone-field="weightPerPc" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}" placeholder="0.00000"></td>
-      <td data-production-stone-total>${isAdditionalStone
+      <td data-label="Item"><select data-production-stone-field="itemKey">${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select>${item.fittingAccessoryName ? `<small class="production-fitting-accessory-name">${escapeHtml(stoneItemDisplayName(item))}</small>` : ""}</td>
+      <td data-label="Code" data-production-stone-code>${isAdditionalStone ? '<span class="additional-stone-badge">Additional</span>' : ""}${escapeHtml(item.code || stoneLookupCode({ stoneType, shape, size }) || "-")}</td>
+      <td data-label="Type"><select data-production-stone-field="stoneType">${stoneEditOptions("stoneType", stoneType)}</select></td>
+      <td data-label="Shape"><select data-production-stone-field="shape">${stoneEditOptions("shape", shape)}</select></td>
+      <td data-label="Size"><select data-production-stone-field="size">${stoneEditOptions("size", size)}</select></td>
+      <td data-label="No. Pcs"><input data-production-stone-field="pcs" type="number" min="0" step="1" value="${escapeHtml(item.pcs || "")}"></td>
+      <td data-label="Wt/Pc (g)"><input data-production-stone-field="weightPerPc" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}" placeholder="0.00000"></td>
+      <td data-label="Total Wt (g)" data-production-stone-total>${isAdditionalStone
         ? `<input data-production-stone-field="totalWeight" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.totalWeight) || "")}" placeholder="Enter actual weight">`
         : escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
-      <td><select data-production-stone-field="settingType">${productionSettingOptions(item.settingType || automaticProductionStoneSetting(item).settingType)}</select></td>
-      <td><select data-production-stone-field="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage || automaticProductionStoneSetting(item).manufacturingStage)}</select></td>
-      <td>${isSettingManagerUser() ? '<small>Owner / Manager only</small>' : '<button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove</button>'}</td>
+      <td data-label="Setting Type"><select data-production-stone-field="settingType">${productionSettingOptions(item.settingType || automaticProductionStoneSetting(item).settingType)}</select></td>
+      <td data-label="Manufacturing Stage"><select data-production-stone-field="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage || automaticProductionStoneSetting(item).manufacturingStage)}</select></td>
+      <td data-label="Action"><button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove Row</button></td>
     </tr>
   `;
 }
@@ -16347,6 +16468,7 @@ function updateProductionStoneDialogSummary() {
   const additionalWeight = Number(formatStoneWeight(form?.additionalStoneWeight?.value || "") || 0);
   if (order && additionalWeight > 0) items.push(directAdditionalStoneItemForOrder(order, additionalWeight));
   summary.textContent = productionStoneSummaryText(items);
+  if (order) renderProductionStoneMeta(order, items);
 }
 
 function productionAdditionalStoneItemsForOrder(order = {}) {
@@ -16397,6 +16519,7 @@ function addProductionStoneRow() {
   const tbody = container.querySelector("tbody");
   if (!tbody) {
     renderProductionStoneItems(order, [blank]);
+    markProductionStoneDialogEdited(order);
     updateProductionStoneDialogSummary();
     return;
   }
@@ -16404,14 +16527,18 @@ function addProductionStoneRow() {
   const row = tbody.lastElementChild;
   refreshProductionStoneRowOptions(row);
   updateProductionStoneRowPreview(row);
+  markProductionStoneDialogEdited(order);
   updateProductionStoneDialogSummary();
 }
 
 function removeProductionStoneRow(button) {
-  if (!requireDeletePermission("remove production stone rows")) return;
+  const form = document.getElementById("production-stone-form");
+  const order = findById("orders", form?.orderId?.value);
+  if (!order || !requireProductionStoneRowRemovePermission(order)) return;
   const row = button?.closest("[data-production-stone-row]");
   if (!row) return;
   row.remove();
+  markProductionStoneDialogEdited(order);
   updateProductionStoneDialogSummary();
 }
 
@@ -16446,8 +16573,7 @@ function refreshProductionStoneFromMaster() {
   }
   plans.filter((plan) => plan.refreshedItems.length).forEach(({ targetOrder, refreshedItems }) => {
     targetOrder.productionStoneItems = refreshedItems;
-    targetOrder.productionStoneOverride = true;
-    targetOrder.productionStoneUpdatedAt = today();
+    stampProductionStoneEdit(targetOrder, "Stone Master Data Loaded");
     targetOrder.productionStoneCopiedFrom = "Stone Master";
   });
   syncSettingEntriesForUpdatedStoneOrders(targetOrders);
@@ -16486,8 +16612,7 @@ function resetProductionStoneFromDesign() {
   if (!confirm(`Get the latest stone rows for ${targetOrders.length} selected production number${targetOrders.length === 1 ? "" : "s"} from Design Master?\n\n${productionNumbers.join(", ")}\n\nStone Master weights will be applied automatically. This will not change Design Master.`)) return;
   plans.filter((plan) => plan.items.length).forEach(({ targetOrder, items }) => {
     targetOrder.productionStoneItems = items;
-    targetOrder.productionStoneOverride = true;
-    targetOrder.productionStoneUpdatedAt = today();
+    stampProductionStoneEdit(targetOrder, "Design Master Data Loaded");
     targetOrder.productionStoneCopiedFrom = "Design Master";
   });
   syncSettingEntriesForUpdatedStoneOrders(targetOrders);
@@ -28162,8 +28287,7 @@ function addJobItemFittingAccessories(form, selections = []) {
     }));
   }
   order.productionStoneItems = [...currentItems, ...copiedRows];
-  order.productionStoneOverride = true;
-  order.productionStoneUpdatedAt = today();
+  stampProductionStoneEdit(order, "Fitting Accessory Added");
   order.productionStoneCopiedFrom = sourceLabels.join(" / ");
   const totals = designStoneTotals(copiedRows);
   backupRecentJobOrders([order]);
@@ -28184,8 +28308,7 @@ function removeJobItemFittingAccessory(orderId = "", jobFittingAccessoryId = "")
   const fittingName = rows[0].jobFittingAccessoryName || rows[0].fittingAccessoryName || "Fitting Accessory";
   if (!confirm(`Remove ${fittingName} and its ${rows.length} stone row${rows.length === 1 ? "" : "s"} from ${order.productionNo || order.number}?\n\nDesign Master will remain unchanged.`)) return;
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.jobFittingAccessoryId !== jobFittingAccessoryId);
-  order.productionStoneOverride = true;
-  order.productionStoneUpdatedAt = today();
+  stampProductionStoneEdit(order, "Fitting Accessory Removed");
   backupRecentJobOrders([order]);
   saveState();
   render();
@@ -39180,6 +39303,9 @@ function normalizeState(currentState) {
         : buildProductionStoneItemsForOrder(order, design, currentState);
     order.productionStoneOverride = hasProductionStoneOverride;
     order.productionStoneUpdatedAt = order.productionStoneUpdatedAt || "";
+    order.productionStoneEditedAt = order.productionStoneEditedAt || "";
+    order.productionStoneEditedBy = order.productionStoneEditedBy || "";
+    order.productionStoneEditSource = order.productionStoneEditSource || "";
     if (!order.customerId && order.customer) {
       let customer = currentState.customers.find((item) => item.name.toLowerCase() === order.customer.toLowerCase());
       if (!customer) {

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=590">
+  <link rel="stylesheet" href="styles.css?v=591">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v590</small>
+      <small class="app-version-badge">App v591</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v590</span>
+          <span class="app-version-badge">App v591</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2192,10 +2192,13 @@
             <h2>Production Stone Entry</h2>
             <p id="production-stone-summary" class="dialog-note"></p>
           </div>
+          <span id="production-stone-edit-status" class="production-stone-edit-status hidden"></span>
           <button class="ghost-button" type="button" id="close-production-stone">Close</button>
         </div>
         <input type="hidden" name="orderId">
-        <p class="dialog-note">Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only and never changes Design Master or Stone Master.</p>
+        <section id="production-stone-meta" class="production-stone-meta" aria-live="polite"></section>
+        <div id="production-stone-source-lock" class="production-stone-source-lock"></div>
+        <p class="dialog-note production-stone-guidance">Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only and never changes Design Master or Stone Master.</p>
         <section id="production-stone-target-panel" class="production-stone-target-panel hidden">
           <div id="production-stone-targets" class="production-stone-targets"></div>
         </section>
@@ -2219,7 +2222,7 @@
           <div id="production-stone-details" class="design-stone-details empty">No design stone data found.</div>
         </section>
         <div class="dialog-actions">
-          <button class="ghost-button" type="button" id="add-production-stone-row">Add Regular Stone Row</button>
+          <button class="ghost-button production-stone-add-row" type="button" id="add-production-stone-row">Add Regular Stone Row</button>
           <button class="ghost-button" type="button" id="refresh-production-stone-master">Get Stone Data From Stone Master</button>
           <button class="ghost-button" type="button" id="reset-production-stone-design">Get Stone Data From Design Master</button>
           <button class="ghost-button" type="button" id="close-production-stone-bottom">Close</button>
@@ -3063,6 +3066,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=590"></script>
+  <script src="app.js?v=591"></script>
 </body>
 </html>

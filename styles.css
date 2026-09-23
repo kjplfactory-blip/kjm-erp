@@ -88,6 +88,18 @@ button.owner-only {
   color: var(--muted);
 }
 
+.login-session-note {
+  margin: -2px 0 0;
+  padding: 9px 11px;
+  border: 1px solid #c9e5df;
+  border-radius: 7px;
+  background: #f2fbf8;
+  color: #315b53;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .login-error {
   min-height: 20px;
   margin: 0;
@@ -7262,6 +7274,102 @@ dialog::backdrop {
   width: min(1540px, 98vw);
 }
 
+.production-stone-dialog > .dialog-header {
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #d9e7e2;
+}
+
+.production-stone-dialog > .dialog-header h2 {
+  margin-bottom: 3px;
+  color: #123f35;
+}
+
+.production-stone-edit-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  max-width: 380px;
+  padding: 6px 10px;
+  border: 1px solid #e3b14c;
+  border-radius: 6px;
+  color: #6e4a07;
+  background: #fff4cf;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.production-stone-meta {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.production-stone-meta article {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d4e5df;
+  border-radius: 7px;
+  background: #f8fcfa;
+}
+
+.production-stone-meta article.edited {
+  border-color: #e6b759;
+  background: #fff7dc;
+}
+
+.production-stone-meta span {
+  color: #647a73;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.production-stone-meta strong {
+  color: #153f36;
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.production-stone-source-lock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #bcded3;
+  border-radius: 7px;
+  color: #315c51;
+  background: #edf9f5;
+  font-size: 10px;
+}
+
+.production-stone-source-lock strong {
+  flex: 0 0 auto;
+  color: #11654f;
+  font-size: 9px;
+}
+
+.production-stone-source-lock.locked {
+  border-color: #e4c06f;
+  color: #694f19;
+  background: #fff8e4;
+}
+
+.production-stone-source-lock.locked strong {
+  color: #8a5c06;
+}
+
+.production-stone-guidance {
+  margin: 0;
+}
+
 .production-stone-target-panel {
   padding: 7px 9px;
   border: 1px solid #c9e5df;
@@ -7411,23 +7519,129 @@ dialog::backdrop {
   overflow: auto;
 }
 
+.production-stone-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid #c9dfd8;
+  border-radius: 7px;
+  background: #f4faf7;
+}
+
+.production-stone-details-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.production-stone-details-head strong {
+  color: #153f36;
+  font-size: 13px;
+}
+
+.production-stone-details-head span {
+  color: #667a74;
+  font-size: 9px;
+}
+
+.production-stone-details-head b {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: #0f654f;
+  background: #dff3ec;
+  font-size: 9px;
+}
+
+.production-stone-table-wrap {
+  width: 100%;
+  overflow: visible;
+}
+
 .production-stone-dialog table {
   width: 100%;
   min-width: 0;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .production-stone-dialog th,
 .production-stone-dialog td {
+  padding: 6px 4px;
   white-space: normal;
   overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.production-stone-dialog th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: #ffffff;
+  background: #17594a;
+  font-size: 8px;
+  line-height: 1.25;
+}
+
+.production-stone-dialog tbody tr:nth-child(even) td {
+  background: #f5faf8;
+}
+
+.production-stone-dialog tbody tr:hover td {
+  background: #e9f7f2;
 }
 
 .production-stone-dialog select,
 .production-stone-dialog input {
   width: 100%;
   min-width: 0;
+  min-height: 34px;
+  padding: 5px;
+  font-size: 10px;
+}
+
+.production-stone-dialog td .delete-btn {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px;
+  font-size: 8px;
+  white-space: normal;
+}
+
+.production-stone-dialog th:nth-child(1) { width: 8%; }
+.production-stone-dialog th:nth-child(2) { width: 9%; }
+.production-stone-dialog th:nth-child(3) { width: 8%; }
+.production-stone-dialog th:nth-child(4) { width: 8%; }
+.production-stone-dialog th:nth-child(5) { width: 8%; }
+.production-stone-dialog th:nth-child(6) { width: 6%; }
+.production-stone-dialog th:nth-child(7) { width: 8%; }
+.production-stone-dialog th:nth-child(8) { width: 9%; }
+.production-stone-dialog th:nth-child(9) { width: 12%; }
+.production-stone-dialog th:nth-child(10) { width: 13%; }
+.production-stone-dialog th:nth-child(11) { width: 9%; }
+
+.production-stone-dialog > .dialog-actions {
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid #d9e7e2;
+}
+
+.production-stone-dialog > .dialog-actions button {
+  min-height: 38px;
+}
+
+.production-stone-dialog > .dialog-actions button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+.production-stone-add-row {
+  border-color: #64aa96 !important;
+  color: #0d654f !important;
+  background: #e8f7f1 !important;
 }
 
 .production-additional-stone-weight {
@@ -7469,6 +7683,10 @@ dialog::backdrop {
 }
 
 @media (max-width: 1050px) {
+  .production-stone-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .production-stone-workspace {
     grid-template-columns: 1fr;
   }
@@ -7488,6 +7706,74 @@ dialog::backdrop {
 
   .production-stone-dialog .design-stone-details {
     max-height: 58vh;
+  }
+}
+
+@media (max-width: 900px) {
+  .production-stone-dialog table,
+  .production-stone-dialog tbody {
+    display: block;
+  }
+
+  .production-stone-dialog thead {
+    display: none;
+  }
+
+  .production-stone-dialog tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 10px;
+    padding: 9px;
+    border: 1px solid #c9dfd8;
+    border-radius: 7px;
+    background: #ffffff;
+  }
+
+  .production-stone-dialog tbody td,
+  .production-stone-dialog tbody tr:nth-child(even) td,
+  .production-stone-dialog tbody tr:hover td {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .production-stone-dialog tbody td::before {
+    content: attr(data-label);
+    color: #63766f;
+    font-size: 8px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+}
+
+@media (max-width: 620px) {
+  .production-stone-dialog > .dialog-header {
+    align-items: stretch;
+  }
+
+  .production-stone-edit-status {
+    max-width: none;
+  }
+
+  .production-stone-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .production-stone-source-lock {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .production-stone-dialog tbody tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .production-stone-dialog tbody td:last-child {
+    grid-column: 1 / -1;
   }
 }
 
