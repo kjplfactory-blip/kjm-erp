@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v586";
+const APP_VERSION = "v587";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -32,6 +32,7 @@ const ERP_STATE_STORAGE_KEY = "gold-jewellery-erp-state";
 const ERP_STATE_INDEXED_DB_NAME = "khushali-erp-local-state";
 const ERP_STATE_INDEXED_DB_STORE = "states";
 const ERP_STATE_INDEXED_DB_KEY = "latest";
+const ERP_STATE_INDEXED_DB_POINTER_FORMAT = "KJM-ERP-INDEXEDDB-POINTER";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
 const LOCAL_COMPACT_MODE_SESSION_KEY = "gold-jewellery-erp-compact-storage-mode";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
@@ -333,6 +334,7 @@ let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
 let erpStateIndexedDbPendingRecord = null;
 let erpStateIndexedDbWritePromise = null;
+let erpStateIndexedDbFailureReported = false;
 let localStorageCompactMode = (() => {
   try {
     return sessionStorage.getItem(LOCAL_COMPACT_MODE_SESSION_KEY) === "1";
@@ -3745,7 +3747,21 @@ function loadState() {
   }
 
   try {
-    const normalized = normalizeState(JSON.parse(saved));
+    const parsed = JSON.parse(saved);
+    if (isErpStateIndexedDbPointer(parsed)) {
+      localStorageCompactMode = true;
+      try {
+        sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1");
+      } catch (error) {
+        // The IndexedDB pointer itself is enough to select large browser storage.
+      }
+      stateLoadedFromFallback = true;
+      const normalized = normalizeState(structuredClone(demoState));
+      if (parsed.factoryResetAt) normalized.factoryResetAt = parsed.factoryResetAt;
+      rememberFactoryResetMarker(parsed.factoryResetAt || "");
+      return normalized;
+    }
+    const normalized = normalizeState(parsed);
     stateLoadedFromFallback = false;
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     try {
@@ -4328,6 +4344,69 @@ function readLatestErpStateIndexedDb() {
   }));
 }
 
+function isErpStateIndexedDbPointer(value = null) {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && value.format === ERP_STATE_INDEXED_DB_POINTER_FORMAT
+    && value.storage === "indexeddb"
+    && value.id === ERP_STATE_INDEXED_DB_KEY
+  );
+}
+
+function erpStateIndexedDbPointer(record = {}) {
+  const source = record.state || {};
+  return {
+    format: ERP_STATE_INDEXED_DB_POINTER_FORMAT,
+    storage: "indexeddb",
+    id: ERP_STATE_INDEXED_DB_KEY,
+    savedAt: Number(record.savedAt || Date.now()),
+    appVersion: source.appVersion || APP_VERSION,
+    syncSchemaVersion: stateSyncBuild(source) || SYNC_SCHEMA_VERSION,
+    browserSavedAt: source.browserSavedAt || "",
+    factoryResetAt: stateFactoryResetAt(source),
+    profile: stateBusinessProfile(source),
+  };
+}
+
+function writeErpStateIndexedDbPointer(record = {}) {
+  const payload = JSON.stringify(erpStateIndexedDbPointer(record));
+  try {
+    localStorage.setItem(ERP_STATE_STORAGE_KEY, payload);
+  } catch (firstError) {
+    try {
+      localStorage.removeItem(ERP_STATE_STORAGE_KEY);
+      localStorage.setItem(ERP_STATE_STORAGE_KEY, payload);
+    } catch (error) {
+      console.warn("The large browser storage pointer could not be written. The complete IndexedDB copy remains available.", error);
+      return false;
+    }
+  }
+  try {
+    sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1");
+  } catch (error) {
+    // The localStorage pointer also enables large-storage mode after reload.
+  }
+  return true;
+}
+
+function monitorErpStateIndexedDbWrite(writePromise, context = "ERP data ", options = {}) {
+  if (!writePromise) return false;
+  Promise.resolve(writePromise).then((saved) => {
+    if (saved) {
+      erpStateIndexedDbFailureReported = false;
+      return;
+    }
+    if (erpStateIndexedDbFailureReported) return;
+    erpStateIndexedDbFailureReported = true;
+    const detail = "The complete ERP copy could not be written to large browser storage. Keep this page open while Live Sync retries, and download an Owner backup.";
+    console.error(`${context}could not be saved to large browser storage.`);
+    setSyncStatus("offline", "Save Failed - Large Storage", detail);
+    if (options.alertOnFailure) alert(detail);
+  });
+  return true;
+}
+
 function queueFullErpStateToIndexedDb(source = state) {
   if (!browserHasIndexedDb() || !source || typeof source !== "object") return null;
   erpStateIndexedDbPendingRecord = {
@@ -4341,6 +4420,7 @@ function queueFullErpStateToIndexedDb(source = state) {
       const record = erpStateIndexedDbPendingRecord;
       erpStateIndexedDbPendingRecord = null;
       await writeErpStateIndexedDbRecord(record);
+      if (localStorageCompactMode) writeErpStateIndexedDbPointer(record);
     }
     return true;
   })().catch((error) => {
@@ -4402,31 +4482,39 @@ function persistStateToBrowser(options = {}) {
   const context = options.context ? `${options.context} ` : "ERP data ";
   state.browserSavedAt = new Date().toISOString();
   const indexedDbWrite = queueFullErpStateToIndexedDb(state);
-  if (!localStorageCompactMode) {
-    try {
-      localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(state));
-      return true;
-    } catch (fullStorageError) {
-      localStorageCompactMode = true;
-      try {
-        sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1");
-      } catch (error) {
-        // Session storage is optional; IndexedDB and Supabase remain the safety copies.
-      }
-      console.warn(`${context}did not fit in small browser storage. Future saves in this session will use the compact safety copy.`, fullStorageError);
-    }
+
+  if (localStorageCompactMode) {
+    if (monitorErpStateIndexedDbWrite(indexedDbWrite, context, options)) return true;
+    const detail = "Large browser storage is unavailable.";
+    setSyncStatus("offline", "Save Failed - Large Storage", detail);
+    if (options.alertOnFailure) alert(`${context}could not be saved on this laptop.\n\n${detail}`);
+    return false;
   }
+
+  try {
+    localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(state));
+    return true;
+  } catch (fullStorageError) {
+    localStorageCompactMode = true;
+    try {
+      sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1");
+    } catch (error) {
+      // A confirmed IndexedDB write will leave a persistent pointer in localStorage.
+    }
+    console.warn(`${context}has moved from small browser storage to large browser storage.`, fullStorageError);
+  }
+
+  if (monitorErpStateIndexedDbWrite(indexedDbWrite, context, options)) {
+    setSyncStatus("saving", "Local Save: Protected", "The complete ERP copy is being saved in large browser storage; cloud sync remains active.");
+    return true;
+  }
+
   try {
     releaseOptionalLocalStorageCopies();
     localStorage.setItem(ERP_STATE_STORAGE_KEY, compactErpStateJson(state));
-    setSyncStatus("saving", "Local Safety: Large Storage", "The complete ERP copy is in large browser storage; the compact local copy and cloud sync remain active.");
+    setSyncStatus("saving", "Local Safety: Compact", "Large browser storage is unavailable, so a compact local safety copy is active while cloud sync continues.");
     return true;
   } catch (compactStorageError) {
-    if (indexedDbWrite) {
-      console.warn(`${context}is using large browser storage because localStorage is full.`, compactStorageError);
-      setSyncStatus("saving", "Local Safety: IndexedDB", "Small browser storage is full. The complete ERP copy is being saved in large browser storage and Supabase.");
-      return true;
-    }
     const detail = String(compactStorageError?.message || compactStorageError || "Browser storage is unavailable.").replace(/\s+/g, " ").trim();
     console.error(`${context}could not be saved on this laptop.`, compactStorageError);
     setSyncStatus("offline", "Save Failed - Browser Storage", detail);
