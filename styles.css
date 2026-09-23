@@ -16851,3 +16851,123 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     max-height: 58vh;
   }
 }
+#billing .billing-heading-tools {
+  display: flex;
+  width: min(100%, 640px);
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+#billing .billing-heading-tools .search {
+  flex: 1 1 280px;
+  min-width: 180px;
+}
+
+#manual-wip-billing-dialog {
+  width: calc(100vw - 16px);
+  max-width: none;
+  height: calc(100vh - 16px);
+  max-height: calc(100vh - 16px);
+}
+
+.manual-wip-billing-card {
+  align-content: start;
+  overflow-x: hidden;
+}
+
+.manual-wip-route-grid,
+.manual-wip-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.manual-wip-route-grid label,
+.manual-wip-fields-grid label {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(174, 216, 201, 0.86);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.manual-wip-route-grid select,
+.manual-wip-fields-grid input,
+.manual-wip-fields-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.manual-wip-source-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.manual-wip-source-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #cfe4dc;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f7fcfa, #eaf7f2);
+}
+
+.manual-wip-source-summary span,
+.manual-wip-source-summary small {
+  color: #60766f;
+  font-size: 10px;
+}
+
+.manual-wip-source-summary strong {
+  color: #123f36;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.manual-wip-option-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #d2e5de;
+  border-radius: 8px;
+  background: rgba(246, 252, 249, 0.86);
+}
+
+.manual-wip-option-panel.hidden {
+  display: none;
+}
+
+.manual-wip-option-panel .section-title-row {
+  padding-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  #billing .panel-heading,
+  #billing .billing-heading-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #billing .billing-heading-tools {
+    width: 100%;
+  }
+
+  #billing .billing-heading-tools .search {
+    flex-basis: auto;
+  }
+
+  .manual-wip-source-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .manual-wip-route-grid,
+  .manual-wip-fields-grid,
+  .manual-wip-source-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

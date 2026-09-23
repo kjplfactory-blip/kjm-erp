@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=594">
+  <link rel="stylesheet" href="styles.css?v=595">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v594</small>
+      <small class="app-version-badge">App v595</small>
           </div>
         </div>
         <label>User
@@ -39,7 +39,7 @@
         </label>
         <label>Password <input name="password" type="password" required></label>
         <button type="submit">Login</button>
-        <p class="login-session-note">Owner and Manager: maximum 2 active devices. Every other user: maximum 1 active device.</p>
+        <p class="login-session-note">Owner and Manager: maximum 2 active devices. Every other user: maximum 1 active device. A disconnected login remains reserved for 15 minutes.</p>
         <p id="login-error" class="login-error"></p>
         <div class="login-help">
           <button id="show-login-details" class="ghost-button" type="button">Show Login Details</button>
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v594</span>
+          <span class="app-version-badge">App v595</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1614,8 +1614,14 @@
       <section id="billing" class="view">
         <section class="panel table-panel">
           <div class="panel-heading">
-            <h2>Bill Completed Job Cards</h2>
-            <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
+            <div>
+              <h2>Bill Completed Job Cards</h2>
+              <small>Completed Job Cards and controlled non-job-card WIP billing.</small>
+            </div>
+            <div class="billing-heading-tools">
+              <button type="button" id="open-manual-wip-billing">Non-Job-Card WIP</button>
+              <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -2359,6 +2365,90 @@
       </form>
     </dialog>
 
+    <dialog id="manual-wip-billing-dialog">
+      <form id="manual-wip-billing-form" class="dialog-card manual-wip-billing-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Clear Non-Job-Card WIP</h2>
+            <p class="dialog-note">Select one complete WIP holding, then make a manual Bill or assign it to an existing Job Card item.</p>
+          </div>
+          <button type="button" class="ghost-button" id="close-manual-wip-billing">Close</button>
+        </div>
+
+        <div class="manual-wip-route-grid">
+          <label>WIP Holding
+            <select name="sourceKey" required></select>
+          </label>
+          <label>Clear By
+            <select name="action" required>
+              <option value="manual-bill">Make Manual Bill</option>
+              <option value="assign-job">Assign To Existing Job Card</option>
+            </select>
+          </label>
+        </div>
+
+        <section id="manual-wip-source-summary" class="manual-wip-source-summary"></section>
+
+        <section id="manual-wip-bill-fields" class="manual-wip-option-panel">
+          <div class="section-title-row">
+            <div>
+              <h3>Manual Bill Item</h3>
+              <small>The selected WIP weights will be prefilled in the Bill and can be verified before saving.</small>
+            </div>
+          </div>
+          <div class="manual-wip-fields-grid">
+            <label>Customer
+              <select name="customerId"></select>
+            </label>
+            <label>Item / Design Description
+              <input name="itemDescription" placeholder="Old WIP item or design name">
+            </label>
+            <label>Category
+              <input name="category" placeholder="Chain, Ring, Pendant, etc.">
+            </label>
+            <label>Size
+              <input name="size" placeholder="Optional">
+            </label>
+            <label>Colour
+              <select name="color">
+                <option>Pink</option>
+                <option>Yellow</option>
+                <option>White</option>
+                <option>2 Tone</option>
+                <option>3 Tone</option>
+              </select>
+            </label>
+            <label>Purity / Karat
+              <input name="purity" readonly>
+            </label>
+          </div>
+        </section>
+
+        <section id="manual-wip-assign-fields" class="manual-wip-option-panel hidden">
+          <div class="section-title-row">
+            <div>
+              <h3>Assign To Job Card</h3>
+              <small>Only pending Job Card items without another production lot are available.</small>
+            </div>
+          </div>
+          <div class="manual-wip-fields-grid">
+            <label>Job Card Item
+              <select name="targetOrderId"></select>
+            </label>
+            <label>Current / Starting Department
+              <select name="departmentRoute"></select>
+            </label>
+          </div>
+        </section>
+
+        <p id="manual-wip-billing-note" class="dialog-note"></p>
+        <div class="dialog-actions">
+          <button type="button" class="ghost-button" id="cancel-manual-wip-billing">Cancel</button>
+          <button type="submit" id="save-manual-wip-billing">Continue To Bill</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="bill-dialog">
       <form method="dialog" id="bill-form" class="dialog-card bill-dialog-card">
         <h2 id="bill-form-title">Make Bill</h2>
@@ -2395,7 +2485,7 @@
             </thead>
             <tbody id="bill-item-table"></tbody>
           </table>
-          <p class="dialog-note">Stone Wt is automatic from job card stone data. Net Wt = Final GW - total non-gold. The Bill Wastage (%) above applies to the complete Bill, and Fine Wt = Net Wt x (Purity % + Wastage %).</p>
+          <p class="dialog-note">Stone Wt is automatic from Job Card stone data. For a non-job-card WIP Bill, Stone and BB weights remain editable for verification. Net Wt = Final GW - total non-gold. Bill Wastage (%) applies to the complete Bill, and Fine Wt = Net Wt x (Purity % + Wastage %).</p>
         </div>
         <div id="bill-design-hover-preview" class="bill-design-hover-preview hidden" role="tooltip" aria-hidden="true">
           <div class="bill-design-hover-heading">
@@ -3085,6 +3175,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=594"></script>
+  <script src="app.js?v=595"></script>
 </body>
 </html>
