@@ -17524,6 +17524,26 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 0;
 }
 
+/* V613: Production Stone Entry uses the complete viewport. */
+#production-stone-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+}
+
+#production-stone-dialog .production-stone-dialog {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+}
+
 .safe-wastage-history-dialog-card {
   width: 100%;
   max-width: none;
