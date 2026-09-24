@@ -1550,6 +1550,13 @@ form.active-operation-page,
   font-weight: 900;
 }
 
+.department-card-summary .department-fine-holding {
+  border-color: rgba(187, 148, 31, 0.34);
+  background: rgba(255, 249, 224, 0.78);
+  color: #66500c;
+  font-weight: 900;
+}
+
 .department-hover-popup {
   position: absolute;
   left: 50%;

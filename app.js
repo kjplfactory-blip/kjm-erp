@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v602";
+const APP_VERSION = "v603";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -26078,19 +26078,25 @@ function renderDepartmentMetal() {
       const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
       const reconciliation = reconciliationMap.get(departmentTextKey(department)) || {};
       const issueReceiveDifference = Number(weight3(totals.gross || 0));
+      const netWeightDifference = Number(weight3(totals.gold || 0));
+      const nonGoldHolding = Number(weight3(
+        Number(totals.waxStone || 0)
+        + Number(totals.handStone || 0)
+        + Number(totals.nonGold || 0)
+      ));
+      const fineGoldHolding = Number(weight3(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0)));
       return `
       <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"} ${reconciliation.needsCheck ? "department-card-check-required" : ""}" tabindex="0">
         <span>${escapeHtml(department)}</span>
-        <small class="department-holding-label">Issue - Receive GW</small>
+        <small class="department-holding-label">GW Diff (Issue - Receive)</small>
         <strong>${gram(totals.gross)}</strong>
         <div class="department-card-summary">
-          <small><b>Net Weight</b>${gram(totals.gold)}</small>
-          <small><b>Other</b>${gram(Number(totals.waxStone || 0) + Number(totals.handStone || 0) + Number(totals.nonGold || 0))}</small>
-          <small class="transfer-difference"><b>History Balance</b>${gram(reconciliation.ledgerGw ?? issueReceiveDifference)}</small>
-          <small class="${reconciliation.needsCheck ? "department-variance-warning" : ""}"><b>Variance</b>${signedFineGram(reconciliation.variance || 0)}</small>
-          <small><b>Fine</b>${gram(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0))}</small>
+          <small><b>Net Wt Diff</b>${gram(netWeightDifference)}</small>
+          <small title="Wax stone + hand stone + moti, black beads, spring and other non-gold"><b>Non-Gold Holding</b>${gram(nonGoldHolding)}</small>
+          <small class="department-fine-holding"><b>Fine Gold Holding</b>${gram(fineGoldHolding)}</small>
+          <small class="transfer-difference" title="Transfer History: issued to department minus received from department"><b>History GW Diff</b>${gram(reconciliation.ledgerGw ?? issueReceiveDifference)}</small>
         </div>
-        ${reconciliation.needsCheck ? `<div class="department-reconciliation-flag" title="${escapeHtml(reconciliation.reason)}">Check ${signedFineGram(reconciliation.variance)}</div>` : ""}
+        ${reconciliation.needsCheck ? `<div class="department-reconciliation-flag" title="${escapeHtml(reconciliation.reason)}">History variance ${signedFineGram(reconciliation.variance)}</div>` : ""}
         <div class="department-hover-popup" role="tooltip">
           <div class="department-popup-heading">
             <strong>${escapeHtml(department)}</strong>
@@ -26112,19 +26118,28 @@ function renderDepartmentMetal() {
 
 function renderDepartmentHoldingDetail(totals, transferSummary = {}, reconciliation = {}) {
   const issueReceiveDifference = Number(weight3(totals.gross || 0));
+  const netWeightDifference = Number(weight3(totals.gold || 0));
+  const nonGoldHolding = Number(weight3(
+    Number(totals.waxStone || 0)
+    + Number(totals.handStone || 0)
+    + Number(totals.nonGold || 0)
+  ));
+  const fineGoldHolding = Number(weight3(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0)));
+  const historyNetDifference = Number(weight3(Number(transferSummary.inNet || 0) - Number(transferSummary.outNet || 0)));
   return `
     <div class="department-breakup">
-      <small><b>Total GW</b>${gram(totals.gross)}</small>
+      <small><b>GW Diff (Issue - Receive)</b>${gram(issueReceiveDifference)}</small>
+      <small><b>Net Wt Diff</b>${gram(netWeightDifference)}</small>
+      <small><b>Non-Gold Holding</b>${gram(nonGoldHolding)}</small>
+      <small><b>Fine Gold Holding</b>${gram(fineGoldHolding)}</small>
       <small><b>Wax Stone</b>${gram(totals.waxStone)}</small>
       <small><b>Hand Stone</b>${gram(totals.handStone)}</small>
       <small><b>Total Stone</b>${gram(totals.waxStone + totals.handStone)}</small>
-      <small><b>Non-Gold</b>${gram(totals.nonGold)}</small>
-      <small><b>Net Gold</b>${gram(totals.gold)}</small>
-      <small><b>Fine Gold</b>${gram(totals.fineGold + totals.lossFineGold)}</small>
+      <small><b>Other Non-Gold</b>${gram(totals.nonGold)}</small>
       <small><b>Issued To Department</b>${gram(transferSummary.inGw || 0)}</small>
       <small><b>Received From Department</b>${gram(transferSummary.outGw || 0)}</small>
-      <small><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
-      ${reconciliation.hasTransfer ? `<small><b>History Balance</b>${gram(reconciliation.ledgerGw || 0)}</small>` : ""}
+      ${reconciliation.hasTransfer ? `<small><b>History GW Diff</b>${gram(reconciliation.ledgerGw || 0)}</small>` : ""}
+      ${reconciliation.hasTransfer ? `<small><b>History Net Diff</b>${gram(historyNetDifference)}</small>` : ""}
       ${reconciliation.needsCheck ? `<small class="loss-row"><b>Reconciliation Variance</b>${signedFineGram(reconciliation.variance)}</small>` : ""}
       ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
       ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
