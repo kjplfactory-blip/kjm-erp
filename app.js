@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v613";
+const APP_VERSION = "v614";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -483,7 +483,7 @@ let pendingSyncMutations = loadPendingSyncMutations();
 let lastLocallyPersistedState = structuredClone(state);
 let localFullStateRecoveryPromise = restoreFullErpStateFromIndexedDb();
 let currentUser = loadCurrentUser();
-let loginSessionValidated = false;
+let loginSessionValidated = Boolean(currentUser && allUsers()[currentUser.id]);
 let viewHistory = [];
 let restoringViewFromHistory = false;
 let stoneLibraryPage = 1;
@@ -4036,9 +4036,8 @@ function loginSessionLimitForUser(userId = "") {
   return ["owner", "manager", "settingmanager", "setting-manager"].includes(loginId) ? 2 : 1;
 }
 
-function loginSessionLimitText(userId = "") {
-  const limit = loginSessionLimitForUser(userId);
-  return String(limit) + " active " + (limit === 1 ? "device" : "devices");
+function loginSessionLimitText() {
+  return "Unlimited devices";
 }
 
 function loginDeviceId() {
@@ -4133,7 +4132,6 @@ async function acquireUserLoginSession(userId, user = {}, existingSession = {}) 
 async function handleLoginSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const submitButton = form.querySelector('button[type="submit"]');
   const errorNode = document.getElementById("login-error");
   const data = getFormData(form);
   const user = allUsers()[data.user];
@@ -4142,38 +4140,23 @@ async function handleLoginSubmit(event) {
     return;
   }
 
-  submitButton.disabled = true;
-  errorNode.textContent = "Checking active login availability...";
-  try {
-    const session = await acquireUserLoginSession(data.user, user);
-    if (!session.allowed) {
-      errorNode.textContent = session.message
-        || user.name + " already has " + session.activeCount + " active login(s). Maximum allowed: " + session.limit + ". Logout from another device or wait 15 minutes.";
-      return;
-    }
-    currentUser = {
-      id: data.user,
-      name: user.name,
-      role: user.role,
-      salesTeam: user.salesTeam || "",
-      sessionId: session.sessionId,
-      deviceId: session.deviceId,
-      sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
-    };
-    loginSessionValidated = true;
-    loginSessionLastConfirmedAt = Date.now();
-    localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
-    errorNode.textContent = "";
-    form.reset();
-    applyLoginState();
-    startLoginSessionHeartbeat();
-    recordLoginAudit(data.user, user);
-  } catch (error) {
-    console.warn("Login session check failed.", error);
-    errorNode.textContent = loginSessionErrorText(error);
-  } finally {
-    submitButton.disabled = false;
-  }
+  currentUser = {
+    id: data.user,
+    name: user.name,
+    role: user.role,
+    salesTeam: user.salesTeam || "",
+    deviceId: loginDeviceId(),
+    sessionId: "",
+    sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
+  };
+  loginSessionValidated = true;
+  loginSessionLastConfirmedAt = Date.now();
+  localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+  errorNode.textContent = "";
+  form.reset();
+  stopLoginSessionHeartbeat();
+  applyLoginState();
+  recordLoginAudit(data.user, user);
 }
 
 function stopLoginSessionHeartbeat() {
@@ -4193,41 +4176,11 @@ function forceLoginSessionLogout(message = "This login is no longer active.") {
 }
 
 async function touchCurrentLoginSession() {
-  if (!currentUser?.sessionId || loginSessionHeartbeatInProgress) return false;
-  loginSessionHeartbeatInProgress = true;
-  try {
-    const { data, error } = await loginSessionRpc("touch_erp_user_session", {
-      p_state_id: supabaseStateId,
-      p_session_id: currentUser.sessionId,
-      p_user_id: currentUser.id,
-      p_device_id: currentUser.deviceId,
-      p_stale_after_seconds: Math.ceil(LOGIN_SESSION_STALE_MS / 1000),
-    });
-    if (error) throw error;
-    if (loginSessionRpcData(data) !== true) {
-      forceLoginSessionLogout("This user was logged in on another device or the active session expired. Please log in again.");
-      return false;
-    }
-    loginSessionLastConfirmedAt = Date.now();
-    return true;
-  } catch (error) {
-    console.warn("Login heartbeat could not be confirmed.", error);
-    if (loginSessionLastConfirmedAt && Date.now() - loginSessionLastConfirmedAt >= LOGIN_SESSION_STALE_MS) {
-      forceLoginSessionLogout("The active login could not be verified for 15 minutes. Please reconnect to Supabase and log in again.");
-    }
-    return false;
-  } finally {
-    loginSessionHeartbeatInProgress = false;
-  }
+  return Boolean(currentUser && loginSessionValidated);
 }
 
 function startLoginSessionHeartbeat() {
   stopLoginSessionHeartbeat();
-  if (!currentUser?.sessionId) return;
-  loginSessionLastConfirmedAt = Date.now();
-  loginSessionHeartbeatTimer = setInterval(() => {
-    touchCurrentLoginSession();
-  }, LOGIN_SESSION_HEARTBEAT_MS);
 }
 
 async function releaseUserLoginSession(session = currentUser) {
@@ -4257,46 +4210,28 @@ async function validateRestoredLoginSession() {
     forceLoginSessionLogout("This login user no longer exists.");
     return false;
   }
-  try {
-    const session = await acquireUserLoginSession(currentUser.id, user, currentUser);
-    if (!session.allowed) {
-      forceLoginSessionLogout(session.message || "Maximum active logins reached for " + user.name + ".");
-      return false;
-    }
-    currentUser = {
-      ...currentUser,
-      name: user.name,
-      role: user.role,
-      salesTeam: user.salesTeam || "",
-      sessionId: session.sessionId,
-      deviceId: session.deviceId,
-      sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
-    };
-    localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
-    loginSessionValidated = true;
-    loginSessionLastConfirmedAt = Date.now();
-    startLoginSessionHeartbeat();
-    applyLoginState();
-    return true;
-  } catch (error) {
-    forceLoginSessionLogout(loginSessionErrorText(error));
-    return false;
-  }
+  currentUser = {
+    ...currentUser,
+    name: user.name,
+    role: user.role,
+    salesTeam: user.salesTeam || "",
+    deviceId: currentUser.deviceId || loginDeviceId(),
+    sessionId: "",
+    sessionPolicyVersion: LOGIN_SESSION_POLICY_VERSION,
+  };
+  localStorage.setItem("gold-jewellery-erp-user", JSON.stringify(currentUser));
+  loginSessionValidated = true;
+  loginSessionLastConfirmedAt = Date.now();
+  stopLoginSessionHeartbeat();
+  applyLoginState();
+  return true;
 }
 
 function loadCurrentUser() {
   try {
     const saved = localStorage.getItem("gold-jewellery-erp-user");
     const user = saved ? JSON.parse(saved) : null;
-    if (
-      user
-      && (
-        !allUsers()[user.id]
-        || user.sessionPolicyVersion !== LOGIN_SESSION_POLICY_VERSION
-        || !user.sessionId
-        || !user.deviceId
-      )
-    ) {
+    if (user && !allUsers()[user.id]) {
       localStorage.removeItem("gold-jewellery-erp-user");
       return null;
     }
