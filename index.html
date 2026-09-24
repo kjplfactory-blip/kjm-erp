@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
   <link rel="stylesheet" href="styles.css?v=615">
-  <link rel="stylesheet" href="department-holdings-v615.css?v=615">
+  <link rel="stylesheet" href="department-holdings-v615.css?v=616">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -18,7 +18,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v615</small>
+      <small class="app-version-badge">App v616</small>
           </div>
         </div>
         <label>User
@@ -127,7 +127,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v615</span>
+          <span class="app-version-badge">App v616</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1676,6 +1676,7 @@
             <div class="billing-heading-tools">
               <button type="button" id="open-manual-wip-billing">Issue Billing Item / WIP</button>
               <button type="button" id="open-multi-bill-tags">Multi-Bill Tags A6</button>
+              <button type="button" class="ghost-button" id="export-all-bills-excel">Export All Bills Excel</button>
               <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
             </div>
           </div>
@@ -2599,6 +2600,7 @@
         <div class="dialog-actions">
           <button value="cancel" class="ghost-button" type="button" id="cancel-bill">Cancel</button>
           <button class="ghost-button" type="button" id="print-bill">Print Bill A6</button>
+          <button class="ghost-button" type="button" id="export-bill-excel">Export Excel</button>
           <button class="ghost-button" type="button" id="print-packing-list">Print Packing List</button>
           <button class="ghost-button" type="button" id="print-bill-tags">Print Tags A4-40</button>
           <button class="ghost-button" type="button" id="print-bill-tags-a6">Print Tags A6-10</button>
@@ -3297,9 +3299,10 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=615"></script>
+  <script src="app.js?v=616"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
-  <script src="department-holdings-v615.js?v=615"></script>
+  <script src="department-holdings-v615.js?v=616"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=616"></script>
 </body>
 </html>
