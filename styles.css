@@ -14062,6 +14062,25 @@ body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.print
   font-size: 9px;
 }
 
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand {
+  background: #f5fbf9;
+  border-color: #dcebe7;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand strong {
+  color: #102d29;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand small:not(.app-version-badge) {
+  color: #52635e;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand .app-version-badge {
+  color: #76590d;
+  background: #fff7d6;
+  border-color: #ead99a;
+}
+
 body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand small {
   font-size: 7px;
 }

@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v607";
+const APP_VERSION = "v608";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3551,14 +3551,23 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   const grossReceivedWeight = Number(data.grossReceivedWeight);
   const stoneWeight = Number(data.stoneWeight || 0);
   const waxStoneWeight = Number(data.waxStoneWeight || transferWaxStoneWeight(lot));
-  const provisionalNonGoldWeight = 0;
-  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight));
+  const provisionalNonGoldBefore = transferProvisionalNonGoldBefore(lot, data.transferId);
+  const provisionalNonGoldAddedWeight = transferNonGoldAddedNow(
+    lot,
+    transferWeight,
+    grossReceivedWeight,
+    stoneWeight,
+    data.transferId,
+    data.fromDepartment,
+  );
+  const provisionalNonGoldWeight = Number(weight3(provisionalNonGoldBefore + provisionalNonGoldAddedWeight));
+  const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight + provisionalNonGoldWeight));
   if (stoneWeight < 0 || waxStoneWeight < 0 || reducedWeight > grossReceivedWeight) {
-    alert("Wax stone plus hand stone cannot be more than receive gross weight.");
+    alert("Wax stone, hand stone, and other non-gold cannot be more than receive gross weight.");
     return;
   }
 
-  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId)));
+  const issuedNetWeight = Number(weight3(transferWeight - waxStoneWeight - currentHandStoneWeight(lot, data.transferId) - provisionalNonGoldBefore));
   if (issuedNetWeight < 0) {
     alert("Issue GW cannot be less than the stone weight already accounted in this transfer.");
     return;
@@ -3591,7 +3600,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     stoneWeight,
     handStoneWeight: stoneWeight,
     provisionalNonGoldWeight,
-    provisionalNonGoldAddedWeight: 0,
+    provisionalNonGoldAddedWeight,
     reducedWeight,
     receivedWeight,
     departmentBalance,
@@ -3628,7 +3637,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: receivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
     sourceType: editingTransfer ? "transfer-edit" : "transfer",
     sourceId: transferData.id,
     userId: currentUser?.id || "",
@@ -6393,6 +6402,8 @@ async function prepareSafeCloudOverwrite(localState = state, options = {}) {
     mergedConcurrentData = true;
   }
   stampCurrentAppVersion(stateToSave, options.updatedAt || "");
+  normalizeIndependentOrderSerials(stateToSave);
+  repairDuplicateMeltingBatchNames(stateToSave.melting || []);
   syncFactoryOutLedgerForState(stateToSave);
 
   const localProfile = stateBusinessProfile(stateToSave);
@@ -13646,6 +13657,7 @@ function factoryPhysicalStock() {
     metal: blankFactoryStockPart("Metal Safe"),
     shelf: blankFactoryStockPart("Safe Locker Items"),
     production: blankFactoryStockPart("Production Lots"),
+    transferBalances: blankFactoryStockPart("Department Transfer Balances"),
     billPending: blankFactoryStockPart("Completed / Bill Pending"),
     departmentIssues: blankFactoryStockPart("Safe Items In Departments"),
     departmentReturns: blankFactoryStockPart("Department Receipts / Loss Adjustment"),
@@ -13676,9 +13688,28 @@ function factoryPhysicalStock() {
     .forEach((lot) => {
       const totals = departmentCurrentLotTotals(lot);
       const openingNonGold = activeProductionOpeningNonGoldBreakdown(lot);
-      const embeddedNonGold = Number(weight3(nonGoldBreakdownTotal(openingNonGold) + Number(totals.nonGold || 0)));
+      const embeddedNonGold = Number(weight3(
+        nonGoldBreakdownTotal(openingNonGold)
+        + Number(totals.nonGold || 0)
+        - Number(totals.provisionalNonGold || 0)
+      ));
       addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K", null, embeddedNonGold);
     });
+
+  (state.lots || []).forEach((lot) => {
+    (lot.transfers || []).forEach((transfer) => {
+      const balance = Number(transfer.departmentBalance || 0);
+      if (Math.abs(balance) <= 0.0005) return;
+      addFactoryStockPart(
+        parts,
+        "transferBalances",
+        "Department Transfer Balances",
+        balance,
+        balance,
+        transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K",
+      );
+    });
+  });
 
   addFactoryCompletedBillStock(parts);
 
@@ -13736,6 +13767,7 @@ function factoryPhysicalStock() {
     });
 
   const directNonGoldWeight = productionNonGoldDirectDepartmentEntries()
+    .filter(({ issue }) => !isOpeningNonGoldTransfer(issue))
     .reduce((total, { issue }) => Number(weight3(total + Number(issue.weight || 0))), 0);
   if (directNonGoldWeight > 0) {
     addFactoryStockPart(parts, "nonGoldDirect", "Direct Non-Gold In Factory", directNonGoldWeight, 0, "", 0, directNonGoldWeight);
@@ -13797,9 +13829,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
@@ -14264,85 +14296,69 @@ function legacyMeltingChildParent(currentState = {}, child = {}, details = {}) {
 }
 
 function reconcileSavedMeltingSafeSources(currentState = {}) {
-  const safeItems = currentState.safeItems || [];
-  (currentState.melting || []).forEach((melting) => {
-    const groupedSources = new Map();
-    (melting.sourceMetals || [])
-      .filter((metal) => isSafeMeltingSourceKind(metal.sourceKind) && metal.safeLocker && Number(metal.weight || 0) > 0)
-      .forEach((metal) => {
-        const details = meltingSafeSourceGroupDetails(metal);
-        const key = [details.sourceKind, details.locker, details.colour, weight3(purityPercent(details.desiredPurity))].join("|");
-        const group = groupedSources.get(key) || { details, expected: 0 };
-        group.expected = Number(weight3(group.expected + Number(metal.weight || 0)));
-        groupedSources.set(key, group);
-      });
-    if (!groupedSources.size) return;
+  // Legacy automatic repair was not idempotent for partially consumed Safe
+  // items. Re-loading the ERP could therefore consume the same source again.
+  // Source stock is now changed only by an explicit issue, edit, delete, or
+  // receive action; normalization must remain read-only for physical stock.
+  currentState.meltingSafeSourceAutoRepairDisabled = true;
+  return 0;
+}
 
-    let repairedWeight = 0;
-    groupedSources.forEach(({ details, expected }) => {
-      const linkedChildren = safeItems.filter((item) =>
-        item.status === "Out"
-        && item.sourceType === "melting"
-        && item.sourceId === melting.id
-        && safeItemMatchesMeltingSource(item, details)
-      );
-      const fullConsumedSources = safeItems.filter((item) =>
-        item.status === "Out"
-        && !(item.sourceType === "melting" && item.sourceId === melting.id)
-        && safeItemMatchesMeltingSource(item, details)
-        && safeItemMeltingReferenceMatches(item, melting)
-      );
-
-      const childrenByParent = new Map();
-      linkedChildren.forEach((child) => {
-        const parent = legacyMeltingChildParent(currentState, child, details);
-        if (!parent) return;
-        const row = childrenByParent.get(parent.id) || { parent, childNet: 0 };
-        row.childNet = Number(weight3(row.childNet + safeItemAvailableWeight(child)));
-        childrenByParent.set(parent.id, row);
+function recoverRepeatedMeltingReconciliationStock(currentState = {}) {
+  if (currentState.repeatedMeltingStockRecoveryVersion === "v608") return 0;
+  const protectedBaselines = [{
+    meltingId: "46d89709-8559-4e60-bd55-593210e74626",
+    repairedWeight: 160.132,
+    locker: "18K",
+    purity: "18K / 75.25%",
+    colour: "Mixed / Not Set",
+  }];
+  let recoveredWeight = 0;
+  protectedBaselines.forEach((baseline) => {
+    const melting = (currentState.melting || []).find((item) => item.id === baseline.meltingId);
+    if (!melting) return;
+    const previousRepairedWeight = Number(weight3(melting.sourceStockRepairedWeight || 0));
+    const excess = Number(weight3(Math.max(previousRepairedWeight - baseline.repairedWeight, 0)));
+    if (excess <= 0.0005) return;
+    const recoveryId = `v608-melting-stock-recovery-${baseline.meltingId}`;
+    const existing = (currentState.safeItems || []).find((item) => item.id === recoveryId);
+    if (!existing) {
+      currentState.safeItems = currentState.safeItems || [];
+      currentState.safeItems.unshift({
+        id: recoveryId,
+        date: today(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        locker: baseline.locker,
+        purity: baseline.purity,
+        desiredPurity: baseline.purity,
+        colour: baseline.colour,
+        safeKind: "wastage",
+        description: "Recovered Wastage - Repeated Melting Reconciliation",
+        source: `v608 protected-backup recovery for ${melting.batchName || melting.id}`,
+        sourceType: "v608-stock-recovery",
+        sourceId: melting.id,
+        status: "In Safe",
+        grossWeight: excess,
+        netWeight: excess,
+        initialGrossWeight: excess,
+        initialNetWeight: excess,
+        waxStoneWeight: 0,
+        nonGoldWeight: 0,
+        nonGoldBreakdown: {},
+        remarks: `Recovered ${gram(excess)} removed after the protected v601 stock baseline.`,
       });
-      childrenByParent.forEach(({ parent, childNet }) => {
-        const originalNet = safeItemOriginalMeltingWeight(currentState, parent, "net");
-        if (originalNet === null) return;
-        const expectedRemaining = Number(weight3(Math.max(originalNet - childNet, 0)));
-        const duplicatedNet = Number(weight3(Math.max(safeItemAvailableWeight(parent) - expectedRemaining, 0)));
-        if (duplicatedNet <= 0.0005) return;
-        repairedWeight = Number(weight3(repairedWeight + reduceSafeItemForMeltingRepair(
-          parent,
-          duplicatedNet,
-          melting,
-          `Reconciled partial source already used in ${melting.batchName || melting.id}`,
-        )));
-      });
-
-      const recordedConsumption = Number(weight3(
-        linkedChildren.reduce((total, item) => total + safeItemAvailableWeight(item), 0)
-        + fullConsumedSources.reduce((total, item) => total + safeItemAvailableWeight(item), 0)
-      ));
-      let missingConsumption = Number(weight3(Math.max(expected - recordedConsumption, 0)));
-      if (missingConsumption <= 0.0005) return;
-      const reference = `${details.sourceKind === "wastage" ? "Wastage" : details.sourceKind === "ghiss" ? "Ghiss" : "Rod"} source reconciled as used in ${melting.batchName || melting.id}`;
-      safeItems
-        .filter((item) =>
-          item.status !== "Out"
-          && !(item.sourceType === "melting" && item.sourceId === melting.id)
-          && !(item.sourceType === "melting-receive" && item.sourceId === melting.id)
-          && safeItemMatchesMeltingSource(item, details)
-        )
-        .sort((left, right) => `${left.date || ""} ${left.createdAt || ""}`.localeCompare(`${right.date || ""} ${right.createdAt || ""}`))
-        .forEach((item) => {
-          if (missingConsumption <= 0.0005) return;
-          const consumed = reduceSafeItemForMeltingRepair(item, missingConsumption, melting, reference);
-          missingConsumption = Number(weight3(Math.max(missingConsumption - consumed, 0)));
-          repairedWeight = Number(weight3(repairedWeight + consumed));
-        });
-    });
-    if (repairedWeight > 0.0005) {
-      melting.sourceStockRepairedWeight = Number(weight3(Number(melting.sourceStockRepairedWeight || 0) + repairedWeight));
-      melting.sourceStockRepairVersion = APP_VERSION;
-      melting.sourceStockRepairNote = `Restored duplicate Safe source removed: ${gram(repairedWeight)}`;
+      recoveredWeight = Number(weight3(recoveredWeight + excess));
     }
+    melting.sourceStockRepairedWeightBeforeV608 = previousRepairedWeight;
+    melting.sourceStockRepairedWeight = baseline.repairedWeight;
+    melting.sourceStockRepairVersion = "v608";
+    melting.sourceStockRepairNote = `Repeated normalization stopped; ${gram(excess)} restored from protected backup reconciliation.`;
   });
+  currentState.repeatedMeltingStockRecoveryVersion = "v608";
+  currentState.repeatedMeltingStockRecoveredWeight = recoveredWeight;
+  currentState.repeatedMeltingStockRecoveredAt = recoveredWeight > 0 ? new Date().toISOString() : "";
+  return recoveredWeight;
 }
 
 function removeMeltingIssueRecords(meltingId) {
@@ -17931,6 +17947,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("metal", "Metal Safe", "Raw gold / pure metal"),
     partRow("shelf", "Safe Shelf", "Rod, casting item and wastage in safe"),
     partRow("production", "Production Lots", "Open job cards in departments"),
+    partRow("transferBalances", "Department Transfer Balances", "Issue Net less Receive Net remains with the originating department"),
     partRow("billPending", "Completed / Bill Pending", "Completed factory stock not yet out"),
     partRow("departmentIssues", "Dept Issued Safe Items", "Safe item issued directly to department"),
     partRow("departmentReturns", "Dept Receipt / Loss Adjustment", "Returned material and department loss adjustment"),
@@ -20414,7 +20431,15 @@ function productionNonGoldMaterialLabel(value = "") {
 }
 
 function isOpeningNonGoldAdjustment(issue = {}) {
-  return Boolean(issue.embeddedInOpeningGw || issue.sourceType === "opening-non-gold-adjustment");
+  return issue.sourceType === "opening-non-gold-adjustment";
+}
+
+function isOpeningNonGoldTransfer(issue = {}) {
+  return Boolean(issue.openingStockTransfer || issue.sourceType === "opening-non-gold-transfer");
+}
+
+function isEmbeddedOpeningNonGold(issue = {}) {
+  return isOpeningNonGoldAdjustment(issue) || isOpeningNonGoldTransfer(issue);
 }
 
 function isMainStockNonGoldRemoval(issue = {}) {
@@ -20788,6 +20813,11 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
   const departmentId = issue.departmentId || lot.karigarId || "";
   const department = (currentState.karigars || []).find((item) => item.id === departmentId);
   const movementType = normalizeProductionNonGoldMovementType(issue.movementType || issue.actionType, issue.weight, issue.pcs);
+  const sourceType = issue.sourceType
+    || (movementType === "remove" ? "production-non-gold-remove" : "production-non-gold");
+  const openingStockTransfer = issue.openingStockTransfer !== undefined
+    ? Boolean(issue.openingStockTransfer)
+    : sourceType === "production-non-gold" && movementType === "issue";
   let pcs = Number(issue.pcs || 0);
   let weight = Number(issue.weight || 0);
   if (movementType === "remove") {
@@ -20814,11 +20844,12 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     weight: Number(weight3(weight)),
     purity,
     karat: issue.karat || safeLockerForPurity(purity),
-    sourceType: issue.sourceType || (movementType === "remove" ? "production-non-gold-remove" : "production-non-gold"),
+    sourceType: openingStockTransfer ? "opening-non-gold-transfer" : sourceType,
     safeDepartmentIssueId: issue.safeDepartmentIssueId || "",
     destinationMode: normalizeSafeIssueDestinationMode(issue.destinationMode, issue.lotId || lot.id),
     issuedWeight: Number(weight3(issue.issuedWeight ?? Math.abs(weight))),
-    embeddedInOpeningGw: Boolean(issue.embeddedInOpeningGw || issue.sourceType === "opening-non-gold-adjustment"),
+    embeddedInOpeningGw: Boolean(issue.embeddedInOpeningGw || sourceType === "opening-non-gold-adjustment" || openingStockTransfer),
+    openingStockTransfer,
     adjustmentKey: issue.adjustmentKey || "",
     openingTargetWeight: Number(weight3(issue.openingTargetWeight || 0)),
     openingBaseWeight: Number(weight3(issue.openingBaseWeight || 0)),
@@ -20902,6 +20933,9 @@ function saveProductionNonGoldMovement(event, movementType = "issue") {
     department: primaryDepartmentProcess(department) || department.name,
     reason: isRemove ? reason : "",
     remarks: isRemove ? `Removed - ${reason || "Reason not mentioned"}` : reason,
+    createdAt: new Date().toISOString(),
+    sourceType: isRemove ? "production-non-gold-remove" : "opening-non-gold-transfer",
+    openingStockTransfer: !isRemove,
   }, lot || {});
   state.productionNonGoldIssues = state.productionNonGoldIssues || [];
   state.productionNonGoldIssues.unshift(issue);
@@ -21076,6 +21110,30 @@ function productionNonGoldDirectDepartmentEntries() {
     .filter(({ issue }) => !issue.lotId && !isOpeningNonGoldAdjustment(issue) && !isMainStockNonGoldRemoval(issue) && productionNonGoldIssueInDepartment(issue));
 }
 
+function productionNonGoldDirectDepartmentBalances() {
+  const rows = new Map();
+  productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
+    const department = issue.department || dashboardDepartmentNameFromId(issue.departmentId) || "Unassigned";
+    const purity = issue.purity || issue.karat || "18K";
+    const key = productionNonGoldTransferPoolKey(department, purity);
+    const current = rows.get(key) || { department, purity, weight: 0 };
+    current.weight = Number(weight3(current.weight + Number(issue.weight || 0)));
+    rows.set(key, current);
+  });
+  (state.lots || []).forEach((lot) => {
+    (lot.transfers || []).forEach((transfer) => {
+      const added = Number(transfer.provisionalNonGoldAddedWeight || 0);
+      if (added <= 0) return;
+      const department = transfer.fromDepartment || transfer.fromKarigarName || "Unassigned";
+      const purity = transfer.differencePurity || lot.metalPurity || "18K";
+      const key = productionNonGoldTransferPoolKey(department, purity);
+      const current = rows.get(key);
+      if (current) current.weight = Number(weight3(current.weight - added));
+    });
+  });
+  return [...rows.values()].filter((row) => row.weight > 0.0005);
+}
+
 function lotSafeIssuedWaxStoneWeight(lot = {}, sourceState = state) {
   const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
   const sourceItemIds = new Set((lot.issueSafeItemsBefore || []).map((item) => item?.id).filter(Boolean));
@@ -21102,6 +21160,7 @@ function activeProductionOpeningNonGoldBreakdown(lot = {}) {
       Math.max(waxStoneWeight, 0)
       + Math.max(Number(currentHandStoneWeight(lot) || 0), 0)
     )),
+    other: Number(weight3(Math.max(currentTransferProvisionalNonGold(lot), 0))),
   });
 }
 
@@ -21206,7 +21265,7 @@ function departmentNonGoldStockPools() {
       issue.purity || issue.karat,
       issue.weight,
       { [issue.materialType || "other"]: Math.abs(Number(issue.weight || 0)) },
-      { embeddedInOpeningGw: isOpeningNonGoldAdjustment(issue) },
+      { embeddedInOpeningGw: isEmbeddedOpeningNonGold(issue) },
     );
   });
   return [...pools.values()]
@@ -21569,6 +21628,7 @@ function openTransferLot(lotId) {
   const existingHandStoneWeight = currentHandStoneWeight(lot);
   const handStoneWeight = productionStoneWeightForTransfer(lot) || existingHandStoneWeight;
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
+  const provisionalNonGoldWeight = currentTransferProvisionalNonGold(lot);
   form.lotId.value = lot.id;
   form.transferId.value = "";
   form.dataset.returnToHistory = "";
@@ -21579,9 +21639,10 @@ function openTransferLot(lotId) {
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
-  form.provisionalNonGoldWeight.value = weight3(0);
-  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight);
-  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight, 0));
+  form.provisionalNonGoldWeight.value = weight3(provisionalNonGoldWeight);
+  form.provisionalNonGoldAddedWeight.value = weight3(0);
+  form.reducedWeight.value = weight3(waxStoneWeight + handStoneWeight + provisionalNonGoldWeight);
+  form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight - provisionalNonGoldWeight, 0));
   form.departmentBalance.value = weight3(0);
   form.fromDepartment.value = lot.currentDepartment || lot.karigarName;
   form.toDepartment.value = "";
@@ -21625,8 +21686,15 @@ function openTransferEdit(lotId, transferId) {
   form.stoneWeight.value = weight3(transfer.stoneWeight);
   const reducedWeight = transferReducedWeight(transfer);
   const receivedWeight = Number(weight3(Math.max(Number(transfer.grossReceivedWeight || 0) - reducedWeight, 0)));
-  const issuedNetWeight = Number(weight3(Math.max(Number(transfer.transferWeight || 0) - Number(transfer.waxStoneWeight || 0) - currentHandStoneWeight(lot, transfer.id), 0)));
-  form.provisionalNonGoldWeight.value = weight3(0);
+  const issuedNetWeight = Number(weight3(Math.max(
+    Number(transfer.transferWeight || 0)
+      - Number(transfer.waxStoneWeight || 0)
+      - currentHandStoneWeight(lot, transfer.id)
+      - transferProvisionalNonGoldBefore(lot, transfer.id),
+    0,
+  )));
+  form.provisionalNonGoldWeight.value = weight3(transfer.provisionalNonGoldWeight || 0);
+  form.provisionalNonGoldAddedWeight.value = weight3(transfer.provisionalNonGoldAddedWeight || 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(receivedWeight);
   form.departmentBalance.value = weight3(issuedNetWeight - receivedWeight);
@@ -21647,6 +21715,7 @@ function transferHistoryCorrectionSnapshot(transfer = {}) {
     receiveGw: Number(weight3(transfer.grossReceivedWeight || 0)),
     waxStone: Number(weight3(transfer.waxStoneWeight || 0)),
     handStone: Number(weight3(transfer.stoneWeight || transfer.handStoneWeight || 0)),
+    otherNonGold: Number(weight3(transfer.provisionalNonGoldWeight || 0)),
     netWeight: Number(weight3(transfer.receivedWeight || 0)),
     difference: Number(weight3(transfer.departmentBalance || 0)),
     fromDepartment: transfer.fromDepartment || transfer.fromKarigarName || "",
@@ -22122,6 +22191,7 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
     && String(entry.receiveGw) !== ""
   );
   let previousHandStoneWeight = handStoneWeightBeforeTransfer(lot, transferIndex);
+  let previousProvisionalNonGoldWeight = transferProvisionalNonGoldBefore(lot, transfers[transferIndex]?.id || "");
   const updatedTransfers = [];
 
   for (let index = transferIndex; index < transfers.length; index += 1) {
@@ -22133,9 +22203,17 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
     const grossReceivedWeight = index === transferIndex && settingReceipt
       ? Number(weight3(settingReceipt.receiveGw || 0))
       : savedGrossReceivedWeight;
-    const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight));
+    const provisionalNonGoldAddedWeight = Number(weight3(Math.max(Number(transfer.provisionalNonGoldAddedWeight || 0), 0)));
+    const provisionalNonGoldWeight = Number(weight3(Math.max(
+      transfer.provisionalNonGoldWeight ?? previousProvisionalNonGoldWeight + provisionalNonGoldAddedWeight,
+      0,
+    )));
+    const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight + provisionalNonGoldWeight));
     const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
-    const issuedNetWeight = Number(weight3(Math.max(transferWeight - waxStoneWeight - previousHandStoneWeight, 0)));
+    const issuedNetWeight = Number(weight3(Math.max(
+      transferWeight - waxStoneWeight - previousHandStoneWeight - previousProvisionalNonGoldWeight,
+      0,
+    )));
     const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
     const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
     const differenceFineGold = fineGoldWeight(departmentBalance, differencePurity);
@@ -22151,6 +22229,8 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       waxStoneWeight,
       stoneWeight: handStoneWeight,
       handStoneWeight,
+      provisionalNonGoldAddedWeight,
+      provisionalNonGoldWeight,
       reducedWeight,
       receivedWeight,
       departmentBalance,
@@ -22167,7 +22247,7 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       const ledgerEntry = (sourceState.ledger || []).find((entry) => entry.sourceId === transfer.id && ["transfer", "transfer-edit"].includes(entry.sourceType));
       if (ledgerEntry) {
         ledgerEntry.weight = receivedWeight;
-        ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Department"} to ${transfer.toDepartment || transfer.toKarigarName || "Department"}; actual receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
+        ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Department"} to ${transfer.toDepartment || transfer.toKarigarName || "Department"}; actual receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
         ledgerEntry.stonePlanSyncedAt = syncedAt;
       }
       updatedTransfers.push({
@@ -22181,6 +22261,7 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       });
     }
     previousHandStoneWeight = handStoneWeight;
+    previousProvisionalNonGoldWeight = provisionalNonGoldWeight;
   }
 
   if (!updatedTransfers.length) return null;
@@ -22273,11 +22354,114 @@ function currentTransferIssueWeight(lot, sourceState = state) {
 }
 
 function transferProvisionalNonGoldBefore(lot = {}, beforeTransferId = "") {
-  return 0;
+  const transfers = lot.transfers || [];
+  const transferIndex = beforeTransferId ? transfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
+  const priorTransfers = transferIndex >= 0 ? transfers.slice(0, transferIndex) : transfers;
+  return priorTransfers.reduce((carried, transfer) => {
+    if (transfer.provisionalNonGoldWeight !== undefined && transfer.provisionalNonGoldWeight !== null) {
+      return Number(weight3(Math.max(Number(transfer.provisionalNonGoldWeight || 0), 0)));
+    }
+    return Number(weight3(Math.max(carried + Number(transfer.provisionalNonGoldAddedWeight || 0), 0)));
+  }, 0);
 }
 
 function currentTransferProvisionalNonGold(lot = {}) {
   return transferProvisionalNonGoldBefore(lot);
+}
+
+function productionNonGoldTransferPoolKey(department = "", purity = "") {
+  return `${departmentTextKey(departmentTransferMasterGroupName(department, department))}|${karatPurityKey(purity) || transferPurityLabel(karatLogicPurity(purity || "18K"))}`;
+}
+
+function productionNonGoldTransferPoolWeight(currentState = state, department = "", purity = "") {
+  const key = productionNonGoldTransferPoolKey(department, purity);
+  return Number(weight3((currentState.productionNonGoldIssues || [])
+    .map((issue) => normalizeProductionNonGoldIssue(issue, {}, currentState))
+    .filter((issue) => !issue.lotId && isOpeningNonGoldTransfer(issue))
+    .filter((issue) => productionNonGoldTransferPoolKey(issue.department, issue.purity || issue.karat) === key)
+    .reduce((total, issue) => total + Number(issue.weight || 0), 0)));
+}
+
+function allocatedTransferNonGoldWeight(currentState = state, department = "", purity = "", excludeTransferId = "") {
+  const key = productionNonGoldTransferPoolKey(department, purity);
+  return Number(weight3((currentState.lots || []).reduce((total, lot) => total + (lot.transfers || []).reduce((sum, transfer) => {
+    if (excludeTransferId && transfer.id === excludeTransferId) return sum;
+    const transferKey = productionNonGoldTransferPoolKey(
+      transfer.fromDepartment || transfer.fromKarigarName,
+      transfer.differencePurity || lot.metalPurity || "18K",
+    );
+    return transferKey === key ? sum + Number(transfer.provisionalNonGoldAddedWeight || 0) : sum;
+  }, 0), 0)));
+}
+
+function availableTransferNonGoldWeight(lot = {}, fromDepartment = "", excludeTransferId = "") {
+  const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+  return Number(weight3(Math.max(
+    productionNonGoldTransferPoolWeight(state, fromDepartment, purity)
+      - allocatedTransferNonGoldWeight(state, fromDepartment, purity, excludeTransferId),
+    0,
+  )));
+}
+
+function transferNonGoldAddedNow(lot = {}, transferWeight = 0, grossReceivedWeight = 0, handStoneWeight = 0, beforeTransferId = "", fromDepartment = "") {
+  if (!isFittingNonGoldTransferSource(fromDepartment)) return 0;
+  const existingHandStone = currentHandStoneWeight(lot, beforeTransferId);
+  const handStoneAddedNow = Math.max(Number(handStoneWeight || 0) - existingHandStone, 0);
+  const unexplainedIncrease = Number(weight3(Math.max(Number(grossReceivedWeight || 0) - Number(transferWeight || 0) - handStoneAddedNow, 0)));
+  const available = availableTransferNonGoldWeight(lot, fromDepartment, beforeTransferId);
+  return Number(weight3(Math.min(unexplainedIncrease, available)));
+}
+
+function migrateCumulativeNonGoldTransfers(currentState = {}) {
+  const pools = new Map();
+  (currentState.productionNonGoldIssues || [])
+    .map((issue) => normalizeProductionNonGoldIssue(issue, {}, currentState))
+    .filter((issue) => !issue.lotId && isOpeningNonGoldTransfer(issue))
+    .forEach((issue) => {
+      const key = productionNonGoldTransferPoolKey(issue.department, issue.purity || issue.karat);
+      pools.set(key, Number(weight3(Number(pools.get(key) || 0) + Number(issue.weight || 0))));
+    });
+
+  const events = [];
+  (currentState.lots || []).forEach((lot) => {
+    (lot.transfers || []).forEach((transfer, index) => events.push({ lot, transfer, index }));
+  });
+  events.sort((left, right) =>
+    transferHistoryTime(left.transfer.createdAt, left.transfer.date) - transferHistoryTime(right.transfer.createdAt, right.transfer.date)
+      || left.index - right.index
+  );
+
+  const handByLot = new Map();
+  const carriedByLot = new Map();
+  let updated = 0;
+  events.forEach(({ lot, transfer }) => {
+    const previousHandStone = Number(handByLot.get(lot.id) || lot.initialHandStoneWeight || 0);
+    const handStone = Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? previousHandStone);
+    const handStoneAddedNow = Math.max(handStone - previousHandStone, 0);
+    const carried = Number(carriedByLot.get(lot.id) || 0);
+    const key = productionNonGoldTransferPoolKey(
+      transfer.fromDepartment || transfer.fromKarigarName,
+      transfer.differencePurity || lot.metalPurity || "18K",
+    );
+    let added = Math.max(Number(transfer.provisionalNonGoldAddedWeight || 0), 0);
+    if (!added && isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName)) {
+      const unexplainedIncrease = Number(weight3(Math.max(
+        Number(transfer.grossReceivedWeight || 0) - Number(transfer.transferWeight || 0) - handStoneAddedNow,
+        0,
+      )));
+      added = Number(weight3(Math.min(unexplainedIncrease, Math.max(Number(pools.get(key) || 0), 0))));
+    }
+    if (added > 0) pools.set(key, Number(weight3(Math.max(Number(pools.get(key) || 0) - added, 0))));
+    const total = Number(weight3(carried + added));
+    if (Number(transfer.provisionalNonGoldAddedWeight || 0) !== added || Number(transfer.provisionalNonGoldWeight || 0) !== total) updated += 1;
+    transfer.provisionalNonGoldAddedWeight = added;
+    transfer.provisionalNonGoldWeight = total;
+    carriedByLot.set(lot.id, total);
+    handByLot.set(lot.id, Math.max(previousHandStone, handStone));
+  });
+  currentState.cumulativeNonGoldTransferMigration = "v608";
+  currentState.cumulativeNonGoldTransferMigrationCount = updated;
+  return updated;
 }
 
 function isFittingNonGoldTransferSource(value = "") {
@@ -26311,11 +26495,11 @@ function departmentMetalInHand() {
       addDepartmentWeight(departments, dashboardDepartmentNameFromId(lot.karigarId) || lot.karigarName || lot.currentDepartment || "Unassigned", departmentCurrentLotTotals(lot));
     }
   });
-  productionNonGoldDirectDepartmentEntries().forEach(({ issue }) => {
-    addDepartmentWeight(departments, issue.department || dashboardDepartmentNameFromId(issue.departmentId) || "Unassigned", {
-      gross: Number(issue.weight || 0),
-      nonGold: Number(issue.weight || 0),
-      purity: issue.purity || issue.karat || "",
+  productionNonGoldDirectDepartmentBalances().forEach((entry) => {
+    addDepartmentWeight(departments, entry.department, {
+      gross: Number(entry.weight || 0),
+      nonGold: Number(entry.weight || 0),
+      purity: entry.purity || "",
     });
   });
   safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
@@ -26444,12 +26628,13 @@ function departmentCurrentLotTotals(lot) {
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
   const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
+  const provisionalNonGold = Number(weight3(currentTransferProvisionalNonGold(lot)));
   const metalGross = Number(weight3(Math.max(grossBase, Math.max(grossBase - existingHandStone, 0) + handStone)));
   const waxStone = Number(weight3(lotWaxStone + linkedSafe.waxStone));
-  const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold));
+  const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold + provisionalNonGold));
   const gross = Number(weight3(metalGross + directNonGold + linkedSafe.gross));
-  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold, 0) + linkedSafe.gold));
-  return { gross, gold, waxStone, handStone, nonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
+  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold - provisionalNonGold, 0) + linkedSafe.gold));
+  return { gross, gold, waxStone, handStone, nonGold, provisionalNonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
 function safeJobIssuePhysicalTotalsForLot(lot = {}) {
@@ -26931,6 +27116,7 @@ function dailyTallyStockTargets() {
     [departmentDashboardHeader("Metal Safe")]: { source: "Metal Safe", ...(parts.metal || {}) },
     [departmentDashboardHeader("Safe Locker Items")]: { source: "Safe Locker", ...(parts.shelf || {}) },
     [departmentDashboardHeader("Production Lots")]: { source: "Production Lots", ...(parts.production || {}) },
+    [departmentDashboardHeader("Transfer Balances")]: { source: "Department Transfer Balances", ...(parts.transferBalances || {}) },
     [departmentDashboardHeader("Completed / Bill Pending")]: { source: "Bill Pending", ...(parts.billPending || {}) },
     [departmentDashboardHeader("Dept Issued Items")]: { source: "Safe Items In Departments", ...(parts.departmentIssues || {}) },
     [departmentDashboardHeader("Dept Receipt Adjustment")]: { source: "Department Receipts / Loss", ...(parts.departmentReturns || {}) },
@@ -36654,6 +36840,7 @@ function renderFactorySummary() {
     factorySummaryCard("Metal Safe", gram(parts.metal?.grossWeight || 0), factoryStockPartNote(parts.metal)),
     factorySummaryCard("Safe Shelf", gram(parts.shelf?.grossWeight || 0), factoryStockPartNote(parts.shelf)),
     factorySummaryCard("Production Lots", gram(parts.production?.grossWeight || 0), factoryStockPartNote(parts.production)),
+    factorySummaryCard("Transfer Balances", gram(parts.transferBalances?.grossWeight || 0), factoryStockPartNote(parts.transferBalances)),
     factorySummaryCard("Bill Pending", gram(parts.billPending?.grossWeight || 0), factoryStockPartNote(parts.billPending)),
     factorySummaryCard("Dept Issued Items", gram(parts.departmentIssues?.grossWeight || 0), factoryStockPartNote(parts.departmentIssues)),
     factorySummaryCard("Dept Receipt / Loss Adj.", gram(parts.departmentReturns?.grossWeight || 0), factoryStockPartNote(parts.departmentReturns)),
@@ -36676,6 +36863,7 @@ const fineSheetPartOrder = [
   "metal",
   "shelf",
   "production",
+  "transferBalances",
   "billPending",
   "departmentIssues",
   "departmentReturns",
@@ -36771,6 +36959,7 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
 
 const fineSheetDepartmentPartKeys = new Set([
   "production",
+  "transferBalances",
   "departmentIssues",
   "departmentReturns",
   "departmentTallyLosses",
@@ -39623,7 +39812,11 @@ function openLotHistoryByNumber(lotNumber) {
 }
 
 function transferReducedWeight(transfer) {
-  return Number(weight3(Number(transfer.waxStoneWeight || 0) + Number(transfer.stoneWeight || transfer.handStoneWeight || 0)));
+  return Number(weight3(
+    Number(transfer.waxStoneWeight || 0)
+    + Number(transfer.stoneWeight || transfer.handStoneWeight || 0)
+    + Number(transfer.provisionalNonGoldWeight || 0)
+  ));
 }
 
 function transferFineGold(transfer, lot = null) {
@@ -39658,7 +39851,7 @@ function renderTransferHistoryRow(entry) {
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
-        <td>${gram(transfer.stoneWeight)}</td>
+        <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
         <td>${gram(transferReducedWeight(transfer))}</td>
         <td>${gram(transfer.receivedWeight)}</td>
         <td>-</td>
@@ -39684,7 +39877,7 @@ function renderTransferHistoryRow(entry) {
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
-      <td>${gram(transfer.stoneWeight)}</td>
+      <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
@@ -39896,7 +40089,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
-      <td>${gram(transfer.stoneWeight)}</td>
+      <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
@@ -39910,7 +40103,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
 
 function transferTitle(transfers) {
   return transfers
-    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
+    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, other non-gold ${gram(transfer.provisionalNonGoldWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
     .join("\n");
 }
 
@@ -39921,9 +40114,13 @@ function updateTransferBalance() {
   const waxStone = Number(form.waxStoneWeight.value || 0);
   const handStone = Number(form.stoneWeight.value || 0);
   const lot = findById("lots", form.lotId.value);
-  if (form.provisionalNonGoldWeight) form.provisionalNonGoldWeight.value = weight3(0);
-  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value), 0);
-  const reducedWeight = waxStone + handStone;
+  const provisionalBefore = transferProvisionalNonGoldBefore(lot, form.transferId.value);
+  const provisionalAdded = transferNonGoldAddedNow(lot, issued, grossReceived, handStone, form.transferId.value, form.fromDepartment.value);
+  const provisionalNonGold = Number(weight3(provisionalBefore + provisionalAdded));
+  if (form.provisionalNonGoldWeight) form.provisionalNonGoldWeight.value = weight3(provisionalNonGold);
+  if (form.provisionalNonGoldAddedWeight) form.provisionalNonGoldAddedWeight.value = weight3(provisionalAdded);
+  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value) - provisionalBefore, 0);
+  const reducedWeight = waxStone + handStone + provisionalNonGold;
   const netReceived = Math.max(grossReceived - reducedWeight, 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(netReceived);
@@ -39938,6 +40135,7 @@ function applyProductionStoneWeightToTransfer() {
   const issueWeight = Number(form.transferWeight.value || currentTransferIssueWeight(lot));
   const waxStoneWeight = transferWaxStoneWeight(lot);
   const existingHandStoneWeight = currentHandStoneWeight(lot, form.transferId.value);
+  const provisionalNonGoldWeight = transferProvisionalNonGoldBefore(lot, form.transferId.value);
   const isSettingFromDepartment = isSettingDepartment(form.fromDepartment.value);
   const handStoneWeight = isSettingFromDepartment
     ? productionStoneWeightForTransfer(lot)
@@ -39945,7 +40143,8 @@ function applyProductionStoneWeightToTransfer() {
   const handStoneAddedNow = Math.max(handStoneWeight - existingHandStoneWeight, 0);
   form.waxStoneWeight.value = weight3(waxStoneWeight);
   form.stoneWeight.value = weight3(handStoneWeight);
-  form.provisionalNonGoldWeight.value = weight3(0);
+  form.provisionalNonGoldWeight.value = weight3(provisionalNonGoldWeight);
+  form.provisionalNonGoldAddedWeight.value = weight3(0);
   form.grossReceivedWeight.value = weight3(issueWeight + handStoneAddedNow);
   const handStoneSource = plannedHandStoneWeightForLot(lot) > 0 ? "job card" : "manual setting entry";
   const settingStoneNote = isSettingFromDepartment
@@ -40076,7 +40275,7 @@ function assignMeltingBatchName(melting, collection = state.melting, force = fal
   const colour = batchColourLabel(melting.colour);
   const dateText = batchDateLabel(meltingBatchDateValue(melting));
   const prefix = `${colour}${type}`;
-  const existingSequence = meltingBatchSequenceFromName(melting.batchName);
+  const existingSequence = force ? 0 : meltingBatchSequenceFromName(melting.batchName);
   const existingSequences = (collection || [])
     .filter((item) => item.id !== melting.id)
     .filter((item) =>
@@ -40089,6 +40288,33 @@ function assignMeltingBatchName(melting, collection = state.melting, force = fal
   const sequence = existingSequence || (existingSequences.length ? Math.max(...existingSequences) + 1 : 1);
   melting.batchName = `${prefix}/${sequence}/${dateText}`;
   return melting.batchName;
+}
+
+function repairDuplicateMeltingBatchNames(collection = []) {
+  const groups = new Map();
+  collection.forEach((item) => {
+    const name = String(item.batchName || "").trim().toUpperCase();
+    if (!name) return;
+    const rows = groups.get(name) || [];
+    rows.push(item);
+    groups.set(name, rows);
+  });
+  let repaired = 0;
+  groups.forEach((rows) => {
+    if (rows.length < 2) return;
+    rows.sort((left, right) =>
+      transferHistoryTime(left.createdAt, left.date) - transferHistoryTime(right.createdAt, right.date)
+        || String(left.id || "").localeCompare(String(right.id || ""))
+    );
+    rows.slice(1).forEach((item) => {
+      const previous = item.batchName;
+      assignMeltingBatchName(item, collection, true);
+      item.previousDuplicateBatchName = previous;
+      item.batchNameRepairedAt = item.batchNameRepairedAt || new Date().toISOString();
+      repaired += 1;
+    });
+  });
+  return repaired;
 }
 
 function openMeltingView(meltingId) {
@@ -41000,7 +41226,10 @@ function normalizeState(currentState) {
     };
   });
   currentState.melting.forEach((item) => assignMeltingBatchName(item, currentState.melting, false));
+  currentState.duplicateMeltingBatchRepairCount = Number(currentState.duplicateMeltingBatchRepairCount || 0)
+    + repairDuplicateMeltingBatchNames(currentState.melting);
   reconcileSavedMeltingSafeSources(currentState);
+  recoverRepeatedMeltingReconciliationStock(currentState);
   currentState.xrfTests = (currentState.xrfTests || []).map(normalizeXrfEntry);
   syncXrfWastageReturnsForState(currentState);
   currentState.orders = Array.isArray(currentState.orders) ? currentState.orders : [];
@@ -41110,6 +41339,7 @@ function normalizeState(currentState) {
     const lot = issue.lotId ? (currentState.lots || []).find((item) => item.id === issue.lotId) || {} : {};
     return normalizeProductionNonGoldIssue(issue, lot, currentState);
   });
+  migrateCumulativeNonGoldTransfers(currentState);
   migrateLegacySafeShelfGoldIssues(currentState);
   currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
   currentState.settingManagerEntries = (currentState.settingManagerEntries || []).map((entry) => normalizeSettingManagerEntry(entry, currentState));
@@ -41162,6 +41392,7 @@ function normalizeLotIssueWeights(currentState, lot) {
     0,
   )));
   let previousHandStoneWeight = Number(lot.initialHandStoneWeight || 0);
+  let previousProvisionalNonGoldWeight = 0;
   const normalizedTransfers = transfers.map((transfer) => {
     const savedTransferWaxStoneWeight = Number(weight3(transfer.waxStoneWeight ?? savedWaxStoneWeight));
     const transferWaxStoneWeight = movedWaxStoneWeight > 0
@@ -41169,14 +41400,20 @@ function normalizeLotIssueWeights(currentState, lot) {
       ? waxStoneWeight
       : savedTransferWaxStoneWeight;
     const handStoneWeight = Number(transfer.handStoneWeight ?? transfer.stoneWeight ?? previousHandStoneWeight);
+    const provisionalNonGoldAddedWeight = Number(weight3(Math.max(Number(transfer.provisionalNonGoldAddedWeight || 0), 0)));
+    const provisionalNonGoldWeight = Number(weight3(Math.max(
+      transfer.provisionalNonGoldWeight ?? previousProvisionalNonGoldWeight + provisionalNonGoldAddedWeight,
+      0,
+    )));
     const grossReceivedWeight = Number(transfer.grossReceivedWeight ?? transfer.receivedWeight ?? transfer.transferWeight ?? 0);
     const transferWeight = Number(transfer.transferWeight || 0);
-    const reducedWeight = Number(weight3(transferWaxStoneWeight + handStoneWeight));
+    const reducedWeight = Number(weight3(transferWaxStoneWeight + handStoneWeight + provisionalNonGoldWeight));
     const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
-    const issuedNetWeight = Number(weight3(Math.max(transferWeight - transferWaxStoneWeight - previousHandStoneWeight, 0)));
+    const issuedNetWeight = Number(weight3(Math.max(transferWeight - transferWaxStoneWeight - previousHandStoneWeight - previousProvisionalNonGoldWeight, 0)));
     const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
     const differencePurity = karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "");
     previousHandStoneWeight = Math.max(previousHandStoneWeight, handStoneWeight);
+    previousProvisionalNonGoldWeight = provisionalNonGoldWeight;
     return {
       id: transfer.id || crypto.randomUUID(),
       ...transfer,
@@ -41185,8 +41422,8 @@ function normalizeLotIssueWeights(currentState, lot) {
       waxStoneWeight: transferWaxStoneWeight,
       stoneWeight: handStoneWeight,
       handStoneWeight,
-      provisionalNonGoldWeight: 0,
-      provisionalNonGoldAddedWeight: 0,
+      provisionalNonGoldWeight,
+      provisionalNonGoldAddedWeight,
       reducedWeight,
       receivedWeight,
       departmentBalance,
@@ -41338,8 +41575,58 @@ function syncLegacyOrderSerial(currentState = state) {
   );
 }
 
+function repairDuplicateProductionNumbers(currentState = {}) {
+  const orders = Array.isArray(currentState.orders) ? currentState.orders : [];
+  const groups = new Map();
+  orders.forEach((order) => {
+    const code = String(order.productionNo || order.number || order.barcode || "").trim().toUpperCase();
+    if (!code) return;
+    const rows = groups.get(code) || [];
+    rows.push(order);
+    groups.set(code, rows);
+  });
+  const used = new Set(orders.flatMap((order) => [order.productionNo, order.number, order.barcode]).filter(Boolean).map((value) => String(value).toUpperCase()));
+  let serial = Math.max(
+    1001,
+    Number(currentState.nextProduction || 0),
+    ...orders.flatMap((order) => [order.productionNo, order.number, order.barcode].map((value) => serialFromNumber(value, "PR") + 1)),
+  );
+  const repairs = [];
+  groups.forEach((rows, duplicateCode) => {
+    if (rows.length < 2) return;
+    rows.sort((left, right) => {
+      const leftJob = serialFromNumber(left.jobNumber, "JOB");
+      const rightJob = serialFromNumber(right.jobNumber, "JOB");
+      const leftSplit = /-S\d+$/i.test(left.jobNumber || "") ? 1 : 0;
+      const rightSplit = /-S\d+$/i.test(right.jobNumber || "") ? 1 : 0;
+      return leftJob - rightJob || leftSplit - rightSplit || String(left.id || "").localeCompare(String(right.id || ""));
+    });
+    rows.slice(1).forEach((order) => {
+      let replacement = `PR-${serial}`;
+      while (used.has(replacement.toUpperCase())) {
+        serial += 1;
+        replacement = `PR-${serial}`;
+      }
+      serial += 1;
+      used.add(replacement.toUpperCase());
+      repairs.push({ orderId: order.id, jobNumber: order.jobNumber || "", previous: duplicateCode, replacement });
+      order.previousDuplicateProductionNo = duplicateCode;
+      order.productionNo = replacement;
+      order.number = replacement;
+      order.barcode = replacement;
+      order.productionNumberRepairedAt = order.productionNumberRepairedAt || new Date().toISOString();
+    });
+  });
+  if (repairs.length) {
+    currentState.identifierRepairHistory = [...repairs, ...(currentState.identifierRepairHistory || [])].slice(0, 500);
+    currentState.nextProduction = Math.max(Number(currentState.nextProduction || 0), serial);
+  }
+  return repairs.length;
+}
+
 function normalizeIndependentOrderSerials(currentState) {
   const orders = Array.isArray(currentState.orders) ? currentState.orders : [];
+  repairDuplicateProductionNumbers(currentState);
   const highestJob = orders.reduce((highest, order) => Math.max(highest, serialFromNumber(order.jobNumber, "JOB")), 0);
   const highestProduction = orders.reduce((highest, order) => Math.max(
     highest,
