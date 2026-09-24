@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v604";
+const APP_VERSION = "v605";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -40,7 +40,7 @@ const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
-const LOGIN_SESSION_POLICY_VERSION = 1;
+const LOGIN_SESSION_POLICY_VERSION = 2;
 const LOGIN_DEVICE_STORAGE_KEY = "gold-jewellery-erp-device-id";
 const LOGIN_SESSION_HEARTBEAT_MS = 30 * 1000;
 const LOGIN_SESSION_STALE_MS = 15 * 60 * 1000;
@@ -4000,7 +4000,8 @@ async function restoreErpDataBackup(event) {
 }
 
 function loginSessionLimitForUser(userId = "") {
-  return ["owner", "manager"].includes(String(userId || "").trim()) ? 2 : 1;
+  const loginId = String(userId || "").trim().toLowerCase();
+  return ["owner", "manager", "settingmanager", "setting-manager"].includes(loginId) ? 2 : 1;
 }
 
 function loginSessionLimitText(userId = "") {
@@ -4064,7 +4065,7 @@ function loginSessionErrorText(error) {
     || normalized.includes("schema cache")
     || normalized.includes("pgrst202")
   ) {
-    return "Login limit setup is not active in Supabase. Owner must run the v589 ENABLE-LOGIN-LIMITS.sql, confirm LOGIN LIMITS READY, and then log in again.";
+    return "Login limit setup is not active in Supabase. Owner must run the v605 ENABLE-LOGIN-LIMITS.sql, confirm LOGIN LIMITS READY, and then log in again.";
   }
   if (isSupabaseGatewayUnavailableError(error) || isSupabaseDatabaseUnavailableError(error) || isSupabaseTimeoutError(error)) {
     return "Supabase is unavailable, so the active-login limit cannot be checked. Restart Supabase and try again.";
