@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=606">
+  <link rel="stylesheet" href="styles.css?v=607">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v606</small>
+      <small class="app-version-badge">App v607</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v606</span>
+          <span class="app-version-badge">App v607</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1252,6 +1252,11 @@
 
         <div id="fine-sheet-summary" class="factory-summary-grid fine-sheet-summary"></div>
 
+        <div class="fine-sheet-pattern-switch" role="tablist" aria-label="Fine Sheet display pattern">
+          <button type="button" id="fine-sheet-pattern-calculation" class="active" data-fine-sheet-pattern="calculation" role="tab" aria-selected="true">Pattern 1 - Calculation</button>
+          <button type="button" id="fine-sheet-pattern-holding" data-fine-sheet-pattern="holding" role="tab" aria-selected="false">Pattern 2 - Department / Safe / Party</button>
+        </div>
+
         <section class="panel table-panel fine-sheet-change-panel">
           <div class="panel-heading">
             <div>
@@ -1271,7 +1276,7 @@
           </div>
         </section>
 
-        <section class="panel table-panel fine-sheet-calculation-panel">
+        <section id="fine-sheet-calculation-pattern" class="panel table-panel fine-sheet-calculation-panel">
           <div class="panel-heading">
             <div>
               <span class="fine-sheet-eyebrow">Exact Dashboard Calculation</span>
@@ -1294,6 +1299,35 @@
             </table>
           </div>
           <div id="fine-sheet-reconciliation" class="fine-sheet-reconciliation"></div>
+        </section>
+
+        <section id="fine-sheet-holding-pattern" class="panel table-panel fine-sheet-holding-panel hidden">
+          <div class="panel-heading">
+            <div>
+              <span class="fine-sheet-eyebrow">Actual Holding Reconciliation</span>
+              <h2>Department / Safe / Party Holding Pattern</h2>
+              <small id="fine-sheet-holding-status">Every named holding is reconciled with the exact Fine Sheet total.</small>
+            </div>
+            <div class="row-actions fine-sheet-holding-filters">
+              <select id="fine-sheet-holding-group-filter" aria-label="Filter holding pattern by group">
+                <option value="">All Holding Groups</option>
+              </select>
+              <select id="fine-sheet-holding-purity-filter" aria-label="Filter holding pattern by purity">
+                <option value="">All Purities</option>
+              </select>
+              <input id="fine-sheet-holding-search" class="search compact-search" placeholder="Search department, safe, party or purity">
+            </div>
+          </div>
+          <div id="fine-sheet-holding-summary" class="factory-summary-grid fine-sheet-holding-summary"></div>
+          <div class="table-wrap fine-sheet-holding-table-wrap">
+            <table class="fine-sheet-holding-table">
+              <thead>
+                <tr><th>No.</th><th>Holding Group</th><th>Department / Safe / Party</th><th>Purity</th><th>GW</th><th>Non-Gold</th><th>Net Gold</th><th>Fine Calculation</th><th>Fine Effect</th><th>Running Fine</th></tr>
+              </thead>
+              <tbody id="fine-sheet-holding-table"></tbody>
+            </table>
+          </div>
+          <div id="fine-sheet-holding-reconciliation" class="fine-sheet-reconciliation"></div>
         </section>
 
         <section class="panel table-panel fine-sheet-ledger-panel">
@@ -3235,6 +3269,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=606"></script>
+  <script src="app.js?v=607"></script>
 </body>
 </html>

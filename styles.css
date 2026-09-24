@@ -16754,7 +16754,43 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: linear-gradient(160deg, #daf5ea 0%, #ffffff 82%);
 }
 
+#fine-sheet .fine-sheet-pattern-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding: 5px;
+  border: 1px solid #b9d9ce;
+  border-radius: 8px;
+  background: #eaf5f1;
+}
+
+#fine-sheet .fine-sheet-pattern-switch button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #315d53;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+#fine-sheet .fine-sheet-pattern-switch button:hover {
+  border-color: #8ccab5;
+  color: #0d6655;
+  background: #ddf4ea;
+}
+
+#fine-sheet .fine-sheet-pattern-switch button.active {
+  border-color: #148269;
+  color: #fff;
+  background: #148269;
+  box-shadow: 0 5px 14px rgba(20, 130, 105, 0.18);
+}
+
 #fine-sheet .fine-sheet-calculation-panel,
+#fine-sheet .fine-sheet-holding-panel,
 #fine-sheet .fine-sheet-ledger-panel,
 #fine-sheet .fine-sheet-change-panel {
   margin-top: 14px;
@@ -16786,8 +16822,21 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 8px;
 }
 
+#fine-sheet .fine-sheet-holding-filters {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(130px, 160px) minmax(230px, 330px);
+  gap: 8px;
+}
+
+#fine-sheet .fine-sheet-holding-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 12px;
+}
+
 #fine-sheet .fine-sheet-filters select,
 #fine-sheet .fine-sheet-filters input,
+#fine-sheet .fine-sheet-holding-filters select,
+#fine-sheet .fine-sheet-holding-filters input,
 #fine-sheet #fine-sheet-ledger-search {
   min-height: 38px;
   border-color: #b9d7cd;
@@ -16795,6 +16844,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 #fine-sheet .fine-sheet-table-wrap,
+#fine-sheet .fine-sheet-holding-table-wrap,
 #fine-sheet .fine-sheet-ledger-wrap {
   max-height: 54vh;
   overflow-y: auto;
@@ -16825,6 +16875,17 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #fine-sheet .fine-sheet-table th:nth-child(9),
 #fine-sheet .fine-sheet-table th:nth-child(10) { width: 11%; }
 
+#fine-sheet .fine-sheet-holding-table th:nth-child(1) { width: 4%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(2) { width: 12%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(3) { width: 18%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(4) { width: 8%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(5),
+#fine-sheet .fine-sheet-holding-table th:nth-child(6),
+#fine-sheet .fine-sheet-holding-table th:nth-child(7) { width: 8%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(8) { width: 17%; }
+#fine-sheet .fine-sheet-holding-table th:nth-child(9),
+#fine-sheet .fine-sheet-holding-table th:nth-child(10) { width: 8.5%; }
+
 #fine-sheet .fine-source-pill {
   display: inline-flex;
   padding: 4px 6px;
@@ -16836,6 +16897,22 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 #fine-sheet .fine-source-pill.stock { color: #135f4e; background: #dff5ed; }
 #fine-sheet .fine-source-pill.party { color: #705213; background: #fff2c9; }
+#fine-sheet .fine-holding-pill {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: #425e57;
+  background: #e9f1ee;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: normal;
+}
+#fine-sheet .fine-holding-pill.department { color: #075f4d; background: #d8f4e9; }
+#fine-sheet .fine-holding-pill.safe { color: #31528a; background: #e3ecfb; }
+#fine-sheet .fine-holding-pill.party { color: #765713; background: #fff0be; }
 #fine-sheet .fine-calculation,
 #fine-sheet .fine-ledger-reference { display: block; overflow: hidden; text-overflow: ellipsis; }
 #fine-sheet .fine-positive { color: #087859; }
@@ -16878,8 +16955,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   #fine-sheet .fine-sheet-backup-actions,
   #fine-sheet .fine-sheet-saved-backup-row { grid-template-columns: 1fr; }
   #fine-sheet .fine-sheet-summary,
+  #fine-sheet .fine-sheet-holding-summary,
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #fine-sheet .fine-sheet-filters { width: 100%; grid-template-columns: 1fr; }
+  #fine-sheet .fine-sheet-filters,
+  #fine-sheet .fine-sheet-holding-filters { width: 100%; grid-template-columns: 1fr; }
   #fine-sheet td { padding: 6px 4px; font-size: 9px; }
 }
 
@@ -16888,7 +16967,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .gold-issue-correction-grid .gold-issue-source-field,
   .gold-issue-correction-grid .gold-issue-reason-field { grid-column: auto; }
   #fine-sheet .fine-sheet-summary,
+  #fine-sheet .fine-sheet-holding-summary,
   #fine-sheet .fine-sheet-reconciliation { grid-template-columns: 1fr; }
+  #fine-sheet .fine-sheet-pattern-switch { grid-template-columns: 1fr; }
   #fine-sheet .fine-sheet-reconciliation > div { border-right: 0; border-bottom: 1px solid #d7e9e2; }
   #fine-sheet .fine-sheet-reconciliation > div:last-child { border-bottom: 0; }
 }

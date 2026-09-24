@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v606";
+const APP_VERSION = "v607";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2450,6 +2450,12 @@ document.getElementById("vendor-search").addEventListener("input", renderFactory
 document.getElementById("factory-ledger-search").addEventListener("input", renderFactory);
 document.getElementById("fine-sheet-search")?.addEventListener("input", renderFineSheet);
 document.getElementById("fine-sheet-purity-filter")?.addEventListener("change", renderFineSheet);
+document.querySelectorAll("[data-fine-sheet-pattern]").forEach((button) => {
+  button.addEventListener("click", () => setFineSheetPattern(button.dataset.fineSheetPattern));
+});
+document.getElementById("fine-sheet-holding-group-filter")?.addEventListener("change", renderFineSheetHoldingPattern);
+document.getElementById("fine-sheet-holding-purity-filter")?.addEventListener("change", renderFineSheetHoldingPattern);
+document.getElementById("fine-sheet-holding-search")?.addEventListener("input", renderFineSheetHoldingPattern);
 document.getElementById("fine-sheet-ledger-search")?.addEventListener("input", renderFineSheetLedger);
 document.getElementById("print-fine-sheet")?.addEventListener("click", printDetailedFineSheet);
 document.getElementById("save-fine-sheet-backup")?.addEventListener("click", saveTodayFineSheetBackup);
@@ -36718,6 +36724,7 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
         else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
         rows.push({
           source: "Physical Stock",
+          partKey: key,
           location: part.label || key,
           purity: bucket.purity || "-",
           gross,
@@ -36744,6 +36751,7 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
             : "Settled party balance";
       rows.push({
         source: "Party Adjustment",
+        partKey: "party",
         location: row.vendor?.name || "Unknown Party",
         purity: "PARTY FINE",
         gross: null,
@@ -36758,6 +36766,135 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
   return rows.map((row, index) => {
     running = Number(weight3(running + Number(row.effect || 0)));
     return { ...row, number: index + 1, running };
+  });
+}
+
+const fineSheetDepartmentPartKeys = new Set([
+  "production",
+  "departmentIssues",
+  "departmentReturns",
+  "departmentTallyLosses",
+  "meltingCasting",
+  "xrf",
+  "nonGoldDirect",
+  "billNonGoldAdjustment",
+]);
+
+const fineSheetHoldingGroupOrder = {
+  "Safe / Shelf": 1,
+  Department: 2,
+  "Department Reconciliation": 3,
+  Billing: 4,
+  "Factory Adjustment": 5,
+  Party: 6,
+  "Saved Physical Holding": 7,
+};
+
+function fineSheetHoldingCalculation(gold = 0, purity = "", effect = 0) {
+  const percent = purityPercent(purity);
+  if (Math.abs(Number(gold || 0)) > 0.0005 && percent > 0) return `${weight3(gold)} x ${percent.toFixed(2)}%`;
+  if (Math.abs(Number(effect || 0)) > 0.0005) return `Saved fine effect ${signedFineGram(effect)}`;
+  return "No fine-gold effect";
+}
+
+function aggregateFineSheetHoldingByPurity(rows = []) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const purity = row.purity || "-";
+    const current = grouped.get(purity) || { purity, gross: 0, nonGold: 0, gold: 0, effect: 0 };
+    ["gross", "nonGold", "gold", "effect"].forEach((field) => {
+      if (row[field] === null) return;
+      current[field] = Number(weight3(Number(current[field] || 0) + Number(row[field] || 0)));
+    });
+    grouped.set(purity, current);
+  });
+  return grouped;
+}
+
+function fineSheetDepartmentHoldingRows(departments = departmentMetalInHand()) {
+  const rows = [];
+  Object.entries(departments || {}).forEach(([department, totals]) => {
+    Object.entries(totals.purities || {}).forEach(([purity, item]) => {
+      const gross = Number(weight3(item.gross || 0));
+      const nonGold = Number(weight3(Number(item.waxStone || 0) + Number(item.handStone || 0) + Number(item.nonGold || 0)));
+      const gold = Number(weight3(item.gold || 0));
+      const effect = Number(weight3(item.fineGold || 0));
+      if (![gross, nonGold, gold, effect].some((value) => Math.abs(value) > 0.0005)) return;
+      rows.push({
+        group: "Department",
+        location: department,
+        purity: purity || "-",
+        gross,
+        nonGold,
+        gold,
+        effect,
+        calculation: fineSheetHoldingCalculation(gold, purity, effect),
+      });
+    });
+  });
+  return rows;
+}
+
+function fineSheetHoldingRows(physical = factoryPhysicalStock(), vendorRows = vendorBalanceRows(), departments = departmentMetalInHand()) {
+  const calculationRows = fineSheetCalculationRows(physical, vendorRows);
+  const safeRows = calculationRows
+    .filter((row) => row.source === "Physical Stock" && ["metal", "shelf"].includes(row.partKey))
+    .map((row) => ({ ...row, group: "Safe / Shelf" }));
+  const departmentRows = fineSheetDepartmentHoldingRows(departments);
+  const exactDepartmentRows = calculationRows.filter((row) => row.source === "Physical Stock" && fineSheetDepartmentPartKeys.has(row.partKey));
+  const exactByPurity = aggregateFineSheetHoldingByPurity(exactDepartmentRows);
+  const namedByPurity = aggregateFineSheetHoldingByPurity(departmentRows);
+  const residualRows = [...new Set([...exactByPurity.keys(), ...namedByPurity.keys()])].map((purity) => {
+    const exact = exactByPurity.get(purity) || {};
+    const named = namedByPurity.get(purity) || {};
+    const residual = {
+      group: "Department Reconciliation",
+      location: "Unallocated / Fine Sheet Adjustment",
+      purity,
+      gross: Number(weight3(Number(exact.gross || 0) - Number(named.gross || 0))),
+      nonGold: Number(weight3(Number(exact.nonGold || 0) - Number(named.nonGold || 0))),
+      gold: Number(weight3(Number(exact.gold || 0) - Number(named.gold || 0))),
+      effect: Number(weight3(Number(exact.effect || 0) - Number(named.effect || 0))),
+    };
+    residual.calculation = "Exact Fine Sheet less named department holdings";
+    return residual;
+  }).filter((row) => [row.gross, row.nonGold, row.gold, row.effect].some((value) => Math.abs(Number(value || 0)) > 0.0005));
+  const otherRows = calculationRows
+    .filter((row) => row.source === "Physical Stock"
+      && !["metal", "shelf"].includes(row.partKey)
+      && !fineSheetDepartmentPartKeys.has(row.partKey))
+    .map((row) => ({
+      ...row,
+      group: row.partKey === "billPending" ? "Billing" : "Factory Adjustment",
+    }));
+  const partyRows = calculationRows
+    .filter((row) => row.source === "Party Adjustment")
+    .map((row) => ({ ...row, group: "Party" }));
+  const rows = [...safeRows, ...departmentRows, ...residualRows, ...otherRows, ...partyRows]
+    .sort((left, right) =>
+      Number(fineSheetHoldingGroupOrder[left.group] || 99) - Number(fineSheetHoldingGroupOrder[right.group] || 99)
+      || String(left.location || "").localeCompare(String(right.location || ""), undefined, { numeric: true })
+      || String(left.purity || "").localeCompare(String(right.purity || ""), undefined, { numeric: true })
+    );
+  let running = 0;
+  return rows.map((row, index) => {
+    running = Number(weight3(running + Number(row.effect || 0)));
+    return { ...row, number: index + 1, running };
+  });
+}
+
+function fallbackFineSheetHoldingRows(calculationRows = []) {
+  let running = 0;
+  return (calculationRows || []).map((row, index) => {
+    const group = row.source === "Party Adjustment"
+      ? "Party"
+      : /safe|shelf/i.test(row.location || "")
+        ? "Safe / Shelf"
+        : /bill/i.test(row.location || "")
+          ? "Billing"
+          : "Saved Physical Holding";
+    running = Number(weight3(running + Number(row.effect || 0)));
+    return { ...row, group, number: index + 1, running };
   });
 }
 
@@ -36895,6 +37032,33 @@ function normalizeFineSheetSnapshot(snapshot = {}) {
     : fineSheetLocalDateKey(new Date(snapshot.savedAt || Date.now()));
   const physical = snapshot.physical || {};
   const vendorTotals = snapshot.vendorTotals || {};
+  const calculationRows = (snapshot.calculationRows || []).map((row, index) => ({
+    number: Number(row.number || index + 1),
+    source: row.source || "Physical Stock",
+    partKey: row.partKey || "",
+    location: row.location || "-",
+    purity: row.purity || "-",
+    gross: row.gross === null ? null : Number(weight3(row.gross || 0)),
+    nonGold: row.nonGold === null ? null : Number(weight3(row.nonGold || 0)),
+    gold: row.gold === null ? null : Number(weight3(row.gold || 0)),
+    calculation: row.calculation || "",
+    effect: Number(weight3(row.effect || 0)),
+    running: Number(weight3(row.running || 0)),
+  }));
+  const holdingRows = (snapshot.holdingRows || []).length
+    ? (snapshot.holdingRows || []).map((row, index) => ({
+      number: Number(row.number || index + 1),
+      group: row.group || "Saved Physical Holding",
+      location: row.location || "-",
+      purity: row.purity || "-",
+      gross: row.gross === null ? null : Number(weight3(row.gross || 0)),
+      nonGold: row.nonGold === null ? null : Number(weight3(row.nonGold || 0)),
+      gold: row.gold === null ? null : Number(weight3(row.gold || 0)),
+      calculation: row.calculation || "",
+      effect: Number(weight3(row.effect || 0)),
+      running: Number(weight3(row.running || 0)),
+    }))
+    : fallbackFineSheetHoldingRows(calculationRows);
   return {
     id: snapshot.id || `fine-sheet-${dateKey}`,
     dateKey,
@@ -36914,18 +37078,8 @@ function normalizeFineSheetSnapshot(snapshot = {}) {
       netBalance: Number(weight3(vendorTotals.netBalance || 0)),
     },
     netFine: Number(weight3(snapshot.netFine || 0)),
-    calculationRows: (snapshot.calculationRows || []).map((row, index) => ({
-      number: Number(row.number || index + 1),
-      source: row.source || "Physical Stock",
-      location: row.location || "-",
-      purity: row.purity || "-",
-      gross: row.gross === null ? null : Number(weight3(row.gross || 0)),
-      nonGold: row.nonGold === null ? null : Number(weight3(row.nonGold || 0)),
-      gold: row.gold === null ? null : Number(weight3(row.gold || 0)),
-      calculation: row.calculation || "",
-      effect: Number(weight3(row.effect || 0)),
-      running: Number(weight3(row.running || 0)),
-    })),
+    calculationRows,
+    holdingRows,
     ledgerRows: (snapshot.ledgerRows || []).slice(-FINE_SHEET_BACKUP_LEDGER_LIMIT).map((row) => ({
       entry: {
         date: row.entry?.date || "",
@@ -36990,6 +37144,7 @@ function buildFineSheetSnapshot(dateKey = fineSheetLocalDateKey()) {
     vendorTotals,
     netFine,
     calculationRows: fineSheetCalculationRows(physical, vendors),
+    holdingRows: fineSheetHoldingRows(physical, vendors),
     ledgerRows: fineSheetLedgerRows().slice(-FINE_SHEET_BACKUP_LEDGER_LIMIT),
     partyRows: vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
       .some((value) => Math.abs(Number(value || 0)) > 0.0005)),
@@ -37069,6 +37224,110 @@ function printSelectedFineSheetBackup() {
   printDetailedFineSheet(snapshot);
 }
 
+let fineSheetActivePattern = "calculation";
+
+function applyFineSheetPatternVisibility() {
+  const calculationPanel = document.getElementById("fine-sheet-calculation-pattern");
+  const holdingPanel = document.getElementById("fine-sheet-holding-pattern");
+  const holdingActive = fineSheetActivePattern === "holding";
+  calculationPanel?.classList.toggle("hidden", holdingActive);
+  holdingPanel?.classList.toggle("hidden", !holdingActive);
+  document.querySelectorAll("[data-fine-sheet-pattern]").forEach((button) => {
+    const active = button.dataset.fineSheetPattern === fineSheetActivePattern;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
+function setFineSheetPattern(pattern = "calculation") {
+  fineSheetActivePattern = pattern === "holding" ? "holding" : "calculation";
+  applyFineSheetPatternVisibility();
+  if (fineSheetActivePattern === "holding") renderFineSheetHoldingPattern();
+}
+
+function renderFineSheetHoldingPattern(providedPhysical = null, providedVendors = null, providedNetFine = null) {
+  const table = document.getElementById("fine-sheet-holding-table");
+  if (!table) return;
+  const physical = providedPhysical || factoryPhysicalStock();
+  const vendors = providedVendors || vendorBalanceRows();
+  const vendorTotals = factoryVendorFineTotals(vendors);
+  const netFine = providedNetFine === null ? totalFactoryFineStock(physical, vendorTotals) : Number(providedNetFine || 0);
+  const rows = fineSheetHoldingRows(physical, vendors);
+  const groupFilter = document.getElementById("fine-sheet-holding-group-filter");
+  const purityFilter = document.getElementById("fine-sheet-holding-purity-filter");
+  const selectedGroup = groupFilter?.value || "";
+  const selectedPurity = purityFilter?.value || "";
+  const groups = [...new Set(rows.map((row) => row.group).filter(Boolean))]
+    .sort((left, right) => Number(fineSheetHoldingGroupOrder[left] || 99) - Number(fineSheetHoldingGroupOrder[right] || 99));
+  const purities = [...new Set(rows.map((row) => row.purity).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  if (groupFilter) {
+    groupFilter.innerHTML = `<option value="">All Holding Groups</option>${groups.map((group) => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join("")}`;
+    groupFilter.value = groups.includes(selectedGroup) ? selectedGroup : "";
+  }
+  if (purityFilter) {
+    purityFilter.innerHTML = `<option value="">All Purities</option>${purities.map((purity) => `<option value="${escapeHtml(purity)}">${escapeHtml(purity)}</option>`).join("")}`;
+    purityFilter.value = purities.includes(selectedPurity) ? selectedPurity : "";
+  }
+  const activeGroup = groupFilter?.value || "";
+  const activePurity = purityFilter?.value || "";
+  const query = (document.getElementById("fine-sheet-holding-search")?.value || "").trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    if (activeGroup && row.group !== activeGroup) return false;
+    if (activePurity && row.purity !== activePurity) return false;
+    if (!query) return true;
+    return [row.group, row.location, row.purity, row.calculation].join(" ").toLowerCase().includes(query);
+  });
+  table.innerHTML = visibleRows.length
+    ? visibleRows.map((row) => {
+      const effectClass = row.effect > 0.0005 ? "fine-positive" : row.effect < -0.0005 ? "fine-negative" : "fine-zero";
+      const groupClass = row.group === "Party" ? "party" : row.group === "Department" ? "department" : row.group === "Safe / Shelf" ? "safe" : "stock";
+      return `
+        <tr>
+          <td>${row.number}</td>
+          <td><span class="fine-holding-pill ${groupClass}">${escapeHtml(row.group)}</span></td>
+          <td><strong>${escapeHtml(row.location)}</strong></td>
+          <td>${escapeHtml(row.purity)}</td>
+          <td>${row.gross === null ? "-" : gram(row.gross)}</td>
+          <td>${row.nonGold === null ? "-" : gram(row.nonGold)}</td>
+          <td>${row.gold === null ? "-" : gram(row.gold)}</td>
+          <td><span class="fine-calculation">${escapeHtml(row.calculation)}</span></td>
+          <td><strong class="${effectClass}">${signedFineGram(row.effect)}</strong></td>
+          <td><strong>${gram(row.running)}</strong></td>
+        </tr>
+      `;
+    }).join("")
+    : tableEmpty(10, "No department, Safe, or party holding matches this filter.");
+
+  const groupEffect = (names) => Number(weight3(rows
+    .filter((row) => names.includes(row.group))
+    .reduce((total, row) => total + Number(row.effect || 0), 0)));
+  const summary = document.getElementById("fine-sheet-holding-summary");
+  if (summary) {
+    summary.innerHTML = [
+      factorySummaryCard("Department Fine", gram(groupEffect(["Department"])), `${rows.filter((row) => row.group === "Department").length} department / purity rows`, "owned"),
+      factorySummaryCard("Safe / Shelf Fine", gram(groupEffect(["Safe / Shelf"])), "Metal Safe and karat-wise Safe Locker holdings"),
+      factorySummaryCard("Billing / Other Fine", gram(groupEffect(["Billing", "Factory Adjustment", "Department Reconciliation"])), "Bill pending plus exact reconciliation adjustments"),
+      factorySummaryCard("Party Fine Effect", signedFineGram(groupEffect(["Party"])), "Payable subtracts; receivable adds"),
+    ].join("");
+  }
+  const accumulated = Number(rows.at(-1)?.running || 0);
+  const difference = Number(weight3(accumulated - netFine));
+  const matched = Math.abs(difference) < 0.0005;
+  const reconciliation = document.getElementById("fine-sheet-holding-reconciliation");
+  if (reconciliation) {
+    reconciliation.className = `fine-sheet-reconciliation ${matched ? "matched" : "mismatch"}`;
+    reconciliation.innerHTML = `
+      <div><span>Holding Pattern Fine</span><strong>${gram(accumulated)}</strong></div>
+      <div><span>Main Fine Sheet</span><strong>${gram(netFine)}</strong></div>
+      <div><span>Difference</span><strong>${signedFineGram(difference)}</strong></div>
+      <div class="fine-sheet-check"><span>Pattern Reconciliation</span><strong>${matched ? "MATCHED" : "CHECK REQUIRED"}</strong></div>
+    `;
+  }
+  const status = document.getElementById("fine-sheet-holding-status");
+  if (status) status.textContent = `Showing ${visibleRows.length} of ${rows.length} holding rows. Running Fine uses all rows and reconciles to the main Fine Sheet.`;
+}
+
 function renderFineSheet() {
   const summary = document.getElementById("fine-sheet-summary");
   const table = document.getElementById("fine-sheet-calculation-table");
@@ -37135,6 +37394,8 @@ function renderFineSheet() {
   }
   renderFineSheetBackupControls();
   renderFineSheetLedger();
+  renderFineSheetHoldingPattern(physical, vendors, netFine);
+  applyFineSheetPatternVisibility();
 }
 
 function fineSheetLedgerDate(entry = {}) {
@@ -37194,9 +37455,12 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
   const vendorTotals = savedSnapshot?.vendorTotals || factoryVendorFineTotals(vendors);
   const netFine = savedSnapshot ? Number(savedSnapshot.netFine || 0) : totalFactoryFineStock(physical, vendorTotals);
   const calculationRows = savedSnapshot?.calculationRows || fineSheetCalculationRows(physical, vendors);
+  const holdingRows = savedSnapshot?.holdingRows || fineSheetHoldingRows(physical, vendors);
   const ledgerRows = savedSnapshot?.ledgerRows || fineSheetLedgerRows();
   const accumulated = Number(calculationRows.at(-1)?.running || 0);
   const difference = Number(weight3(accumulated - netFine));
+  const holdingAccumulated = Number(holdingRows.at(-1)?.running || 0);
+  const holdingDifference = Number(weight3(holdingAccumulated - netFine));
   const partyRows = savedSnapshot?.partyRows || vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
     .some((value) => Math.abs(Number(value || 0)) > 0.0005));
   const logoUrl = new URL("assets/vella-logo.jpeg", window.location.href).href;
@@ -37221,6 +37485,14 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
         <td class="calculation">${escapeHtml(row.calculation)}</td><td class="number ${row.effect < -0.0005 ? "negative" : ""}">${signedFineGram(row.effect)}</td><td class="number">${gram(row.running)}</td>
       </tr>`).join("")
     : '<tr><td colspan="10">No accumulated calculation rows.</td></tr>';
+  const holdingBody = holdingRows.length
+    ? holdingRows.map((row) => `
+      <tr>
+        <td>${row.number}</td><td>${escapeHtml(row.group)}</td><td>${escapeHtml(row.location)}</td><td>${escapeHtml(row.purity)}</td>
+        <td>${row.gross === null ? "-" : gram(row.gross)}</td><td>${row.nonGold === null ? "-" : gram(row.nonGold)}</td><td>${row.gold === null ? "-" : gram(row.gold)}</td>
+        <td class="calculation">${escapeHtml(row.calculation)}</td><td class="number ${row.effect < -0.0005 ? "negative" : ""}">${signedFineGram(row.effect)}</td><td class="number">${gram(row.running)}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="10">No department, Safe, or party holding rows.</td></tr>';
   const ledgerBody = ledgerRows.length
     ? ledgerRows.map(({ entry, fine, effect, running }) => `
       <tr>
@@ -37268,6 +37540,9 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
       .calc-table th:nth-child(1) { width: 4%; } .calc-table th:nth-child(2) { width: 8%; } .calc-table th:nth-child(3) { width: 17%; }
       .calc-table th:nth-child(4) { width: 7%; } .calc-table th:nth-child(5), .calc-table th:nth-child(6), .calc-table th:nth-child(7) { width: 7%; }
       .calc-table th:nth-child(8) { width: 20%; } .calc-table th:nth-child(9), .calc-table th:nth-child(10) { width: 8%; }
+      .holding-table th:nth-child(1) { width: 4%; } .holding-table th:nth-child(2) { width: 11%; } .holding-table th:nth-child(3) { width: 18%; }
+      .holding-table th:nth-child(4) { width: 7%; } .holding-table th:nth-child(5), .holding-table th:nth-child(6), .holding-table th:nth-child(7) { width: 7%; }
+      .holding-table th:nth-child(8) { width: 20%; } .holding-table th:nth-child(9), .holding-table th:nth-child(10) { width: 8%; }
       .ledger-table th:nth-child(1) { width: 10%; } .ledger-table th:nth-child(2) { width: 5%; } .ledger-table th:nth-child(3) { width: 11%; }
       .ledger-table th:nth-child(4) { width: 32%; } .ledger-table th:nth-child(5) { width: 7%; } .ledger-table th:nth-child(6) { width: 8%; }
       .ledger-table th:nth-child(7) { width: 10%; } .ledger-table th:nth-child(8), .ledger-table th:nth-child(9) { width: 8.5%; }
@@ -37286,6 +37561,9 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
         <h2>Accumulated Fine Sheet Calculation</h2>
         <table class="calc-table"><thead><tr><th>No.</th><th>Source</th><th>Location / Party</th><th>Purity</th><th>GW</th><th>Non-Gold</th><th>Net Gold</th><th>Calculation</th><th>Fine Effect</th><th>Running Fine</th></tr></thead><tbody>${calculationBody}</tbody></table>
         <div class="reconciliation">Accumulated Fine ${gram(accumulated)} | Dashboard Net Fine ${gram(netFine)} | Difference ${signedFineGram(difference)} | ${Math.abs(difference) < 0.0005 ? "MATCHED" : "CHECK REQUIRED"}</div>
+        <h2>Department / Safe / Party Holding Pattern</h2>
+        <table class="holding-table"><thead><tr><th>No.</th><th>Holding Group</th><th>Department / Safe / Party</th><th>Purity</th><th>GW</th><th>Non-Gold</th><th>Net Gold</th><th>Fine Calculation</th><th>Fine Effect</th><th>Running Fine</th></tr></thead><tbody>${holdingBody}</tbody></table>
+        <div class="reconciliation">Holding Pattern Fine ${gram(holdingAccumulated)} | Main Fine Sheet ${gram(netFine)} | Difference ${signedFineGram(holdingDifference)} | ${Math.abs(holdingDifference) < 0.0005 ? "MATCHED" : "CHECK REQUIRED"}</div>
         <h2>Factory In / Out Fine Entries${savedSnapshot ? ` (Latest ${FINE_SHEET_BACKUP_LEDGER_LIMIT} at Save Time)` : ""}</h2>
         <table class="ledger-table"><thead><tr><th>Date & Time</th><th>In / Out</th><th>Party</th><th>Reference</th><th>Purity</th><th>GW</th><th>WSTG</th><th>Fine Effect</th><th>Running Fine</th></tr></thead><tbody>${ledgerBody}</tbody></table>
         <h2>Party Fine Balances</h2>
