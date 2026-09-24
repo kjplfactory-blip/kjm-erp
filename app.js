@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v609";
+const APP_VERSION = "v610";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3167,6 +3167,8 @@ function saveBillFromForm(closeDialog = false, options = {}) {
       : effectiveWastagePercent,
     factoryOutPostedAt: existingBill.factoryOutPostedAt || "",
     factoryOutUpdatedAt: existingBill.factoryOutUpdatedAt || "",
+    officeDestination: KJPL_OFFICE_VENDOR_NAME,
+    officePartyName: KJPL_OFFICE_VENDOR_NAME,
     remarks: data.remarks || "",
   };
   state.bills = state.bills || [];
@@ -13278,7 +13280,7 @@ function manufacturingOrderTypeLabel(name = "") {
 }
 
 function manufacturingOfficeDestinationLabel(name = "") {
-  return isKjplOfficePartyName(name) ? KJPL_OFFICE_VENDOR_NAME : normalizePartyName(name) || "Customer";
+  return KJPL_OFFICE_VENDOR_NAME;
 }
 
 function isManufacturingCustomerOrder(name = "") {
@@ -13299,15 +13301,14 @@ function customerOrderDisplayHtml(name = "") {
       <strong>${escapeHtml(cleanName)}</strong>
       <div class="job-badge-row">
         ${orderTypeBadgeHtml(cleanName)}
-        ${isKjplOfficePartyName(cleanName) ? `<span class="job-badge office-route">To ${escapeHtml(officeDestination)}</span>` : ""}
+        <span class="job-badge office-route">To ${escapeHtml(officeDestination)}</span>
       </div>
     </div>
   `;
 }
 
 function billFactoryVendorName(source, lot = {}, bill = {}) {
-  const customerName = billCustomerNameForState(source, lot, bill);
-  return manufacturingOfficeDestinationLabel(customerName);
+  return KJPL_OFFICE_VENDOR_NAME;
 }
 
 function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
@@ -13408,8 +13409,6 @@ function mergeFactoryBillLedgerEdit(baseEntry = {}, editEntry = {}) {
     "date",
     "direction",
     "type",
-    "vendorId",
-    "vendorName",
     "materialType",
     "purity",
     "weight",
@@ -13426,6 +13425,9 @@ function mergeFactoryBillLedgerEdit(baseEntry = {}, editEntry = {}) {
   merged.sourceType = "bill";
   merged.sourceId = baseEntry.sourceId;
   merged.sourceLine = baseEntry.sourceLine;
+  merged.vendorId = baseEntry.vendorId;
+  merged.vendorName = KJPL_OFFICE_VENDOR_NAME;
+  merged.officePartyName = KJPL_OFFICE_VENDOR_NAME;
   merged.manualFactoryEdit = true;
   merged.editedAt = editEntry.editedAt || new Date().toISOString();
   const fine = factoryFineGoldBreakup(merged);
@@ -13467,6 +13469,8 @@ function syncFactoryOutLedgerForState(source) {
   source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill");
   (source.bills || []).forEach((bill) => {
     if (!bill?.id) return;
+    bill.officeDestination = KJPL_OFFICE_VENDOR_NAME;
+    bill.officePartyName = KJPL_OFFICE_VENDOR_NAME;
     if (!isBillFactoryOutPosted(bill)) return;
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!lot) return;
@@ -35843,6 +35847,8 @@ function transferQcOkItemsToOffice() {
   const saved = saveBillFromForm(false, { allowLockedBillFlow: true });
   if (!saved) return;
   const { lot, bill } = saved;
+  bill.officeDestination = KJPL_OFFICE_VENDOR_NAME;
+  bill.officePartyName = KJPL_OFFICE_VENDOR_NAME;
   let moved = 0;
   bill.items = (bill.items || []).map((item) => {
     if (isDiscardedItem(item)) return item;
@@ -35854,7 +35860,8 @@ function transferQcOkItemsToOffice() {
       qcDate: today(),
       factoryStatus: "Factory Out",
       factoryOutDate: today(),
-      holder: "Office",
+      holder: KJPL_OFFICE_VENDOR_NAME,
+      officeDestination: KJPL_OFFICE_VENDOR_NAME,
     };
   });
   if (!moved) {
@@ -35866,6 +35873,7 @@ function transferQcOkItemsToOffice() {
   lot.productionStockWeight = billProductionStockWeight(bill);
   lot.currentDepartment = "Office";
   lot.karigarName = "Office Department";
+  lot.officeDestination = KJPL_OFFICE_VENDOR_NAME;
   markParentRepairItemsComplete(lot, bill);
   updateSavedBill(bill);
   saveState();
@@ -36772,6 +36780,7 @@ function renderFactory() {
 }
 
 function renderFactoryVendorOptions() {
+  findOrCreateVendorByName(KJPL_OFFICE_VENDOR_NAME);
   const vendors = [...(state.vendors || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }));
   document.querySelectorAll('#factory-in-form select[name="vendorId"], #factory-out-form select[name="vendorId"]').forEach((select) => {
     const selected = select.value;
@@ -36786,6 +36795,7 @@ function factoryOutBillSummaryHtml(record) {
   if (!record) return "";
   const { bill, lot, totals } = record;
   const cards = [
+    ["Destination", KJPL_OFFICE_VENDOR_NAME],
     ["Items", totals.pieces],
     ["GW", gram(totals.finalGw)],
     ["Stone", gram(totals.stoneWeight)],
@@ -36799,7 +36809,7 @@ function factoryOutBillSummaryHtml(record) {
   return `
     <div class="factory-out-bill-heading">
       <div><strong>${escapeHtml(bill.billNo || "Bill")}</strong><span>${escapeHtml(lot.orderNumber || lot.number || "-")} / ${escapeHtml(totals.purityText || "-")}</span></div>
-      <span class="status completed">Office Transfer</span>
+      <span class="status completed">To ${escapeHtml(KJPL_OFFICE_VENDOR_NAME)}</span>
     </div>
     <div class="factory-out-bill-weight-grid">
       ${cards.map(([label, value], index) => `<div class="${index === cards.length - 1 ? "highlight" : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
@@ -36893,7 +36903,7 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
     summaryPanel.innerHTML = factoryOutBillSummaryHtml(record);
     summaryPanel.classList.remove("hidden");
   }
-  if (status) status.textContent = "Bill weights are locked to the saved bill. Enter WSTG percentage manually, then save this Factory Out.";
+  if (status) status.textContent = `Destination is fixed to ${KJPL_OFFICE_VENDOR_NAME}. Bill weights are locked; enter WSTG percentage, then save this Factory Out.`;
   if (submit) submit.textContent = "Save Bill Factory Out";
 }
 
@@ -37048,12 +37058,12 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
   }
   if (cloudVerified) {
     if (status) status.textContent = `${bill.billNo || "Bill"} is posted, synced, and removed from the pending dropdown. Open Factory Ledger to view it.`;
-    alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
+    alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
   } else {
     const syncMessage = document.getElementById("sync-status")?.textContent || "Cloud save pending";
     const syncDetail = document.getElementById("sync-detail")?.textContent || "The app will retry automatically.";
     if (status) status.textContent = `${bill.billNo || "Bill"} is saved safely on this laptop. Cloud sync is pending and will retry automatically.`;
-    alert(`${bill.billNo || "Bill"} is saved safely on this laptop and removed from its pending dropdown.\n\nCloud sync is pending. Do not bill it again.\n${syncMessage}\n${syncDetail}\n\nGW ${gram(totals.finalGw)} / Net ${gram(totals.netWeight)}`);
+    alert(`${bill.billNo || "Bill"} is saved safely on this laptop and removed from its pending dropdown.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\n\nCloud sync is pending. Do not bill it again.\n${syncMessage}\n${syncDetail}\n\nGW ${gram(totals.finalGw)} / Net ${gram(totals.netWeight)}`);
   }
   return true;
 }
@@ -38234,6 +38244,7 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
   const weight = Number(weight3(data.weight || existing.weight || 0));
   const wstgPercent = factoryWstgPercent(data.wstgPercent ?? existing.wstgPercent);
   const isBillEntry = existing.sourceType === "bill" || materialType === "bill";
+  const fixedBillVendor = isBillEntry ? (findVendorByName(KJPL_OFFICE_VENDOR_NAME) || findOrCreateVendorByName(KJPL_OFFICE_VENDOR_NAME)) : null;
   const existingWeight = Number(existing.weight || 0);
   const shouldScaleExistingBillFine = isBillEntry && Number(existing.baseFineGold || 0) > 0 && (!purityPercent(purity) || String(purity || "").toLowerCase().includes("mixed"));
   const baseFineGold = shouldScaleExistingBillFine
@@ -38257,8 +38268,9 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
       : direction === "out"
         ? "Metal / Stock Factory Out"
         : "Factory In",
-    vendorId: vendor?.id || data.vendorId || "",
-    vendorName: vendor?.name || existing.vendorName || "",
+    vendorId: fixedBillVendor?.id || vendor?.id || data.vendorId || "",
+    vendorName: isBillEntry ? KJPL_OFFICE_VENDOR_NAME : (vendor?.name || existing.vendorName || ""),
+    officePartyName: isBillEntry ? KJPL_OFFICE_VENDOR_NAME : (existing.officePartyName || ""),
     materialType,
     purity,
     weight,
