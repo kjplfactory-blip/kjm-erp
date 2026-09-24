@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v617";
+const APP_VERSION = "v618";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -32195,19 +32195,24 @@ function renderSettingManager() {
   }).join("");
   document.getElementById("setting-manager-lot-table").innerHTML = lotRows || tableEmpty(7, "No lot is currently in Setting Department.");
 
-  const manualProductionRows = manualProductionSources.map((source) => `
+  const manualProductionRows = manualProductionSources.map((source) => {
+    const issue = safeDepartmentIssuesInHand().find((item) => item.id === source.id) || {};
+    return `
     <tr>
       <td>${escapeHtml(source.date || "-")}</td>
       <td><strong>${escapeHtml(source.materialDescription || "Manual Production Item")}</strong><br><small>${escapeHtml(source.materialType || "Production Item")}</small></td>
       <td><strong>Manual Production Item</strong><br><small>No Job Card${source.sourceLine ? ` / ${escapeHtml(source.sourceLine)}` : ""}</small></td>
       <td>${escapeHtml(transferPurityLabel(source.purity || "-"))}</td>
       <td><strong>${gram(source.availableGw)}</strong><br><small>Original ${gram(source.grossWeight)}</small></td>
+      <td>${gram(issue.nonGoldWeight || 0)}<br><small>${escapeHtml(nonGoldBreakdownText(issue.nonGoldBreakdown || {}, issue.nonGoldCategory || "", issue.nonGoldWeight || 0) || "No non-gold")}</small></td>
+      <td><strong>${gram(issue.netWeight ?? source.availableGw)}</strong></td>
       <td>${escapeHtml(source.departmentName || "Stone Setting Department")}<br><small>${escapeHtml(source.remarks || "Available for setter issue")}</small></td>
-      <td><button type="button" onclick="openSettingManualProductionSource('${source.id}')">Issue / Split To Setter</button></td>
+      <td><div class="row-actions"><button type="button" onclick="openSettingManualProductionSource('${source.id}')">Issue / Split To Setter</button><button class="ghost-button" type="button" onclick="openSettingManualDepartmentTransfer('${source.id}')">Transfer To Department</button></div></td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
   const manualProductionTable = document.getElementById("setting-manager-manual-table");
-  if (manualProductionTable) manualProductionTable.innerHTML = manualProductionRows || tableEmpty(7, "No Manual Production Item / No Job Card is currently held in Stone Setting Department.");
+  if (manualProductionTable) manualProductionTable.innerHTML = manualProductionRows || tableEmpty(9, "No Manual Production Item / No Job Card is currently held in Stone Setting Department.");
 
   const pendingRows = pending.map((entry) => `
     <tr>

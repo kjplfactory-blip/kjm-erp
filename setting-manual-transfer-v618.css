@@ -1,0 +1,115 @@
+#setting-manual-transfer-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  background: rgba(7, 36, 32, 0.28);
+}
+
+#setting-manual-transfer-dialog[open] {
+  display: grid;
+  place-items: stretch;
+}
+
+.setting-manual-transfer-card {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 18px;
+  overflow: auto;
+  border-radius: 8px;
+}
+
+.setting-manual-transfer-source {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.setting-manual-transfer-source article,
+.setting-manual-transfer-calculation article {
+  min-width: 0;
+  padding: 12px;
+  background: #edf8f5;
+  border: 1px solid #badbd4;
+  border-radius: 7px;
+}
+
+.setting-manual-transfer-source span,
+.setting-manual-transfer-calculation span {
+  display: block;
+  color: #57716a;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.setting-manual-transfer-source strong,
+.setting-manual-transfer-calculation strong {
+  display: block;
+  margin-top: 4px;
+  color: #123f38;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.setting-manual-transfer-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setting-manual-transfer-fields .full-row,
+.setting-manual-transfer-calculation,
+.setting-manual-transfer-card .dialog-actions {
+  grid-column: 1 / -1;
+}
+
+.setting-manual-transfer-calculation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.setting-manual-transfer-note {
+  margin: 12px 0 0;
+  padding: 11px 13px;
+  color: #315c54;
+  background: #fff9df;
+  border: 1px solid #eadb94;
+  border-radius: 7px;
+}
+
+@media (max-width: 900px) {
+  .setting-manual-transfer-source {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .setting-manual-transfer-fields,
+  .setting-manual-transfer-calculation {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  #setting-manual-transfer-dialog {
+    padding: 4px;
+  }
+
+  .setting-manual-transfer-card {
+    padding: 12px;
+  }
+
+  .setting-manual-transfer-source,
+  .setting-manual-transfer-fields,
+  .setting-manual-transfer-calculation {
+    grid-template-columns: 1fr;
+  }
+}

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css?v=615">
   <link rel="stylesheet" href="department-holdings-v615.css?v=616">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=617">
+  <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=618">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -19,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v617</small>
+      <small class="app-version-badge">App v618</small>
           </div>
         </div>
         <label>User
@@ -128,7 +129,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v617</span>
+          <span class="app-version-badge">App v618</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -931,12 +932,12 @@
             <div class="panel-heading">
               <div>
                 <h2>Manual Production Items - No Job Card</h2>
-                <p>Items already issued directly to Stone Setting Department and available for assignment to a setter.</p>
+                <p>Items without a Job Card can be issued to a setter or transferred directly from Setting to another department.</p>
               </div>
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Date</th><th>Item</th><th>Reference</th><th>Karat</th><th>Available GW</th><th>Current Holding</th><th></th></tr></thead>
+                <thead><tr><th>Date</th><th>Item</th><th>Reference</th><th>Karat</th><th>Available GW</th><th>Non-Gold</th><th>Net Gold</th><th>Current Holding</th><th>Action</th></tr></thead>
                 <tbody id="setting-manager-manual-table"></tbody>
               </table>
             </div>
@@ -3330,11 +3331,12 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=617"></script>
+  <script src="app.js?v=618"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
   <script src="setting-internal-bill-excel-v616.js?v=616"></script>
   <script src="setting-master-tiles-v617.js?v=617"></script>
+  <script src="setting-manual-transfer-v618.js?v=618"></script>
 </body>
 </html>
