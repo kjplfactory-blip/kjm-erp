@@ -1408,6 +1408,50 @@ form.active-operation-page,
   margin-top: 18px;
 }
 
+.department-reconciliation-alerts {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 11px 12px;
+  border: 1px solid #b9d7cd;
+  border-radius: 8px;
+  background: #f3fbf7;
+  color: #28584d;
+}
+
+.department-reconciliation-alerts.mismatch {
+  border-color: #e4b84f;
+  background: #fff9e8;
+  color: #745516;
+}
+
+.department-reconciliation-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.department-reconciliation-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.department-reconciliation-list article {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid rgba(190, 139, 22, 0.32);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.department-reconciliation-list span,
+.department-reconciliation-list small {
+  line-height: 1.35;
+}
+
 .department-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1441,6 +1485,29 @@ form.active-operation-page,
 .department-card.empty-department-card {
   border-style: dashed;
   background: #f8fafc;
+}
+
+.department-card.department-card-check-required {
+  border-color: #d8a22b;
+  box-shadow: inset 0 0 0 1px rgba(216, 162, 43, 0.12);
+}
+
+.department-card-summary .department-variance-warning {
+  border-color: #d8a22b;
+  background: #fff6d9;
+  color: #805a08;
+  font-weight: 900;
+}
+
+.department-reconciliation-flag {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #c88212;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 .department-holding-label {
@@ -16681,11 +16748,27 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 #fine-sheet .fine-sheet-calculation-panel,
-#fine-sheet .fine-sheet-ledger-panel {
+#fine-sheet .fine-sheet-ledger-panel,
+#fine-sheet .fine-sheet-change-panel {
   margin-top: 14px;
   border-color: #c8ddd6;
   box-shadow: 0 12px 30px rgba(18, 60, 52, 0.07);
 }
+
+#fine-sheet .fine-sheet-change-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 12px;
+}
+
+#fine-sheet .fine-sheet-change-table-wrap {
+  max-height: 42vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+#fine-sheet .fine-sheet-change-table-wrap th:nth-child(7) { width: 32%; }
+#fine-sheet .fine-change-material td { background: #fff9e8; }
+#fine-sheet .fine-change-reason { display: block; white-space: normal; }
 
 #fine-sheet .panel-heading { align-items: center; border-bottom: 1px solid #dcebe6; }
 #fine-sheet .panel-heading h2 { margin: 2px 0; color: #183f37; font-size: 18px; }

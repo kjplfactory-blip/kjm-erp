@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v601";
+const APP_VERSION = "v602";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -26064,9 +26064,11 @@ function dashboardTransferItem(entry) {
 
 function renderDepartmentMetal() {
   const departments = departmentMetalInHand();
-  const transferSummaries = new Map(
-    departmentTransferSummaries().map((summary) => [departmentTextKey(summary.name), summary])
-  );
+  const summaries = departmentTransferSummaries();
+  const transferSummaries = new Map(summaries.map((summary) => [departmentTextKey(summary.name), summary]));
+  const reconciliations = departmentHoldingReconciliations(departments, summaries);
+  const reconciliationMap = new Map(reconciliations.map((row) => [departmentTextKey(row.name), row]));
+  renderDepartmentReconciliationAlerts(reconciliations);
   const rows = Object.entries(departments)
     .sort((a, b) => {
       const scoreDiff = departmentHoldingScore(b[1]) - departmentHoldingScore(a[1]);
@@ -26074,24 +26076,27 @@ function renderDepartmentMetal() {
     })
     .map(([department, totals]) => {
       const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
+      const reconciliation = reconciliationMap.get(departmentTextKey(department)) || {};
       const issueReceiveDifference = Number(weight3(totals.gross || 0));
       return `
-      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"}" tabindex="0">
+      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"} ${reconciliation.needsCheck ? "department-card-check-required" : ""}" tabindex="0">
         <span>${escapeHtml(department)}</span>
-        <small class="department-holding-label">Gross Weight (GW)</small>
+        <small class="department-holding-label">Issue - Receive GW</small>
         <strong>${gram(totals.gross)}</strong>
         <div class="department-card-summary">
           <small><b>Net Weight</b>${gram(totals.gold)}</small>
           <small><b>Other</b>${gram(Number(totals.waxStone || 0) + Number(totals.handStone || 0) + Number(totals.nonGold || 0))}</small>
-          <small class="transfer-difference"><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
+          <small class="transfer-difference"><b>History Balance</b>${gram(reconciliation.ledgerGw ?? issueReceiveDifference)}</small>
+          <small class="${reconciliation.needsCheck ? "department-variance-warning" : ""}"><b>Variance</b>${signedFineGram(reconciliation.variance || 0)}</small>
           <small><b>Fine</b>${gram(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0))}</small>
         </div>
+        ${reconciliation.needsCheck ? `<div class="department-reconciliation-flag" title="${escapeHtml(reconciliation.reason)}">Check ${signedFineGram(reconciliation.variance)}</div>` : ""}
         <div class="department-hover-popup" role="tooltip">
           <div class="department-popup-heading">
             <strong>${escapeHtml(department)}</strong>
             <small>Karat-wise holding detail</small>
           </div>
-          ${renderDepartmentHoldingDetail(totals, transferSummary)}
+          ${renderDepartmentHoldingDetail(totals, transferSummary, reconciliation)}
         </div>
         <div class="department-card-actions">
           <button class="dashboard-open-button" type="button" onclick="openDashboardDepartment(decodeURIComponent('${encodeURIComponent(department)}'))">Open</button>
@@ -26105,7 +26110,7 @@ function renderDepartmentMetal() {
   document.getElementById("department-metal-list").innerHTML = rows || '<div class="empty">No department gold or stone in hand yet.</div>';
 }
 
-function renderDepartmentHoldingDetail(totals, transferSummary = {}) {
+function renderDepartmentHoldingDetail(totals, transferSummary = {}, reconciliation = {}) {
   const issueReceiveDifference = Number(weight3(totals.gross || 0));
   return `
     <div class="department-breakup">
@@ -26119,11 +26124,78 @@ function renderDepartmentHoldingDetail(totals, transferSummary = {}) {
       <small><b>Issued To Department</b>${gram(transferSummary.inGw || 0)}</small>
       <small><b>Received From Department</b>${gram(transferSummary.outGw || 0)}</small>
       <small><b>Issue - Receive</b>${gram(issueReceiveDifference)}</small>
+      ${reconciliation.hasTransfer ? `<small><b>History Balance</b>${gram(reconciliation.ledgerGw || 0)}</small>` : ""}
+      ${reconciliation.needsCheck ? `<small class="loss-row"><b>Reconciliation Variance</b>${signedFineGram(reconciliation.variance)}</small>` : ""}
       ${Number(totals.loss || 0) ? `<small class="loss-row"><b>Loss</b>${gram(totals.loss)}</small>` : ""}
       ${Number(totals.lossFineGold || 0) ? `<small class="loss-row"><b>Loss Fine</b>${gram(totals.lossFineGold)}</small>` : ""}
     </div>
     ${renderDepartmentPuritySplit(totals)}
     ${renderDepartmentSplit(totals)}
+  `;
+}
+
+function departmentHoldingReconciliations(departments = departmentMetalInHand(), summaries = departmentTransferSummaries()) {
+  const summaryMap = new Map((summaries || []).map((summary) => [departmentTextKey(summary.name), summary]));
+  const rows = Object.entries(departments || {}).map(([name, totals]) => {
+    const summary = summaryMap.get(departmentTextKey(name));
+    const hasTransfer = Boolean(summary && (Number(summary.inCount || 0) || Number(summary.outCount || 0)));
+    const actualGw = Number(weight3(totals?.gross || 0));
+    const ledgerGw = Number(weight3(hasTransfer ? summary.balanceGw : actualGw));
+    const variance = Number(weight3(actualGw - ledgerGw));
+    return {
+      name,
+      actualGw,
+      ledgerGw,
+      variance,
+      hasTransfer,
+      needsCheck: hasTransfer && Math.abs(variance) > 0.0005,
+      counterpart: "",
+      reason: "",
+    };
+  });
+  rows.forEach((row) => {
+    if (!row.needsCheck) return;
+    const counterpart = rows.find((candidate) =>
+      candidate !== row
+      && candidate.needsCheck
+      && Math.abs(Number(weight3(candidate.variance + row.variance))) < 0.0005
+    );
+    if (counterpart) {
+      row.counterpart = counterpart.name;
+      row.reason = `${gram(Math.abs(row.variance))} is exactly offset by ${counterpart.name}. Current physical holding and Transfer History assign the same weight to opposite departments. Recheck recent movements between these departments and the saved current department.`;
+    } else if (row.variance > 0) {
+      row.reason = `Current holding is ${gram(row.variance)} above Transfer History. Recheck direct shelf issues, current lot department, stone/non-gold adjustments, or a transfer that was edited after receipt.`;
+    } else {
+      row.reason = `Transfer History is ${gram(Math.abs(row.variance))} above current holding. Recheck returns, direct department transfers, deleted/edited movements, or a destination department that was not updated.`;
+    }
+  });
+  return rows;
+}
+
+function renderDepartmentReconciliationAlerts(rows = []) {
+  const container = document.getElementById("department-reconciliation-alerts");
+  if (!container) return;
+  const mismatches = rows.filter((row) => row.needsCheck).sort((left, right) => Math.abs(right.variance) - Math.abs(left.variance));
+  if (!mismatches.length) {
+    container.className = "department-reconciliation-alerts matched";
+    container.innerHTML = '<strong>Department reconciliation matched</strong><span>Every department current GW agrees with its Transfer History balance.</span>';
+    return;
+  }
+  container.className = "department-reconciliation-alerts mismatch";
+  container.innerHTML = `
+    <div class="department-reconciliation-heading">
+      <strong>Department reconciliation check required</strong>
+      <span>${mismatches.length} department${mismatches.length === 1 ? "" : "s"} differ between current holding and Transfer History.</span>
+    </div>
+    <div class="department-reconciliation-list">
+      ${mismatches.map((row) => `
+        <article>
+          <b>${escapeHtml(row.name)}</b>
+          <span>Current ${gram(row.actualGw)} / History ${gram(row.ledgerGw)} / Variance ${signedFineGram(row.variance)}</span>
+          <small>${escapeHtml(row.reason)}</small>
+        </article>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -36370,6 +36442,114 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
   });
 }
 
+function fineSheetComparisonKey(row = {}) {
+  return [row.source || "", row.location || "", row.purity || ""]
+    .map((value) => String(value).trim().toLowerCase())
+    .join("::");
+}
+
+function aggregateFineSheetComparisonRows(rows = []) {
+  const grouped = new Map();
+  (rows || []).forEach((row) => {
+    const key = fineSheetComparisonKey(row);
+    const current = grouped.get(key) || {
+      key,
+      source: row.source || "Physical Stock",
+      location: row.location || "-",
+      purity: row.purity || "-",
+      gross: 0,
+      nonGold: 0,
+      gold: 0,
+      effect: 0,
+    };
+    ["gross", "nonGold", "gold", "effect"].forEach((field) => {
+      if (row[field] === null) return;
+      current[field] = Number(weight3(Number(current[field] || 0) + Number(row[field] || 0)));
+    });
+    grouped.set(key, current);
+  });
+  return grouped;
+}
+
+function fineSheetChangeRows(previousRows = [], currentRows = []) {
+  const previous = aggregateFineSheetComparisonRows(previousRows);
+  const current = aggregateFineSheetComparisonRows(currentRows);
+  const keys = new Set([...previous.keys(), ...current.keys()]);
+  return [...keys].map((key) => {
+    const before = previous.get(key) || {};
+    const after = current.get(key) || {};
+    const source = after.source || before.source || "Physical Stock";
+    const previousEffect = Number(weight3(before.effect || 0));
+    const currentEffect = Number(weight3(after.effect || 0));
+    const delta = Number(weight3(currentEffect - previousEffect));
+    const location = after.location || before.location || "-";
+    let reason = "No fine-gold change.";
+    if (source === "Party Adjustment") {
+      reason = delta > 0
+        ? "Party adjustment increased net factory fine: payable reduced or receivable increased."
+        : "Party adjustment reduced net factory fine: payable increased or receivable reduced.";
+    } else if (delta > 0) {
+      reason = `Fine gold increased in ${location}. Check new stock, returned stock, or a department/shelf allocation added after the earlier backup.`;
+    } else if (delta < 0) {
+      reason = `Fine gold reduced in ${location}. Check Factory Out, loss, stock consumption, or a non-gold correction after the earlier backup.`;
+    }
+    return {
+      key,
+      source,
+      location,
+      purity: after.purity || before.purity || "-",
+      previousEffect,
+      currentEffect,
+      delta,
+      reason,
+    };
+  }).filter((row) => Math.abs(row.delta) > 0.0005)
+    .sort((left, right) => Math.abs(right.delta) - Math.abs(left.delta) || left.location.localeCompare(right.location));
+}
+
+function renderFineSheetChangeAudit(currentRows = [], currentNetFine = 0) {
+  const summary = document.getElementById("fine-sheet-change-summary");
+  const table = document.getElementById("fine-sheet-change-table");
+  const status = document.getElementById("fine-sheet-change-status");
+  if (!summary || !table || !status) return;
+  const snapshots = normalizeFineSheetSnapshots(state.fineSheetSnapshots);
+  const todayKey = fineSheetLocalDateKey();
+  const previous = snapshots.find((snapshot) => snapshot.dateKey < todayKey) || null;
+  const todaySnapshot = snapshots.find((snapshot) => snapshot.dateKey === todayKey) || null;
+  if (!previous) {
+    summary.innerHTML = factorySummaryCard("Change Audit", "No earlier backup", "Save one daily backup to enable day-to-day comparison");
+    table.innerHTML = tableEmpty(7, "No earlier Fine Sheet backup is available for comparison.");
+    status.textContent = "No earlier daily Fine Sheet backup is available.";
+    return;
+  }
+  const delta = Number(weight3(Number(currentNetFine || 0) - Number(previous.netFine || 0)));
+  const todaySavedDelta = todaySnapshot
+    ? Number(weight3(Number(currentNetFine || 0) - Number(todaySnapshot.netFine || 0)))
+    : 0;
+  const changes = fineSheetChangeRows(previous.calculationRows, currentRows);
+  const previousLabel = fineSheetBackupDateLabel(previous.dateKey);
+  summary.innerHTML = [
+    factorySummaryCard(`Previous - ${previousLabel}`, gram(previous.netFine), `Saved ${new Date(previous.savedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}`),
+    factorySummaryCard("Current Net Fine", gram(currentNetFine), "Live reconciled Fine Sheet"),
+    factorySummaryCard("Change Since Previous", signedFineGram(delta), `${changes.length} contributing row${changes.length === 1 ? "" : "s"}`, Math.abs(delta) > 0.0005 ? (delta > 0 ? "receivable" : "payable") : ""),
+    factorySummaryCard("Change Since Today's Saved Copy", todaySnapshot ? signedFineGram(todaySavedDelta) : "No saved copy", todaySnapshot ? `Saved ${new Date(todaySnapshot.savedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} at ${gram(todaySnapshot.netFine)}` : "Save Today Backup to start intraday comparison"),
+  ].join("");
+  table.innerHTML = changes.length
+    ? changes.map((row) => `
+      <tr class="${Math.abs(row.delta) >= 1 ? "fine-change-material" : ""}">
+        <td><span class="fine-source-pill ${row.source === "Party Adjustment" ? "party" : "stock"}">${escapeHtml(row.source)}</span></td>
+        <td><strong>${escapeHtml(row.location)}</strong></td>
+        <td>${escapeHtml(row.purity)}</td>
+        <td>${signedFineGram(row.previousEffect)}</td>
+        <td>${signedFineGram(row.currentEffect)}</td>
+        <td><strong class="${row.delta > 0 ? "fine-positive" : "fine-negative"}">${signedFineGram(row.delta)}</strong></td>
+        <td><span class="fine-change-reason">${escapeHtml(row.reason)}</span></td>
+      </tr>
+    `).join("")
+    : tableEmpty(7, "No Fine Sheet calculation row changed from the earlier backup.");
+  status.textContent = `Compared with ${previousLabel}. Net change ${signedFineGram(delta)}. Largest changes are shown first; this audit does not alter stock.`;
+}
+
 function fineSheetRowMatches(row, query, purity) {
   if (purity && row.purity !== purity) return false;
   if (!query) return true;
@@ -36579,6 +36759,7 @@ function renderFineSheet() {
   const vendorTotals = factoryVendorFineTotals(vendors);
   const netFine = totalFactoryFineStock(physical, vendorTotals);
   const rows = fineSheetCalculationRows(physical, vendors);
+  renderFineSheetChangeAudit(rows, netFine);
 
   summary.innerHTML = [
     factorySummaryCard("Net Factory Fine Stock", gram(netFine), "Final accumulated balance", "owned"),

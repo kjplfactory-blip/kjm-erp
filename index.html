@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=601">
+  <link rel="stylesheet" href="styles.css?v=602">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v601</small>
+      <small class="app-version-badge">App v602</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v601</span>
+          <span class="app-version-badge">App v602</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -168,6 +168,7 @@
 
         <section class="panel department-panel">
           <div class="panel-heading"><h2>All Departments - Current Gold Holding</h2></div>
+          <div id="department-reconciliation-alerts" class="department-reconciliation-alerts"></div>
           <div id="department-metal-list" class="department-grid"></div>
         </section>
 
@@ -1250,6 +1251,25 @@
         </div>
 
         <div id="fine-sheet-summary" class="factory-summary-grid fine-sheet-summary"></div>
+
+        <section class="panel table-panel fine-sheet-change-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="fine-sheet-eyebrow">Day-To-Day Verification</span>
+              <h2>Fine Stock Change Audit</h2>
+              <small id="fine-sheet-change-status">Comparing the current Fine Sheet with the latest earlier daily backup.</small>
+            </div>
+          </div>
+          <div id="fine-sheet-change-summary" class="factory-summary-grid fine-sheet-change-summary"></div>
+          <div class="table-wrap fine-sheet-change-table-wrap">
+            <table class="fine-sheet-table">
+              <thead>
+                <tr><th>Source</th><th>Location / Party</th><th>Purity</th><th>Previous Fine</th><th>Current Fine</th><th>Change</th><th>Reason To Recheck</th></tr>
+              </thead>
+              <tbody id="fine-sheet-change-table"></tbody>
+            </table>
+          </div>
+        </section>
 
         <section class="panel table-panel fine-sheet-calculation-panel">
           <div class="panel-heading">
@@ -3202,6 +3222,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=601"></script>
+  <script src="app.js?v=602"></script>
 </body>
 </html>
