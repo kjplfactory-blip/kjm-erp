@@ -1,0 +1,135 @@
+#production-page-setting {
+  min-width: 0;
+}
+
+.setting-manager-tile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.setting-manager-tile-grid .action-tile {
+  min-height: 118px;
+}
+
+#production-page-setting > .setting-manager-summary > .setting-summary-card {
+  display: none;
+}
+
+#production-page-setting .setting-setter-strip {
+  margin-top: 2px;
+}
+
+#production-page-setting .setting-manager-workbench {
+  display: contents;
+}
+
+#production-page-setting .setting-manager-detail {
+  display: none !important;
+}
+
+#production-page-setting .setting-manager-detail.setting-manager-detail-open {
+  position: fixed;
+  inset: 8px;
+  z-index: 46;
+  display: block !important;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: #f7faf9;
+  border: 1px solid #cddbd7;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(10, 47, 42, 0.24);
+}
+
+#production-page-setting form.setting-manager-detail.setting-manager-detail-open {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 14px;
+}
+
+#production-page-setting .setting-manager-detail-open > h2,
+#production-page-setting .setting-manager-detail-open > .dialog-note,
+#production-page-setting .setting-manager-detail-open > button[type="submit"],
+#production-page-setting .setting-manager-detail-open > .setting-page-toolbar {
+  grid-column: 1 / -1;
+}
+
+.setting-page-toolbar {
+  position: sticky;
+  top: -18px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -18px -18px 12px;
+  padding: 13px 18px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #d8e4e0;
+  backdrop-filter: blur(12px);
+}
+
+.setting-page-toolbar strong {
+  color: #123f38;
+  font-size: 18px;
+}
+
+.setting-page-toolbar button {
+  min-width: 112px;
+}
+
+body.setting-manager-detail-active {
+  overflow: hidden;
+}
+
+#setting-direct-action-field {
+  margin-top: 4px;
+  padding: 12px;
+  background: #edf8f5;
+  border: 1px solid #b9ddd5;
+  border-radius: 8px;
+}
+
+#setting-direct-department-field,
+#setting-direct-process-field,
+#setting-direct-remarks-field {
+  padding: 10px;
+  background: #fffdf3;
+  border: 1px solid #eadca4;
+  border-radius: 8px;
+}
+
+#setting-receive-form.setting-direct-transfer-selected #setting-receive-submit {
+  background: #0b766c;
+}
+
+@media (max-width: 900px) {
+  #production-page-setting form.setting-manager-detail.setting-manager-detail-open {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .setting-manager-tile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #production-page-setting .setting-manager-detail.setting-manager-detail-open {
+    inset: 4px;
+    padding: 12px;
+  }
+
+  #production-page-setting form.setting-manager-detail.setting-manager-detail-open {
+    grid-template-columns: 1fr;
+  }
+
+  .setting-page-toolbar {
+    top: -12px;
+    margin: -12px -12px 10px;
+    padding: 10px 12px;
+  }
+}

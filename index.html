@@ -9,6 +9,7 @@
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
   <link rel="stylesheet" href="styles.css?v=615">
   <link rel="stylesheet" href="department-holdings-v615.css?v=616">
+  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=617">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -18,7 +19,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v616</small>
+      <small class="app-version-badge">App v617</small>
           </div>
         </div>
         <label>User
@@ -127,7 +128,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v616</span>
+          <span class="app-version-badge">App v617</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -806,9 +807,32 @@
           </section>
         </div>
         <div class="production-page" id="production-page-setting">
+          <div id="setting-manager-tile-menu" class="tile-grid setting-manager-tile-grid">
+            <button class="action-tile" type="button" data-setting-manager-page="lots">
+              <strong>Lots In Setting</strong><span id="setting-tile-lots-count">0 lots currently in Setting</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="pending">
+              <strong>Pending With Setters</strong><span id="setting-tile-pending-count">0 lots currently with setters</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="receive">
+              <strong>Receive &amp; Transfer</strong><span>Receive from setter and optionally transfer directly to the next department</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="issue">
+              <strong>Issue To Setter</strong><span>Issue full lots, split lots, repair items, or accessories</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="manual">
+              <strong>Manual Production Items</strong><span id="setting-tile-manual-count">0 no-Job-Card items available</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="setters">
+              <strong>Setter Master</strong><span id="setting-tile-setters-count">0 registered setters</span>
+            </button>
+            <button class="action-tile" type="button" data-setting-manager-page="history">
+              <strong>Setter Account History</strong><span id="setting-tile-history-count">0 issue / receive entries</span>
+            </button>
+          </div>
           <div id="setting-manager-summary" class="setting-manager-summary"></div>
           <div class="workbench setting-manager-workbench">
-            <form id="setting-setter-form" class="form-panel setting-setter-master-only">
+            <form id="setting-setter-form" class="form-panel setting-setter-master-only setting-manager-detail" data-setting-manager-detail="setters">
               <h2 id="setting-setter-title">Setter Master</h2>
               <input type="hidden" name="setterId">
               <label>Setter Name <input name="name" required></label>
@@ -819,7 +843,7 @@
               <button id="cancel-setting-setter-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
             </form>
 
-            <form id="setting-issue-form" class="form-panel">
+            <form id="setting-issue-form" class="form-panel setting-manager-detail" data-setting-manager-detail="issue">
               <h2>Issue To Setter</h2>
               <label>Issue Type <select name="issueType">
                 <option value="lot">Job Lot</option>
@@ -858,7 +882,7 @@
               <button type="submit">Issue To Setter</button>
             </form>
 
-            <form id="setting-receive-form" class="form-panel">
+            <form id="setting-receive-form" class="form-panel setting-manager-detail" data-setting-manager-detail="receive">
               <h2>Setter Account Entry</h2>
               <label>Account Action <select name="settlementType">
                 <option value="close">Receive Lot / Accessory / Repair</option>
@@ -880,13 +904,20 @@
               <label id="setting-receive-rawa-field">Returned Material This Entry (g) <input name="rawaWeight" type="number" min="0" step="0.001" value="0"></label>
               <label id="setting-receive-loss-field">Loss This Entry (g) <input name="setterLossWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Setter Metal Balance (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
+              <label id="setting-direct-action-field" class="full-row">After Receive <select name="nextAction">
+                <option value="keep">Keep Lot In Setting</option>
+                <option value="transfer">Receive &amp; Transfer To Another Department</option>
+              </select></label>
+              <label id="setting-direct-department-field" class="hidden">Transfer To Department <select name="directDepartmentId"></select></label>
+              <label id="setting-direct-process-field" class="hidden">Department Process <select name="directProcess"></select></label>
+              <label id="setting-direct-remarks-field" class="full-row hidden">Transfer Remarks <input name="directRemarks" placeholder="Optional transfer narration"></label>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
               <p id="setting-receive-summary" class="dialog-note">Select a setter, pending lot or returnable item, and account action.</p>
               <button type="submit" id="setting-receive-submit">Receive Lot &amp; Keep Balance</button>
             </form>
           </div>
 
-          <section class="panel table-panel setting-manager-panel">
+          <section id="setting-manager-lots-panel" class="panel table-panel setting-manager-panel setting-manager-detail" data-setting-manager-detail="lots">
             <div class="panel-heading"><h2>Lots Currently In Setting</h2></div>
             <div class="table-wrap">
               <table>
@@ -896,7 +927,7 @@
             </div>
           </section>
 
-          <section class="panel table-panel setting-manager-panel">
+          <section id="setting-manager-manual-panel" class="panel table-panel setting-manager-panel setting-manager-detail" data-setting-manager-detail="manual">
             <div class="panel-heading">
               <div>
                 <h2>Manual Production Items - No Job Card</h2>
@@ -911,7 +942,7 @@
             </div>
           </section>
 
-          <section class="panel table-panel setting-manager-panel">
+          <section id="setting-manager-pending-panel" class="panel table-panel setting-manager-panel setting-manager-detail" data-setting-manager-detail="pending">
             <div class="panel-heading"><h2>Pending With Setters</h2></div>
             <div class="table-wrap">
               <table>
@@ -921,7 +952,7 @@
             </div>
           </section>
 
-          <section class="panel table-panel setting-manager-panel">
+          <section id="setting-manager-history-panel" class="panel table-panel setting-manager-panel setting-manager-detail" data-setting-manager-detail="history">
             <div class="panel-heading"><h2>Setter Issue / Account History</h2></div>
             <div class="table-wrap">
               <table>
@@ -3299,10 +3330,11 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=616"></script>
+  <script src="app.js?v=617"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
   <script src="setting-internal-bill-excel-v616.js?v=616"></script>
+  <script src="setting-master-tiles-v617.js?v=617"></script>
 </body>
 </html>
