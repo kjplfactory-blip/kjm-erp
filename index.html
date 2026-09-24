@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=610">
+  <link rel="stylesheet" href="styles.css?v=611">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v610</small>
+      <small class="app-version-badge">App v611</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v610</span>
+          <span class="app-version-badge">App v611</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -840,7 +840,7 @@
               </select></label>
               <label id="setting-issue-scope-field">Issue Scope <select name="issueScope">
                 <option value="full">Full Job Lot</option>
-                <option value="part">Selected PR Items / Split Lot</option>
+                <option value="part">Selected PR Items / New Split Job Card</option>
               </select></label>
               <label>Setter <select name="setterId" required></select></label>
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
@@ -848,7 +848,7 @@
               <div id="setting-split-item-picker" class="setting-split-item-picker full-row hidden">
                 <div class="setting-split-picker-heading">
                   <strong>Select PR Items For This Setter</strong>
-                  <small>The remaining PR items stay in the original Setting lot.</small>
+                  <small>Selected PR items move to the next numbered split Job Card. Remaining items stay in the main Job Card.</small>
                 </div>
                 <div id="setting-split-item-list" class="setting-split-item-list"></div>
               </div>
@@ -3296,6 +3296,7 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=610"></script>
+  <script src="app.js?v=611"></script>
+  <script src="setting-split-v611.js?v=611"></script>
 </body>
 </html>
