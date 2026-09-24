@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=608">
+  <link rel="stylesheet" href="styles.css?v=609">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v608</small>
+      <small class="app-version-badge">App v609</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v608</span>
+          <span class="app-version-badge">App v609</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1674,6 +1674,7 @@
             </div>
             <div class="billing-heading-tools">
               <button type="button" id="open-manual-wip-billing">Issue Billing Item / WIP</button>
+              <button type="button" id="open-multi-bill-tags">Multi-Bill Tags A6</button>
               <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
             </div>
           </div>
@@ -2607,6 +2608,30 @@
       </form>
     </dialog>
 
+    <dialog id="multi-bill-tag-dialog" class="multi-bill-tag-dialog">
+      <section class="dialog-card multi-bill-tag-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Multi-Bill Tag Print</h2>
+            <p class="dialog-note">Select items from any number of generated bills. Items continue across bill boundaries and print 10 tags on each A6 page.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-multi-bill-tags">Close</button>
+        </div>
+        <div class="multi-bill-tag-toolbar">
+          <input id="multi-bill-tag-search" class="search" placeholder="Search bill, job card, customer, PR or design">
+          <button type="button" id="multi-bill-tag-select-unprinted">Select All Unprinted</button>
+          <button class="ghost-button" type="button" id="multi-bill-tag-select-visible">Select All Visible</button>
+          <button class="ghost-button" type="button" id="multi-bill-tag-clear">Clear Selection</button>
+        </div>
+        <div id="multi-bill-tag-summary" class="multi-bill-tag-summary"></div>
+        <div id="multi-bill-tag-list" class="multi-bill-tag-list"></div>
+        <div class="dialog-actions multi-bill-tag-actions">
+          <span id="multi-bill-tag-footer" class="dialog-note">No items selected.</span>
+          <button type="button" id="print-multi-bill-tags-a6">Print Selected A6 Tags</button>
+        </div>
+      </section>
+    </dialog>
+
     <dialog id="production-return-dialog">
       <form id="production-return-form" class="dialog-card history-dialog production-return-form">
         <div class="dialog-header">
@@ -3271,6 +3296,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=608"></script>
+  <script src="app.js?v=609"></script>
 </body>
 </html>

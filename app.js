@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v608";
+const APP_VERSION = "v609";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3093,6 +3093,20 @@ document.getElementById("print-bill-tags").addEventListener("click", () => {
 document.getElementById("print-bill-tags-a6").addEventListener("click", () => {
   printBillTagsFromDialog("a6");
 });
+
+let multiBillTagSelection = new Set();
+
+document.getElementById("open-multi-bill-tags").addEventListener("click", openMultiBillTagDialog);
+document.getElementById("close-multi-bill-tags").addEventListener("click", closeMultiBillTagDialog);
+document.getElementById("multi-bill-tag-search").addEventListener("input", renderMultiBillTagDialog);
+document.getElementById("multi-bill-tag-select-unprinted").addEventListener("click", () => selectVisibleMultiBillTags(true));
+document.getElementById("multi-bill-tag-select-visible").addEventListener("click", () => selectVisibleMultiBillTags(false));
+document.getElementById("multi-bill-tag-clear").addEventListener("click", () => {
+  multiBillTagSelection.clear();
+  renderMultiBillTagDialog();
+});
+document.getElementById("print-multi-bill-tags-a6").addEventListener("click", printSelectedMultiBillTags);
+document.getElementById("multi-bill-tag-list").addEventListener("change", handleMultiBillTagSelectionChange);
 
 function saveBillFromForm(closeDialog = false, options = {}) {
   const form = document.getElementById("bill-form");
@@ -17839,7 +17853,215 @@ function printBillTags(lotId, billOverride = null, pageSize = "a4") {
     return;
   }
   const normalizedPageSize = pageSize === "a6" ? "a6" : "a4";
-  startHallmarkTagPrint(billTagsPrintHtml(lot, bill, normalizedPageSize), null, { pageSize: normalizedPageSize });
+  const entries = billPrintItems(lot, bill, billPrintOrders(lot, bill)).map((item) => ({ lot, bill, item }));
+  startHallmarkTagPrint(
+    billTagsPrintHtml(lot, bill, normalizedPageSize),
+    () => markBillTagEntriesPrinted(entries),
+    { pageSize: normalizedPageSize },
+  );
+}
+
+function openMultiBillTagDialog() {
+  multiBillTagSelection = new Set();
+  const search = document.getElementById("multi-bill-tag-search");
+  if (search) search.value = "";
+  renderMultiBillTagDialog();
+  document.getElementById("multi-bill-tag-dialog").showModal();
+  setTimeout(() => search?.focus(), 50);
+}
+
+function closeMultiBillTagDialog() {
+  document.getElementById("multi-bill-tag-dialog")?.close();
+}
+
+function multiBillTagEntryKey(lot = {}, item = {}, fallbackIndex = 0) {
+  const itemKey = item.id || item.orderId || item.productionNo || item.order?.productionNo || fallbackIndex;
+  return `${lot.id || lot.number || "lot"}::${itemKey}`;
+}
+
+function generatedBillTagEntries() {
+  const entries = [];
+  (state.lots || []).forEach((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.id || !billHasFinalQcOkItems(bill)) return;
+    const orders = billPrintOrders(lot, bill);
+    billPrintItems(lot, bill, orders).forEach((item, index) => {
+      entries.push({
+        key: multiBillTagEntryKey(lot, item, index),
+        lot,
+        bill,
+        item,
+      });
+    });
+  });
+  return entries;
+}
+
+function filteredMultiBillTagEntries() {
+  const query = String(document.getElementById("multi-bill-tag-search")?.value || "").trim().toLowerCase();
+  const entries = generatedBillTagEntries();
+  if (!query) return entries;
+  return entries.filter(({ lot, bill, item }) => [
+    bill.billNo,
+    bill.billDate,
+    lot.number,
+    lot.orderNumber,
+    item.customer,
+    item.productionNo,
+    item.design,
+    item.category,
+    item.ringType,
+    item.cmItemType,
+  ].join(" ").toLowerCase().includes(query));
+}
+
+function renderMultiBillTagDialog() {
+  const allEntries = generatedBillTagEntries();
+  const validKeys = new Set(allEntries.map((entry) => entry.key));
+  multiBillTagSelection = new Set([...multiBillTagSelection].filter((key) => validKeys.has(key)));
+  const filteredEntries = filteredMultiBillTagEntries();
+  const groups = new Map();
+  filteredEntries.forEach((entry) => {
+    const groupKey = entry.lot.id || entry.bill.id;
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey).push(entry);
+  });
+  const list = document.getElementById("multi-bill-tag-list");
+  list.innerHTML = [...groups.values()].map((entries) => multiBillTagGroupHtml(entries)).join("") || `
+    <div class="empty-state">
+      <strong>No generated Bill tags found.</strong>
+      <span>Clear the search or complete Bill and QC before printing tags.</span>
+    </div>
+  `;
+  updateMultiBillTagSummary(allEntries, filteredEntries);
+}
+
+function multiBillTagGroupHtml(entries = []) {
+  const first = entries[0] || {};
+  const { lot = {}, bill = {} } = first;
+  const allSelected = entries.length > 0 && entries.every((entry) => multiBillTagSelection.has(entry.key));
+  const printedCount = entries.filter(({ item }) => item.billTagPrinted).length;
+  const customerNames = [...new Set(entries.map(({ item }) => item.customer).filter(Boolean))];
+  return `
+    <article class="multi-bill-tag-group">
+      <label class="multi-bill-tag-group-head">
+        <input type="checkbox" data-multi-bill-tag-lot="${escapeHtml(lot.id || bill.id || "")}" ${allSelected ? "checked" : ""}>
+        <span>
+          <strong>${escapeHtml(bill.billNo || "Bill")}</strong>
+          <small>${escapeHtml(lot.orderNumber || lot.number || "-")} / ${escapeHtml(customerNames.join(", ") || "-")}</small>
+        </span>
+        <b>${entries.length} Tags</b>
+        <em>${printedCount} Printed</em>
+      </label>
+      <div class="multi-bill-tag-item-grid">
+        ${entries.map(({ key, item }) => `
+          <label class="multi-bill-tag-item ${multiBillTagSelection.has(key) ? "selected" : ""}">
+            <input type="checkbox" data-multi-bill-tag-key="${escapeHtml(key)}" ${multiBillTagSelection.has(key) ? "checked" : ""}>
+            <span>
+              <strong>${escapeHtml(item.productionNo || "PR -")}</strong>
+              <small>${escapeHtml(item.design || "-")} / ${escapeHtml(item.category || "-")} / ${escapeHtml(billTagIndividualItemDetail(item, item.order || {}))}</small>
+              <small>${escapeHtml(item.customer || "-")} / GW ${weight3(item.finalGw)} / NET ${weight3(item.netWeight)}</small>
+            </span>
+            <b class="${item.billTagPrinted ? "printed" : "pending"}">${item.billTagPrinted ? `Printed ${escapeHtml(item.billTagPrintedDate || "")}` : "Not Printed"}</b>
+          </label>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function handleMultiBillTagSelectionChange(event) {
+  const itemCheckbox = event.target.closest?.("[data-multi-bill-tag-key]");
+  if (itemCheckbox) {
+    const key = itemCheckbox.dataset.multiBillTagKey;
+    if (itemCheckbox.checked) multiBillTagSelection.add(key);
+    else multiBillTagSelection.delete(key);
+    renderMultiBillTagDialog();
+    return;
+  }
+  const lotCheckbox = event.target.closest?.("[data-multi-bill-tag-lot]");
+  if (!lotCheckbox) return;
+  const lotId = lotCheckbox.dataset.multiBillTagLot;
+  filteredMultiBillTagEntries()
+    .filter(({ lot, bill }) => String(lot.id || bill.id) === lotId)
+    .forEach(({ key }) => {
+      if (lotCheckbox.checked) multiBillTagSelection.add(key);
+      else multiBillTagSelection.delete(key);
+    });
+  renderMultiBillTagDialog();
+}
+
+function selectVisibleMultiBillTags(unprintedOnly = false) {
+  const entries = filteredMultiBillTagEntries().filter(({ item }) => !unprintedOnly || !item.billTagPrinted);
+  if (!entries.length) {
+    alert(unprintedOnly ? "No unprinted tags are visible." : "No tags are visible to select.");
+    return;
+  }
+  entries.forEach(({ key }) => multiBillTagSelection.add(key));
+  renderMultiBillTagDialog();
+}
+
+function updateMultiBillTagSummary(allEntries = generatedBillTagEntries(), visibleEntries = filteredMultiBillTagEntries()) {
+  const selectedEntries = allEntries.filter(({ key }) => multiBillTagSelection.has(key));
+  const selectedCount = selectedEntries.length;
+  const pages = selectedCount ? Math.ceil(selectedCount / 10) : 0;
+  const lastPageCount = selectedCount ? ((selectedCount - 1) % 10) + 1 : 0;
+  const freeSlots = selectedCount ? pages * 10 - selectedCount : 0;
+  const selectedBillCount = new Set(selectedEntries.map(({ bill }) => bill.id || bill.billNo)).size;
+  document.getElementById("multi-bill-tag-summary").innerHTML = `
+    <span><b>${allEntries.length}</b><small>Available Tags</small></span>
+    <span><b>${visibleEntries.length}</b><small>Visible</small></span>
+    <span><b>${selectedBillCount}</b><small>Bills Selected</small></span>
+    <span><b>${selectedCount}</b><small>Tags Selected</small></span>
+    <span><b>${pages}</b><small>A6 Pages</small></span>
+    <span><b>${freeSlots}</b><small>Empty Slots On Last Page</small></span>
+  `;
+  const footer = document.getElementById("multi-bill-tag-footer");
+  footer.textContent = selectedCount
+    ? `${selectedCount} tags from ${selectedBillCount} bill${selectedBillCount === 1 ? "" : "s"}. Last page uses ${lastPageCount}/10 tag spaces.`
+    : "No items selected.";
+  document.getElementById("print-multi-bill-tags-a6").disabled = selectedCount === 0;
+}
+
+function printSelectedMultiBillTags() {
+  const entries = generatedBillTagEntries().filter(({ key }) => multiBillTagSelection.has(key));
+  if (!entries.length) {
+    alert("Select at least one Bill item to print.");
+    return;
+  }
+  startHallmarkTagPrint(
+    multiBillTagsPrintHtml(entries),
+    () => markBillTagEntriesPrinted(entries),
+    { pageSize: "a6" },
+  );
+}
+
+function markBillTagEntriesPrinted(entries = []) {
+  const printedKeys = new Set(entries.map(({ key, lot, item }, index) => key || multiBillTagEntryKey(lot, item, index)));
+  if (!printedKeys.size) return;
+  let updated = 0;
+  (state.lots || []).forEach((lot) => {
+    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (!bill?.items?.length) return;
+    bill.items = bill.items.map((item, index) => {
+      if (!printedKeys.has(multiBillTagEntryKey(lot, item, index))) return item;
+      updated += 1;
+      return {
+        ...item,
+        billTagPrinted: true,
+        billTagPrintedDate: today(),
+        billTagPrintedIsoDate: isoToday(),
+        billTagPrintCount: Number(item.billTagPrintCount || 0) + 1,
+      };
+    });
+    lot.bill = bill;
+    const savedBillIndex = (state.bills || []).findIndex((item) => item.lotId === lot.id);
+    if (savedBillIndex >= 0) state.bills[savedBillIndex] = bill;
+  });
+  if (!updated) return;
+  saveState();
+  renderBills();
+  if (document.getElementById("multi-bill-tag-dialog")?.open) renderMultiBillTagDialog();
 }
 
 function printFactorySummary() {
@@ -18100,6 +18322,19 @@ function billTagsPrintHtml(lot, bill, pageSize = "a4") {
       ${pages.map((pageItems) => `
         <section class="bill-tags-sheet">
           ${pageItems.map((item) => billTagHtml(lot, bill, item)).join("")}
+        </section>
+      `).join("")}
+    </div>
+  `;
+}
+
+function multiBillTagsPrintHtml(entries = []) {
+  const pages = chunkPrintItems(entries, 10);
+  return `
+    <div class="bill-tags-document a6-tags-document multi-bill-tags-document">
+      ${pages.map((pageEntries) => `
+        <section class="bill-tags-sheet">
+          ${pageEntries.map(({ lot, bill, item }) => billTagHtml(lot, bill, item)).join("")}
         </section>
       `).join("")}
     </div>
