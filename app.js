@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v605";
+const APP_VERSION = "v606";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2863,6 +2863,7 @@ document.getElementById("open-manual-wip-billing").addEventListener("click", ope
 document.getElementById("close-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
 document.getElementById("cancel-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
 document.getElementById("manual-wip-billing-form").addEventListener("change", updateManualWipBillingDialog);
+document.getElementById("manual-wip-billing-form").addEventListener("input", updateManualWipBillingDialog);
 document.getElementById("manual-wip-billing-form").addEventListener("submit", saveManualWipBillingDisposition);
 document.getElementById("office-search").addEventListener("input", renderOffice);
 document.getElementById("office").addEventListener("change", saveOfficeHuidFromTable);
@@ -11217,11 +11218,28 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
       ),
       netWeight: Number(weight3(totals.netWeight + Math.abs(Number(entry.netWeight || 0)) + Math.abs(Number(entry.lossWeight || 0)))),
     }), { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, nonGoldBreakdown: {}, netWeight: 0 });
-  const grossWeight = Number(weight3(Math.max(issuedGrossWeight - returnTotals.grossWeight, 0)));
-  const waxStoneWeight = Number(weight3(Math.max(issuedWaxStoneWeight - returnTotals.waxStoneWeight, 0)));
-  const nonGoldWeight = Number(weight3(Math.max(issuedNonGoldWeight - returnTotals.nonGoldWeight, 0)));
-  const nonGoldBreakdown = subtractNonGoldBreakdown(issuedNonGoldBreakdown, returnTotals.nonGoldBreakdown);
-  const netWeight = Number(weight3(Math.max(issuedNetWeight - returnTotals.netWeight, 0)));
+  const manualWipAllocationTotals = (issue.manualWipAllocations || []).reduce((totals, allocation) => {
+    const allocationBreakdown = normalizeNonGoldBreakdown(
+      allocation.sourceNonGoldBreakdown,
+      "other",
+      allocation.sourceNonGoldWeight || 0,
+    );
+    return {
+      grossWeight: Number(weight3(totals.grossWeight + Math.abs(Number(allocation.grossWeight || 0)))),
+      waxStoneWeight: Number(weight3(totals.waxStoneWeight + Math.abs(Number(allocation.sourceWaxStoneWeight || 0)))),
+      nonGoldWeight: Number(weight3(totals.nonGoldWeight + nonGoldBreakdownTotal(allocationBreakdown))),
+      nonGoldBreakdown: addNonGoldBreakdowns(totals.nonGoldBreakdown, allocationBreakdown),
+      netWeight: Number(weight3(totals.netWeight + Math.abs(Number(allocation.sourceNetWeight || 0)))),
+    };
+  }, { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, nonGoldBreakdown: {}, netWeight: 0 });
+  const grossWeight = Number(weight3(Math.max(issuedGrossWeight - returnTotals.grossWeight - manualWipAllocationTotals.grossWeight, 0)));
+  const waxStoneWeight = Number(weight3(Math.max(issuedWaxStoneWeight - returnTotals.waxStoneWeight - manualWipAllocationTotals.waxStoneWeight, 0)));
+  const nonGoldWeight = Number(weight3(Math.max(issuedNonGoldWeight - returnTotals.nonGoldWeight - manualWipAllocationTotals.nonGoldWeight, 0)));
+  const nonGoldBreakdown = subtractNonGoldBreakdown(
+    subtractNonGoldBreakdown(issuedNonGoldBreakdown, returnTotals.nonGoldBreakdown),
+    manualWipAllocationTotals.nonGoldBreakdown,
+  );
+  const netWeight = Number(weight3(Math.max(issuedNetWeight - returnTotals.netWeight - manualWipAllocationTotals.netWeight, 0)));
   const department = issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null;
   const destinationMode = normalizeSafeIssueDestinationMode(issue.destinationMode, issue.lotId);
   const linkedLot = (issue.lotId ? (currentState.lots || []).find((entry) => entry.id === issue.lotId) : null)
@@ -11310,6 +11328,10 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     returnedWaxStoneWeight: returnTotals.waxStoneWeight,
     returnedNonGoldWeight: returnTotals.nonGoldWeight,
     returnedNetWeight: returnTotals.netWeight,
+    manualWipAllocatedGrossWeight: manualWipAllocationTotals.grossWeight,
+    manualWipAllocatedWaxStoneWeight: manualWipAllocationTotals.waxStoneWeight,
+    manualWipAllocatedNonGoldWeight: manualWipAllocationTotals.nonGoldWeight,
+    manualWipAllocatedNetWeight: manualWipAllocationTotals.netWeight,
     grossWeight,
     waxStoneWeight,
     nonGoldWeight,
@@ -31890,6 +31912,7 @@ function manualWipBillingSources() {
     const grossWeight = Number(weight3(normalized.grossWeight || 0));
     if (grossWeight <= 0.0005) return;
     const nonGoldBreakdown = manualWipSourceNonGoldBreakdown(normalized);
+    const sourceNonGoldBreakdown = normalizeNonGoldBreakdown(normalized.nonGoldBreakdown);
     const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
     const goldWeight = Number(weight3(Math.max(grossWeight - nonGoldWeight, 0)));
     sources.push({
@@ -31908,6 +31931,9 @@ function manualWipBillingSources() {
       goldWeight,
       nonGoldWeight,
       nonGoldBreakdown,
+      sourceWaxStoneWeight: Number(weight3(normalized.waxStoneWeight || 0)),
+      sourceNonGoldWeight: nonGoldBreakdownTotal(sourceNonGoldBreakdown),
+      sourceNonGoldBreakdown,
       date: normalized.date || "",
       remarks: normalized.remarks || "",
     });
@@ -31927,24 +31953,91 @@ function manualWipSourceLabel(source = {}) {
 }
 
 function manualWipAssignableOrders() {
-  const linkedOrderIds = new Set((state.lots || []).flatMap((lot) => getLotOrderIds(lot)));
   return (state.orders || [])
     .filter((order) =>
       !order.hiddenFromJobOrders
-      && !linkedOrderIds.has(order.id)
       && !isCompletedOrder(order)
       && String(order.status || "").toLowerCase() !== "discarded"
     )
     .sort((left, right) => String(left.jobNumber || "").localeCompare(String(right.jobNumber || ""), undefined, { numeric: true }));
 }
 
+function manualWipTargetLotForOrder(order = {}) {
+  if (!order.id) return null;
+  return [...(state.lots || [])]
+    .filter((lot) => factoryStockHoldingLot(lot) && getLotOrderIds(lot).includes(order.id))
+    .sort((left, right) => (Date.parse(right.createdAt || right.issueDate) || 0) - (Date.parse(left.createdAt || left.issueDate) || 0))[0] || null;
+}
+
 function manualWipAssignableOrderLabel(order = {}) {
+  const targetLot = manualWipTargetLotForOrder(order);
+  const location = targetLot
+    ? `ADD TO ${targetLot.number || "ACTIVE LOT"} @ ${targetLot.currentDepartment || targetLot.karigarName || "PRODUCTION"}`
+    : "START NEW LOT";
   return [
     order.jobNumber || "Job Card",
     order.productionNo || order.number || "PR",
     billOrderDesignCode(order) || order.item || order.category || "Item",
     order.customer || "-",
+    location,
   ].join(" / ");
+}
+
+function manualWipExistingStoneAllocation(order = {}) {
+  if (!order.id) return { waxStoneWeight: 0, handStoneWeight: 0 };
+  const linkedLots = (state.lots || []).filter((lot) => factoryStockHoldingLot(lot) && getLotOrderIds(lot).includes(order.id));
+  const hasRegularProductionLot = linkedLots.some((lot) => !lot.manualWipLot);
+  if (hasRegularProductionLot) {
+    return {
+      waxStoneWeight: Number(weight3(productionStoneTotalsForOrderList(state, [order], "wax").weight || 0)),
+      handStoneWeight: Number(weight3(productionStoneTotalsForOrderList(state, [order], "hand").weight || 0)),
+    };
+  }
+  return linkedLots.reduce((total, lot) => ({
+    waxStoneWeight: Number(weight3(total.waxStoneWeight + Number(lot.manualWipWaxStoneWeight ?? transferWaxStoneWeight(lot) ?? 0))),
+    handStoneWeight: Number(weight3(total.handStoneWeight + Number(lot.manualWipHandStoneWeight ?? currentHandStoneWeight(lot) ?? 0))),
+  }), { waxStoneWeight: 0, handStoneWeight: 0 });
+}
+
+function manualWipRemainingStonePlan(order = {}) {
+  const plannedWaxStoneWeight = Number(weight3(productionStoneTotalsForOrderList(state, [order], "wax").weight || 0));
+  const plannedHandStoneWeight = Number(weight3(productionStoneTotalsForOrderList(state, [order], "hand").weight || 0));
+  const allocated = manualWipExistingStoneAllocation(order);
+  return {
+    plannedWaxStoneWeight,
+    plannedHandStoneWeight,
+    allocatedWaxStoneWeight: allocated.waxStoneWeight,
+    allocatedHandStoneWeight: allocated.handStoneWeight,
+    waxStoneWeight: Number(weight3(Math.max(plannedWaxStoneWeight - allocated.waxStoneWeight, 0))),
+    handStoneWeight: Number(weight3(Math.max(plannedHandStoneWeight - allocated.handStoneWeight, 0))),
+  };
+}
+
+function scaleManualWipNonGoldBreakdown(value = {}, ratio = 0) {
+  const safeRatio = Math.max(Math.min(Number(ratio || 0), 1), 0);
+  return normalizeNonGoldBreakdown(Object.fromEntries(
+    Object.entries(normalizeNonGoldBreakdown(value)).map(([category, weight]) => [
+      category,
+      Number(weight3(Number(weight || 0) * safeRatio)),
+    ]),
+  ));
+}
+
+function manualWipSourcePart(source = {}, issueGrossWeight = 0) {
+  const sourceGrossWeight = Number(weight3(Math.max(Number(source.grossWeight || 0), 0)));
+  const grossWeight = Number(weight3(Math.min(Math.max(Number(issueGrossWeight || 0), 0), sourceGrossWeight)));
+  const ratio = sourceGrossWeight > 0 ? grossWeight / sourceGrossWeight : 0;
+  const waxStoneWeight = Number(weight3(Number(source.sourceWaxStoneWeight || 0) * ratio));
+  const nonGoldBreakdown = scaleManualWipNonGoldBreakdown(source.sourceNonGoldBreakdown, ratio);
+  const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
+  return {
+    grossWeight,
+    ratio,
+    waxStoneWeight,
+    nonGoldBreakdown,
+    nonGoldWeight,
+    netWeight: Number(weight3(Math.max(grossWeight - waxStoneWeight - nonGoldWeight, 0))),
+  };
 }
 
 function manualWipDepartmentRoutes() {
@@ -32017,19 +32110,22 @@ function openManualWipBillingDialog() {
   form.customerId.value = stockCustomer?.id || "__kjpl_stock__";
   const assignOption = form.action.querySelector('option[value="assign-job"]');
   if (assignOption) assignOption.disabled = !canAssignManualWipToJobCard();
-  form.targetOrderId.innerHTML = '<option value="">Select pending Job Card item</option>' + manualWipAssignableOrders().map((order) =>
+  form.targetOrderId.innerHTML = '<option value="">Select pending or existing production Job Card item</option>' + manualWipAssignableOrders().map((order) =>
     `<option value="${escapeHtml(order.id)}">${escapeHtml(manualWipAssignableOrderLabel(order))}</option>`
   ).join("");
   form.dataset.selectedSourceKey = "";
+  form.dataset.selectedPlanKey = "";
   updateManualWipBillingDialog();
   document.getElementById("manual-wip-billing-dialog").showModal();
 }
 
-function manualWipJobCardStonePlan(order = {}, grossWeight = 0, source = {}) {
-  const waxStoneWeight = Number(weight3(productionStoneTotalsForOrderList(state, [order], "wax").weight || 0));
-  const handStoneWeight = Number(weight3(productionStoneTotalsForOrderList(state, [order], "hand").weight || 0));
+function manualWipJobCardStonePlan(order = {}, grossWeight = 0, source = {}, overrides = {}) {
+  const remainingPlan = manualWipRemainingStonePlan(order);
+  const waxStoneWeight = Number(weight3(Math.max(Number(overrides.waxStoneWeight ?? remainingPlan.waxStoneWeight ?? 0), 0)));
+  const handStoneWeight = Number(weight3(Math.max(Number(overrides.handStoneWeight ?? remainingPlan.handStoneWeight ?? 0), 0)));
   const jobStoneWeight = Number(weight3(waxStoneWeight + handStoneWeight));
-  const sourceBreakdown = normalizeNonGoldBreakdown(source.nonGoldBreakdown);
+  const sourcePart = manualWipSourcePart(source, grossWeight);
+  const sourceBreakdown = normalizeNonGoldBreakdown(sourcePart.nonGoldBreakdown);
   const sourceStoneWeight = Number(weight3(sourceBreakdown.stone || 0));
   const carriedBreakdown = normalizeNonGoldBreakdown({ ...sourceBreakdown, stone: jobStoneWeight > 0 ? 0 : sourceStoneWeight });
   const carriedNonGoldWeight = Number(weight3(nonGoldBreakdownTotal(carriedBreakdown)));
@@ -32042,6 +32138,8 @@ function manualWipJobCardStonePlan(order = {}, grossWeight = 0, source = {}) {
     carriedNonGoldWeight,
     totalNonGoldWeight,
     netGoldWeight,
+    sourcePart,
+    ...remainingPlan,
     nonGoldBreakdown: normalizeNonGoldBreakdown({
       ...carriedBreakdown,
       stone: Number(weight3(Number(carriedBreakdown.stone || 0) + jobStoneWeight)),
@@ -32070,6 +32168,9 @@ function updateManualWipBillingDialog() {
   form.itemDescription.required = isManualBill;
   form.targetOrderId.required = !isManualBill;
   form.departmentRoute.required = !isManualBill;
+  form.issueGrossWeight.required = !isManualBill;
+  form.issueWaxStoneWeight.required = !isManualBill;
+  form.issueHandStoneWeight.required = !isManualBill;
   form.purity.value = transferPurityLabel(source.purity || "18K");
   if (form.dataset.selectedSourceKey !== source.key) {
     form.itemDescription.value = source.description || "Manual WIP Item";
@@ -32091,6 +32192,11 @@ function updateManualWipBillingDialog() {
     }
     form.departmentRoute.innerHTML = manualWipDepartmentRouteOptions(source);
     if (source.sourceType === "department") form.departmentRoute.value = `source:${source.key}`;
+    form.issueGrossWeight.value = weight3(source.grossWeight);
+    form.issueGrossWeight.max = weight3(source.grossWeight);
+    form.issueWaxStoneWeight.value = "0.000";
+    form.issueHandStoneWeight.value = "0.000";
+    form.dataset.selectedPlanKey = "";
     form.dataset.selectedSourceKey = source.key;
   }
   const breakdownText = nonGoldBreakdownText(source.nonGoldBreakdown) || "No non-gold recorded";
@@ -32104,16 +32210,45 @@ function updateManualWipBillingDialog() {
   const targetOrder = !isManualBill
     ? manualWipAssignableOrders().find((order) => order.id === form.targetOrderId.value)
     : null;
-  const stonePlan = targetOrder ? manualWipJobCardStonePlan(targetOrder, source.grossWeight, source) : null;
+  const targetLot = targetOrder ? manualWipTargetLotForOrder(targetOrder) : null;
+  const planKey = targetOrder ? `${source.key}::${targetOrder.id}` : "";
+  if (targetOrder && form.dataset.selectedPlanKey !== planKey) {
+    const defaultPlan = manualWipRemainingStonePlan(targetOrder);
+    form.issueWaxStoneWeight.value = weight3(defaultPlan.waxStoneWeight);
+    form.issueHandStoneWeight.value = weight3(defaultPlan.handStoneWeight);
+    if (targetLot) {
+      const routes = manualWipDepartmentRoutes();
+      const exactRoute = routes.find((route) =>
+        route.departmentId === targetLot.karigarId
+        && departmentTextKey(route.process) === departmentTextKey(targetLot.currentDepartment || targetLot.karigarName)
+      ) || routes.find((route) => route.departmentId === targetLot.karigarId);
+      if (exactRoute) form.departmentRoute.value = exactRoute.value;
+    }
+    form.dataset.selectedPlanKey = planKey;
+  }
+  const issueGrossWeight = Number(weight3(Math.max(Number(form.issueGrossWeight.value || 0), 0)));
+  const issueWaxStoneWeight = Number(weight3(Math.max(Number(form.issueWaxStoneWeight.value || 0), 0)));
+  const issueHandStoneWeight = Number(weight3(Math.max(Number(form.issueHandStoneWeight.value || 0), 0)));
+  const remainingBillingWeight = Number(weight3(Math.max(Number(source.grossWeight || 0) - issueGrossWeight, 0)));
+  form.remainingBillingWeight.value = gram(remainingBillingWeight);
+  const stonePlan = targetOrder ? manualWipJobCardStonePlan(targetOrder, issueGrossWeight, source, {
+    waxStoneWeight: issueWaxStoneWeight,
+    handStoneWeight: issueHandStoneWeight,
+  }) : null;
+  const validIssueWeight = issueGrossWeight > 0.0005 && issueGrossWeight <= Number(source.grossWeight || 0) + 0.0005;
+  const validStoneWeight = Boolean(stonePlan && stonePlan.totalNonGoldWeight <= issueGrossWeight + 0.0005);
+  const selectedRoute = !isManualBill ? manualWipSelectedDepartment(form.departmentRoute.value, source) : null;
   const stoneSummary = document.getElementById("manual-wip-job-stone-summary");
   if (stoneSummary) {
     stoneSummary.innerHTML = stonePlan ? `
       <div><span>Job Card / PR</span><strong>${escapeHtml(targetOrder.jobNumber || "-")} / ${escapeHtml(targetOrder.productionNo || targetOrder.number || "-")}</strong></div>
-      <div><span>Issue GW</span><strong>${gram(source.grossWeight)}</strong></div>
+      <div><span>Movement</span><strong>${escapeHtml(targetLot ? `Add via ${targetLot.number || "active lot"}` : "Start new lot")}</strong></div>
+      <div><span>Issue GW</span><strong>${gram(issueGrossWeight)}</strong></div>
       <div><span>Wax Stone</span><strong>${gram(stonePlan.waxStoneWeight)}</strong></div>
       <div><span>Hand Stone</span><strong>${gram(stonePlan.handStoneWeight)}</strong></div>
       <div><span>Total Non-Gold</span><strong>${gram(stonePlan.totalNonGoldWeight)}</strong><small>Wax + Hand${stonePlan.carriedNonGoldWeight ? " + other saved non-gold" : ""}</small></div>
       <div class="net-gold"><span>Net Gold</span><strong>${gram(stonePlan.netGoldWeight)}</strong><small>GW - total non-gold</small></div>
+      <div class="remaining-balance"><span>Remains In Billing</span><strong>${gram(remainingBillingWeight)}</strong><small>${remainingBillingWeight > 0.0005 ? "Available for another issue" : "Holding fully cleared"}</small></div>
     ` : '<p>Select a Job Card item to preview its automatic stone and net-gold calculation.</p>';
   }
   const assignableCount = manualWipAssignableOrders().length;
@@ -32121,12 +32256,16 @@ function updateManualWipBillingDialog() {
     ? "The complete selected WIP holding will move to Bill / QC. Verify the prefilled item weights before saving the Bill."
     : assignableCount
       ? stonePlan
-        ? `${gram(source.grossWeight)} GW - ${gram(stonePlan.waxStoneWeight)} wax stone - ${gram(stonePlan.handStoneWeight)} hand stone${stonePlan.carriedNonGoldWeight ? ` - ${gram(stonePlan.carriedNonGoldWeight)} other non-gold` : ""} = ${gram(stonePlan.netGoldWeight)} net gold. The Job Card stone total will be adjusted from main non-gold stock.`
+        ? !validIssueWeight
+          ? `Enter an Issue GW between 0.001 g and the available Billing balance of ${gram(source.grossWeight)}.`
+          : !validStoneWeight
+            ? `Total stone and other non-gold ${gram(stonePlan.totalNonGoldWeight)} cannot exceed Issue GW ${gram(issueGrossWeight)}.`
+            : `${gram(issueGrossWeight)} GW - ${gram(stonePlan.waxStoneWeight)} wax stone - ${gram(stonePlan.handStoneWeight)} hand stone${stonePlan.carriedNonGoldWeight ? ` - ${gram(stonePlan.carriedNonGoldWeight)} other non-gold` : ""} = ${gram(stonePlan.netGoldWeight)} net gold. ${remainingBillingWeight > 0.0005 ? `${gram(remainingBillingWeight)} will remain in Billing.` : "The Billing holding will be fully cleared."}`
         : "Select a Job Card item. Its wax and hand-stone weights will be read automatically before saving."
-      : "No pending Job Card item without a production lot is currently available.";
+      : "No pending or active production Job Card item is currently available.";
   const submit = document.getElementById("save-manual-wip-billing");
   submit.textContent = isManualBill ? "Continue To Bill" : "Issue To Job Card";
-  submit.disabled = !isManualBill && (!assignableCount || !targetOrder);
+  submit.disabled = !isManualBill && (!assignableCount || !targetOrder || !selectedRoute || !validIssueWeight || !validStoneWeight);
 }
 
 function closeManualWipSource(source = {}, lot = {}, order = {}, action = "") {
@@ -32160,6 +32299,45 @@ function closeManualWipSource(source = {}, lot = {}, order = {}, action = "") {
     manualWipDisposition: action,
     manualWipDispositionAt: closedAt,
   });
+}
+
+function applyManualWipAllocationToSource(source = {}, lot = {}, order = {}, stonePlan = {}) {
+  if (source.sourceType !== "department" || !source.raw) return;
+  const createdAt = new Date().toISOString();
+  const sourcePart = stonePlan.sourcePart || manualWipSourcePart(source, lot.grossIssuedWeight);
+  const allocation = {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt,
+    grossWeight: Number(weight3(lot.grossIssuedWeight || sourcePart.grossWeight || 0)),
+    sourceWaxStoneWeight: Number(weight3(sourcePart.waxStoneWeight || 0)),
+    sourceNonGoldWeight: Number(weight3(sourcePart.nonGoldWeight || 0)),
+    sourceNonGoldBreakdown: normalizeNonGoldBreakdown(sourcePart.nonGoldBreakdown),
+    sourceNetWeight: Number(weight3(sourcePart.netWeight || 0)),
+    lotId: lot.id,
+    lotNumber: lot.number,
+    jobNumber: lot.orderNumber,
+    orderId: order.id,
+    productionNo: order.productionNo || order.number || "",
+    targetDepartmentId: lot.karigarId || "",
+    targetDepartmentName: lot.karigarName || "",
+    targetProcess: lot.currentDepartment || "",
+    issuedWaxStoneWeight: Number(weight3(lot.manualWipWaxStoneWeight || 0)),
+    issuedHandStoneWeight: Number(weight3(lot.manualWipHandStoneWeight || 0)),
+    issuedNetGoldWeight: Number(weight3(lot.issuedWeight || 0)),
+    createdBy: currentUser?.name || currentUser?.id || "User",
+  };
+  source.raw.manualWipAllocations = [...(source.raw.manualWipAllocations || []), allocation];
+  const remainingGrossWeight = Number(weight3(Math.max(Number(source.grossWeight || 0) - allocation.grossWeight, 0)));
+  source.raw.status = remainingGrossWeight <= 0.0005 ? "Closed" : "In Department";
+  source.raw.updatedAt = createdAt;
+  source.raw.manualWipDisposition = remainingGrossWeight <= 0.0005 ? "assign-job" : "assign-job-partial";
+  source.raw.manualWipDispositionAt = createdAt;
+  source.raw.manualWipLastLotId = lot.id;
+  source.raw.manualWipLastOrderId = order.id;
+  source.raw.manualWipLastJobNumber = lot.orderNumber;
+  if (remainingGrossWeight <= 0.0005) source.raw.closedAt = createdAt;
+  else delete source.raw.closedAt;
 }
 
 function createManualWipOrder(source = {}, data = {}, lotNumber = "") {
@@ -32213,7 +32391,7 @@ function createManualWipOrder(source = {}, data = {}, lotNumber = "") {
   };
 }
 
-function createLotFromManualWip(source = {}, order = {}, action = "", route = null, lotNumber = "") {
+function createLotFromManualWip(source = {}, order = {}, action = "", route = null, lotNumber = "", suppliedStonePlan = null, targetLot = null) {
   const isManualBill = action === "manual-bill";
   const location = isManualBill
     ? { departmentId: "", departmentName: "Bill / QC", process: "Bill / QC" }
@@ -32229,7 +32407,7 @@ function createLotFromManualWip(source = {}, order = {}, action = "", route = nu
       netGoldWeight: Number(weight3(source.goldWeight || 0)),
       nonGoldBreakdown: normalizeNonGoldBreakdown(source.nonGoldBreakdown),
     }
-    : manualWipJobCardStonePlan(order, source.grossWeight, source);
+    : suppliedStonePlan || manualWipJobCardStonePlan(order, source.grossWeight, source);
   return {
     id: crypto.randomUUID(),
     number: lotNumber,
@@ -32274,6 +32452,9 @@ function createLotFromManualWip(source = {}, order = {}, action = "", route = nu
     manualWipWaxStoneWeight: stonePlan.waxStoneWeight,
     manualWipHandStoneWeight: stonePlan.handStoneWeight,
     manualWipAction: action,
+    manualWipPartialIssue: !isManualBill && Number(source.grossWeight || 0) > Number(stonePlan.sourcePart?.grossWeight || source.grossWeight || 0) + 0.0005,
+    manualWipAddedToExistingLotId: targetLot?.id || "",
+    manualWipAddedToExistingLotNumber: targetLot?.number || "",
     manualWipSourceDepartmentId: source.departmentId || "",
     manualWipSourceDepartmentName: source.departmentName || source.location || "Billing",
     manualWipSourceProcess: source.process || source.location || "Billing",
@@ -32288,38 +32469,83 @@ function commitManualWipDisposition(data = {}) {
   const lotNumber = `LOT-${state.nextLot++}`;
   let order;
   let route;
+  let stonePlan = null;
+  let targetLot = null;
+  let movementSource = source;
+  let remainingBillingWeight = 0;
   if (action === "assign-job") {
     if (!canAssignManualWipToJobCard()) throw new Error("Only Bill Dept, Order Dept, Manager, or Owner can issue Billing WIP to a Job Card.");
     order = manualWipAssignableOrders().find((item) => item.id === data.targetOrderId);
-    if (!order) throw new Error("Select a pending Job Card item that does not already have a production lot.");
-    const preview = manualWipJobCardStonePlan(order, source.grossWeight, source);
-    if (preview.totalNonGoldWeight > Number(source.grossWeight || 0) + 0.0005) {
-      throw new Error(`Job Card non-gold ${gram(preview.totalNonGoldWeight)} cannot exceed Billing GW ${gram(source.grossWeight)}.`);
+    if (!order) throw new Error("Select a pending or active production Job Card item.");
+    const issueGrossWeight = Number(weight3(Number(data.issueGrossWeight || 0)));
+    if (issueGrossWeight <= 0.0005) throw new Error("Enter the Billing GW to issue to this Job Card.");
+    if (issueGrossWeight > Number(source.grossWeight || 0) + 0.0005) {
+      throw new Error(`Issue GW ${gram(issueGrossWeight)} cannot exceed the Billing balance ${gram(source.grossWeight)}.`);
+    }
+    stonePlan = manualWipJobCardStonePlan(order, issueGrossWeight, source, {
+      waxStoneWeight: Number(data.issueWaxStoneWeight || 0),
+      handStoneWeight: Number(data.issueHandStoneWeight || 0),
+    });
+    if (stonePlan.totalNonGoldWeight > issueGrossWeight + 0.0005) {
+      throw new Error(`Stone and other non-gold ${gram(stonePlan.totalNonGoldWeight)} cannot exceed Issue GW ${gram(issueGrossWeight)}.`);
     }
     route = manualWipSelectedDepartment(data.departmentRoute, source);
     if (!route) throw new Error("Select the current or starting department for this WIP item.");
+    targetLot = manualWipTargetLotForOrder(order);
+    remainingBillingWeight = Number(weight3(Math.max(Number(source.grossWeight || 0) - issueGrossWeight, 0)));
+    movementSource = {
+      ...source,
+      grossWeight: issueGrossWeight,
+      goldWeight: stonePlan.netGoldWeight,
+      nonGoldWeight: stonePlan.totalNonGoldWeight,
+      nonGoldBreakdown: normalizeNonGoldBreakdown(stonePlan.nonGoldBreakdown),
+    };
     order.status = "In Production";
     order.manualWipSourceType = source.sourceType;
     order.manualWipSourceId = source.sourceId;
     order.manualWipSourceKey = source.key;
     order.manualWipSourceLocation = source.location;
-    order.manualWipGrossWeight = source.grossWeight;
     order.manualWipAssignedAt = new Date().toISOString();
     order.manualWipAssignedBy = currentUser?.name || currentUser?.id || "User";
   } else {
     order = createManualWipOrder(source, data, lotNumber);
     state.orders.push(order);
   }
-  const lot = createLotFromManualWip(source, order, action, route, lotNumber);
+  const lot = createLotFromManualWip(movementSource, order, action, route, lotNumber, stonePlan, targetLot);
   if (action === "assign-job") {
-    order.manualWipGoldWeight = lot.issuedWeight;
-    order.manualWipNonGoldBreakdown = normalizeNonGoldBreakdown(lot.manualWipNonGoldBreakdown);
-    order.manualWipWaxStoneWeight = lot.manualWipWaxStoneWeight;
-    order.manualWipHandStoneWeight = lot.manualWipHandStoneWeight;
-    order.manualWipJobStoneWeight = lot.manualWipJobStoneWeight;
+    lot.manualWipPartialIssue = remainingBillingWeight > 0.0005;
+    const assignment = {
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: lot.createdAt,
+      sourceId: source.sourceId,
+      sourceKey: source.key,
+      sourceLocation: source.location,
+      lotId: lot.id,
+      lotNumber: lot.number,
+      addedToLotId: targetLot?.id || "",
+      addedToLotNumber: targetLot?.number || "",
+      grossWeight: Number(weight3(lot.grossIssuedWeight || 0)),
+      netGoldWeight: Number(weight3(lot.issuedWeight || 0)),
+      waxStoneWeight: Number(weight3(lot.manualWipWaxStoneWeight || 0)),
+      handStoneWeight: Number(weight3(lot.manualWipHandStoneWeight || 0)),
+      nonGoldBreakdown: normalizeNonGoldBreakdown(lot.manualWipNonGoldBreakdown),
+      departmentId: lot.karigarId || "",
+      departmentName: lot.karigarName || "",
+      process: lot.currentDepartment || "",
+      createdBy: currentUser?.name || currentUser?.id || "User",
+    };
+    order.manualWipAssignments = [...(order.manualWipAssignments || []), assignment];
+    order.manualWipGrossWeight = Number(weight3(Number(order.manualWipGrossWeight || 0) + assignment.grossWeight));
+    order.manualWipGoldWeight = Number(weight3(Number(order.manualWipGoldWeight || 0) + assignment.netGoldWeight));
+    order.manualWipNonGoldBreakdown = addNonGoldBreakdowns(order.manualWipNonGoldBreakdown, assignment.nonGoldBreakdown);
+    order.manualWipWaxStoneWeight = Number(weight3(Number(order.manualWipWaxStoneWeight || 0) + assignment.waxStoneWeight));
+    order.manualWipHandStoneWeight = Number(weight3(Number(order.manualWipHandStoneWeight || 0) + assignment.handStoneWeight));
+    order.manualWipJobStoneWeight = Number(weight3(Number(order.manualWipJobStoneWeight || 0) + assignment.waxStoneWeight + assignment.handStoneWeight));
   }
   state.lots.unshift(lot);
-  closeManualWipSource(source, lot, order, action);
+  if (action === "assign-job") applyManualWipAllocationToSource(source, lot, order, stonePlan);
+  else closeManualWipSource(source, lot, order, action);
   state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -32328,11 +32554,11 @@ function commitManualWipDisposition(data = {}) {
     type: action === "manual-bill" ? "Manual WIP To Bill" : "Manual WIP Assigned",
     purity: lot.metalPurity,
     weight: 0,
-    reference: `${lot.number} / ${lot.orderNumber} / ${order.productionNo || order.number || "PR"}; ${source.description}; ${source.location} -> ${lot.currentDepartment}; GW ${gram(source.grossWeight)} / Wax ${gram(lot.manualWipWaxStoneWeight)} / Hand ${gram(lot.manualWipHandStoneWeight)} / Non-Gold ${gram(lot.manualWipNonGoldWeight)} / Net Gold ${gram(lot.issuedWeight)}.`,
+    reference: `${lot.number} / ${lot.orderNumber} / ${order.productionNo || order.number || "PR"}; ${source.description}; ${source.location} -> ${lot.currentDepartment}; GW ${gram(lot.grossIssuedWeight)} / Wax ${gram(lot.manualWipWaxStoneWeight)} / Hand ${gram(lot.manualWipHandStoneWeight)} / Non-Gold ${gram(lot.manualWipNonGoldWeight)} / Net Gold ${gram(lot.issuedWeight)}${action === "assign-job" ? ` / Billing Balance ${gram(remainingBillingWeight)}${targetLot ? ` / Added to ${targetLot.number}` : " / New production lot"}` : ""}.`,
     sourceType: "manual-wip-disposition",
     sourceId: source.sourceId,
   });
-  return { action, source, order, lot };
+  return { action, source, order, lot, remainingBillingWeight, targetLot };
 }
 
 function saveManualWipBillingDisposition(event) {
@@ -32369,7 +32595,7 @@ function saveManualWipBillingDisposition(event) {
     openBill(result.lot.id);
     return;
   }
-  alert(`Billing item issued to Job Card successfully.\n${result.lot.orderNumber} / ${result.order.productionNo || result.order.number || "PR"} / ${result.lot.number}\nCurrent department: ${result.lot.currentDepartment}\nGW ${gram(result.lot.grossIssuedWeight)} - Wax ${gram(result.lot.manualWipWaxStoneWeight)} - Hand ${gram(result.lot.manualWipHandStoneWeight)} - Other Non-Gold ${gram(result.lot.issueOtherNonGoldWeight)} = Net Gold ${gram(result.lot.issuedWeight)}.`);
+  alert(`Billing item issued to Job Card successfully.\n${result.lot.orderNumber} / ${result.order.productionNo || result.order.number || "PR"} / ${result.lot.number}\n${result.targetLot ? `Added to active Job Card movement ${result.targetLot.number}.` : "New production movement created."}\nCurrent department: ${result.lot.currentDepartment}\nGW ${gram(result.lot.grossIssuedWeight)} - Wax ${gram(result.lot.manualWipWaxStoneWeight)} - Hand ${gram(result.lot.manualWipHandStoneWeight)} - Other Non-Gold ${gram(result.lot.issueOtherNonGoldWeight)} = Net Gold ${gram(result.lot.issuedWeight)}.\nRemaining in Billing: ${gram(result.remainingBillingWeight)}.`);
 }
 
 function lotIsAtBillingDepartment(lot = {}) {
@@ -34711,7 +34937,7 @@ function automaticBillStoneWeight(order = {}) {
 }
 
 function billItemNonGoldBreakup(item = {}, order = {}) {
-  const manualWip = Boolean(order.manualWipOrder || order.manualWipSourceId || order.manualWipSourceKey);
+  const manualWip = Boolean(order.manualWipOrder);
   const manualBreakdown = normalizeNonGoldBreakdown(order.manualWipNonGoldBreakdown);
   const plannedStoneWeight = automaticBillStoneWeight(order);
   const stoneWeight = manualWip
@@ -35028,9 +35254,16 @@ function renderBillItems(lot, bill = {}) {
   const qcDisabled = canEditQcStatus() ? "" : " disabled";
   const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
-    const nonGold = billItemNonGoldBreakup(saved, order);
-    const manualWip = Boolean(lot.manualWipLot || order.manualWipOrder || order.manualWipSourceId || order.manualWipSourceKey);
-    const finalGwValue = saved.finalGw ?? (manualWip ? order.manualWipGrossWeight || lot.manualWipGrossWeight || lot.grossIssuedWeight || "" : "");
+    const lotManualWip = Boolean(lot.manualWipLot && getLotOrderIds(lot).includes(order.id));
+    const calculationOrder = lotManualWip ? {
+      ...order,
+      manualWipOrder: true,
+      manualWipGrossWeight: lot.manualWipGrossWeight || lot.grossIssuedWeight || 0,
+      manualWipNonGoldBreakdown: normalizeNonGoldBreakdown(lot.manualWipNonGoldBreakdown),
+    } : order;
+    const nonGold = billItemNonGoldBreakup(saved, calculationOrder);
+    const manualWip = Boolean(lotManualWip || order.manualWipOrder);
+    const finalGwValue = saved.finalGw ?? (manualWip ? lot.manualWipGrossWeight || lot.grossIssuedWeight || order.manualWipGrossWeight || "" : "");
     const finalGw = Number(finalGwValue || 0);
     const netWeight = finalGwValue === "" ? 0 : Math.max(finalGw - nonGold.total, 0);
     const purity = saved.purity || order.purity || "18K";

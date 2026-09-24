@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=605">
+  <link rel="stylesheet" href="styles.css?v=606">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -17,7 +17,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v605</small>
+      <small class="app-version-badge">App v606</small>
           </div>
         </div>
         <label>User
@@ -126,7 +126,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v605</span>
+          <span class="app-version-badge">App v606</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2417,7 +2417,7 @@
         <div class="dialog-header">
           <div>
             <h2>Billing Item / WIP Movement</h2>
-            <p class="dialog-note">Shows non-job-card WIP held in Billing. Make a manual Bill or issue the complete holding to an existing Job Card item with automatic wax-stone, hand-stone and net-gold adjustment.</p>
+            <p class="dialog-note">Shows non-job-card WIP held in Billing. Make a manual Bill, issue only part of a holding, or add another linked lot to an existing production Job Card.</p>
           </div>
           <button type="button" class="ghost-button" id="close-manual-wip-billing">Close</button>
         </div>
@@ -2429,7 +2429,7 @@
           <label>Clear By
             <select name="action" required>
               <option value="manual-bill">Make Manual Bill</option>
-              <option value="assign-job">Issue Billing Item To Job Card</option>
+              <option value="assign-job">Part Issue / Add Billing Item To Job Card</option>
             </select>
           </label>
         </div>
@@ -2475,7 +2475,7 @@
           <div class="section-title-row">
             <div>
               <h3>Assign To Job Card</h3>
-              <small>The selected Job Card supplies its wax and hand-stone weights automatically. Only pending items without another production lot are available.</small>
+              <small>Use the full balance or enter a partial GW. Pending items and existing production Job Cards are available; earlier transfer history remains unchanged.</small>
             </div>
           </div>
           <div class="manual-wip-fields-grid">
@@ -2484,6 +2484,18 @@
             </label>
             <label>Current / Starting Department
               <select name="departmentRoute"></select>
+            </label>
+            <label>Issue GW (Part / Full)
+              <input name="issueGrossWeight" type="number" min="0.001" step="0.001" placeholder="Enter GW to issue">
+            </label>
+            <label>Wax Stone In This Part
+              <input name="issueWaxStoneWeight" type="number" min="0" step="0.001" value="0">
+            </label>
+            <label>Hand Stone In This Part
+              <input name="issueHandStoneWeight" type="number" min="0" step="0.001" value="0">
+            </label>
+            <label>Billing Balance After Issue
+              <input name="remainingBillingWeight" readonly>
             </label>
           </div>
           <section id="manual-wip-job-stone-summary" class="manual-wip-job-stone-summary"></section>
@@ -3223,6 +3235,6 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
-  <script src="app.js?v=605"></script>
+  <script src="app.js?v=606"></script>
 </body>
 </html>

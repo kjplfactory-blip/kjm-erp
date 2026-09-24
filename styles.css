@@ -17060,6 +17060,16 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   font-size: 18px;
 }
 
+.manual-wip-job-stone-summary .remaining-balance {
+  border-color: #e3bf67;
+  background: #fff8df;
+}
+
+.manual-wip-job-stone-summary .remaining-balance strong {
+  color: #765300;
+  font-size: 18px;
+}
+
 .manual-wip-option-panel {
   display: grid;
   gap: 12px;
