@@ -15,6 +15,7 @@
             <button class="ghost-button" type="button" data-setting-manual-transfer-close>Close</button>
           </div>
           <input type="hidden" name="sourceIssueId">
+          <input type="hidden" name="settingEntryId">
           <section class="setting-manual-transfer-source">
             <article><span>Item / Reference</span><strong data-manual-transfer-item>-</strong></article>
             <article><span>Setter Source</span><strong data-manual-transfer-setter>-</strong></article>
@@ -88,6 +89,39 @@
     ) || null;
   }
 
+  function manualEntryTransferTotals(entry = {}) {
+    return (entry.departmentTransfers || []).reduce((totals, transfer) => ({
+      gross: Number(weight3(totals.gross + Number(transfer.grossWeight || 0))),
+      wax: Number(weight3(totals.wax + Number(transfer.waxStoneWeight || 0))),
+      nonGold: Number(weight3(totals.nonGold + Number(transfer.nonGoldWeight || 0))),
+      net: Number(weight3(totals.net + Number(transfer.netWeight || 0))),
+    }), { gross: 0, wax: 0, nonGold: 0, net: 0 });
+  }
+
+  function manualReceivedTransferCandidate(entryId = "") {
+    const entry = (state.settingManagerEntries || []).find((item) =>
+      item.id === entryId && item.entryType === "Manual" && item.status === "Received"
+    );
+    if (!entry) return null;
+    const sourceIssueId = entry.receiptSourceIssueId || entry.sourceIssueId || "";
+    const source = manualTransferSource(sourceIssueId);
+    if (!source) return null;
+    const transferred = manualEntryTransferTotals(entry);
+    const receivedGross = Number(weight3(entry.receiveGw || 0));
+    const receivedWax = Number(weight3(entry.receiveWaxStoneWeight || 0));
+    const receivedNonGold = Number(weight3(entry.handStoneWeight || entry.sourceHandStoneAddedWeight || 0));
+    const receivedNet = Number(weight3(entry.receiveNetWeight ?? Math.max(receivedGross - receivedWax - receivedNonGold, 0)));
+    const available = {
+      gross: Number(weight3(Math.max(receivedGross - transferred.gross, 0))),
+      wax: Number(weight3(Math.max(receivedWax - transferred.wax, 0))),
+      nonGold: Number(weight3(Math.max(receivedNonGold - transferred.nonGold, 0))),
+      net: Number(weight3(Math.max(receivedNet - transferred.net, 0))),
+    };
+    available.gross = Number(weight3(Math.min(available.gross, source.availableGrossWeight)));
+    if (available.gross <= 0.0005) return null;
+    return { entry, source, available, transferred };
+  }
+
   function manualTransferAvailableParts(source = {}) {
     const fullGross = Math.max(Number(source.grossWeight || 0), 0);
     const availableGross = Math.max(Number(source.availableGrossWeight || 0), 0);
@@ -99,6 +133,17 @@
       net: Number(weight3(Number(source.netWeight || 0) * ratio)),
       ratio,
     };
+  }
+
+  function manualTransferSelection(form) {
+    const candidate = form?.settingEntryId?.value
+      ? manualReceivedTransferCandidate(form.settingEntryId.value)
+      : null;
+    if (candidate) return { ...candidate, isReceivedEntry: true };
+    const source = manualTransferSource(form?.sourceIssueId?.value || "");
+    return source
+      ? { source, entry: manualTransferEntry(source), available: manualTransferAvailableParts(source), isReceivedEntry: false }
+      : null;
   }
 
   function renderManualTransferDepartments(form, source = {}) {
@@ -124,9 +169,9 @@
   }
 
   function fillManualTransferWeights(form, useFullBalance) {
-    const source = manualTransferSource(form.sourceIssueId.value);
-    if (!source) return;
-    const available = manualTransferAvailableParts(source);
+    const selection = manualTransferSelection(form);
+    if (!selection) return;
+    const { available } = selection;
     if (useFullBalance) form.grossWeight.value = weight3(available.gross);
     const requestedGross = Math.max(Number(form.grossWeight.value || 0), 0);
     const ratio = available.gross > 0 ? Math.min(requestedGross / available.gross, 1) : 0;
@@ -150,12 +195,14 @@
       if (node) node.textContent = gram(value);
     });
     const note = dialog?.querySelector("[data-manual-transfer-note]");
-    const source = manualTransferSource(form.sourceIssueId.value);
-    if (note && source) {
-      const available = manualTransferAvailableParts(source);
+    const selection = manualTransferSelection(form);
+    if (note && selection) {
+      const { available } = selection;
       note.textContent = gross < available.gross - 0.0005
         ? `Partial transfer selected. After save, approximately ${gram(available.gross - gross)} remains in Setting. Verify the stone / non-gold contained in this part before saving.`
-        : "Full available balance is selected. The item will leave Setting and appear in the selected department with the same tracked composition.";
+        : selection.isReceivedEntry
+          ? `Full balance of this ${selection.entry.setterName || "setter"} receipt is selected. Other STUD BR receipts remain separate.`
+          : "Full available balance is selected. The item will leave Setting and appear in the selected department with the same tracked composition.";
     }
   }
 
@@ -180,15 +227,15 @@
     return normalizeNonGoldBreakdown(allocated);
   }
 
-  function manualTransferValidation(form, source, destination) {
-    if (!source) return "This manual item is no longer available in Setting Department.";
+  function manualTransferValidation(form, selection, destination) {
+    if (!selection?.source) return "This manual item is no longer available in Setting Department.";
+    const { source, available } = selection;
     if (!destination) return "Select the department where this item will be transferred.";
     const process = String(form.process.value || "").trim();
     if (!process) return "Select the registered process for the destination department.";
     const sourceGroup = departmentTransferHistoryGroupName(source.departmentName || source.process || "Setting");
     const destinationGroup = departmentTransferMasterGroupName(destination.name, process);
     if (sourceGroup === destinationGroup) return "Select a department different from the current Setting Department.";
-    const available = manualTransferAvailableParts(source);
     const gross = Number(weight3(form.grossWeight.value || 0));
     const wax = Number(weight3(form.waxStoneWeight.value || 0));
     const nonGold = Number(weight3(form.nonGoldWeight.value || 0));
@@ -199,6 +246,9 @@
     if (nonGold < 0 || nonGold > available.nonGold + 0.0005) return `Hand stone / other non-gold cannot exceed the available ${gram(available.nonGold)}.`;
     if (net < -0.0005) return "Wax stone plus non-gold cannot exceed transfer GW.";
     if (net > available.net + 0.0005) return `Net gold cannot exceed the available ${gram(available.net)}.`;
+    if (wax > Number(source.waxStoneWeight || 0) + 0.0005) return "The shared Setting source does not contain enough wax stone for this transfer.";
+    if (nonGold > Number(source.nonGoldWeight || 0) + 0.0005) return "The shared Setting source does not contain enough hand stone / non-gold for this transfer.";
+    if (net > Number(source.netWeight || 0) + 0.0005) return "The shared Setting source does not contain enough net gold for this transfer.";
     if (!String(form.remarks.value || "").trim()) return "Enter transfer remarks for this manual movement.";
     return "";
   }
@@ -206,9 +256,10 @@
   function saveManualDepartmentTransfer(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const source = manualTransferSource(form.sourceIssueId.value);
+    const selection = manualTransferSelection(form);
+    const source = selection?.source || null;
     const destination = findById("karigars", form.departmentId.value);
-    const error = manualTransferValidation(form, source, destination);
+    const error = manualTransferValidation(form, selection, destination);
     if (error) {
       alert(error);
       return;
@@ -224,7 +275,7 @@
     const process = String(form.process.value || "").trim();
     const remarks = String(form.remarks.value || "").trim();
     const nonGoldBreakdown = allocateManualTransferBreakdown(source, nonGoldWeight);
-    const entry = manualTransferEntry(source);
+    const entry = selection.entry || manualTransferEntry(source);
     const reference = entry
       ? `${settingEntryReference(entry)} / ${entry.setterName || "Setter"}`
       : source.itemDescription || "Manual Production Item";
@@ -358,6 +409,7 @@
     const available = manualTransferAvailableParts(source);
     form.reset();
     form.sourceIssueId.value = source.id;
+    form.settingEntryId.value = "";
     form.dataset.componentWeightsEdited = "false";
     dialog.querySelector("[data-manual-transfer-item]").textContent = source.itemDescription || "Manual Production Item";
     dialog.querySelector("[data-manual-transfer-setter]").textContent = entry
@@ -378,10 +430,45 @@
     form.departmentId.focus();
   }
 
+  function openSettingManualEntryDepartmentTransfer(entryId = "") {
+    if (hasValidatedLoginSession() && !canAccessProductionPage("setting")) {
+      alert("This login can access only its allowed production work.");
+      return;
+    }
+    const candidate = manualReceivedTransferCandidate(entryId);
+    if (!candidate) {
+      alert("This received manual lot is no longer available in Setting Department. Refresh and check its latest transfer history.");
+      return;
+    }
+    const { entry, source, available } = candidate;
+    const dialog = ensureManualTransferDialog();
+    const form = document.getElementById("setting-manual-transfer-form");
+    form.reset();
+    form.sourceIssueId.value = source.id;
+    form.settingEntryId.value = entry.id;
+    form.dataset.componentWeightsEdited = "false";
+    dialog.querySelector("[data-manual-transfer-item]").textContent = `${entry.materialDescription || source.itemDescription || "Manual Production Item"} / Received ${entry.receiveDate || "-"}`;
+    dialog.querySelector("[data-manual-transfer-setter]").textContent = `${entry.setterName || "Setter"} / Issue ${gram(entry.issueGw || 0)}`;
+    dialog.querySelector("[data-manual-transfer-purity]").textContent = transferPurityLabel(entry.purity || source.purity || source.locker || "-");
+    dialog.querySelector("[data-manual-transfer-available-gw]").textContent = gram(available.gross);
+    dialog.querySelector("[data-manual-transfer-available-non-gold]").textContent = `${gram(available.nonGold)} / Manual Hand Stone`;
+    form.grossWeight.value = weight3(available.gross);
+    form.waxStoneWeight.value = weight3(available.wax);
+    form.nonGoldWeight.value = weight3(available.nonGold);
+    form.remarks.value = `${entry.setterName || "Setter"} / ${entry.materialDescription || "Manual item"} received ${entry.receiveDate || today()} / Transfer without Job Card`;
+    renderManualTransferDepartments(form, source);
+    updateManualTransferCalculation(form);
+    dialog.showModal();
+    form.departmentId.focus();
+  }
+
   window.openSettingManualDepartmentTransfer = openSettingManualDepartmentTransfer;
+  window.openSettingManualEntryDepartmentTransfer = openSettingManualEntryDepartmentTransfer;
   window.KJM_SETTING_MANUAL_TRANSFER_V618 = {
     open: openSettingManualDepartmentTransfer,
+    openEntry: openSettingManualEntryDepartmentTransfer,
     source: manualTransferSource,
+    candidate: manualReceivedTransferCandidate,
     calculate: manualTransferAvailableParts,
     allocateNonGold: allocateManualTransferBreakdown,
     save: saveManualDepartmentTransfer,
