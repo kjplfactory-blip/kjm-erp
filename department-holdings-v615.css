@@ -1,0 +1,28 @@
+.department-card-summary-v615 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.department-card-summary-v615 small,
+.department-breakup-v615 small {
+  min-width: 0;
+}
+
+.department-card-summary-v615 b,
+.department-breakup-v615 b {
+  white-space: normal;
+}
+
+.department-transfer-tile-v615 > strong {
+  font-size: 1.25rem;
+}
+
+.department-transfer-purity-v615 .department-transfer-purity-head,
+.department-transfer-purity-v615 .department-transfer-purity-row {
+  grid-template-columns: minmax(110px, 1.3fr) repeat(4, minmax(90px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .department-card-summary-v615 {
+    grid-template-columns: 1fr;
+  }
+}
