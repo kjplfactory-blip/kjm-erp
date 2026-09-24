@@ -16996,13 +16996,22 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   min-width: 0;
 }
 
-.manual-wip-source-summary {
+.manual-wip-source-summary,
+.manual-wip-job-stone-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
-.manual-wip-source-summary > div {
+.manual-wip-source-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.manual-wip-job-stone-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.manual-wip-source-summary > div,
+.manual-wip-job-stone-summary > div {
   display: grid;
   min-width: 0;
   gap: 4px;
@@ -17013,15 +17022,42 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .manual-wip-source-summary span,
-.manual-wip-source-summary small {
+.manual-wip-source-summary small,
+.manual-wip-job-stone-summary span,
+.manual-wip-job-stone-summary small {
   color: #60766f;
   font-size: 10px;
 }
 
-.manual-wip-source-summary strong {
+.manual-wip-source-summary strong,
+.manual-wip-job-stone-summary strong {
   color: #123f36;
   font-size: 15px;
   overflow-wrap: anywhere;
+}
+
+.manual-wip-job-stone-summary {
+  margin-top: 12px;
+}
+
+.manual-wip-job-stone-summary > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed #9fc9ba;
+  border-radius: 8px;
+  color: #4d6d63;
+  background: #fff;
+}
+
+.manual-wip-job-stone-summary .net-gold {
+  border-color: #75b88d;
+  background: #e5f6eb;
+}
+
+.manual-wip-job-stone-summary .net-gold strong {
+  color: #075b3d;
+  font-size: 18px;
 }
 
 .manual-wip-option-panel {
@@ -17056,7 +17092,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     flex-basis: auto;
   }
 
-  .manual-wip-source-summary {
+  .manual-wip-source-summary,
+  .manual-wip-job-stone-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -17064,7 +17101,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 @media (max-width: 620px) {
   .manual-wip-route-grid,
   .manual-wip-fields-grid,
-  .manual-wip-source-summary {
+  .manual-wip-source-summary,
+  .manual-wip-job-stone-summary {
     grid-template-columns: minmax(0, 1fr);
   }
 }
