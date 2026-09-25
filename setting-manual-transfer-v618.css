@@ -6,7 +6,7 @@
   margin: 0;
   padding: 8px;
   border: 0;
-  background: rgba(7, 36, 32, 0.28);
+  background: rgba(23, 37, 84, 0.30);
 }
 
 #setting-manual-transfer-dialog[open] {
@@ -36,15 +36,15 @@
 .setting-manual-transfer-calculation article {
   min-width: 0;
   padding: 12px;
-  background: #edf8f5;
-  border: 1px solid #badbd4;
+  background: #eff6ff;
+  border: 1px solid #c3d3ec;
   border-radius: 7px;
 }
 
 .setting-manual-transfer-source span,
 .setting-manual-transfer-calculation span {
   display: block;
-  color: #57716a;
+  color: #64748b;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -54,7 +54,7 @@
 .setting-manual-transfer-calculation strong {
   display: block;
   margin-top: 4px;
-  color: #123f38;
+  color: #1e3a8a;
   font-size: 17px;
   overflow-wrap: anywhere;
 }
@@ -81,7 +81,7 @@
 .setting-manual-transfer-note {
   margin: 12px 0 0;
   padding: 11px 13px;
-  color: #315c54;
+  color: #475569;
   background: #fff9df;
   border: 1px solid #eadb94;
   border-radius: 7px;

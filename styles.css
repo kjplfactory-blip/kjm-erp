@@ -91,10 +91,10 @@ button.owner-only {
 .login-session-note {
   margin: -2px 0 0;
   padding: 9px 11px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 7px;
   background: #f2fbf8;
-  color: #315b53;
+  color: #475569;
   font-size: 12px;
   font-weight: 800;
   line-height: 1.45;
@@ -255,10 +255,10 @@ body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.print
   width: min(240px, calc(100vw - 72px));
   min-height: 50px;
   padding: 6px 10px 6px 7px;
-  border: 1px solid rgba(8, 119, 108, 0.18);
+  border: 1px solid rgba(37, 99, 235, 0.18);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 34px rgba(21, 35, 31, 0.14);
+  box-shadow: 0 14px 34px rgba(30, 41, 59, 0.14);
   backdrop-filter: blur(14px);
 }
 
@@ -403,7 +403,7 @@ th {
 .job-card-search-button {
   min-height: 38px;
   padding-inline: 14px;
-  background: #0f766e;
+  background: #2563eb;
   color: #ffffff;
   white-space: nowrap;
 }
@@ -685,7 +685,7 @@ button:hover {
 
 .factory-out-bill-selector select {
   border-color: #8dcdb8;
-  background: #f4fbf8;
+  background: #f5f8ff;
   font-weight: 800;
 }
 
@@ -739,7 +739,7 @@ button:hover {
 }
 
 .factory-out-bill-weight-grid > div.highlight {
-  border-color: #0f766e;
+  border-color: #2563eb;
   background: #eaf8f2;
 }
 
@@ -999,7 +999,7 @@ button:hover {
   max-width: none;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: end;
-  border-color: rgba(174, 216, 201, 0.88);
+  border-color: rgba(184, 202, 232, 0.88);
   background:
     radial-gradient(circle at 96% 0%, rgba(24, 121, 78, 0.12), transparent 240px),
     linear-gradient(180deg, #ffffff 0%, #f5fbf8 100%);
@@ -1340,7 +1340,7 @@ form.active-operation-page,
 .metric-pair div {
   min-width: 0;
   padding: 10px;
-  border: 1px solid rgba(15, 118, 110, 0.13);
+  border: 1px solid rgba(37, 99, 235, 0.13);
   border-radius: 8px;
   background: rgba(241, 250, 247, 0.74);
 }
@@ -1369,12 +1369,13 @@ form.active-operation-page,
   }
 }
 
+
 .metric-open,
 .dashboard-open-button {
   justify-self: start;
   min-height: 34px;
   padding: 6px 13px;
-  border: 1px solid rgba(15, 118, 110, 0.22);
+  border: 1px solid rgba(37, 99, 235, 0.22);
   border-radius: 999px;
   background: #f1faf7;
   color: var(--brand-dark);
@@ -1413,7 +1414,7 @@ form.active-operation-page,
   gap: 10px;
   margin: 0 0 12px;
   padding: 11px 12px;
-  border: 1px solid #b9d7cd;
+  border: 1px solid #bfd0e8;
   border-radius: 8px;
   background: #f3fbf7;
   color: #28584d;
@@ -1529,7 +1530,7 @@ form.active-operation-page,
   gap: 2px;
   min-width: 0;
   padding: 7px 8px;
-  border: 1px solid rgba(151, 207, 186, 0.42);
+  border: 1px solid rgba(147, 197, 253, 0.42);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
   color: var(--muted);
@@ -1544,7 +1545,7 @@ form.active-operation-page,
 }
 
 .department-card-summary .transfer-difference {
-  border-color: rgba(15, 118, 110, 0.3);
+  border-color: rgba(37, 99, 235, 0.3);
   background: rgba(224, 247, 239, 0.72);
   color: var(--brand-dark);
   font-weight: 900;
@@ -1567,7 +1568,7 @@ form.active-operation-page,
   width: min(560px, calc(100vw - 54px));
   max-height: min(62vh, 520px);
   padding: 14px;
-  border: 1px solid rgba(8, 119, 108, 0.22);
+  border: 1px solid rgba(37, 99, 235, 0.22);
   border-radius: 8px;
   background: linear-gradient(180deg, #ffffff 0%, #f0fff7 100%);
   box-shadow: 0 24px 70px rgba(17, 32, 51, 0.22);
@@ -1592,7 +1593,7 @@ form.active-operation-page,
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(8, 119, 108, 0.14);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.14);
 }
 
 .department-popup-heading strong {
@@ -1623,7 +1624,7 @@ form.active-operation-page,
   border: 1px solid rgba(36, 87, 214, 0.16);
   border-radius: 8px;
   background:
-    radial-gradient(circle at top right, rgba(15, 118, 110, 0.15), transparent 90px),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.15), transparent 90px),
     #fff;
   color: var(--ink);
   text-align: left;
@@ -1749,9 +1750,9 @@ form.active-operation-page,
 
 .department-transfer-purity-row {
   padding: 6px 8px;
-  border: 1px solid rgba(151, 207, 186, 0.38);
+  border: 1px solid rgba(147, 197, 253, 0.38);
   border-radius: 8px;
-  background: #fbfffd;
+  background: #f8faff;
   font-size: 12px;
   font-weight: 800;
 }
@@ -1779,12 +1780,12 @@ form.active-operation-page,
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border-color: rgba(151, 207, 186, 0.56);
+  border-color: rgba(147, 197, 253, 0.56);
   background: linear-gradient(180deg, #ffffff 0%, #f8fffc 100%);
 }
 
 .department-transfer-panel.in-panel {
-  border-top: 4px solid #0f766e;
+  border-top: 4px solid #2563eb;
 }
 
 .department-transfer-panel.out-panel {
@@ -1796,7 +1797,7 @@ form.active-operation-page,
   top: 0;
   z-index: 3;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(8, 119, 108, 0.12);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.12);
   background: inherit;
 }
 
@@ -1835,7 +1836,7 @@ form.active-operation-page,
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #eefaf5;
+  background: #eff6ff;
   color: #245047;
   font-size: 11px;
   font-weight: 900;
@@ -1844,11 +1845,11 @@ form.active-operation-page,
 }
 
 .compact-transfer-wrap tbody tr:nth-child(even) td {
-  background: #fbfffd;
+  background: #f8faff;
 }
 
 .compact-transfer-wrap tbody tr:hover td {
-  background: #eefdf6;
+  background: #eff6ff;
 }
 
 .compact-transfer-wrap .remark-cell {
@@ -2015,7 +2016,7 @@ form.active-operation-page,
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid #d5e7e0;
-  background: #f7fcfa;
+  background: #f8faff;
 }
 
 .online-transfer-today-card {
@@ -2185,7 +2186,7 @@ form.active-operation-page,
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #eefaf5;
+  background: #eff6ff;
   color: #245047;
   font-size: 10px;
   font-weight: 900;
@@ -2195,7 +2196,7 @@ form.active-operation-page,
 
 .online-transfer-wrap tbody tr:hover td,
 .online-transfer-wrap tbody tr:focus-within td {
-  background: #eefdf6;
+  background: #eff6ff;
 }
 
 .online-transfer-wrap .remark-cell {
@@ -2413,10 +2414,10 @@ form.active-operation-page,
   gap: 7px;
   min-height: 104px;
   padding: 14px;
-  border: 1px solid rgba(8, 119, 108, 0.16);
+  border: 1px solid rgba(37, 99, 235, 0.16);
   border-radius: 8px;
   background:
-    radial-gradient(circle at top right, rgba(8, 119, 108, 0.13), transparent 86px),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.13), transparent 86px),
     #ffffff;
   box-shadow: 0 10px 22px rgba(17, 32, 51, 0.07);
 }
@@ -2468,8 +2469,8 @@ form.active-operation-page,
   border-color: #72cda9;
   background:
     radial-gradient(circle at top right, rgba(200, 155, 44, 0.16), transparent 82px),
-    linear-gradient(180deg, #f4fff8 0%, #e2f8ed 100%);
-  box-shadow: 0 15px 32px rgba(8, 119, 108, 0.14);
+    linear-gradient(180deg, #f5f8ff 0%, #e2f8ed 100%);
+  box-shadow: 0 15px 32px rgba(37, 99, 235, 0.14);
   outline: 0;
   transform: translateY(-2px);
 }
@@ -2517,7 +2518,7 @@ form.active-operation-page,
   display: grid;
   min-width: 0;
   padding: 12px 14px;
-  border: 1px solid rgba(8, 119, 108, 0.17);
+  border: 1px solid rgba(37, 99, 235, 0.17);
   border-radius: 8px;
   background: #ffffff;
   gap: 5px;
@@ -2614,7 +2615,7 @@ form.active-operation-page,
 
 .setter-stone-lines span {
   padding: 3px 5px;
-  border-left: 2px solid rgba(8, 119, 108, 0.28);
+  border-left: 2px solid rgba(37, 99, 235, 0.28);
   background: rgba(237, 248, 243, 0.7);
   line-height: 1.35;
 }
@@ -2688,7 +2689,7 @@ form.active-operation-page,
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid rgba(8, 119, 108, 0.2);
+  border: 1px solid rgba(37, 99, 235, 0.2);
   border-radius: 8px;
   background: #f7fcfb;
 }
@@ -2731,7 +2732,7 @@ form.active-operation-page,
 
 .setting-split-item-option:has(input:checked) {
   border-color: var(--brand);
-  background: #eaf8f3;
+  background: #eff6ff;
   box-shadow: inset 3px 0 0 var(--brand);
 }
 
@@ -2851,7 +2852,7 @@ form.active-operation-page,
   border: 1px solid #aad8cc;
   border-radius: 8px;
   background: rgba(244, 251, 248, 0.98);
-  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.1);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.1);
 }
 
 .order-saved-item-search {
@@ -2939,7 +2940,7 @@ form.active-operation-page,
   display: grid;
   gap: 14px;
   padding: 14px;
-  border: 1px solid rgba(15, 118, 110, 0.14);
+  border: 1px solid rgba(37, 99, 235, 0.14);
   border-radius: 8px;
   background: #fbfdfc;
 }
@@ -2981,7 +2982,7 @@ form.active-operation-page,
   gap: 12px;
   align-items: center;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(15, 118, 110, 0.12);
+  border-bottom: 1px solid rgba(37, 99, 235, 0.12);
 }
 
 .order-item-entry-head strong {
@@ -3070,9 +3071,9 @@ form.active-operation-page,
   gap: 8px;
   min-height: 34px;
   padding: 8px;
-  border: 1px dashed rgba(15, 118, 110, 0.28);
+  border: 1px dashed rgba(37, 99, 235, 0.28);
   border-radius: 8px;
-  background: #f4fbf8;
+  background: #f5f8ff;
 }
 
 .selected-design-empty {
@@ -3189,12 +3190,12 @@ form.active-operation-page,
 }
 
 .order-add-item-button {
-  background: #0f766e;
+  background: #2563eb;
   color: #fff;
 }
 
 .order-add-item-button:hover {
-  background: #0b514c;
+  background: #1e40af;
 }
 
 .saved-item-cell {
@@ -3233,8 +3234,8 @@ form.active-operation-page,
 }
 
 .saved-item-remark input:focus {
-  border-color: #08776c;
-  background: #f4fff8;
+  border-color: #2563eb;
+  background: #f5f8ff;
 }
 
 .order-entry-summary {
@@ -3280,7 +3281,7 @@ form.active-operation-page,
 .order-summary-designs small {
   padding: 5px 8px;
   border-radius: 999px;
-  background: #eef8f5;
+  background: #eff6ff;
   color: var(--brand-dark);
   font-weight: 850;
 }
@@ -3339,8 +3340,8 @@ form.active-operation-page,
 }
 
 .job-badge.stage {
-  background: #e9f6f3;
-  color: #0b514c;
+  background: #eff6ff;
+  color: #1e40af;
   border: 1px solid #b7dfd8;
 }
 
@@ -3369,7 +3370,7 @@ form.active-operation-page,
 }
 
 .customer-order-display strong {
-  color: #0b514c;
+  color: #1e40af;
   overflow-wrap: anywhere;
 }
 
@@ -3561,7 +3562,7 @@ input[type="hidden"] {
   border: 1px solid #a9d9ca;
   border-radius: 8px;
   background: #f3fcf8;
-  color: #16483e;
+  color: #1e3a8a;
   font-size: 11px;
   font-weight: 900;
 }
@@ -3570,7 +3571,7 @@ input[type="hidden"] {
   display: grid;
   gap: 4px;
   min-width: 170px;
-  color: #16483e;
+  color: #1e3a8a;
   font-size: 10px;
   font-weight: 900;
 }
@@ -3703,7 +3704,7 @@ input[type="hidden"] {
 }
 
 .hallmark-batch-tile:hover {
-  border-color: #71d7b5;
+  border-color: #93c5fd;
   background:
     radial-gradient(circle at top right, rgba(113, 215, 181, 0.32), transparent 105px),
     #f4fff9;
@@ -3780,8 +3781,8 @@ input[type="hidden"] {
   padding: 9px 12px;
   border: 1px solid #a8d8c8;
   border-radius: 8px;
-  background: #f2fbf7;
-  color: #16483e;
+  background: #f4f7ff;
+  color: #1e3a8a;
   font-size: 13px;
   font-weight: 900;
   cursor: pointer;
@@ -3841,7 +3842,7 @@ input[type="hidden"] {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: #f7fbfa;
 }
@@ -3849,12 +3850,12 @@ input[type="hidden"] {
 .hallmark-lot-heading {
   margin-bottom: 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid #dcebe7;
+  border-bottom: 1px solid #dce6f2;
 }
 
 .hallmark-lot-heading h3 {
   margin: 0;
-  color: #153d36;
+  color: #1e3a8a;
 }
 
 @media (max-width: 720px) {
@@ -4149,7 +4150,7 @@ input[type="hidden"] {
   border: 1px solid #cfe3dc;
   border-radius: 8px;
   padding: 8px 10px;
-  background: #f7fcfa;
+  background: #f8faff;
 }
 
 .safe-non-gold-summary-grid {
@@ -4642,7 +4643,7 @@ th {
   padding: 9px;
   border: 1px solid #9fcfc2;
   border-radius: 8px;
-  background: #f4fbf8;
+  background: #f5f8ff;
   box-shadow: 0 3px 10px rgba(20, 83, 70, 0.06);
 }
 
@@ -4730,10 +4731,10 @@ th {
   gap: 6px;
   max-width: 100%;
   padding: 5px 6px 5px 9px;
-  border: 1px solid #b8d9d0;
+  border: 1px solid #c3d3ec;
   border-radius: 7px;
   background: #ffffff;
-  color: #164f42;
+  color: #1e40af;
   font-size: 10px;
 }
 
@@ -4853,7 +4854,7 @@ th {
   min-width: 0;
   min-height: 0;
   padding: 12px;
-  border: 1px solid #a9d5ca;
+  border: 1px solid #b8cae8;
   border-radius: 8px;
   background: #f3faf7;
 }
@@ -4864,14 +4865,14 @@ th {
 }
 
 .design-fitting-accessory-preview-head span {
-  color: #0f6b56;
+  color: #2563eb;
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
 .design-fitting-accessory-preview-head strong {
-  color: #173e35;
+  color: #1e3a8a;
   font-size: 18px;
   overflow-wrap: anywhere;
 }
@@ -4888,7 +4889,7 @@ th {
   min-width: 0;
   min-height: 300px;
   overflow: hidden;
-  border: 1px solid #c8ded7;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: #ffffff;
 }
@@ -4937,10 +4938,10 @@ th {
   justify-content: space-between;
   gap: 10px;
   padding: 11px;
-  border: 1px solid #a9d5ca;
+  border: 1px solid #b8cae8;
   border-radius: 8px;
   background: #f1faf7;
-  color: #164f42;
+  color: #1e40af;
 }
 
 .design-fitting-accessory-summary strong,
@@ -4977,7 +4978,7 @@ th {
   display: grid;
   gap: 7px;
   padding: 10px;
-  border: 1px solid #b8d9d0;
+  border: 1px solid #c3d3ec;
   border-radius: 8px;
   background: #f8fcfb;
 }
@@ -4995,7 +4996,7 @@ th {
   gap: 8px;
   align-items: center;
   padding: 7px;
-  border: 1px solid #d1e5df;
+  border: 1px solid #d7e2f2;
   border-radius: 7px;
   background: #ffffff;
 }
@@ -5018,7 +5019,7 @@ th {
 .production-fitting-accessory-name {
   display: block;
   margin-top: 3px;
-  color: #0f6b56;
+  color: #2563eb;
   font-size: 9px;
   font-weight: 900;
   line-height: 1.2;
@@ -5199,10 +5200,10 @@ th {
   align-items: center;
   min-height: 34px;
   padding: 7px 10px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 999px;
   background: #f7fbfa;
-  color: #153d36;
+  color: #1e3a8a;
   font-size: 12px;
   font-weight: 900;
 }
@@ -5366,7 +5367,7 @@ th {
   align-items: center;
   margin: 10px 0 12px;
   padding: 10px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: rgba(247, 252, 250, 0.97);
   box-shadow: 0 5px 16px rgba(20, 83, 70, 0.08);
@@ -5432,7 +5433,7 @@ th {
   max-width: 100%;
   padding: 5px 8px;
   border-radius: 8px;
-  background: #eefdf6;
+  background: #eff6ff;
   color: #0f5f55;
   font-size: 11px;
   font-weight: 900;
@@ -5617,7 +5618,7 @@ th {
   min-width: 0;
   margin-top: 6px;
   padding-top: 14px;
-  border-top: 2px solid rgba(15, 118, 110, 0.2);
+  border-top: 2px solid rgba(37, 99, 235, 0.2);
 }
 
 .design-detail-motis {
@@ -5788,12 +5789,12 @@ th {
 }
 
 #dashboard .dashboard-scroll-list::-webkit-scrollbar-thumb {
-  background: rgba(15, 118, 110, 0.42);
+  background: rgba(37, 99, 235, 0.42);
   border-radius: 999px;
 }
 
 #dashboard .dashboard-scroll-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 118, 110, 0.68);
+  background: rgba(37, 99, 235, 0.68);
 }
 
 .stack-item {
@@ -6275,9 +6276,9 @@ dialog::backdrop {
 }
 
 .bill-total-card.highlight {
-  background: #e9f6f3;
+  background: #eff6ff;
   border-color: #b7dfd8;
-  color: #0b514c;
+  color: #1e40af;
 }
 
 #bill-dialog .bill-dialog-card {
@@ -6289,7 +6290,7 @@ dialog::backdrop {
   margin: 0;
   padding: 6px 10px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #0b514c, #0b7a75);
+  background: linear-gradient(135deg, #1e40af, #3b82f6);
   color: #fff;
   font-size: 16px;
   box-shadow: 0 12px 26px rgba(11, 81, 76, 0.16);
@@ -6327,7 +6328,7 @@ dialog::backdrop {
   display: grid;
   gap: 1px;
   min-width: 130px;
-  color: #0b514c;
+  color: #1e40af;
 }
 
 #bill-dialog .bill-lot-trace-heading > div:first-child strong {
@@ -6354,8 +6355,8 @@ dialog::backdrop {
   padding: 4px 6px;
   border: 1px solid #d6e8e4;
   border-radius: 6px;
-  background: #f3fbf8;
-  color: #0b514c;
+  background: #f5f8ff;
+  color: #1e40af;
   font-size: 10px;
   font-weight: 900;
 }
@@ -6373,7 +6374,7 @@ dialog::backdrop {
 #bill-dialog .bill-lot-trace summary {
   padding: 3px 5px;
   cursor: pointer;
-  color: #0b514c;
+  color: #1e40af;
   font-size: 9px;
   font-weight: 900;
   text-transform: uppercase;
@@ -6425,7 +6426,7 @@ dialog::backdrop {
 #bill-dialog .bill-fields {
   gap: 5px;
   padding: 5px;
-  border: 1px solid #d6e4e0;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
@@ -6452,7 +6453,7 @@ dialog::backdrop {
 #bill-dialog .bill-total-card {
   gap: 1px;
   padding: 4px 5px;
-  border-color: #d6e4e0;
+  border-color: #d6e1f0;
   border-left: 3px solid #9fd5cc;
   background: #fff;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
@@ -6469,7 +6470,7 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-total-card.highlight {
-  border-left-color: #0b7a75;
+  border-left-color: #3b82f6;
   background: #e7f8f3;
 }
 
@@ -6482,7 +6483,7 @@ dialog::backdrop {
   border: 1px solid #a9d8cf;
   border-radius: 8px;
   background: #e7f8f3;
-  color: #0b514c;
+  color: #1e40af;
 }
 
 #bill-dialog .bill-qc-bulk-toolbar > div {
@@ -6503,9 +6504,9 @@ dialog::backdrop {
 
 #bill-dialog #bill-qc-all-ok {
   flex: 0 0 auto;
-  border-color: #0b7a75;
+  border-color: #3b82f6;
   background: #fff;
-  color: #0b514c;
+  color: #1e40af;
   font-weight: 900;
 }
 
@@ -6552,31 +6553,31 @@ dialog::backdrop {
 
 #bill-dialog .bill-item-table tbody td {
   padding: 3px;
-  border-top: 1px solid #dbe8e5;
-  border-bottom: 1px solid #dbe8e5;
+  border-top: 1px solid #dce6f2;
+  border-bottom: 1px solid #dce6f2;
   background: #fff;
   vertical-align: middle;
 }
 
 #bill-dialog .bill-item-table tbody td:first-child {
-  border-left: 1px solid #dbe8e5;
+  border-left: 1px solid #dce6f2;
   border-top-left-radius: 8px;
   border-bottom-left-radius: 8px;
 }
 
 #bill-dialog .bill-item-table tbody td:last-child {
-  border-right: 1px solid #dbe8e5;
+  border-right: 1px solid #dce6f2;
   border-top-right-radius: 8px;
   border-bottom-right-radius: 8px;
 }
 
 #bill-dialog .bill-item-table tbody tr:hover td {
-  background: #fbfffd;
+  background: #f8faff;
 }
 
 #bill-dialog .bill-item-table td:first-child strong {
   display: block;
-  color: #0b514c;
+  color: #1e40af;
   font-size: 11px;
   line-height: 1.1;
 }
@@ -6587,7 +6588,7 @@ dialog::backdrop {
   padding: 3px 8px;
   border-color: #7fc6b5;
   background: #effbf7;
-  color: #075e52;
+  color: #1d4ed8;
   font-size: 9px;
   font-weight: 900;
   line-height: 1;
@@ -6596,7 +6597,7 @@ dialog::backdrop {
 
 #bill-dialog .bill-design-view-button:hover,
 #bill-dialog .bill-design-view-button:focus-visible {
-  border-color: #0b7a75;
+  border-color: #3b82f6;
   background: #d9f4eb;
   color: #063f39;
 }
@@ -6620,7 +6621,7 @@ dialog::backdrop {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  color: #0b514c;
+  color: #1e40af;
 }
 
 .bill-design-hover-heading strong {
@@ -6697,7 +6698,7 @@ dialog::backdrop {
 #bill-dialog .bill-item-table select:focus,
 #bill-dialog .bill-fields input:focus {
   outline: 2px solid rgba(11, 122, 117, 0.18);
-  border-color: #0b7a75;
+  border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(11, 122, 117, 0.08);
 }
 
@@ -6726,7 +6727,7 @@ dialog::backdrop {
 #bill-dialog input[name="billItemSize"] {
   border-color: #86cdb9;
   background: #effbf7;
-  color: #0b514c;
+  color: #1e40af;
   font-size: 12px;
   font-weight: 900;
   text-align: center;
@@ -6762,7 +6763,7 @@ dialog::backdrop {
 
 #bill-dialog .bill-item-table .dialog-note {
   padding: 4px 6px;
-  border: 1px solid #d6e4e0;
+  border: 1px solid #d6e1f0;
   border-radius: 0 0 8px 8px;
   background: #fff;
   color: #526b67;
@@ -6777,7 +6778,7 @@ dialog::backdrop {
   gap: 4px;
   margin: 0 -8px -8px;
   padding: 6px 8px;
-  border: 1px solid #d6e4e0;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 -10px 22px rgba(15, 23, 42, 0.07);
@@ -6885,7 +6886,7 @@ dialog::backdrop {
 }
 
 .order-current-card strong {
-  color: #0b514c;
+  color: #1e40af;
   font-size: 17px;
   overflow-wrap: anywhere;
 }
@@ -6923,7 +6924,7 @@ dialog::backdrop {
   grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
   gap: 12px;
   padding: 12px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: #f7fbfa;
 }
@@ -6956,8 +6957,8 @@ dialog::backdrop {
 }
 
 .job-split-search-row input:focus {
-  border-color: #0f766e;
-  outline: 3px solid rgba(15, 118, 110, 0.12);
+  border-color: #2563eb;
+  outline: 3px solid rgba(37, 99, 235, 0.12);
 }
 
 #job-split-search-summary {
@@ -6968,14 +6969,14 @@ dialog::backdrop {
 
 .job-split-selected-panel {
   padding-left: 12px;
-  border-left: 1px solid #c9e5df;
+  border-left: 1px solid #cbdaf0;
 }
 
 .job-split-selected-heading {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  color: #153d36;
+  color: #1e3a8a;
   font-size: 12px;
 }
 
@@ -7039,7 +7040,7 @@ dialog::backdrop {
   gap: 10px;
   min-width: 0;
   padding: 12px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: #f7fbfa;
 }
@@ -7097,8 +7098,8 @@ dialog::backdrop {
 
 .merge-job-candidate-card:hover,
 .merge-job-candidate-card.selected {
-  border-color: #0f766e;
-  background: #eaf8f3;
+  border-color: #2563eb;
+  background: #eff6ff;
 }
 
 .merge-job-candidate-card input {
@@ -7151,8 +7152,8 @@ dialog::backdrop {
 }
 
 .job-item-select-card.selected-for-split {
-  border-color: #0f766e;
-  background: #eaf8f3;
+  border-color: #2563eb;
+  background: #eff6ff;
 }
 
 .job-split-toolbar {
@@ -7187,10 +7188,10 @@ dialog::backdrop {
   gap: 7px;
   width: fit-content;
   padding: 5px 9px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 999px;
   background: #f7fbfa;
-  color: #153d36;
+  color: #1e3a8a;
   font-size: 12px;
   font-weight: 900;
 }
@@ -7208,7 +7209,7 @@ dialog::backdrop {
   .job-split-selected-panel {
     padding-top: 10px;
     padding-left: 0;
-    border-top: 1px solid #c9e5df;
+    border-top: 1px solid #cbdaf0;
     border-left: 0;
   }
 }
@@ -7229,7 +7230,7 @@ dialog::backdrop {
 .job-item-open-button:hover,
 .job-item-open-button.active {
   background: #f4fbf9;
-  border-color: #0f766e;
+  border-color: #2563eb;
   color: var(--ink);
   transform: translateY(-1px);
 }
@@ -7244,7 +7245,7 @@ dialog::backdrop {
 
 .job-item-open-button strong {
   font-size: 18px;
-  color: #0b514c;
+  color: #1e40af;
 }
 
 .job-item-open-button span {
@@ -7399,9 +7400,9 @@ dialog::backdrop {
   gap: 8px;
   margin-top: 12px;
   padding: 10px;
-  border: 1px solid #a9d5ca;
+  border: 1px solid #b8cae8;
   border-radius: 8px;
-  background: #f3fbf8;
+  background: #f5f8ff;
 }
 
 .job-item-fitting-accessory-heading,
@@ -7432,7 +7433,7 @@ dialog::backdrop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   padding: 8px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 7px;
   background: #ffffff;
 }
@@ -7581,7 +7582,7 @@ dialog::backdrop {
 
 .production-stone-target-panel {
   padding: 7px 9px;
-  border: 1px solid #c9e5df;
+  border: 1px solid #cbdaf0;
   border-radius: 8px;
   background: #f7fbfa;
 }
@@ -7650,7 +7651,7 @@ dialog::backdrop {
 
 .production-stone-chart-panel.has-chart {
   border-color: #68b19e;
-  background: #f2fbf7;
+  background: #f4f7ff;
 }
 
 .production-stone-chart-heading {
@@ -7679,14 +7680,14 @@ dialog::backdrop {
   gap: 7px;
   margin: 0;
   padding: 8px;
-  border: 1px solid #cbded8;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #ffffff;
 }
 
 .production-stone-chart-card figcaption,
 .production-stone-chart-card > strong {
-  color: #164f42;
+  color: #1e40af;
   font-size: 12px;
   font-weight: 900;
   text-align: center;
@@ -8071,13 +8072,13 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card {
   padding: 7px;
   border: 1px solid #d4e2dd;
-  background: #f8fbfa;
+  background: #f8faff;
   box-shadow: 0 4px 12px rgba(19, 58, 49, 0.06);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card:hover {
   border-color: #8bc9b2;
-  background: #f1faf6;
+  background: #f4f7ff;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-select-card.stone-entry-edited {
@@ -8109,7 +8110,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button > strong {
-  color: #064f48;
+  color: #1e3a8a;
   font-size: 20px;
   line-height: 1.15;
 }
@@ -8594,9 +8595,9 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .stock-order-print .transfer-bag-customer-box {
-  background: #eefdf7;
+  background: #eff6ff;
   border-color: #68bfa4;
-  color: #0f3f35;
+  color: #1e3a8a;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -8619,9 +8620,9 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-bag-items {
-  background: #eefdf7;
+  background: #eff6ff;
   border-color: #68bfa4 !important;
-  color: #0f3f35;
+  color: #1e3a8a;
   font-weight: 800;
 }
 
@@ -8717,8 +8718,8 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .print-stone-details .stone-item-total-row td {
-  background: #eefdf7;
-  color: #0f3f35;
+  background: #eff6ff;
+  color: #1e3a8a;
   font-weight: 900;
   border-top-color: #111827;
   border-bottom-color: #111827;
@@ -9483,8 +9484,8 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .bill-print-total.highlight {
-  background: #e9f6f3;
-  border-color: #0b7a75;
+  background: #eff6ff;
+  border-color: #3b82f6;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -10720,31 +10721,31 @@ body.measuring-transfer-bag .global-print-area {
 
 /* Visual refresh: calmer ERP workspace, denser tables, clearer action areas. */
 :root {
-  --bg: #f4f7f6;
+  --bg: #f4f7fc;
   --panel: #ffffff;
-  --ink: #18231f;
-  --muted: #68736f;
-  --line: #d8e0dc;
-  --brand: #0f766e;
-  --brand-dark: #0b514c;
-  --soft: #e9f6f3;
+  --ink: #172033;
+  --muted: #64748b;
+  --line: #dbe4f0;
+  --brand: #2563eb;
+  --brand-dark: #1e40af;
+  --soft: #eff6ff;
   --danger: #b42318;
   --success: #147a4f;
   --warning: #8a6a10;
-  --shadow-sm: 0 1px 2px rgba(24, 35, 31, 0.06);
-  --shadow-md: 0 12px 30px rgba(24, 35, 31, 0.10);
+  --shadow-sm: 0 1px 2px rgba(30, 41, 59, 0.06);
+  --shadow-md: 0 12px 30px rgba(30, 41, 59, 0.10);
 }
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.10), transparent 340px),
-    linear-gradient(180deg, #f7faf9 0%, var(--bg) 100%);
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.10), transparent 340px),
+    linear-gradient(180deg, #f8faff 0%, var(--bg) 100%);
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #153d36 0%, #102d29 100%);
+  background: linear-gradient(180deg, #1e3a8a 0%, #172554 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 6px 0 24px rgba(16, 45, 41, 0.10);
+  box-shadow: 6px 0 24px rgba(23, 37, 84, 0.10);
 }
 
 .brand {
@@ -10835,7 +10836,7 @@ button:active {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline: 3px solid rgba(37, 99, 235, 0.22);
   outline-offset: 2px;
 }
 
@@ -10871,7 +10872,7 @@ select:focus-visible {
 
 .metric strong,
 .report-card strong {
-  color: #0b514c;
+  color: #1e40af;
 }
 
 .metric-grid,
@@ -10913,7 +10914,7 @@ select:focus-visible {
   bottom: 12px;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(15, 118, 110, 0.09);
+  background: rgba(37, 99, 235, 0.09);
   color: var(--brand-dark);
   font-size: 11px;
   font-weight: 800;
@@ -10952,7 +10953,7 @@ select:focus-visible {
 }
 
 .design-tile-grid .action-tile::before {
-  background: linear-gradient(180deg, #0f766e, #67c6b5);
+  background: linear-gradient(180deg, #2563eb, #67c6b5);
 }
 
 .stone-tile-grid .action-tile::before {
@@ -10960,11 +10961,11 @@ select:focus-visible {
 }
 
 .moti-tile-grid .action-tile::before {
-  background: linear-gradient(180deg, #0f766e, #f4d35e);
+  background: linear-gradient(180deg, #2563eb, #f4d35e);
 }
 
 .order-tile-grid .action-tile::before {
-  background: linear-gradient(180deg, #0f766e, #f4d35e);
+  background: linear-gradient(180deg, #2563eb, #f4d35e);
 }
 
 .production-tile-grid .action-tile::before {
@@ -11094,12 +11095,12 @@ tbody tr:nth-child(even) {
 }
 
 tbody tr:hover {
-  background: #eef8f5;
+  background: #eff6ff;
 }
 
 .status,
 .user-pill {
-  border: 1px solid rgba(15, 118, 110, 0.18);
+  border: 1px solid rgba(37, 99, 235, 0.18);
 }
 
 .status.completed {
@@ -11113,8 +11114,8 @@ tbody tr:hover {
 }
 
 .status.transfer {
-  background: #e9f6f3;
-  color: #0b514c;
+  background: #eff6ff;
+  color: #1e40af;
 }
 
 .status.cancelled {
@@ -11135,7 +11136,7 @@ tbody tr:hover {
 
 .department-card strong,
 .office-summary-card strong {
-  color: #0b514c;
+  color: #1e40af;
 }
 
 dialog::backdrop {
@@ -11174,7 +11175,7 @@ dialog::backdrop {
 }
 
 .login-help {
-  background: #eef8f5;
+  background: #eff6ff;
 }
 
 /* Login polish and owner user-management scrolling. */
@@ -11184,8 +11185,8 @@ dialog::backdrop {
   padding: clamp(18px, 5vh, 48px) 18px;
   background:
     radial-gradient(circle at 16% 18%, rgba(244, 211, 94, 0.28), transparent 260px),
-    radial-gradient(circle at 78% 10%, rgba(15, 118, 110, 0.22), transparent 310px),
-    linear-gradient(135deg, #102d29 0%, #153d36 42%, #f4f7f6 42%, #f4f7f6 100%);
+    radial-gradient(circle at 78% 10%, rgba(37, 99, 235, 0.22), transparent 310px),
+    linear-gradient(135deg, #172554 0%, #1e3a8a 42%, #f4f7fc 42%, #f4f7fc 100%);
 }
 
 .login-card {
@@ -11195,7 +11196,7 @@ dialog::backdrop {
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 28px 90px rgba(16, 45, 41, 0.24);
+  box-shadow: 0 28px 90px rgba(23, 37, 84, 0.24);
   backdrop-filter: blur(14px);
 }
 
@@ -11216,11 +11217,11 @@ dialog::backdrop {
   margin: 0 0 6px;
   padding: 10px;
   background: #f5fbf9;
-  border: 1px solid #dcebe7;
+  border: 1px solid #dce6f2;
 }
 
 .login-brand strong {
-  color: #102d29;
+  color: #172554;
 }
 
 .login-card label {
@@ -11241,20 +11242,20 @@ dialog::backdrop {
 .login-card button[type="submit"] {
   min-height: 46px;
   border: 0;
-  background: linear-gradient(135deg, #0f766e, #153d36);
+  background: linear-gradient(135deg, #2563eb, #1e3a8a);
   color: #fff;
   font-weight: 900;
   letter-spacing: 0.02em;
 }
 
 .login-help {
-  border-color: #c9e5df;
+  border-color: #cbdaf0;
   background: linear-gradient(180deg, #f2fbf8, #ffffff);
 }
 
 .login-help .ghost-button {
   justify-self: start;
-  border-color: #c9e5df;
+  border-color: #cbdaf0;
 }
 
 #users {
@@ -11299,7 +11300,7 @@ dialog::backdrop {
 }
 
 .login-history-wrap td strong {
-  color: #064f48;
+  color: #1e3a8a;
 }
 
 .login-history-wrap td small {
@@ -11316,7 +11317,7 @@ dialog::backdrop {
   .login-screen {
     background:
       radial-gradient(circle at 20% 0%, rgba(244, 211, 94, 0.26), transparent 240px),
-      linear-gradient(180deg, #153d36 0%, #f4f7f6 46%);
+      linear-gradient(180deg, #1e3a8a 0%, #f4f7fc 46%);
   }
 
   .login-user-form {
@@ -11483,29 +11484,29 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 /* V266 visual remodel: cleaner ERP workspace across tiles, forms, tables, and dialogs. */
 :root {
-  --bg: #f3f7f5;
+  --bg: #f3f6fc;
   --panel: #ffffff;
-  --panel-soft: #f8fbfa;
-  --ink: #15231f;
-  --muted: #61716b;
-  --line: #d7e2de;
-  --brand: #08776c;
-  --brand-dark: #064f48;
-  --brand-soft: #e5f5f1;
+  --panel-soft: #f8faff;
+  --ink: #172033;
+  --muted: #64748b;
+  --line: #dbe4f0;
+  --brand: #2563eb;
+  --brand-dark: #1e3a8a;
+  --brand-soft: #eff6ff;
   --gold: #c89b2c;
   --gold-soft: #fff7df;
   --danger: #b42318;
   --success: #127a4d;
   --warning: #8a6a10;
-  --shadow-sm: 0 1px 2px rgba(21, 35, 31, 0.06);
-  --shadow-md: 0 14px 34px rgba(21, 35, 31, 0.10);
-  --shadow-lg: 0 28px 70px rgba(21, 35, 31, 0.18);
+  --shadow-sm: 0 1px 2px rgba(30, 41, 59, 0.06);
+  --shadow-md: 0 14px 34px rgba(30, 41, 59, 0.10);
+  --shadow-lg: 0 28px 70px rgba(30, 41, 59, 0.18);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) {
   color: var(--ink);
   background:
-    radial-gradient(circle at 6% 0%, rgba(8, 119, 108, 0.12), transparent 360px),
+    radial-gradient(circle at 6% 0%, rgba(37, 99, 235, 0.12), transparent 360px),
     radial-gradient(circle at 88% 8%, rgba(200, 155, 44, 0.15), transparent 330px),
     linear-gradient(180deg, #fbfdfc 0%, var(--bg) 100%);
   font-size: 14px;
@@ -11514,9 +11515,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar {
   width: 266px;
   padding: 20px 16px;
-  background: linear-gradient(180deg, #0d3a34 0%, #0f4a42 48%, #0a2925 100%);
+  background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 48%, #172554 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow: 12px 0 34px rgba(10, 41, 37, 0.14);
+  box-shadow: 12px 0 34px rgba(23, 37, 84, 0.14);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .brand {
@@ -11572,7 +11573,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: #ffffff;
   color: #0c3832;
   border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 12px 24px rgba(5, 31, 27, 0.22), inset 4px 0 0 var(--gold);
+  box-shadow: 0 12px 24px rgba(23, 37, 84, 0.22), inset 4px 0 0 var(--gold);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .app {
@@ -11593,7 +11594,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 14px 28px;
   background: rgba(249, 252, 251, 0.90);
   border-bottom: 1px solid rgba(215, 226, 222, 0.86);
-  box-shadow: 0 8px 26px rgba(21, 35, 31, 0.06);
+  box-shadow: 0 8px 26px rgba(30, 41, 59, 0.06);
   backdrop-filter: blur(16px);
 }
 
@@ -11634,10 +11635,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .top-action-group {
   min-height: 44px;
   padding: 6px;
-  border: 1px solid rgba(8, 119, 108, 0.13);
+  border: 1px solid rgba(37, 99, 235, 0.13);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.80);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 20px rgba(21, 35, 31, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 20px rgba(30, 41, 59, 0.05);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sync-group {
@@ -11667,7 +11668,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   width: 100%;
   min-width: 150px;
   height: 34px;
-  border-color: rgba(8, 119, 108, 0.24);
+  border-color: rgba(37, 99, 235, 0.24);
   background: #ffffff;
 }
 
@@ -11689,7 +11690,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .user-pill,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .status {
   min-height: 30px;
-  border: 1px solid rgba(8, 119, 108, 0.16);
+  border: 1px solid rgba(37, 99, 235, 0.16);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70);
 }
 
@@ -11788,7 +11789,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) textarea:focus {
   border-color: var(--brand);
   background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(8, 119, 108, 0.14);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
   outline: 0;
 }
 
@@ -11869,7 +11870,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .metric strong,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .department-card strong,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .report-card strong {
-  color: #064f48;
+  color: #1e3a8a;
   font-size: clamp(22px, 2.15vw, 32px);
   line-height: 1.1;
 }
@@ -11886,7 +11887,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #d6e2de;
   background:
     radial-gradient(circle at 88% 18%, rgba(200, 155, 44, 0.16), transparent 82px),
-    linear-gradient(180deg, #ffffff 0%, #f8fbfa 100%);
+    linear-gradient(180deg, #ffffff 0%, #f8faff 100%);
   box-shadow: var(--shadow-sm);
 }
 
@@ -11949,7 +11950,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .bill-item-table,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .design-stone-details,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-transfer-table {
-  border: 1px solid #d7e2de;
+  border: 1px solid #dbe4f0;
   border-radius: 8px;
   background: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70);
@@ -11994,21 +11995,21 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   margin: -24px -24px 2px;
   padding: 18px 24px;
   background: rgba(255, 255, 255, 0.94);
-  border-bottom: 1px solid #dbe7e3;
+  border-bottom: 1px solid #dce6f2;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .dialog-actions {
   margin: 10px -24px -24px;
   padding: 14px 24px;
   background: rgba(255, 255, 255, 0.95);
-  border-top: 1px solid #dbe7e3;
+  border-top: 1px solid #dce6f2;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .login-screen {
   background:
     radial-gradient(circle at 18% 18%, rgba(200, 155, 44, 0.24), transparent 280px),
-    radial-gradient(circle at 80% 10%, rgba(8, 119, 108, 0.26), transparent 330px),
-    linear-gradient(135deg, #0d3a34 0%, #0f4a42 44%, #f4f8f6 44%, #f4f8f6 100%);
+    radial-gradient(circle at 80% 10%, rgba(37, 99, 235, 0.26), transparent 330px),
+    linear-gradient(135deg, #1e3a8a 0%, #1e40af 44%, #f4f8f6 44%, #f4f8f6 100%);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .login-card {
@@ -12115,7 +12116,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .report-card:hover {
   border-color: #98d9c7;
   background: linear-gradient(180deg, #f1fff7 0%, #dcf8ec 100%);
-  box-shadow: 0 16px 36px rgba(8, 119, 108, 0.12);
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.12);
   transform: translateY(-2px);
 }
 
@@ -12178,8 +12179,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     width: 22px;
     display: grid;
     place-items: center;
-    background: linear-gradient(180deg, #bff2dc, #71d7b5);
-    color: #064f48;
+    background: linear-gradient(180deg, #bff2dc, #93c5fd);
+    color: #1e3a8a;
     font-size: 10px;
     font-weight: 1000;
     letter-spacing: 0.18em;
@@ -12190,7 +12191,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar:hover,
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar:focus-within {
     transform: translateX(0);
-    box-shadow: -22px 0 70px rgba(5, 31, 27, 0.26);
+    box-shadow: -22px 0 70px rgba(23, 37, 84, 0.26);
   }
 
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar nav {
@@ -12308,7 +12309,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #cbded8;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #f7fbfa;
 }
@@ -12401,7 +12402,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   display: grid;
   gap: 3px;
   padding: 8px 10px;
-  border: 1px solid #cbded8;
+  border: 1px solid #d6e1f0;
   border-radius: 6px;
   background: #eef7f4;
   color: #526963;
@@ -12626,10 +12627,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   margin-bottom: 14px;
   padding: 20px 22px;
   border: 1px solid #cfe5dd;
-  border-left: 5px solid #08776c;
+  border-left: 5px solid #2563eb;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 10px 26px rgba(10, 64, 57, 0.07);
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.07);
 }
 
 #daily-tally .daily-tally-page-head h2,
@@ -12652,7 +12653,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 #daily-tally .daily-tally-eyebrow {
   display: block;
-  color: #08776c;
+  color: #2563eb;
   font-size: 10px;
   font-weight: 1000;
   letter-spacing: 0.13em;
@@ -12666,7 +12667,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 12px 16px;
   border: 1px solid #b8ddd0;
   border-radius: 8px;
-  background: #eefaf5;
+  background: #eff6ff;
   color: #14594f;
   text-align: right;
 }
@@ -12690,7 +12691,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 14px 16px;
   border-color: #d5e6e0;
   background: #ffffff;
-  box-shadow: 0 8px 20px rgba(10, 64, 57, 0.06);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.06);
 }
 
 #daily-tally .daily-tally-summary .factory-summary-card:nth-child(2) {
@@ -12702,7 +12703,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 #daily-tally .daily-tally-summary .factory-summary-card:nth-child(4) {
-  border-top: 3px solid #08776c;
+  border-top: 3px solid #2563eb;
 }
 
 #daily-tally .daily-tally-workbench {
@@ -12720,10 +12721,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   width: 100%;
   margin: 0;
   padding: 20px;
-  border: 1px solid #cfe2dc;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 12px 30px rgba(10, 64, 57, 0.08);
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
 }
 
 #daily-tally .daily-tally-form-head,
@@ -12789,7 +12790,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #08776c;
+  background: #2563eb;
   color: #ffffff;
   font-size: 12px;
   font-weight: 1000;
@@ -12801,7 +12802,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 #daily-tally .daily-tally-section-title strong {
-  color: #173f39;
+  color: #1e3a8a;
   font-size: 14px;
 }
 
@@ -12848,8 +12849,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 #daily-tally .daily-tally-form input:focus,
 #daily-tally .daily-tally-form select:focus {
-  border-color: #08776c;
-  box-shadow: 0 0 0 3px rgba(8, 119, 108, 0.12);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 #daily-tally .daily-tally-result-grid {
@@ -12883,11 +12884,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #daily-tally .daily-tally-result-grid .daily-tally-difference {
   grid-column: auto;
   border-color: #a9d8c8;
-  background: #e9f8f2;
+  background: #eef6ff;
 }
 
 #daily-tally .daily-tally-result-grid .daily-tally-difference input {
-  color: #08776c;
+  color: #2563eb;
 }
 
 #daily-tally .daily-tally-result-grid .daily-tally-booking {
@@ -12938,7 +12939,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   overflow: hidden;
   border-color: #d2e4de;
   background: #ffffff;
-  box-shadow: 0 10px 26px rgba(10, 64, 57, 0.07);
+  box-shadow: 0 10px 26px rgba(37, 99, 235, 0.07);
 }
 
 #daily-tally .daily-tally-panel .panel-heading {
@@ -12950,7 +12951,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 #daily-tally .daily-tally-panel .panel-heading h2 {
   margin: 3px 0 0;
-  color: #173f39;
+  color: #1e3a8a;
   font-size: 17px;
 }
 
@@ -12973,7 +12974,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   top: 0;
   z-index: 2;
   padding: 11px 10px;
-  background: #eaf5f1;
+  background: #eff6ff;
   color: #315a53;
   font-size: 9px;
   letter-spacing: 0.05em;
@@ -13038,7 +13039,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   align-self: flex-start;
   gap: 4px;
   padding: 4px;
-  border: 1px solid #cfe2dc;
+  border: 1px solid #d6e1f0;
   border-radius: 7px;
   background: #eef6f3;
 }
@@ -13303,7 +13304,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 #daily-tally-container-dialog .dialog-header h2 {
   margin-top: 3px;
-  color: #173f39;
+  color: #1e3a8a;
 }
 
 #daily-tally-container-dialog .dialog-header p {
@@ -13347,7 +13348,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #08776c;
+  background: #2563eb;
   color: #ffffff;
   font-weight: 1000;
 }
@@ -13397,7 +13398,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 .daily-tally-container-list-panel .panel-heading h2 {
   margin: 0;
-  color: #173f39;
+  color: #1e3a8a;
   font-size: 16px;
 }
 
@@ -13417,7 +13418,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #eaf5f1;
+  background: #eff6ff;
 }
 
 .daily-tally-container-list-panel th:nth-child(1) { width: 18%; }
@@ -13497,7 +13498,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .app::-webkit-scrollbar-thumb,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .table-wrap::-webkit-scrollbar-thumb,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .dialog-card::-webkit-scrollbar-thumb {
-  border: 2px solid #f3f7f5;
+  border: 2px solid #f3f6fc;
   border-radius: 999px;
   background: #9ddfca;
 }
@@ -13703,7 +13704,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar:hover,
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .sidebar:focus-within {
     transform: translateX(0);
-    box-shadow: 22px 0 70px rgba(5, 31, 27, 0.26);
+    box-shadow: 22px 0 70px rgba(23, 37, 84, 0.26);
   }
 
   body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .app {
@@ -13847,7 +13848,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px dashed #9fd8c8;
   border-radius: 8px;
   background: #f1fff7;
-  color: #0a5f48;
+  color: #1d4ed8;
 }
 
 .catalogue-main-panel {
@@ -13887,7 +13888,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px dashed #a7d7c4;
   border-radius: 8px;
   background: #f3fff8;
-  color: #0a5f48;
+  color: #1d4ed8;
   font-weight: 900;
   text-align: center;
 }
@@ -13955,7 +13956,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .catalogue-card strong {
-  color: #064f48;
+  color: #1e3a8a;
   overflow-wrap: anywhere;
 }
 
@@ -13964,7 +13965,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 4px 8px;
   border-radius: 999px;
   background: #e4faed;
-  color: #0a5f48;
+  color: #1d4ed8;
   font-size: 11px;
   font-weight: 900;
 }
@@ -14002,7 +14003,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   height: 24px;
   border-radius: 999px;
   background: #e4faed;
-  color: #0a5f48;
+  color: #1d4ed8;
   font-weight: 900;
 }
 
@@ -14032,7 +14033,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .catalogue-selected-identity small {
-  color: #07594f;
+  color: #1d4ed8;
   font-weight: 900;
   overflow-wrap: anywhere;
 }
@@ -14065,7 +14066,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 0;
   border-radius: 0;
   background: #e8f7f1;
-  color: #07594f;
+  color: #1d4ed8;
   font-size: 18px;
   line-height: 1;
 }
@@ -14117,7 +14118,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .catalogue-barcode-status.success {
   border-color: #69bd99;
   background: #e6f8ef;
-  color: #07594f;
+  color: #1d4ed8;
 }
 
 .catalogue-barcode-status.error {
@@ -14143,26 +14144,26 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 /* V285 aesthetic polish: unified full-screen workspace, cleaner tiles, forms, dialogs, and melting conversion. */
 :root {
-  --v285-bg-top: #fbfdfb;
-  --v285-bg-bottom: #eef7f2;
+  --v285-bg-top: #fbfcff;
+  --v285-bg-bottom: #eef4ff;
   --v285-panel: rgba(255, 255, 255, 0.96);
-  --v285-panel-soft: #f7fcfa;
-  --v285-line: #d7e8e1;
-  --v285-line-strong: #aed8c9;
-  --v285-green: #08776c;
-  --v285-green-dark: #064f48;
-  --v285-green-soft: #e7faf1;
+  --v285-panel-soft: #f8faff;
+  --v285-line: #dbe5f3;
+  --v285-line-strong: #b8cae8;
+  --v285-green: #2563eb;
+  --v285-green-dark: #1e3a8a;
+  --v285-green-soft: #eef6ff;
   --v285-gold: #c89b2c;
   --v285-gold-soft: #fff7df;
-  --v285-ink: #13241f;
-  --v285-muted: #65756f;
-  --v285-shadow: 0 18px 48px rgba(12, 56, 50, 0.10);
-  --v285-soft-shadow: 0 8px 22px rgba(12, 56, 50, 0.07);
+  --v285-ink: #172033;
+  --v285-muted: #64748b;
+  --v285-shadow: 0 18px 48px rgba(30, 64, 175, 0.10);
+  --v285-soft-shadow: 0 8px 22px rgba(30, 64, 175, 0.07);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) {
   background:
-    radial-gradient(circle at 10% -8%, rgba(8, 119, 108, 0.12), transparent 360px),
+    radial-gradient(circle at 10% -8%, rgba(37, 99, 235, 0.12), transparent 360px),
     radial-gradient(circle at 88% 4%, rgba(200, 155, 44, 0.14), transparent 330px),
     linear-gradient(180deg, var(--v285-bg-top) 0%, var(--v285-bg-bottom) 100%);
   color: var(--v285-ink);
@@ -14176,9 +14177,9 @@ body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.print
   width: 220px;
   min-height: 48px;
   padding: 6px 10px 6px 7px;
-  border-color: rgba(8, 119, 108, 0.22);
+  border-color: rgba(37, 99, 235, 0.22);
   background: rgba(255, 255, 255, 0.90);
-  box-shadow: 0 14px 34px rgba(7, 46, 40, 0.12);
+  box-shadow: 0 14px 34px rgba(30, 58, 138, 0.12);
 }
 
 body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand-logo {
@@ -14192,15 +14193,15 @@ body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.print
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand {
   background: #f5fbf9;
-  border-color: #dcebe7;
+  border-color: #dce6f2;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand strong {
-  color: #102d29;
+  color: #172554;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand small:not(.app-version-badge) {
-  color: #52635e;
+  color: #64748b;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-brand .app-version-badge {
@@ -14222,7 +14223,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 12px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 252, 250, 0.90));
-  border-bottom-color: rgba(174, 216, 201, 0.76);
+  border-bottom-color: rgba(184, 202, 232, 0.76);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-actions {
@@ -14230,7 +14231,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .top-action-group {
-  border-color: rgba(174, 216, 201, 0.72);
+  border-color: rgba(184, 202, 232, 0.72);
   background: rgba(255, 255, 255, 0.82);
 }
 
@@ -14280,7 +14281,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile {
   min-height: 132px;
   padding: 18px 18px 46px 19px;
-  border-color: rgba(174, 216, 201, 0.80);
+  border-color: rgba(184, 202, 232, 0.80);
   background:
     radial-gradient(circle at 95% 0%, rgba(200, 155, 44, 0.18), transparent 110px),
     linear-gradient(180deg, #ffffff 0%, #f8fcfa 100%);
@@ -14292,8 +14293,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border-color: #8edfbf;
   background:
     radial-gradient(circle at 95% 0%, rgba(200, 155, 44, 0.20), transparent 115px),
-    linear-gradient(180deg, #f4fff8 0%, #ddf8ec 100%);
-  box-shadow: 0 18px 42px rgba(8, 119, 108, 0.14);
+    linear-gradient(180deg, #f5f8ff 0%, #ddf8ec 100%);
+  box-shadow: 0 18px 42px rgba(37, 99, 235, 0.14);
   outline: 0;
   transform: translateY(-2px);
 }
@@ -14319,7 +14320,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .catalogue-card,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-summary-card,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .melting-history-card {
-  border-color: rgba(215, 232, 225, 0.94);
+  border-color: rgba(219, 229, 243, 0.94);
   background: linear-gradient(180deg, var(--v285-panel) 0%, var(--v285-panel-soft) 100%);
   box-shadow: var(--v285-soft-shadow);
 }
@@ -14335,7 +14336,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   min-width: 0;
   gap: 10px;
   padding-bottom: 11px;
-  border-bottom-color: rgba(174, 216, 201, 0.76);
+  border-bottom-color: rgba(184, 202, 232, 0.76);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .panel-heading h2,
@@ -14354,7 +14355,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .source-row > label {
   min-width: 0;
   padding: 10px;
-  border: 1px solid rgba(215, 232, 225, 0.86);
+  border: 1px solid rgba(219, 229, 243, 0.86);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
 }
@@ -14378,17 +14379,17 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) select:focus,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) textarea:focus {
   border-color: var(--v285-green);
-  box-shadow: 0 0 0 3px rgba(8, 119, 108, 0.13);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) button {
-  box-shadow: 0 8px 18px rgba(8, 119, 108, 0.10);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.10);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .ghost-button,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .link-button {
   background: #ffffff;
-  box-shadow: 0 5px 14px rgba(12, 56, 50, 0.05);
+  box-shadow: 0 5px 14px rgba(30, 64, 175, 0.05);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .danger-button,
@@ -14401,7 +14402,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .bill-item-table,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-stone-details,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-transfer-table {
-  border-color: rgba(174, 216, 201, 0.78);
+  border-color: rgba(184, 202, 232, 0.78);
   background: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.80), var(--v285-soft-shadow);
 }
@@ -14423,15 +14424,15 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   justify-content: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #e7faf1;
-  color: #08776c;
+  background: #eef6ff;
+  color: #2563eb;
   font-size: 12px;
 }
 
 #customers .master-list-summary {
   display: block;
   margin-top: 4px;
-  color: #65756f;
+  color: #64748b;
 }
 
 #customers .customer-master-tools {
@@ -14489,7 +14490,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-card {
-  border: 1px solid rgba(174, 216, 201, 0.82);
+  border: 1px solid rgba(184, 202, 232, 0.82);
   background:
     radial-gradient(circle at top right, rgba(200, 155, 44, 0.12), transparent 320px),
     linear-gradient(180deg, #ffffff 0%, #f5fbf8 100%);
@@ -14499,14 +14500,14 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-card > .dialog-header,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-actions {
   background: rgba(255, 255, 255, 0.90);
-  border-color: rgba(174, 216, 201, 0.76);
+  border-color: rgba(184, 202, 232, 0.76);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-screen {
   background:
     radial-gradient(circle at 14% 16%, rgba(200, 155, 44, 0.24), transparent 310px),
-    radial-gradient(circle at 82% 12%, rgba(8, 119, 108, 0.28), transparent 360px),
-    linear-gradient(135deg, #0c3630 0%, #0f4a42 44%, #f3faf6 44%, #f3faf6 100%);
+    radial-gradient(circle at 82% 12%, rgba(37, 99, 235, 0.28), transparent 360px),
+    linear-gradient(135deg, #0c3630 0%, #1e40af 44%, #f3faf6 44%, #f3faf6 100%);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-card {
@@ -14564,10 +14565,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   max-width: none;
   width: 100%;
   align-items: end;
-  border-color: rgba(174, 216, 201, 0.88);
+  border-color: rgba(184, 202, 232, 0.88);
   background:
     radial-gradient(circle at 96% 0%, rgba(200, 155, 44, 0.14), transparent 260px),
-    linear-gradient(180deg, #ffffff 0%, #f4fbf8 100%);
+    linear-gradient(180deg, #ffffff 0%, #f5f8ff 100%);
   box-shadow: var(--v285-shadow);
 }
 
@@ -14590,7 +14591,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > .panel-heading {
   margin-top: 4px;
   padding: 14px;
-  border: 1px solid rgba(174, 216, 201, 0.74);
+  border: 1px solid rgba(184, 202, 232, 0.74);
   border-radius: 8px;
   background: rgba(244, 255, 248, 0.78);
 }
@@ -14606,10 +14607,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 10px;
   align-items: stretch;
   padding: 14px 14px 14px 46px;
-  border-color: rgba(174, 216, 201, 0.86);
+  border-color: rgba(184, 202, 232, 0.86);
   background:
     linear-gradient(180deg, #ffffff 0%, #f8fffb 100%);
-  box-shadow: 0 8px 22px rgba(12, 56, 50, 0.06);
+  box-shadow: 0 8px 22px rgba(30, 64, 175, 0.06);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-sources .source-row::before {
@@ -14635,7 +14636,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-form > label:has(input[readonly]) {
-  border-color: rgba(8, 119, 108, 0.20);
+  border-color: rgba(37, 99, 235, 0.20);
   background: linear-gradient(180deg, #f3fff8 0%, #ffffff 100%);
 }
 
@@ -14660,12 +14661,12 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .xrf-auto-issue-field {
-  border-color: rgba(8, 119, 108, 0.46);
+  border-color: rgba(37, 99, 235, 0.46);
   background: linear-gradient(180deg, #e8f8ef 0%, #ffffff 100%);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-form .xrf-auto-issue-field input[readonly] {
-  color: #075e52;
+  color: #1d4ed8;
   font-weight: 900;
   background: #dff4e8;
 }
@@ -14673,7 +14674,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-source-note {
   margin: 0;
   padding: 10px 12px;
-  border-left: 4px solid #08776c;
+  border-left: 4px solid #2563eb;
   border-radius: 6px;
   background: #eefaf4;
   color: #164f48;
@@ -14684,18 +14685,18 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #xrf-receive-selected {
-  background: #08776c;
-  border-color: #08776c;
+  background: #2563eb;
+  border-color: #2563eb;
   color: #ffffff;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-dashboard-metric {
-  border-color: rgba(8, 119, 108, 0.42);
+  border-color: rgba(37, 99, 235, 0.42);
   background: linear-gradient(180deg, #ebfaf3 0%, #ffffff 100%);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-dashboard-metric > strong {
-  color: #075e52;
+  color: #1d4ed8;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form {
@@ -14712,7 +14713,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #melting-receive-form > label {
   min-width: 0;
   padding: 10px;
-  border: 1px solid rgba(215, 232, 225, 0.86);
+  border: 1px solid rgba(219, 229, 243, 0.86);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
 }
@@ -14724,7 +14725,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   align-items: center;
   gap: 10px;
   min-height: 58px;
-  color: #075e52;
+  color: #1d4ed8;
   background: #edf9f4;
   border-color: #9ddfca;
 }
@@ -14750,7 +14751,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 .fitting-items-split-card > label {
   padding: 10px;
-  border: 1px solid rgba(215, 232, 225, 0.9);
+  border: 1px solid rgba(219, 229, 243, 0.9);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
 }
@@ -14777,26 +14778,26 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-entry-grid > label {
   min-width: 0;
   padding: 12px;
-  border: 1px solid rgba(174, 216, 201, 0.78);
+  border: 1px solid rgba(184, 202, 232, 0.78);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.82);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-receive-issue-grid {
   padding: 14px;
-  border: 1px solid rgba(174, 216, 201, 0.84);
+  border: 1px solid rgba(184, 202, 232, 0.84);
   border-radius: 8px;
   background: linear-gradient(180deg, #f0fbf6 0%, #ffffff 100%);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issue-weight-field {
-  border-color: rgba(8, 119, 108, 0.55) !important;
+  border-color: rgba(37, 99, 235, 0.55) !important;
   background: #e5f7ed !important;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issue-weight-field input,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .xrf-issued-weight {
-  color: #075e52;
+  color: #1d4ed8;
   font-weight: 900;
 }
 
@@ -14816,13 +14817,13 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-card-image,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .design-image-wrap {
   background: #ffffff;
-  border-color: rgba(174, 216, 201, 0.74);
+  border-color: rgba(184, 202, 232, 0.74);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #bill-dialog .bill-dialog-card,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .office-details-card,
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .history-dialog {
-  border-color: rgba(174, 216, 201, 0.86);
+  border-color: rgba(184, 202, 232, 0.86);
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #bill-dialog .bill-totals,
@@ -15371,7 +15372,7 @@ body.mobile-print-isolated .global-print-area {
   padding: 5px 10px;
   border: 1px solid #9fd8c7;
   border-radius: 999px;
-  background: #e9f8f2;
+  background: #eef6ff;
   color: #0b6558;
   font-size: 11px;
   font-weight: 900;
@@ -15396,7 +15397,7 @@ body.mobile-print-isolated .global-print-area {
   display: grid;
   gap: 5px;
   padding: 16px;
-  border: 1px solid #cbded8;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #f6fbf9;
   text-align: left;
@@ -15539,9 +15540,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 12px;
   align-items: end;
   padding: 12px;
-  border: 1px solid rgba(174, 216, 201, 0.86);
+  border: 1px solid rgba(184, 202, 232, 0.86);
   border-radius: 8px;
-  background: #f4fff8;
+  background: #f5f8ff;
 }
 
 .design-duplicate-list {
@@ -15570,7 +15571,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   height: 28px;
   border-radius: 999px;
   background: #e4faed;
-  color: #0a5f48;
+  color: #1d4ed8;
   font-weight: 1000;
 }
 
@@ -15618,12 +15619,12 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     min-width: 112px;
     height: 20px;
     padding: 0 16px;
-    border: 1px solid rgba(8, 119, 108, 0.18);
+    border: 1px solid rgba(37, 99, 235, 0.18);
     border-top: 0;
     border-radius: 0 0 8px 8px;
-    background: linear-gradient(180deg, #bff2dc, #71d7b5);
-    color: #064f48;
-    box-shadow: 0 10px 24px rgba(5, 31, 27, 0.14);
+    background: linear-gradient(180deg, #bff2dc, #93c5fd);
+    color: #1e3a8a;
+    box-shadow: 0 10px 24px rgba(23, 37, 84, 0.14);
     font-size: 10px;
     font-weight: 1000;
     letter-spacing: 0.18em;
@@ -15642,10 +15643,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     margin: 0;
     padding: 14px 28px;
     overflow: visible;
-    border: 1px solid rgba(174, 216, 201, 0.78);
+    border: 1px solid rgba(184, 202, 232, 0.78);
     border-top: 0;
     border-radius: 0 0 10px 10px;
-    box-shadow: 0 18px 48px rgba(12, 56, 50, 0.14);
+    box-shadow: 0 18px 48px rgba(30, 64, 175, 0.14);
     transform: translateY(calc(-100% - 4px));
     transition: transform 190ms ease, box-shadow 190ms ease;
   }
@@ -15784,7 +15785,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 10px;
   border: 1px solid #afd8ce;
   border-radius: 8px;
-  background: #f3fbf8;
+  background: #f5f8ff;
 }
 
 .safe-issue-stage-heading,
@@ -15972,7 +15973,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #bdd9cf;
   border-left: 5px solid #16806c;
   border-radius: 7px;
-  background: #f1faf6;
+  background: #f4f7ff;
   scroll-margin-top: 58px;
 }
 
@@ -16112,7 +16113,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 4px;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(151, 207, 186, 0.58);
+  border: 1px solid rgba(147, 197, 253, 0.58);
   border-radius: 7px;
   background: #f6fcf9;
   color: var(--muted);
@@ -16122,7 +16123,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .casting-wastage-balance strong {
-  color: #07594f;
+  color: #1d4ed8;
   font-size: 17px;
   line-height: 1.2;
 }
@@ -16177,9 +16178,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 4px;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid rgba(151, 207, 186, 0.7);
+  border: 1px solid rgba(147, 197, 253, 0.7);
   border-radius: 7px;
-  background: #f4fbf8;
+  background: #f5f8ff;
 }
 
 .safe-item-issue-history-totals span {
@@ -16190,7 +16191,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .safe-item-issue-history-totals strong {
-  color: #07594f;
+  color: #1d4ed8;
   font-size: 17px;
   line-height: 1.15;
 }
@@ -16272,7 +16273,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-bottom: 10px;
-    border: 1px solid rgba(151, 207, 186, 0.72);
+    border: 1px solid rgba(147, 197, 253, 0.72);
     border-radius: 7px;
     overflow: hidden;
   }
@@ -16348,9 +16349,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 4px;
   min-width: 0;
   padding: 12px 14px;
-  border: 1px solid rgba(151, 207, 186, 0.72);
+  border: 1px solid rgba(147, 197, 253, 0.72);
   border-radius: 7px;
-  background: #f2fbf7;
+  background: #f4f7ff;
 }
 
 .production-return-totals span {
@@ -16361,7 +16362,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .production-return-totals strong {
-  color: #07594f;
+  color: #1d4ed8;
   font-size: 20px;
   line-height: 1.15;
 }
@@ -16422,7 +16423,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  border: 1px solid #cfe2dc;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
   background: #fff;
 }
@@ -16456,7 +16457,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .camera-status.scanning {
-  color: #07594f;
+  color: #1d4ed8;
 }
 
 .camera-status.success {
@@ -16474,8 +16475,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #9fd7c5;
   border-radius: 999px;
   padding: 5px 9px;
-  background: #e9f8f2;
-  color: #07594f;
+  background: #eef6ff;
+  color: #1d4ed8;
   font-size: 10px;
   font-weight: 900;
   white-space: nowrap;
@@ -16523,7 +16524,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   align-items: end;
   gap: 10px;
   padding-top: 12px;
-  border-top: 1px solid #dbe7e3;
+  border-top: 1px solid #dce6f2;
 }
 
 .camera-scanner-fallback > span {
@@ -16545,8 +16546,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #9fc7bb;
   border-radius: 7px;
   padding: 9px 12px;
-  background: #f1faf6;
-  color: #07594f;
+  background: #f4f7ff;
+  color: #1d4ed8;
   font-size: 11px;
   font-weight: 900;
   cursor: pointer;
@@ -16577,7 +16578,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #77c5a8;
   border-radius: 8px;
   background: #e8f9f1;
-  color: #07594f;
+  color: #1d4ed8;
 }
 
 .camera-catalogue-result strong {
@@ -16601,9 +16602,9 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   gap: 16px;
   align-items: center;
   padding: 14px;
-  border: 1px solid #cfe2dc;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f1faf6 0%, #fff9e8 100%);
+  background: linear-gradient(135deg, #f4f7ff 0%, #fff9e8 100%);
 }
 
 .camera-product-image {
@@ -16641,7 +16642,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .camera-product-identity h3 {
-  color: #07594f;
+  color: #1d4ed8;
   font-size: clamp(24px, 4vw, 42px);
   line-height: 1.05;
   overflow-wrap: anywhere;
@@ -16664,7 +16665,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .camera-detail-section > h3 {
   padding-bottom: 6px;
   border-bottom: 2px solid #d8e9e3;
-  color: #07594f;
+  color: #1d4ed8;
   font-size: 13px;
 }
 
@@ -16679,7 +16680,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   min-width: 0;
   min-height: 58px;
   padding: 9px;
-  border: 1px solid #dbe7e3;
+  border: 1px solid #dce6f2;
   border-radius: 7px;
   background: #fbfdfc;
   color: #20322d;
@@ -16698,8 +16699,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .camera-weight-section .camera-product-detail-grid > span:first-child,
 .camera-weight-section .camera-product-detail-grid > span:nth-child(10) {
   border-color: #8fcbb8;
-  background: #eaf8f3;
-  color: #07594f;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .camera-product-readonly-note {
@@ -16827,7 +16828,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 18px 20px;
   border: 1px solid #b9ddcf;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f2fbf7 0%, #ffffff 62%, #eef7f3 100%);
+  background: linear-gradient(135deg, #f4f7ff 0%, #ffffff 62%, #eef7f3 100%);
   box-shadow: 0 10px 26px rgba(16, 74, 62, 0.08);
 }
 
@@ -16851,7 +16852,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 12px 16px;
   border-left: 4px solid #27a17f;
   border-radius: 6px;
-  background: #e9f8f2;
+  background: #eef6ff;
 }
 
 #fine-sheet .fine-sheet-formula small { color: #55756c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -16878,7 +16879,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #fine-sheet .fine-sheet-saved-backup-row select {
   min-width: 0;
   min-height: 37px;
-  border-color: #b9d7cd;
+  border-color: #bfd0e8;
   background: #fff;
 }
 #fine-sheet .fine-sheet-head-actions .secondary {
@@ -16909,7 +16910,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 5px;
   border: 1px solid #b9d9ce;
   border-radius: 8px;
-  background: #eaf5f1;
+  background: #eff6ff;
 }
 
 #fine-sheet .fine-sheet-pattern-switch button {
@@ -16986,7 +16987,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 #fine-sheet .fine-sheet-holding-filters input,
 #fine-sheet #fine-sheet-ledger-search {
   min-height: 38px;
-  border-color: #b9d7cd;
+  border-color: #bfd0e8;
   background: #fbfefd;
 }
 
@@ -17074,7 +17075,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 10px;
   border: 1px solid #badbcf;
   border-radius: 7px;
-  background: #f4fbf8;
+  background: #f5f8ff;
 }
 #fine-sheet .fine-sheet-reconciliation > div { display: grid; gap: 2px; padding: 7px 9px; border-right: 1px solid #d7e9e2; }
 #fine-sheet .fine-sheet-reconciliation > div:last-child { border-right: 0; }
@@ -17235,7 +17236,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 10px 12px;
   border: 1px solid #cfe4dc;
   border-radius: 8px;
-  background: linear-gradient(180deg, #f7fcfa, #eaf7f2);
+  background: linear-gradient(180deg, #f8faff, #eaf7f2);
 }
 
 .multi-bill-tag-summary b {
@@ -17245,7 +17246,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 .multi-bill-tag-summary small {
   overflow: hidden;
-  color: #60766f;
+  color: #64748b;
   font-size: 9px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -17307,7 +17308,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 .multi-bill-tag-group-head small {
   overflow: hidden;
-  color: #60766f;
+  color: #64748b;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -17369,7 +17370,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 .multi-bill-tag-item small {
-  color: #60766f;
+  color: #64748b;
   font-size: 9px;
 }
 
@@ -17429,7 +17430,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .manual-wip-fields-grid label {
   min-width: 0;
   padding: 12px;
-  border: 1px solid rgba(174, 216, 201, 0.86);
+  border: 1px solid rgba(184, 202, 232, 0.86);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.82);
 }
@@ -17463,14 +17464,14 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   padding: 12px;
   border: 1px solid #cfe4dc;
   border-radius: 8px;
-  background: linear-gradient(180deg, #f7fcfa, #eaf7f2);
+  background: linear-gradient(180deg, #f8faff, #eaf7f2);
 }
 
 .manual-wip-source-summary span,
 .manual-wip-source-summary small,
 .manual-wip-job-stone-summary span,
 .manual-wip-job-stone-summary small {
-  color: #60766f;
+  color: #64748b;
   font-size: 10px;
 }
 
@@ -17758,4 +17759,126 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .safe-wastage-history-table-wrap table {
     min-width: 760px;
   }
+}
+
+/* V622 FINAL OVERRIDE: unified blue visual theme across the complete ERP workspace. */
+:root {
+  --bg: #f3f6fc;
+  --panel: #ffffff;
+  --panel-soft: #f8faff;
+  --ink: #172033;
+  --muted: #64748b;
+  --line: #dbe4f0;
+  --brand: #2563eb;
+  --brand-dark: #1e40af;
+  --brand-soft: #eff6ff;
+  --soft: #eff6ff;
+  --v285-bg-top: #fbfcff;
+  --v285-bg-bottom: #eef4ff;
+  --v285-panel: rgba(255, 255, 255, 0.97);
+  --v285-panel-soft: #f8faff;
+  --v285-line: #dbe5f3;
+  --v285-line-strong: #b8cae8;
+  --v285-green: #2563eb;
+  --v285-green-dark: #1e40af;
+  --v285-green-soft: #eff6ff;
+  --v285-ink: #172033;
+  --v285-muted: #64748b;
+  --v285-shadow: 0 18px 48px rgba(30, 64, 175, 0.10);
+  --v285-soft-shadow: 0 8px 22px rgba(30, 64, 175, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% -8%, rgba(37, 99, 235, 0.13), transparent 360px),
+    radial-gradient(circle at 88% 4%, rgba(200, 155, 44, 0.13), transparent 330px),
+    linear-gradient(180deg, #fbfcff 0%, #eef4ff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .sidebar {
+  background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 48%, #172554 100%);
+  border-right-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 12px 0 34px rgba(23, 37, 84, 0.18);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .nav-item:hover {
+  border-color: rgba(147, 197, 253, 0.58);
+  background: rgba(59, 130, 246, 0.24);
+  color: #ffffff;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .nav-item.active {
+  border-color: rgba(255, 255, 255, 0.48);
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(23, 37, 84, 0.30);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .topbar {
+  border-color: rgba(184, 202, 232, 0.88);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 34px rgba(30, 64, 175, 0.09);
+}
+
+body:not(.logged-out):not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .always-brand {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 14px 34px rgba(30, 64, 175, 0.14);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-screen {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(200, 155, 44, 0.22), transparent 280px),
+    radial-gradient(circle at 80% 10%, rgba(37, 99, 235, 0.24), transparent 330px),
+    linear-gradient(135deg, #1e3a8a 0%, #1e40af 44%, #f4f7fc 44%, #f4f7fc 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.panel, .action-tile, .metric, .dialog-card) {
+  border-color: #dbe5f3;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile::before {
+  background: linear-gradient(180deg, #2563eb 0%, #60a5fa 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:focus-visible {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  box-shadow: 0 18px 42px rgba(37, 99, 235, 0.16);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.panel-heading, .dialog-card > .dialog-header, .dialog-actions) {
+  border-color: #dbe5f3;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.panel-heading h2, .panel-heading h3, .section-title-row h3, .topbar-title h1) {
+  color: #1e3a8a;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(input, select, textarea):focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  outline: none;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) table th {
+  border-color: #dbe5f3;
+  background: #eef4ff;
+  color: #1e3a8a;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) tbody tr:hover {
+  background: #eff6ff;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .ghost-button:not(.danger-button):not(.delete-btn) {
+  border-color: #b8cae8;
+  background: #f8faff;
+  color: #1e40af;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .ghost-button:not(.danger-button):not(.delete-btn):hover {
+  border-color: #60a5fa;
+  background: #eff6ff;
 }

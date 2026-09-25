@@ -38,10 +38,10 @@
   padding: 18px;
   overflow: auto;
   overscroll-behavior: contain;
-  background: #f7faf9;
-  border: 1px solid #cddbd7;
+  background: #f8faff;
+  border: 1px solid #d6e1f0;
   border-radius: 8px;
-  box-shadow: 0 24px 80px rgba(10, 47, 42, 0.24);
+  box-shadow: 0 24px 80px rgba(30, 64, 175, 0.20);
 }
 
 #production-page-setting form.setting-manager-detail.setting-manager-detail-open {
@@ -69,12 +69,12 @@
   margin: -18px -18px 12px;
   padding: 13px 18px;
   background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid #d8e4e0;
+  border-bottom: 1px solid #dbe5f3;
   backdrop-filter: blur(12px);
 }
 
 .setting-page-toolbar strong {
-  color: #123f38;
+  color: #1e3a8a;
   font-size: 18px;
 }
 
@@ -89,8 +89,8 @@ body.setting-manager-detail-active {
 #setting-direct-action-field {
   margin-top: 4px;
   padding: 12px;
-  background: #edf8f5;
-  border: 1px solid #b9ddd5;
+  background: #eff6ff;
+  border: 1px solid #bfd0e8;
   border-radius: 8px;
 }
 
@@ -104,7 +104,7 @@ body.setting-manager-detail-active {
 }
 
 #setting-receive-form.setting-direct-transfer-selected #setting-receive-submit {
-  background: #0b766c;
+  background: #2563eb;
 }
 
 @media (max-width: 900px) {
