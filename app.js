@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v625";
+const APP_VERSION = "v626";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -18372,7 +18372,7 @@ function billPrintHtml(lot, bill) {
           <p><b>Voucher No</b> : ${escapeHtml(bill.billNo || "-")}</p>
         </div>
         <div class="bill-sample-brand">
-          <img class="bill-print-logo" src="assets/vella-logo-light-blue-v623.png" alt="Khushali Jewells logo">
+          <img class="bill-print-logo" src="assets/vella-logo-original-v626.jpeg" alt="Khushali Jewells logo">
           <div class="bill-sample-title">
             <span>KHUSHALI JEWELLS</span>
             <strong>Bill</strong>
@@ -37935,7 +37935,7 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
   const holdingDifference = Number(weight3(holdingAccumulated - netFine));
   const partyRows = savedSnapshot?.partyRows || vendors.filter((row) => [row.inFine, row.outFine, row.balanceFine, row.metalSoldFine]
     .some((value) => Math.abs(Number(value || 0)) > 0.0005));
-  const logoUrl = new URL("assets/vella-logo-light-blue-v623.png", window.location.href).href;
+  const logoUrl = new URL("assets/vella-logo-original-v626.jpeg", window.location.href).href;
   const generatedAt = new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
   const savedAt = savedSnapshot
     ? new Date(savedSnapshot.savedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
