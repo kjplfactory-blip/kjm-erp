@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v620";
+const APP_VERSION = "v621";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3222,7 +3222,11 @@ document.getElementById("close-design-fitting-accessory")?.addEventListener("cli
 document.getElementById("cancel-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
 document.getElementById("design-fitting-accessory-form")?.addEventListener("change", (event) => {
   if (event.target.name === "sourceDesignId") renderDesignFittingAccessoryItemOptions();
-  if (event.target.name === "sourceItemKey" || event.target.name === "fittingQuantity") updateDesignFittingAccessorySummary();
+  if (event.target.name === "sourceItemKey") {
+    updateDesignFittingAccessorySummary();
+    void updateDesignFittingAccessoryPreview();
+  }
+  if (event.target.name === "fittingQuantity") updateDesignFittingAccessorySummary();
 });
 document.getElementById("design-fitting-accessory-form")?.addEventListener("input", (event) => {
   if (event.target.name === "fittingQuantity") updateDesignFittingAccessorySummary();
@@ -28938,7 +28942,14 @@ function fittingAccessoryDesignOptionHtml(design = {}) {
 }
 
 function closeDesignFittingAccessoryDialog() {
-  document.getElementById("design-fitting-accessory-dialog")?.close();
+  const dialog = document.getElementById("design-fitting-accessory-dialog");
+  dialog?.close();
+  dialog?.classList.remove("job-item-mode");
+  const previewImage = document.getElementById("design-fitting-accessory-preview-image");
+  if (previewImage) {
+    previewImage.removeAttribute("src");
+    previewImage.classList.add("hidden");
+  }
   pendingFittingAccessoryRows = [];
   renderPendingFittingAccessories();
 }
@@ -28978,7 +28989,9 @@ function openDesignFittingAccessoryDialog(designId = "", itemKey = "") {
   document.getElementById("design-fitting-accessory-target").textContent = `${designText(targetDesign)} / Item ${stoneItemInputValue(form.targetItemKey.value)}`;
   document.getElementById("design-fitting-accessory-note").textContent = "Enter how many fitting pieces are used. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and the source fitting design remain unchanged.";
   renderDesignFittingAccessoryItemOptions();
-  document.getElementById("design-fitting-accessory-dialog").showModal();
+  const dialog = document.getElementById("design-fitting-accessory-dialog");
+  dialog.classList.remove("job-item-mode");
+  dialog.showModal();
 }
 
 function openJobItemFittingAccessoryDialog(orderId = "") {
@@ -29002,7 +29015,9 @@ function openJobItemFittingAccessoryDialog(orderId = "") {
   document.getElementById("design-fitting-accessory-target").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order)} / Item ${stoneItemInputValue(targetItemKey)}`;
   document.getElementById("design-fitting-accessory-note").textContent = "Enter how many fitting pieces are used in this PR. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and Design Master remain unchanged.";
   renderDesignFittingAccessoryItemOptions();
-  document.getElementById("design-fitting-accessory-dialog").showModal();
+  const dialog = document.getElementById("design-fitting-accessory-dialog");
+  dialog.classList.add("job-item-mode");
+  dialog.showModal();
 }
 
 function renderDesignFittingAccessoryItemOptions() {
@@ -29020,7 +29035,44 @@ function renderDesignFittingAccessoryItemOptions() {
   const queueButton = document.getElementById("queue-design-fitting-accessory");
   if (queueButton) queueButton.disabled = !groups.length;
   updateDesignFittingAccessorySummary();
+  void updateDesignFittingAccessoryPreview();
   renderPendingFittingAccessories();
+}
+
+async function updateDesignFittingAccessoryPreview() {
+  const form = document.getElementById("design-fitting-accessory-form");
+  const preview = document.getElementById("design-fitting-accessory-preview");
+  const image = document.getElementById("design-fitting-accessory-preview-image");
+  const empty = document.getElementById("design-fitting-accessory-preview-empty");
+  const title = document.getElementById("design-fitting-accessory-preview-title");
+  const meta = document.getElementById("design-fitting-accessory-preview-meta");
+  if (!form || !preview || !image || !empty || !title || !meta) return;
+  const design = findById("designs", form.sourceDesignId.value);
+  const designId = design?.id || "";
+  preview.dataset.designId = designId;
+  image.classList.add("hidden");
+  image.removeAttribute("src");
+  empty.classList.remove("hidden");
+  if (!design) {
+    title.textContent = "Select a fitting design";
+    meta.textContent = "The Design Master image will appear here.";
+    empty.textContent = "Select a fitting design to verify its image.";
+    return;
+  }
+  const itemKey = normalizeStoneItemKey(form.sourceItemKey.value || "ITEM");
+  title.textContent = designText(design);
+  meta.textContent = `${design.category || "Fitting"} / Item ${stoneItemInputValue(itemKey)}`;
+  empty.textContent = "Loading Design Master image...";
+  const imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
+  if (preview.dataset.designId !== design.id) return;
+  if (!imageData && !design.imageData) {
+    empty.textContent = "No Design Master image is saved for this fitting.";
+    return;
+  }
+  image.src = imageData || design.imageData || "";
+  image.alt = `${designText(design)} fitting design`;
+  image.classList.remove("hidden");
+  empty.classList.add("hidden");
 }
 
 function updateDesignFittingAccessorySummary() {

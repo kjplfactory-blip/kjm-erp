@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v620</small>
+      <small class="app-version-badge">App v621</small>
           </div>
         </div>
         <label>User
@@ -129,7 +129,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v620</span>
+          <span class="app-version-badge">App v621</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -3168,35 +3168,50 @@
         <input type="hidden" name="targetDesignId">
         <input type="hidden" name="targetOrderId">
         <input type="hidden" name="targetItemKey">
-        <section class="design-fitting-accessory-fields">
-          <label>Source Fitting Design
-            <select name="sourceDesignId"></select>
-          </label>
-          <label>Source Fitting Item
-            <select name="sourceItemKey"></select>
-          </label>
-          <label>No. of Fitting Pcs
-            <input name="fittingQuantity" type="number" min="1" max="500" step="1" value="1" required>
-          </label>
-          <label>Fitting Accessory Name
-            <input name="fittingName" maxlength="80" placeholder="Shown after the original product using /">
-          </label>
-        </section>
-        <div id="design-fitting-accessory-summary" class="design-fitting-accessory-summary">Select a fitting design and item.</div>
-        <div class="design-fitting-accessory-queue-action">
-          <button class="ghost-button" type="button" id="queue-design-fitting-accessory">Add Fitting Row</button>
-          <small>Select a fitting and add it to the list. Repeat for every fitting required.</small>
+        <div class="design-fitting-accessory-workspace">
+          <aside class="design-fitting-accessory-preview" id="design-fitting-accessory-preview" data-design-id="">
+            <div class="design-fitting-accessory-preview-head">
+              <span>Selected Fitting Design</span>
+              <strong id="design-fitting-accessory-preview-title">Select a fitting design</strong>
+              <small id="design-fitting-accessory-preview-meta">The Design Master image will appear here.</small>
+            </div>
+            <div class="design-fitting-accessory-image-frame">
+              <img id="design-fitting-accessory-preview-image" class="hidden" alt="Selected fitting design">
+              <div id="design-fitting-accessory-preview-empty" class="design-fitting-accessory-preview-empty">Select a fitting design to verify its image.</div>
+            </div>
+          </aside>
+          <div class="design-fitting-accessory-editor">
+            <section class="design-fitting-accessory-fields">
+              <label>Source Fitting Design
+                <select name="sourceDesignId"></select>
+              </label>
+              <label>Source Fitting Item
+                <select name="sourceItemKey"></select>
+              </label>
+              <label>No. of Fitting Pcs
+                <input name="fittingQuantity" type="number" min="1" max="500" step="1" value="1" required>
+              </label>
+              <label>Fitting Accessory Name
+                <input name="fittingName" maxlength="80" placeholder="Shown after the original product using /">
+              </label>
+            </section>
+            <div id="design-fitting-accessory-summary" class="design-fitting-accessory-summary">Select a fitting design and item.</div>
+            <div class="design-fitting-accessory-queue-action">
+              <button class="ghost-button" type="button" id="queue-design-fitting-accessory">Add Fitting Row</button>
+              <small>Select a fitting and add it to the list. Repeat for every fitting required.</small>
+            </div>
+            <section class="design-fitting-accessory-pending-panel">
+              <div class="design-fitting-accessory-pending-head">
+                <strong>Fittings To Add</strong>
+                <span id="design-fitting-accessory-pending-count">0 rows</span>
+              </div>
+              <div id="design-fitting-accessory-pending" class="design-fitting-accessory-pending">
+                <div class="empty">No fitting rows added yet.</div>
+              </div>
+            </section>
+            <p id="design-fitting-accessory-note" class="dialog-note">Enter how many fitting pieces are used. Stone pieces and total stone weight are multiplied by that quantity; weight per stone remains unchanged.</p>
+          </div>
         </div>
-        <section class="design-fitting-accessory-pending-panel">
-          <div class="design-fitting-accessory-pending-head">
-            <strong>Fittings To Add</strong>
-            <span id="design-fitting-accessory-pending-count">0 rows</span>
-          </div>
-          <div id="design-fitting-accessory-pending" class="design-fitting-accessory-pending">
-            <div class="empty">No fitting rows added yet.</div>
-          </div>
-        </section>
-        <p id="design-fitting-accessory-note" class="dialog-note">Enter how many fitting pieces are used. Stone pieces and total stone weight are multiplied by that quantity; weight per stone remains unchanged.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-design-fitting-accessory">Cancel</button>
           <button type="submit" id="save-all-design-fitting-accessories">Add All Fittings</button>
@@ -3335,7 +3350,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=620"></script>
+  <script src="app.js?v=621"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
