@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v619";
+const APP_VERSION = "v620";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3222,7 +3222,10 @@ document.getElementById("close-design-fitting-accessory")?.addEventListener("cli
 document.getElementById("cancel-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
 document.getElementById("design-fitting-accessory-form")?.addEventListener("change", (event) => {
   if (event.target.name === "sourceDesignId") renderDesignFittingAccessoryItemOptions();
-  if (event.target.name === "sourceItemKey") updateDesignFittingAccessorySummary();
+  if (event.target.name === "sourceItemKey" || event.target.name === "fittingQuantity") updateDesignFittingAccessorySummary();
+});
+document.getElementById("design-fitting-accessory-form")?.addEventListener("input", (event) => {
+  if (event.target.name === "fittingQuantity") updateDesignFittingAccessorySummary();
 });
 document.getElementById("queue-design-fitting-accessory")?.addEventListener("click", queueCurrentFittingAccessory);
 document.getElementById("design-fitting-accessory-pending")?.addEventListener("click", (event) => {
@@ -15335,6 +15338,7 @@ function jobItemFittingAccessoryLinks(order = {}) {
           name: item.jobFittingAccessoryName || item.fittingAccessoryName || "Fitting Accessory",
           sourceDesignId: item.sourceFittingDesignId || "",
           sourceItemKey: item.sourceFittingItemKey || "",
+          quantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1),
           pcs: 0,
           weight: 0,
           rows: 0,
@@ -15367,7 +15371,7 @@ function jobItemFittingAccessoryPanelHtml(order = {}) {
                 <span>${escapeHtml(link.isJobItemAccessory ? "Added to this PR only" : "Inherited from Design Master")}</span>
               </div>
               <small>${escapeHtml(sourceDesign ? designText(sourceDesign) : "Fitting design")} / ${escapeHtml(stoneItemInputValue(link.sourceItemKey || "ITEM"))}</small>
-              <b>${escapeHtml(link.pcs)} pcs / ${escapeHtml(weight5(link.weight))} g</b>
+              <b>${escapeHtml(link.quantity)} fitting pcs / ${escapeHtml(link.pcs)} stone pcs / ${escapeHtml(weight5(link.weight))} g</b>
               ${link.isJobItemAccessory && canDeleteErpData() ? `<button class="delete-btn" type="button" onclick="removeJobItemFittingAccessory('${escapeHtml(order.id)}','${escapeHtml(link.id)}')">Remove</button>` : ""}
             </article>
           `;
@@ -16494,6 +16498,7 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       data-source-design-stone-id="${escapeHtml(item.sourceDesignStoneId || "")}"
       data-fitting-accessory-id="${escapeHtml(item.fittingAccessoryId || "")}"
       data-fitting-accessory-name="${escapeHtml(item.fittingAccessoryName || "")}"
+      data-fitting-accessory-quantity="${escapeHtml(fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1))}"
       data-job-fitting-accessory-id="${escapeHtml(item.jobFittingAccessoryId || "")}"
       data-job-fitting-accessory-name="${escapeHtml(item.jobFittingAccessoryName || "")}"
       data-source-fitting-design-id="${escapeHtml(item.sourceFittingDesignId || "")}"
@@ -16607,6 +16612,7 @@ function productionStoneItemWithMasterData(item = {}, { force = false } = {}) {
   const libraryWeight = item.isAdditionalStone ? "" : formatStoneWeight(libraryStone?.weightPerPc || "");
   const weightPerPc = force ? (libraryWeight || currentWeight) : (currentWeight || libraryWeight);
   const savedAdditionalTotal = item.isAdditionalStone ? formatStoneWeight(item.totalWeight || "") : "";
+  const savedFittingTotal = item.isFittingAccessory ? formatStoneWeight(item.totalWeight || "") : "";
   const exactTypeMatch = libraryStone && normalizeSearchText(libraryStone.stoneType) === normalizeSearchText(stoneType);
   const code = exactTypeMatch && libraryStone.code
     ? libraryStone.code
@@ -16618,7 +16624,7 @@ function productionStoneItemWithMasterData(item = {}, { force = false } = {}) {
     size,
     code,
     weightPerPc,
-    totalWeight: savedAdditionalTotal || (weightPerPc ? totalStoneWeight(weightPerPc, item.pcs) : (item.totalWeight || "")),
+    totalWeight: savedAdditionalTotal || savedFittingTotal || (weightPerPc ? totalStoneWeight(weightPerPc, item.pcs) : (item.totalWeight || "")),
   };
 }
 
@@ -16631,6 +16637,7 @@ function updateProductionStoneRowPreview(row) {
   const weightInput = row.querySelector('[data-production-stone-field="weightPerPc"]');
   const totalInput = row.querySelector('[data-production-stone-field="totalWeight"]');
   const isAdditionalStone = row.dataset.additionalStone === "true";
+  const isFittingAccessory = Boolean(row.dataset.fittingAccessoryId || row.dataset.fittingAccessoryName);
   const libraryStone = productionStoneLibraryMatch(stoneType, shape, size);
   const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
   const canUseOriginalWeight = stoneKey === row.dataset.originalStoneKey;
@@ -16640,7 +16647,9 @@ function updateProductionStoneRowPreview(row) {
   const weightPerPc = enteredWeight || libraryWeight || originalWeight;
   const code = stoneType && shape && size ? designStoneCodeForSelection(stoneType, shape, size) : "-";
   const enteredTotal = formatStoneWeight(totalInput?.value || "");
-  const total = enteredTotal || (weightPerPc ? totalStoneWeight(weightPerPc, pcs) : (canUseOriginalWeight ? row.dataset.originalTotalWeight : ""));
+  const total = enteredTotal || (weightPerPc
+    ? (isFittingAccessory ? formatStoneWeight(Number(weightPerPc) * pcs) : totalStoneWeight(weightPerPc, pcs))
+    : (canUseOriginalWeight ? row.dataset.originalTotalWeight : ""));
   const codeCell = row.querySelector("[data-production-stone-code]");
   const totalCell = row.querySelector("[data-production-stone-total]");
   if (codeCell) {
@@ -16670,6 +16679,7 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   const pcs = Number(row.querySelector('[data-production-stone-field="pcs"]')?.value || 0);
   const enteredWeight = formatStoneWeight(row.querySelector('[data-production-stone-field="weightPerPc"]')?.value || "");
   const isAdditionalStone = row.dataset.additionalStone === "true";
+  const isFittingAccessory = Boolean(row.dataset.fittingAccessoryId || row.dataset.fittingAccessoryName);
   const enteredTotalWeight = formatStoneWeight(row.querySelector('[data-production-stone-field="totalWeight"]')?.value || "");
   const isBlank = !stoneType && !shape && !size && !pcs && !enteredWeight && !enteredTotalWeight;
   if (isBlank) return null;
@@ -16685,7 +16695,9 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   );
   const totalWeight = isAdditionalStone && enteredTotalWeight
     ? enteredTotalWeight
-    : (weightPerPc ? totalStoneWeight(weightPerPc, pcs) : "");
+    : (weightPerPc
+      ? (isFittingAccessory ? formatStoneWeight(Number(weightPerPc) * pcs) : totalStoneWeight(weightPerPc, pcs))
+      : "");
   if ((!stoneType || !shape || !size || pcs <= 0 || Number(totalWeight || 0) <= 0) && validate) {
     throw new Error(`Stone row ${rowNumber}: select Type, Shape, Size, No. Pcs and enter Wt/Pc or Actual Total Wt.`);
   }
@@ -16697,12 +16709,13 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
     sourceDesignStoneId: row.dataset.sourceDesignStoneId || "",
     fittingAccessoryId: row.dataset.fittingAccessoryId || "",
     fittingAccessoryName: row.dataset.fittingAccessoryName || "",
+    fittingAccessoryQuantity: fittingAccessoryQuantity(row.dataset.fittingAccessoryQuantity || 1),
     jobFittingAccessoryId: row.dataset.jobFittingAccessoryId || "",
     jobFittingAccessoryName: row.dataset.jobFittingAccessoryName || "",
     sourceFittingDesignId: row.dataset.sourceFittingDesignId || "",
     sourceFittingItemKey: row.dataset.sourceFittingItemKey || "",
     sourceFittingStoneId: row.dataset.sourceFittingStoneId || "",
-    isFittingAccessory: Boolean(row.dataset.fittingAccessoryId || row.dataset.fittingAccessoryName),
+    isFittingAccessory,
     safeDepartmentIssueId: row.dataset.safeDepartmentIssueId || "",
     manualShelfIssue: row.dataset.manualShelfIssue === "true",
     isAdditionalStone,
@@ -20447,6 +20460,7 @@ function productionStoneItemFromDesignStone(item = {}) {
     sourceDesignStoneId: item.id || "",
     fittingAccessoryId: item.fittingAccessoryId || "",
     fittingAccessoryName: item.fittingAccessoryName || "",
+    fittingAccessoryQuantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1),
     jobFittingAccessoryId: item.jobFittingAccessoryId || "",
     jobFittingAccessoryName: item.jobFittingAccessoryName || "",
     sourceFittingDesignId: item.sourceFittingDesignId || "",
@@ -28868,6 +28882,28 @@ function designDetailStoneGroups(design = null, items = []) {
 
 let pendingFittingAccessoryRows = [];
 
+function fittingAccessoryQuantity(value = 1) {
+  return window.KJM_FITTING_ACCESSORY_QUANTITY_V620?.quantity(value, 1) || 1;
+}
+
+function scaledFittingAccessoryStoneRow(item = {}, quantity = 1) {
+  const scaler = window.KJM_FITTING_ACCESSORY_QUANTITY_V620;
+  if (scaler?.scaleRow) return scaler.scaleRow(item, quantity);
+  const fittingQuantity = fittingAccessoryQuantity(quantity);
+  return {
+    ...item,
+    pcs: Number(item.pcs || 0) * fittingQuantity,
+    totalWeight: formatStoneWeight(designDetailStoneRowWeight(item) * fittingQuantity),
+    fittingAccessoryQuantity: fittingQuantity,
+  };
+}
+
+function fittingAccessoryStoneTotals(items = [], quantity = 1) {
+  const calculator = window.KJM_FITTING_ACCESSORY_QUANTITY_V620;
+  if (calculator?.totals) return calculator.totals(items, quantity);
+  return designStoneTotals(items.map((item) => scaledFittingAccessoryStoneRow(item, quantity)));
+}
+
 function designFittingAccessoryLinks(items = []) {
   const links = new Map();
   items.filter((item) => item.fittingAccessoryId || item.fittingAccessoryName).forEach((item) => {
@@ -28878,6 +28914,7 @@ function designFittingAccessoryLinks(items = []) {
         name: item.fittingAccessoryName || "Fitting Accessory",
         sourceDesignId: item.sourceFittingDesignId || "",
         sourceItemKey: item.sourceFittingItemKey || "",
+        quantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1),
       });
     }
   });
@@ -28939,7 +28976,7 @@ function openDesignFittingAccessoryDialog(designId = "", itemKey = "") {
   renderFittingAccessorySourceDesignOptions(form, candidates);
   document.getElementById("design-fitting-accessory-title").textContent = "Add Fitting Accessory To Design";
   document.getElementById("design-fitting-accessory-target").textContent = `${designText(targetDesign)} / Item ${stoneItemInputValue(form.targetItemKey.value)}`;
-  document.getElementById("design-fitting-accessory-note").textContent = "The selected fitting stone rows will be copied into this Design Master item. Their pieces and stone weight will be included in this item's totals and in future Job Orders. The source fitting design remains unchanged.";
+  document.getElementById("design-fitting-accessory-note").textContent = "Enter how many fitting pieces are used. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and the source fitting design remain unchanged.";
   renderDesignFittingAccessoryItemOptions();
   document.getElementById("design-fitting-accessory-dialog").showModal();
 }
@@ -28963,7 +29000,7 @@ function openJobItemFittingAccessoryDialog(orderId = "") {
   renderFittingAccessorySourceDesignOptions(form, candidates);
   document.getElementById("design-fitting-accessory-title").textContent = "Add Fitting Accessory To Job Item";
   document.getElementById("design-fitting-accessory-target").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order)} / Item ${stoneItemInputValue(targetItemKey)}`;
-  document.getElementById("design-fitting-accessory-note").textContent = "The selected fitting stone rows will be copied only into this PR item. Their stone weight is included automatically in the item's total stone weight. The item name is shown as Original Product / Fitting Accessory. Design Master remains unchanged.";
+  document.getElementById("design-fitting-accessory-note").textContent = "Enter how many fitting pieces are used in this PR. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and Design Master remain unchanged.";
   renderDesignFittingAccessoryItemOptions();
   document.getElementById("design-fitting-accessory-dialog").showModal();
 }
@@ -28992,15 +29029,13 @@ function updateDesignFittingAccessorySummary() {
   if (!form || !summary) return;
   const sourceDesign = findById("designs", form.sourceDesignId.value);
   const sourceItemKey = normalizeStoneItemKey(form.sourceItemKey.value || "");
+  const fittingQuantity = fittingAccessoryQuantity(form.fittingQuantity?.value || 1);
   const rows = sourceDesign
     ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
     : [];
-  const totals = rows.reduce((total, item) => ({
-    pcs: total.pcs + Number(item.pcs || 0),
-    weight: total.weight + designDetailStoneRowWeight(item),
-  }), { pcs: 0, weight: 0 });
+  const totals = fittingAccessoryStoneTotals(rows, fittingQuantity);
   summary.innerHTML = rows.length
-    ? `<strong>${escapeHtml(designText(sourceDesign))} / ${escapeHtml(stoneItemInputValue(sourceItemKey))}</strong><span>${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${escapeHtml(totals.pcs)} pcs / ${escapeHtml(weight5(totals.weight))} g</span>`
+    ? `<strong>${escapeHtml(designText(sourceDesign))} / ${escapeHtml(stoneItemInputValue(sourceItemKey))}</strong><span>${fittingQuantity} fitting pcs / ${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${escapeHtml(totals.pcs)} stone pcs / ${escapeHtml(weight5(totals.weight))} g</span>`
     : sourceDesign
       ? `<strong>${escapeHtml(designText(sourceDesign))}</strong><span>NO STONE YET - add stone entry in Design Master before using this fitting.</span>`
       : "Select a fitting design.";
@@ -29028,6 +29063,13 @@ function queueCurrentFittingAccessory() {
   const sourceDesign = findById("designs", form.sourceDesignId.value);
   const sourceItemKey = normalizeStoneItemKey(form.sourceItemKey.value || "");
   const fittingName = String(form.fittingName.value || "").trim();
+  const requestedQuantity = Number(form.fittingQuantity?.value || 0);
+  if (!Number.isInteger(requestedQuantity) || requestedQuantity < 1 || requestedQuantity > 500) {
+    alert("Enter No. of Fitting Pcs from 1 to 500.");
+    form.fittingQuantity?.focus();
+    return;
+  }
+  const fittingQuantity = fittingAccessoryQuantity(requestedQuantity);
   const sourceRows = sourceDesign
     ? (sourceDesign.stoneItems || []).filter((item) => designDetailStoneItemKey(item, sourceDesign) === sourceItemKey)
     : [];
@@ -29048,17 +29090,19 @@ function queueCurrentFittingAccessory() {
     alert("This fitting design item is already included in the selected product item and cannot be counted twice.");
     return;
   }
-  const totals = designStoneTotals(sourceRows);
+  const totals = fittingAccessoryStoneTotals(sourceRows, fittingQuantity);
   pendingFittingAccessoryRows.push({
     id: crypto.randomUUID(),
     selectionKey,
     sourceDesignId: sourceDesign.id,
     sourceItemKey,
     fittingName,
+    quantity: fittingQuantity,
     stoneRows: sourceRows.length,
     pcs: totals.pcs,
     weight: totals.weight,
   });
+  if (form.fittingQuantity) form.fittingQuantity.value = "1";
   renderPendingFittingAccessories();
 }
 
@@ -29087,8 +29131,8 @@ function renderPendingFittingAccessories() {
           <strong>${escapeHtml(item.fittingName)}</strong>
           <span>${escapeHtml(sourceDesign ? designText(sourceDesign) : "Fitting design")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey))}</span>
         </div>
-        <small>${escapeHtml(item.stoneRows)} stone row${item.stoneRows === 1 ? "" : "s"}</small>
-        <strong>${escapeHtml(item.pcs)} pcs / ${escapeHtml(weight5(item.weight))} g</strong>
+        <small>${escapeHtml(item.quantity)} fitting pcs / ${escapeHtml(item.stoneRows)} stone row${item.stoneRows === 1 ? "" : "s"}</small>
+        <strong>${escapeHtml(item.pcs)} stone pcs / ${escapeHtml(weight5(item.weight))} g</strong>
         <button class="delete-btn" type="button" data-remove-pending-fitting="${escapeHtml(item.id)}">Remove</button>
       </article>
     `;
@@ -29135,14 +29179,15 @@ function addDesignFittingAccessory(event) {
       return;
     }
     existingKeys.add(selectionKey);
-    fittingNames.push(selection.fittingName);
+    fittingNames.push(`${selection.fittingName} x ${fittingAccessoryQuantity(selection.quantity)}`);
     const fittingAccessoryId = crypto.randomUUID();
     sourceRows.forEach((item) => copiedRows.push({
-      ...item,
+      ...scaledFittingAccessoryStoneRow(item, selection.quantity),
       id: crypto.randomUUID(),
       itemKey: targetItemKey,
       fittingAccessoryId,
       fittingAccessoryName: selection.fittingName,
+      fittingAccessoryQuantity: fittingAccessoryQuantity(selection.quantity),
       sourceFittingDesignId: sourceDesign.id,
       sourceFittingItemKey,
       sourceFittingStoneId: item.id || "",
@@ -29194,10 +29239,10 @@ function addJobItemFittingAccessories(form, selections = []) {
     }
     existingKeys.add(selectionKey);
     sourceLabels.push(`${designText(sourceDesign)} / ${stoneItemInputValue(sourceItemKey)}`);
-    fittingNames.push(selection.fittingName);
+    fittingNames.push(`${selection.fittingName} x ${fittingAccessoryQuantity(selection.quantity)}`);
     const jobFittingAccessoryId = crypto.randomUUID();
     sourceRows.forEach((item) => copiedRows.push({
-      ...productionStoneItemFromDesignStone(item),
+      ...productionStoneItemFromDesignStone(scaledFittingAccessoryStoneRow(item, selection.quantity)),
       id: crypto.randomUUID(),
       sourceDesignStoneId: item.id || "",
       fittingAccessoryId: jobFittingAccessoryId,
@@ -29207,6 +29252,7 @@ function addJobItemFittingAccessories(form, selections = []) {
       sourceFittingStoneId: item.id || "",
       jobFittingAccessoryId,
       jobFittingAccessoryName: selection.fittingName,
+      fittingAccessoryQuantity: fittingAccessoryQuantity(selection.quantity),
       isFittingAccessory: true,
       itemKey: targetItemKey,
     }));
@@ -29222,7 +29268,7 @@ function addJobItemFittingAccessories(form, selections = []) {
   const bucket = document.getElementById("order-dialog")?.dataset.bucket || "all";
   openOrderDetail(order.id, false, bucket);
   setTimeout(() => openJobItemDetail(order.id), 0);
-  alert(`${fittingNames.length} fitting${fittingNames.length === 1 ? "" : "s"} added together to ${order.productionNo || order.number}.\n${fittingNames.join(" / ")}\n${totals.pcs} pcs / ${weight5(totals.weight)} g is now included once in this item's total stone weight.\nDesign Master was not changed.`);
+  alert(`${fittingNames.length} fitting row${fittingNames.length === 1 ? "" : "s"} added together to ${order.productionNo || order.number}.\n${fittingNames.join(" / ")}\n${totals.pcs} stone pcs / ${weight5(totals.weight)} g is now included in this item's total stone weight.\nDesign Master was not changed.`);
 }
 
 function removeJobItemFittingAccessory(orderId = "", jobFittingAccessoryId = "") {
@@ -29284,7 +29330,7 @@ function renderDesignDetailStoneRows(design) {
           </div>
         </div>
         ${fittingAccessories.length ? `<div class="design-fitting-accessory-links">${fittingAccessories.map((accessory) => `
-          <span><b>${escapeHtml(accessory.name)}</b><small>Source ${escapeHtml(stoneItemInputValue(accessory.sourceItemKey || "ITEM"))}</small><button class="delete-btn" type="button" data-remove-design-fitting-accessory data-design-id="${escapeHtml(design.id)}" data-accessory-id="${escapeHtml(accessory.id)}" title="Remove fitting accessory">Remove</button></span>
+          <span><b>${escapeHtml(accessory.name)}</b><small>${escapeHtml(accessory.quantity)} fitting pcs / Source ${escapeHtml(stoneItemInputValue(accessory.sourceItemKey || "ITEM"))}</small><button class="delete-btn" type="button" data-remove-design-fitting-accessory data-design-id="${escapeHtml(design.id)}" data-accessory-id="${escapeHtml(accessory.id)}" title="Remove fitting accessory">Remove</button></span>
         `).join("")}</div>` : ""}
         <div class="design-detail-stone-item-rows">
           ${group.items.length ? group.items.map((item, index) => `
@@ -41275,6 +41321,7 @@ function normalizeState(currentState) {
         itemKey: normalizeStoneItemKey(item.itemKey),
         fittingAccessoryId: item.fittingAccessoryId || "",
         fittingAccessoryName: item.fittingAccessoryName || "",
+        fittingAccessoryQuantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1),
         sourceFittingDesignId: item.sourceFittingDesignId || "",
         sourceFittingItemKey: item.sourceFittingItemKey ? normalizeStoneItemKey(item.sourceFittingItemKey) : "",
         sourceFittingStoneId: item.sourceFittingStoneId || "",
@@ -41464,6 +41511,7 @@ function normalizeState(currentState) {
         sourceDesignStoneId: isAdditionalStone ? "" : (item.sourceDesignStoneId || matchedDesignStone?.id || ""),
         fittingAccessoryId: item.fittingAccessoryId || matchedDesignStone?.fittingAccessoryId || "",
         fittingAccessoryName: item.fittingAccessoryName || matchedDesignStone?.fittingAccessoryName || "",
+        fittingAccessoryQuantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || matchedDesignStone?.fittingAccessoryQuantity || 1),
         jobFittingAccessoryId: item.jobFittingAccessoryId || "",
         jobFittingAccessoryName: item.jobFittingAccessoryName || "",
         sourceFittingDesignId: item.sourceFittingDesignId || matchedDesignStone?.sourceFittingDesignId || "",
