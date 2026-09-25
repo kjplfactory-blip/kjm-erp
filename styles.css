@@ -18179,3 +18179,296 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border-color: #c7dcf3;
   background: rgba(248, 252, 255, 0.96);
 }
+
+/* V625 FINAL OVERRIDE: cloud-sky palette sampled from the supplied reference. */
+:root {
+  --bg: #eef8fd;
+  --panel: #ffffff;
+  --panel-soft: #f6fbfe;
+  --ink: #113954;
+  --muted: #5b7485;
+  --line: #c8e1ef;
+  --brand: #0070b0;
+  --brand-dark: #0060a0;
+  --brand-soft: #e3f3fb;
+  --soft: #e3f3fb;
+  --logo-blue: #0070b0;
+  --logo-blue-deep: #0060a0;
+  --logo-blue-ink: #07557f;
+  --logo-blue-medium: #3090d0;
+  --logo-blue-soft: #e3f3fb;
+  --logo-blue-pale: #f6fbfe;
+  --logo-blue-line: #b9daec;
+  --v285-bg-top: #fbfdff;
+  --v285-bg-bottom: #eaf6fc;
+  --v285-panel: rgba(255, 255, 255, 0.98);
+  --v285-panel-soft: #f5fbfe;
+  --v285-line: #c8e1ef;
+  --v285-line-strong: #acd2e7;
+  --v285-green: #0070b0;
+  --v285-green-dark: #0060a0;
+  --v285-green-soft: #e3f3fb;
+  --v285-ink: #113954;
+  --v285-muted: #5b7485;
+  --v285-shadow: 0 18px 48px rgba(0, 96, 160, 0.12);
+  --v285-soft-shadow: 0 8px 22px rgba(0, 96, 160, 0.09);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) {
+  color: var(--ink);
+  background: linear-gradient(180deg, #f9fdff 0%, #e6f4fb 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .app {
+  background: linear-gradient(180deg, #fbfeff 0%, #edf8fd 58%, #e5f3fa 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .sidebar {
+  background: linear-gradient(180deg, #3090d0 0%, #0070b0 52%, #0060a0 100%);
+  border-right-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 12px 0 34px rgba(0, 84, 139, 0.22);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .brand-logo {
+  background: #0070b0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.24), 0 8px 18px rgba(0, 75, 125, 0.24);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .nav-item:hover {
+  border-color: rgba(191, 230, 250, 0.74);
+  background: rgba(112, 176, 224, 0.28);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .nav-item.active {
+  border-color: rgba(255, 255, 255, 0.78);
+  background: #f8fdff;
+  color: #0060a0;
+  box-shadow: 0 10px 24px rgba(0, 75, 125, 0.26);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.topbar, .always-brand) {
+  border-color: rgba(112, 176, 224, 0.52);
+  background: rgba(250, 254, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(0, 96, 160, 0.11);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-screen {
+  background: linear-gradient(135deg, #50a0e0 0%, #2080c0 24%, #0060a0 43%, #e6f4fb 43%, #f8fdff 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .login-card {
+  border-color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 34px 80px rgba(0, 84, 139, 0.25);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(
+  .panel,
+  .form-panel,
+  .table-panel,
+  .dialog-card,
+  .department-card,
+  .department-panel,
+  .office-item-tile,
+  .catalogue-card,
+  .melting-summary-card,
+  .melting-history-card,
+  .safe-locker-card,
+  .safe-casting-shelf-card,
+  .setting-manager-panel,
+  .daily-tally-panel,
+  .fine-sheet-calculation-panel,
+  .fine-sheet-holding-panel,
+  .fine-sheet-ledger-panel,
+  .job-item-detail-card
+) {
+  border-color: #b9daec;
+  background: linear-gradient(180deg, #ffffff 0%, #f5fbfe 100%);
+  box-shadow: var(--v285-soft-shadow);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(
+  [class*="-card"],
+  [class*="-panel"],
+  [class*="-summary"],
+  [class*="-tile"]
+) {
+  border-color: #b9daec;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile {
+  border-color: #b9daec;
+  background: linear-gradient(180deg, #ffffff 0%, #e4f3fb 100%);
+  box-shadow: 0 8px 22px rgba(0, 96, 160, 0.10);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile::before {
+  background: linear-gradient(180deg, #2080c0 0%, #70b0e0 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile:focus-visible {
+  border-color: #4090d0;
+  background: linear-gradient(180deg, #f7fcff 0%, #d5eefb 100%);
+  box-shadow: 0 16px 36px rgba(0, 112, 176, 0.18);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(
+  .action-tile strong,
+  .panel-heading h2,
+  .panel-heading h3,
+  .section-title-row h3,
+  .form-panel > h2,
+  .topbar-title h1,
+  .dialog-header h2,
+  .dialog-header h3
+) {
+  color: #07557f;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .action-tile span {
+  color: #5b7485;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(input, select, textarea) {
+  border-color: #b8d8e9;
+  background: #ffffff;
+  color: #113954;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(input, select, textarea):focus {
+  border-color: #2080c0;
+  box-shadow: 0 0 0 3px rgba(48, 144, 208, 0.18);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(input[readonly], select[disabled], textarea[readonly]) {
+  border-color: #d2e6f1;
+  background: #ebf5fa;
+  color: #5b7485;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.table-wrap, .transfer-entry-table, .bill-item-table, .design-stone-details, .job-item-transfer-table) {
+  border-color: #b9daec;
+  box-shadow: inset 0 1px 0 #ffffff, 0 6px 18px rgba(0, 96, 160, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) table th,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) thead th {
+  border-color: #bcdcec;
+  background: linear-gradient(180deg, #e5f4fb 0%, #d2eafa 100%);
+  color: #07557f;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) tbody tr:hover {
+  background: #e3f3fb;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.ghost-button, .link-button):not(.danger-button):not(.delete-btn) {
+  border-color: #9fcbe3;
+  background: #f4fbfe;
+  color: #0060a0;
+  box-shadow: 0 5px 14px rgba(0, 96, 160, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.ghost-button, .link-button):not(.danger-button):not(.delete-btn):hover {
+  border-color: #4090d0;
+  background: #dff1fa;
+  color: #00568f;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(
+  .job-card-search-group,
+  .job-card-form-title,
+  .job-card-form-section,
+  .job-card-submit-row,
+  .order-entry-summary,
+  .design-item-summary,
+  .design-selected-summary,
+  .stone-total-summary,
+  .moti-lookup-card,
+  .stone-lookup-card,
+  .safe-metal-summary,
+  .safe-non-gold-summary-card,
+  .setting-manager-summary,
+  .setting-summary-card,
+  .department-card-summary,
+  .fine-sheet-summary,
+  .fine-sheet-holding-summary,
+  .multi-bill-tag-summary > span,
+  .manual-wip-source-summary > div,
+  .manual-wip-job-stone-summary > div
+) {
+  border-color: #b9daec;
+  background: linear-gradient(180deg, #f8fdff 0%, #e3f3fb 100%);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-card-search-button {
+  background: #0070b0;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-card-search-button:hover {
+  background: #0060a0;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-select-card {
+  border-color: #b9daec;
+  background: #f7fcff;
+  box-shadow: 0 4px 12px rgba(0, 96, 160, 0.08);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-select-card:hover {
+  border-color: #50a0e0;
+  background: #e3f3fb;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-open-button {
+  border-color: #b9daec !important;
+  background: linear-gradient(180deg, #ffffff 0%, #e8f5fb 100%) !important;
+  color: #113954 !important;
+  box-shadow: 0 3px 10px rgba(0, 96, 160, 0.10) !important;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-open-button:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-open-button.active {
+  border-color: #3090d0 !important;
+  background: #dceff9 !important;
+  color: #0b405f !important;
+  box-shadow: inset 4px 0 0 #2080c0, 0 8px 20px rgba(0, 96, 160, 0.16) !important;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-open-button .job-item-design-name {
+  color: #154b6b;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .job-item-open-button .job-item-stage {
+  border-color: #b9daec;
+  background: #e8f5fb;
+  color: #285f7d;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(
+  .department-transfer-tile,
+  .hallmark-batch-tile,
+  .office-bill-batch-tile,
+  .setter-ledger-tile,
+  .catalogue-category-card,
+  .design-image-tile
+):hover {
+  border-color: #4090d0;
+  background: #dff1fa;
+  box-shadow: 0 12px 28px rgba(0, 96, 160, 0.15);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) dialog::backdrop {
+  background: rgba(5, 68, 105, 0.48);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .dialog-card {
+  background: linear-gradient(180deg, #ffffff 0%, #edf8fd 100%);
+  box-shadow: 0 30px 90px rgba(0, 84, 139, 0.27);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) :is(.dialog-card > .dialog-header, .dialog-actions) {
+  border-color: #bcdcec;
+  background: rgba(247, 252, 255, 0.97);
+}

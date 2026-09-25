@@ -6,7 +6,7 @@
   margin: 0;
   padding: 8px;
   border: 0;
-  background: rgba(23, 37, 84, 0.30);
+  background: rgba(5, 68, 105, 0.34);
 }
 
 #setting-manual-transfer-dialog[open] {
@@ -36,8 +36,8 @@
 .setting-manual-transfer-calculation article {
   min-width: 0;
   padding: 12px;
-  background: #eff6ff;
-  border: 1px solid #c3d3ec;
+  background: #e3f3fb;
+  border: 1px solid #b9daec;
   border-radius: 7px;
 }
 
@@ -54,7 +54,7 @@
 .setting-manual-transfer-calculation strong {
   display: block;
   margin-top: 4px;
-  color: #1e3a8a;
+  color: #07557f;
   font-size: 17px;
   overflow-wrap: anywhere;
 }
