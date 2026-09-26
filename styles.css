@@ -6713,6 +6713,32 @@ dialog::backdrop {
   color: #063f39;
 }
 
+#bill-dialog .bill-item-stone-refresh-button {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-color: #71b9e8;
+  background: #edf8ff;
+  color: #075985;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#bill-dialog .bill-item-stone-refresh-button:hover,
+#bill-dialog .bill-item-stone-refresh-button:focus-visible {
+  border-color: #2184c5;
+  background: #d9f0ff;
+  color: #063f66;
+}
+
+#bill-dialog .bill-item-stone-status {
+  display: block;
+  color: #17678f;
+  font-weight: 900;
+}
+
 #bill-dialog .bill-item-remove-button {
   min-height: 24px;
   margin-top: 4px;
@@ -6838,6 +6864,19 @@ dialog::backdrop {
   color: #5c4200;
   font-size: 12px;
   font-weight: 900;
+}
+
+#bill-dialog .bill-final-gw-cell {
+  min-width: 106px;
+}
+
+#bill-dialog .bill-final-gw-cell [data-bill-gw-adjustment-note] {
+  display: block;
+  margin-top: 3px;
+  color: #7a5700;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 #bill-dialog input[name="billWastagePercent"] {

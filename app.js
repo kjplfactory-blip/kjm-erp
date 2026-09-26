@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v631";
+const APP_VERSION = "v632";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3068,6 +3068,12 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
     removeBillDraftItem(removeButton.dataset.removeBillItem || "");
     return;
   }
+  const refreshStoneButton = event.target.closest?.("[data-refresh-bill-stone]");
+  if (refreshStoneButton) {
+    event.preventDefault();
+    refreshBillItemStoneEntry(refreshStoneButton.dataset.refreshBillStone || "");
+    return;
+  }
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button) return;
   event.preventDefault();
@@ -3077,7 +3083,7 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
 
 document.getElementById("bill-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  saveBillFromForm(true);
+  saveBillFromForm(true, { applyGwSaveAdjustment: true });
 });
 
 document.getElementById("bill-dialog").addEventListener("close", () => {
@@ -3488,7 +3494,8 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     return null;
   }
   const draft = billDraftForLot(lot, existingBill);
-  const items = billItemRows(draft?.items || existingBill.items || []);
+  const applyGwSaveAdjustment = !qcOnlyWorkflow && (!existingBill.id || options.applyGwSaveAdjustment === true);
+  const items = billItemRows(draft?.items || existingBill.items || [], { applyGwSaveAdjustment });
   const totals = billTotals(items);
   const netWeight = totals.netWeight;
   const effectiveWastagePercent = netWeight > 0
@@ -3528,6 +3535,9 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     manufacturingBillAmount: 0,
     billAmount: 0,
     items,
+    gwSaveAdjustmentPerItem: BILL_ITEM_GW_SAVE_INCREMENT,
+    gwSaveAdjustmentItemCount: items.filter(billGwSaveAdjustmentIsApplied).length,
+    gwSaveAdjustmentTotal: Number(weight3(items.filter(billGwSaveAdjustmentIsApplied).length * BILL_ITEM_GW_SAVE_INCREMENT)),
     nonGoldStockAdjustment,
     manualWipCombinedAllocation,
     netWeight,
@@ -16614,6 +16624,7 @@ function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry") {
   order.productionStoneEditedAt = new Date().toISOString();
   order.productionStoneEditedBy = currentUser?.name || currentUserConfig()?.name || currentUser?.id || "ERP User";
   order.productionStoneEditSource = source;
+  syncBillStoneEntriesForUpdatedOrders([order], source);
   return order;
 }
 
@@ -36148,6 +36159,32 @@ function billNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
+
+function billGwSaveAdjustmentIsApplied(item = {}) {
+  return Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt)
+    && Math.abs(Number(item.gwSaveAdjustmentAmount || BILL_ITEM_GW_SAVE_INCREMENT) - BILL_ITEM_GW_SAVE_INCREMENT) < 0.0005;
+}
+
+function markBillFinalGwInputEdited(input) {
+  const row = input?.closest?.("tr[data-order-id]");
+  if (!row) return;
+  const currentText = String(input.value || "").trim();
+  const baselineText = String(row.dataset.billFinalGwBaseline || "").trim();
+  const matchesBaseline = currentText === baselineText
+    || (currentText !== "" && baselineText !== "" && Math.abs(Number(currentText) - Number(baselineText)) < 0.0005);
+  row.dataset.billGwEdited = matchesBaseline ? "false" : "true";
+  row.dataset.billGwAdjustmentApplied = matchesBaseline
+    ? (row.dataset.billGwAdjustmentOriginalApplied || "false")
+    : "false";
+  const note = row.querySelector("[data-bill-gw-adjustment-note]");
+  if (note) {
+    note.textContent = row.dataset.billGwAdjustmentApplied === "true"
+      ? `Save allowance +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g applied once`
+      : `Save Bill will add +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g once`;
+  }
+}
+
 function normalizeBbType(value = "") {
   const match = String(value || "").match(/\d+(?:\.\d+)?/);
   if (!match) return "";
@@ -36221,6 +36258,117 @@ function billItemNonGoldBreakup(item = {}, order = {}) {
     otherNonGoldWeight,
     total,
   };
+}
+
+function billItemWithLatestStoneEntry(item = {}, order = {}, source = "Job Card Stone Entry") {
+  const nonGold = billItemNonGoldBreakup(item, order);
+  const finalGwIsBlank = item.finalGw === "" || item.finalGw === null || item.finalGw === undefined;
+  const finalGw = finalGwIsBlank ? 0 : billNumber(item.finalGw);
+  const reducedWeight = Number(weight3(nonGold.total));
+  const netWeight = finalGwIsBlank ? 0 : Number(weight3(Math.max(finalGw - reducedWeight, 0)));
+  const wastagePercent = factoryWstgPercent(item.wastagePercent ?? item.wstgPercent ?? 0);
+  const baseFineWeight = fineGoldWeight(netWeight, item.purity || order.purity || "18K");
+  const wastageFineWeight = Number(weight3(netWeight * (wastagePercent / 100)));
+  return {
+    ...item,
+    stoneWeight: nonGold.stoneWeight,
+    stWeight: nonGold.stoneWeight,
+    reducedWeight,
+    netWeight,
+    baseFineWeight,
+    wastageFineWeight,
+    fineWeight: Number(weight3(baseFineWeight + wastageFineWeight)),
+    billStoneRowCount: productionStoneItemsForOrder(order).length,
+    billStoneSyncedAt: new Date().toISOString(),
+    billStoneSyncSource: source,
+  };
+}
+
+function refreshStoredBillTotals(bill = {}) {
+  const totals = billTotals(bill.items || []);
+  const commonWastagePercent = billCommonWastagePercent(bill.items || []);
+  bill.netWeight = totals.netWeight;
+  bill.baseFineWeight = totals.baseFineWeight;
+  bill.wastageFineWeight = totals.wastageFineWeight;
+  bill.fineWeight = totals.fineWeight;
+  bill.billWastagePercent = commonWastagePercent === "" ? null : commonWastagePercent;
+  bill.effectiveWastagePercent = totals.netWeight > 0
+    ? factoryWstgPercent((totals.wastageFineWeight / totals.netWeight) * 100)
+    : 0;
+  bill.nonGoldStockAdjustment = buildBillNonGoldStockAdjustment(
+    bill.items || [],
+    bill,
+    bill.billNo,
+    bill.billDate,
+  );
+  return bill;
+}
+
+function billAllowsAutomaticStoneSync(bill = {}) {
+  if (!bill?.id || isBillFactoryOutPosted(bill)) return false;
+  return !(bill.items || []).some((item) =>
+    item.officeStatus === "Office"
+    || item.factoryStatus === "Factory Out"
+    || item.repairStatus === "In Repair Production"
+  );
+}
+
+function syncBillStoneEntriesForUpdatedOrders(orders = [], source = "Job Card Stone Entry") {
+  const orderById = new Map((orders || []).filter((order) => order?.id).map((order) => [order.id, order]));
+  if (!orderById.size) return { draftItems: 0, billItems: 0 };
+  let draftItems = 0;
+  let billItems = 0;
+  let officialBillChanged = false;
+  (state.lots || []).forEach((lot) => {
+    const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+    const activeDraft = billDraftForLot(lot, storedBill);
+    if (activeDraft?.items?.length) {
+      let changed = false;
+      const items = activeDraft.items.map((item) => {
+        const order = orderById.get(item.orderId);
+        if (!order || order.manualWipOrder) return item;
+        const latestStoneWeight = automaticBillStoneWeight(order);
+        if (Math.abs(billNumber(item.stoneWeight ?? item.stWeight) - latestStoneWeight) < 0.000005) return item;
+        changed = true;
+        draftItems += 1;
+        return billItemWithLatestStoneEntry(item, order, source);
+      });
+      if (changed) {
+        const updatedAt = new Date().toISOString();
+        lot.billDraft = {
+          ...activeDraft,
+          items,
+          updatedAt,
+          updatedBy: currentUser?.name || currentUser?.id || "ERP User",
+          stoneSyncedAt: updatedAt,
+        };
+        lot.billDraftUpdatedAt = updatedAt;
+      }
+    }
+    if (!billAllowsAutomaticStoneSync(storedBill)) return;
+    let changed = false;
+    const items = (storedBill.items || []).map((item) => {
+      const order = orderById.get(item.orderId);
+      if (!order || order.manualWipOrder) return item;
+      const latestStoneWeight = automaticBillStoneWeight(order);
+      if (Math.abs(billNumber(item.stoneWeight ?? item.stWeight) - latestStoneWeight) < 0.000005) return item;
+      changed = true;
+      billItems += 1;
+      return billItemWithLatestStoneEntry(item, order, source);
+    });
+    if (!changed) return;
+    storedBill.items = items;
+    storedBill.billStoneSyncedAt = new Date().toISOString();
+    storedBill.billStoneSyncSource = source;
+    refreshStoredBillTotals(storedBill);
+    lot.bill = storedBill;
+    lot.productionStockWeight = billProductionStockWeight(storedBill);
+    const billIndex = (state.bills || []).findIndex((entry) => entry.id === storedBill.id || entry.lotId === lot.id);
+    if (billIndex >= 0) state.bills[billIndex] = storedBill;
+    officialBillChanged = true;
+  });
+  if (officialBillChanged) syncFactoryOutForBill();
+  return { draftItems, billItems };
 }
 
 function billAccessoryNonGoldBreakdown(item = {}) {
@@ -36523,11 +36671,51 @@ function removeBillDraftItem(orderId = "") {
   setBillDraftStatus(`${label} removed from this draft and returned to pending Billing. Remaining entries are saved.`, "saved");
 }
 
+function refreshBillItemStoneEntry(orderId = "") {
+  const form = document.getElementById("bill-form");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  const order = findById("orders", orderId);
+  const row = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"))
+    .find((entry) => entry.dataset.orderId === orderId);
+  if (!lot || !order || !row) {
+    alert("The selected Bill item or its Job Card stone entry could not be found.");
+    return;
+  }
+  const canRefresh = !bill.id ? canCreateBill() : canEditGeneratedBill();
+  if (!canRefresh || isReadOnlyUser()) {
+    alert(bill.id
+      ? "Only Owner or Manager can refresh stone weight in a generated Bill."
+      : "This login cannot update the pending Bill stone weight.");
+    return;
+  }
+  if (row.dataset.manualWip === "true") {
+    alert("This non-job-card WIP item uses manually verified stone weight and cannot refresh from a Job Card stone entry.");
+    return;
+  }
+  const stoneItems = productionStoneItemsForOrder(order);
+  const latestStoneWeight = Number(weight3(productionStoneTotals(stoneItems).weight || 0));
+  const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
+  row.dataset.jobStoneWeight = weight3(latestStoneWeight);
+  if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
+  const stoneStatus = row.querySelector("[data-bill-stone-status]");
+  if (stoneStatus) {
+    stoneStatus.textContent = `${stoneItems.length} stone row${stoneItems.length === 1 ? "" : "s"} / ${gram(latestStoneWeight)} refreshed`;
+  }
+  updateBillAmount();
+  const saved = saveBillDraftNow();
+  if (saved) {
+    const reference = order.productionNo || order.number || billOrderDesignCode(order) || "Item";
+    setBillDraftStatus(`${reference} stone entry refreshed to ${gram(latestStoneWeight)} and saved in this Bill draft.`, "saved");
+  }
+}
+
 function handleBillAmountChange(event) {
   if (event?.target?.id === "bill-item-search") {
     filterBillItems();
     return;
   }
+  if (event?.target?.name === "billItemFinalGw") markBillFinalGwInputEdited(event.target);
   if (event?.target?.name === "billWastagePercent") {
     applyBillWastageToAllItems(event.target.value);
     scheduleBillDraftSave({ immediate: event.type === "change" });
@@ -36720,6 +36908,10 @@ function renderBillItems(lot, bill = {}) {
     && !isReadOnlyUser()
     && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
   );
+  const canRefreshStoneEntries = Boolean(
+    !isReadOnlyUser()
+    && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
+  );
   const qcDisabled = canEditQcStatus() ? "" : " disabled";
   const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
@@ -36734,6 +36926,7 @@ function renderBillItems(lot, bill = {}) {
     const manualWip = Boolean(lotManualWip || order.manualWipOrder);
     const finalGwValue = saved.finalGw ?? (manualWip ? lot.manualWipGrossWeight || lot.grossIssuedWeight || order.manualWipGrossWeight || "" : "");
     const finalGw = Number(finalGwValue || 0);
+    const gwSaveAdjustmentApplied = billGwSaveAdjustmentIsApplied(saved);
     const netWeight = finalGwValue === "" ? 0 : Math.max(finalGw - nonGold.total, 0);
     const purity = saved.purity || order.purity || "18K";
     const qcStatus = saved.qcStatus || "Pending QC";
@@ -36750,16 +36943,18 @@ function renderBillItems(lot, bill = {}) {
       && billableOrders.length > 1
       && (!generatedBill.id || !generatedOrderIds.has(order.id));
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
+          ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
+          ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${canRemoveFromDraft ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove From Draft</button>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
-        <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
+        <td class="bill-final-gw-cell"><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"><small data-bill-gw-adjustment-note>${gwSaveAdjustmentApplied ? `Save allowance +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g applied once` : `Save Bill will add +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g once`}</small></td>
         <td>
           <div class="bill-non-gold-grid">
             <label>BB No <input name="billItemBbNo" type="number" min="0" step="1" value="${escapeHtml(nonGold.bbNo)}" placeholder="0"></label>
@@ -36788,7 +36983,7 @@ function renderBillItems(lot, bill = {}) {
   body.innerHTML = rows || tableEmpty(8, "No item details found for this job card.");
 }
 
-function billItemRows(existingItems = []) {
+function billItemRows(existingItems = [], options = {}) {
   const canChangeQc = canEditQcStatus();
   const billWastagePercent = factoryWstgPercent(document.querySelector('#bill-form [name="billWastagePercent"]')?.value || 0);
   return Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]")).map((row) => {
@@ -36805,7 +37000,27 @@ function billItemRows(existingItems = []) {
     const reducedInput = row.querySelector('[name="billItemReducedWeight"]');
     const netInput = row.querySelector('[name="billItemNetWeight"]');
     const qcStatusInput = row.querySelector('[name="billItemQcStatus"]');
-    const finalGw = Number(finalGwInput?.value || 0);
+    const enteredFinalGw = Number(finalGwInput?.value || 0);
+    const rowEdited = row.dataset.billGwEdited === "true";
+    let gwSaveAdjustmentApplied = row.dataset.billGwAdjustmentApplied === "true" && !rowEdited;
+    let gwSaveAdjustmentAppliedAt = gwSaveAdjustmentApplied ? (existing.gwSaveAdjustmentAppliedAt || "") : "";
+    let gwBeforeSaveAdjustment = gwSaveAdjustmentApplied
+      ? Number(existing.gwBeforeSaveAdjustment ?? Math.max(enteredFinalGw - BILL_ITEM_GW_SAVE_INCREMENT, 0))
+      : enteredFinalGw;
+    let finalGw = enteredFinalGw;
+    if (options.applyGwSaveAdjustment && finalGw > 0 && !gwSaveAdjustmentApplied) {
+      gwBeforeSaveAdjustment = finalGw;
+      finalGw = Number(weight3(finalGw + BILL_ITEM_GW_SAVE_INCREMENT));
+      gwSaveAdjustmentApplied = true;
+      gwSaveAdjustmentAppliedAt = new Date().toISOString();
+      if (finalGwInput) finalGwInput.value = billWeightInputValue(finalGw);
+      row.dataset.billFinalGwBaseline = String(finalGw);
+      row.dataset.billGwEdited = "false";
+      row.dataset.billGwAdjustmentApplied = "true";
+      row.dataset.billGwAdjustmentOriginalApplied = "true";
+      const adjustmentNote = row.querySelector("[data-bill-gw-adjustment-note]");
+      if (adjustmentNote) adjustmentNote.textContent = `Save allowance +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g applied once`;
+    }
     const bbNo = (bbNoInput?.value || "").trim();
     const bbType = (bbTypeInput?.value || "").trim();
     const calculatedBbWeight = bbWeightFromType(bbNo, bbType);
@@ -36837,6 +37052,10 @@ function billItemRows(existingItems = []) {
       size: String(sizeInput?.value || "").trim(),
       purity: row.dataset.purity || "",
       finalGw: Number(weight3(finalGw)),
+      gwBeforeSaveAdjustment: Number(weight3(gwBeforeSaveAdjustment)),
+      gwSaveAdjustmentApplied,
+      gwSaveAdjustmentAmount: gwSaveAdjustmentApplied ? BILL_ITEM_GW_SAVE_INCREMENT : 0,
+      gwSaveAdjustmentAppliedAt,
       bbNo,
       bbType: normalizeBbType(bbType),
       blackBeads: bbNo || existing.blackBeads || "",
