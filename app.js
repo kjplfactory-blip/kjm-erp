@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v626";
+const APP_VERSION = "v627";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -2868,9 +2868,15 @@ document.getElementById("bill-search").addEventListener("input", renderBills);
 document.getElementById("open-manual-wip-billing").addEventListener("click", openManualWipBillingDialog);
 document.getElementById("close-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
 document.getElementById("cancel-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
-document.getElementById("manual-wip-billing-form").addEventListener("change", updateManualWipBillingDialog);
+document.getElementById("manual-wip-billing-form").addEventListener("change", handleManualWipBillingChange);
 document.getElementById("manual-wip-billing-form").addEventListener("input", updateManualWipBillingDialog);
 document.getElementById("manual-wip-billing-form").addEventListener("submit", saveManualWipBillingDisposition);
+document.getElementById("manual-wip-job-search")?.addEventListener("input", () => {
+  renderManualWipCombinedOrderPicker();
+  updateManualWipBillingDialog();
+});
+document.getElementById("manual-wip-select-visible")?.addEventListener("click", selectVisibleManualWipBillOrders);
+document.getElementById("manual-wip-clear-selection")?.addEventListener("click", clearManualWipBillOrderSelection);
 document.getElementById("office-search").addEventListener("input", renderOffice);
 document.getElementById("office").addEventListener("change", saveOfficeHuidFromTable);
 document.getElementById("office-table").addEventListener("change", saveOfficeHuidFromTable);
@@ -3108,6 +3114,149 @@ document.getElementById("multi-bill-tag-clear").addEventListener("click", () => 
 document.getElementById("print-multi-bill-tags-a6").addEventListener("click", printSelectedMultiBillTags);
 document.getElementById("multi-bill-tag-list").addEventListener("change", handleMultiBillTagSelectionChange);
 
+function clearManualWipCombinedBillAllocations(lotId = "") {
+  if (!lotId) return;
+  (state.safeDepartmentIssues || []).forEach((issue) => {
+    const allocations = issue.manualWipAllocations || [];
+    const kept = allocations.filter((allocation) => allocation.manualCombinedBillLotId !== lotId);
+    if (kept.length === allocations.length) return;
+    issue.manualWipAllocations = kept;
+    issue.status = "In Department";
+    issue.updatedAt = new Date().toISOString();
+    delete issue.closedAt;
+    if (issue.manualWipDisposition === "combined-job-bill") delete issue.manualWipDisposition;
+  });
+  state.ledger = (state.ledger || []).filter((entry) => !(entry.sourceType === "manual-combined-bill" && entry.sourceId === lotId));
+}
+
+function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "") {
+  if (!lot.manualWipCombinedBill) return null;
+  const billableItems = items.filter((item) => !isDiscardedItem(item));
+  const missingWeight = billableItems.filter((item) => Number(item.finalGw || 0) <= 0.0005);
+  if (missingWeight.length) {
+    const references = missingWeight.slice(0, 5).map((item) => item.productionNo || item.designNo || "Item").join(", ");
+    throw new Error(`Enter the actual Final GW for every selected item before saving this Bill. Missing: ${references}${missingWeight.length > 5 ? "..." : ""}`);
+  }
+  clearManualWipCombinedBillAllocations(lot.id);
+  const sources = manualWipBillingSources();
+  const demandByPurity = new Map();
+  billableItems.forEach((item) => {
+    const purity = karatLogicPurity(item.purity || "18K");
+    const key = karatPurityKey(purity) || transferPurityLabel(purity);
+    const current = demandByPurity.get(key) || { purity: transferPurityLabel(purity), grossWeight: 0, itemCount: 0 };
+    current.grossWeight = Number(weight3(current.grossWeight + Number(item.finalGw || 0)));
+    current.itemCount += 1;
+    demandByPurity.set(key, current);
+  });
+  const availableByPurity = new Map();
+  sources.forEach((source) => {
+    const key = karatPurityKey(source.purity || "18K") || transferPurityLabel(source.purity || "18K");
+    availableByPurity.set(key, Number(weight3(Number(availableByPurity.get(key) || 0) + Number(source.grossWeight || 0))));
+  });
+  demandByPurity.forEach((demand, key) => {
+    const available = Number(availableByPurity.get(key) || 0);
+    if (demand.grossWeight > available + 0.0005) {
+      throw new Error(`${demand.purity} Bill GW ${gram(demand.grossWeight)} exceeds the combined manual Billing balance ${gram(available)}. Correct the item GW or add the missing Billing holding.`);
+    }
+  });
+  const createdAt = new Date().toISOString();
+  const lines = [];
+  demandByPurity.forEach((demand, key) => {
+    let remaining = demand.grossWeight;
+    sources.filter((source) => (karatPurityKey(source.purity || "18K") || transferPurityLabel(source.purity || "18K")) === key)
+      .forEach((source) => {
+        if (remaining <= 0.0005) return;
+        const allocatedGrossWeight = Number(weight3(Math.min(remaining, Number(source.grossWeight || 0))));
+        if (allocatedGrossWeight <= 0.0005) return;
+        const sourcePart = manualWipSourcePart(source, allocatedGrossWeight);
+        const allocation = {
+          id: crypto.randomUUID(),
+          date: today(),
+          createdAt,
+          grossWeight: allocatedGrossWeight,
+          sourceWaxStoneWeight: Number(weight3(sourcePart.waxStoneWeight || 0)),
+          sourceNonGoldWeight: Number(weight3(sourcePart.nonGoldWeight || 0)),
+          sourceNonGoldBreakdown: normalizeNonGoldBreakdown(sourcePart.nonGoldBreakdown),
+          sourceNetWeight: Number(weight3(sourcePart.netWeight || 0)),
+          lotId: lot.id,
+          lotNumber: lot.number,
+          jobNumber: lot.orderNumber,
+          manualCombinedBillLotId: lot.id,
+          manualCombinedBillNo: billNo || "",
+          manualCombinedBill: true,
+          itemCount: demand.itemCount,
+          createdBy: currentUser?.name || currentUser?.id || "User",
+        };
+        source.raw.manualWipAllocations = [...(source.raw.manualWipAllocations || []), allocation];
+        const sourceRemaining = Number(weight3(Math.max(Number(source.grossWeight || 0) - allocatedGrossWeight, 0)));
+        source.raw.status = sourceRemaining <= 0.0005 ? "Closed" : "In Department";
+        source.raw.updatedAt = createdAt;
+        source.raw.manualWipDisposition = "combined-job-bill";
+        source.raw.manualWipDispositionAt = createdAt;
+        source.raw.manualWipLastLotId = lot.id;
+        if (sourceRemaining <= 0.0005) source.raw.closedAt = createdAt;
+        else delete source.raw.closedAt;
+        lines.push({
+          sourceId: source.sourceId,
+          sourceKey: source.key,
+          description: source.description,
+          location: source.location,
+          purity: demand.purity,
+          grossWeight: allocatedGrossWeight,
+          sourceNetWeight: allocation.sourceNetWeight,
+          sourceNonGoldWeight: allocation.sourceNonGoldWeight,
+        });
+        remaining = Number(weight3(Math.max(remaining - allocatedGrossWeight, 0)));
+      });
+  });
+  const totals = billTotals(billableItems);
+  const sourceNetWeight = Number(weight3(lines.reduce((total, line) => total + Number(line.sourceNetWeight || 0), 0)));
+  const sourceNonGoldWeight = Number(weight3(lines.reduce((total, line) => total + Number(line.sourceNonGoldWeight || 0), 0)));
+  const summary = {
+    posted: true,
+    postedAt: createdAt,
+    billNo: billNo || "",
+    totalGrossWeight: totals.finalGw,
+    totalBillNonGoldWeight: totals.reducedWeight,
+    totalBillNetWeight: totals.netWeight,
+    sourceNetWeight,
+    sourceNonGoldWeight,
+    lines,
+    byPurity: [...demandByPurity.values()],
+  };
+  lot.grossIssuedWeight = totals.finalGw;
+  lot.finishedWeight = totals.finalGw;
+  lot.issuedWeight = totals.netWeight;
+  lot.manualWipGrossWeight = totals.finalGw;
+  lot.manualWipGoldWeight = totals.netWeight;
+  lot.manualWipNonGoldWeight = totals.reducedWeight;
+  lot.manualWipSourceNetWeight = sourceNetWeight;
+  lot.manualWipSourceNonGoldWeight = sourceNonGoldWeight;
+  lot.manualWipCombinedAllocation = summary;
+  billableItems.forEach((item) => {
+    const order = findById("orders", item.orderId);
+    if (!order) return;
+    if (!order.manualCombinedBillPreviousStatus) order.manualCombinedBillPreviousStatus = order.status || "Pending";
+    order.status = "Completed";
+    order.manualCombinedBillLotId = lot.id;
+    order.manualCombinedBillNo = billNo || "";
+    order.manualCombinedBillAt = createdAt;
+  });
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt,
+    type: "Manual Combined Bill Weight",
+    purity: demandByPurity.size === 1 ? [...demandByPurity.values()][0].purity : "Mixed",
+    weight: 0,
+    reference: `${billNo || lot.number} / ${billableItems.length} items / Total GW ${gram(totals.finalGw)} deducted from combined manual Billing holdings.`,
+    sourceType: "manual-combined-bill",
+    sourceId: lot.id,
+  });
+  return summary;
+}
+
 function saveBillFromForm(closeDialog = false, options = {}) {
   const form = document.getElementById("bill-form");
   updateBillAmount();
@@ -3140,6 +3289,26 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     : 0;
   const commonWastagePercent = billCommonWastagePercent(items);
   const nonGoldStockAdjustment = buildBillNonGoldStockAdjustment(items, existingBill, data.billNo, data.billDate);
+  let manualWipCombinedAllocation = existingBill.manualWipCombinedAllocation || null;
+  if (lot.manualWipCombinedBill) {
+    const rollback = {
+      safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+      ledger: structuredClone(state.ledger || []),
+      orders: structuredClone(state.orders || []),
+      lot: structuredClone(lot),
+    };
+    try {
+      manualWipCombinedAllocation = applyManualWipCombinedBillAllocation(lot, items, data.billNo);
+    } catch (error) {
+      state.safeDepartmentIssues = rollback.safeDepartmentIssues;
+      state.ledger = rollback.ledger;
+      state.orders = rollback.orders;
+      Object.keys(lot).forEach((key) => delete lot[key]);
+      Object.assign(lot, rollback.lot);
+      alert(error?.message || "The combined manual Billing weight could not be adjusted.");
+      return null;
+    }
+  }
   const bill = {
     id: existingBill.id || lot.bill?.id || crypto.randomUUID(),
     lotId: lot.id,
@@ -3153,6 +3322,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     billAmount: 0,
     items,
     nonGoldStockAdjustment,
+    manualWipCombinedAllocation,
     netWeight,
     baseFineWeight: totals.baseFineWeight,
     wastageFineWeight: totals.wastageFineWeight,
@@ -32421,6 +32591,115 @@ function manualWipSourceLabel(source = {}) {
   return `${source.description || "WIP Item"} / ${source.location || "-"} / ${transferPurityLabel(source.purity || "-")} / GW ${gram(source.grossWeight)}`;
 }
 
+const MANUAL_WIP_COMBINED_SOURCE_KEY = "combined:manual-billing";
+let manualWipCombinedOrderSelection = new Set();
+
+function manualWipCombinedBillingSource(sources = manualWipBillingSources()) {
+  const nonGoldBreakdown = sources.reduce(
+    (total, source) => addNonGoldBreakdowns(total, source.nonGoldBreakdown),
+    {},
+  );
+  return {
+    key: MANUAL_WIP_COMBINED_SOURCE_KEY,
+    sourceType: "combined",
+    sourceId: MANUAL_WIP_COMBINED_SOURCE_KEY,
+    description: "Combined Manual Billing Weight",
+    location: "Billing / Bill",
+    purity: "Mixed",
+    grossWeight: Number(weight3(sources.reduce((total, source) => total + Number(source.grossWeight || 0), 0))),
+    goldWeight: Number(weight3(sources.reduce((total, source) => total + Number(source.goldWeight || 0), 0))),
+    nonGoldWeight: Number(weight3(sources.reduce((total, source) => total + Number(source.nonGoldWeight || 0), 0))),
+    nonGoldBreakdown: normalizeNonGoldBreakdown(nonGoldBreakdown),
+    rawSources: sources,
+  };
+}
+
+function manualWipCombinedPuritySummary(sources = manualWipBillingSources()) {
+  const groups = new Map();
+  sources.forEach((source) => {
+    const purity = karatLogicPurity(source.purity || "18K");
+    const key = karatPurityKey(purity) || transferPurityLabel(purity);
+    const current = groups.get(key) || { purity: transferPurityLabel(purity), grossWeight: 0, holdings: 0 };
+    current.grossWeight = Number(weight3(current.grossWeight + Number(source.grossWeight || 0)));
+    current.holdings += 1;
+    groups.set(key, current);
+  });
+  return [...groups.values()].sort((left, right) => String(left.purity).localeCompare(String(right.purity), undefined, { numeric: true }));
+}
+
+function manualWipBilledOrderIds() {
+  const billedIds = (state.bills || []).flatMap((bill) => (bill.items || []).map((item) => item.orderId).filter(Boolean));
+  const pendingCombinedIds = (state.lots || [])
+    .filter((lot) => lot.manualWipCombinedBill && !(lot.bill || (state.bills || []).some((bill) => bill.lotId === lot.id)))
+    .flatMap((lot) => billableOrderIdsForLot(lot, {}));
+  return new Set([...billedIds, ...pendingCombinedIds]);
+}
+
+function manualWipBillSelectableOrders() {
+  const billedOrderIds = manualWipBilledOrderIds();
+  return (state.orders || [])
+    .filter((order) => !order.hiddenFromJobOrders && !billedOrderIds.has(order.id) && String(order.status || "").toLowerCase() !== "discarded")
+    .sort((left, right) =>
+      String(left.jobNumber || left.number || "").localeCompare(String(right.jobNumber || right.number || ""), undefined, { numeric: true })
+      || String(left.productionNo || left.number || "").localeCompare(String(right.productionNo || right.number || ""), undefined, { numeric: true })
+    );
+}
+
+function manualWipOrderSearchText(order = {}) {
+  return [order.jobNumber, order.number, order.productionNo, order.designNo, order.designNumber,
+    billOrderDesignCode(order), order.category, order.item, order.customer, order.color, order.purity]
+    .filter(Boolean).join(" ").toLowerCase();
+}
+
+function manualWipVisibleBillOrders() {
+  const query = String(document.getElementById("manual-wip-job-search")?.value || "").trim().toLowerCase();
+  return manualWipBillSelectableOrders().filter((order) => !query || manualWipOrderSearchText(order).includes(query));
+}
+
+function renderManualWipCombinedOrderPicker() {
+  const picker = document.getElementById("manual-wip-job-item-picker");
+  const summary = document.getElementById("manual-wip-job-selection-summary");
+  if (!picker || !summary) return;
+  const selectable = manualWipBillSelectableOrders();
+  const availableIds = new Set(selectable.map((order) => order.id));
+  manualWipCombinedOrderSelection = new Set([...manualWipCombinedOrderSelection].filter((id) => availableIds.has(id)));
+  const visibleOrders = manualWipVisibleBillOrders();
+  picker.innerHTML = visibleOrders.map((order) => {
+    const design = billOrderDesignCode(order) || order.item || order.category || "Item";
+    const reference = [order.jobNumber || order.number || "Job Card", order.productionNo || order.number || "PR", design].filter(Boolean).join(" / ");
+    const detail = [order.customer, order.category, order.color, transferPurityLabel(order.purity || "18K")].filter(Boolean).join(" / ");
+    return `<label class="manual-wip-job-option">
+      <input type="checkbox" class="manual-wip-job-check" value="${escapeHtml(order.id)}" ${manualWipCombinedOrderSelection.has(order.id) ? "checked" : ""}>
+      <span><strong>${escapeHtml(reference)}</strong><small>${escapeHtml(detail || "Job Card item")}</small></span>
+      <em>${escapeHtml(order.status || "Pending")}</em>
+    </label>`;
+  }).join("") || '<p class="dialog-note">No unbilled Job Card item matches this search.</p>';
+  const selectedOrders = selectable.filter((order) => manualWipCombinedOrderSelection.has(order.id));
+  const jobCards = new Set(selectedOrders.map((order) => order.jobNumber || order.number).filter(Boolean));
+  summary.innerHTML = `<strong>${selectedOrders.length} item${selectedOrders.length === 1 ? "" : "s"} selected</strong><span>${jobCards.size} Job Card${jobCards.size === 1 ? "" : "s"}</span><span>GW will be entered only in the final Bill.</span>`;
+}
+
+function handleManualWipBillingChange(event) {
+  const checkbox = event.target.closest?.(".manual-wip-job-check");
+  if (checkbox) {
+    if (checkbox.checked) manualWipCombinedOrderSelection.add(checkbox.value);
+    else manualWipCombinedOrderSelection.delete(checkbox.value);
+  }
+  updateManualWipBillingDialog();
+}
+
+function selectVisibleManualWipBillOrders() {
+  manualWipVisibleBillOrders().forEach((order) => manualWipCombinedOrderSelection.add(order.id));
+  renderManualWipCombinedOrderPicker();
+  updateManualWipBillingDialog();
+}
+
+function clearManualWipBillOrderSelection() {
+  manualWipCombinedOrderSelection.clear();
+  renderManualWipCombinedOrderPicker();
+  updateManualWipBillingDialog();
+}
+
 function manualWipAssignableOrders() {
   return (state.orders || [])
     .filter((order) =>
@@ -32571,6 +32850,8 @@ function openManualWipBillingDialog() {
   }
   const form = document.getElementById("manual-wip-billing-form");
   form.reset();
+  manualWipCombinedOrderSelection.clear();
+  form.action.value = "combined-job-bill";
   form.sourceKey.innerHTML = sources.map((source) =>
     `<option value="${escapeHtml(source.key)}">${escapeHtml(manualWipSourceLabel(source))}</option>`
   ).join("");
@@ -32584,6 +32865,9 @@ function openManualWipBillingDialog() {
   ).join("");
   form.dataset.selectedSourceKey = "";
   form.dataset.selectedPlanKey = "";
+  const search = document.getElementById("manual-wip-job-search");
+  if (search) search.value = "";
+  renderManualWipCombinedOrderPicker();
   updateManualWipBillingDialog();
   document.getElementById("manual-wip-billing-dialog").showModal();
 }
@@ -32623,6 +32907,43 @@ function closeManualWipBillingDialog() {
 function updateManualWipBillingDialog() {
   const form = document.getElementById("manual-wip-billing-form");
   if (!form) return;
+  const requestedAction = form.action.value || "combined-job-bill";
+  const isCombinedBill = requestedAction === "combined-job-bill";
+  document.getElementById("manual-wip-source-field")?.classList.toggle("hidden", isCombinedBill);
+  document.getElementById("manual-wip-combined-fields")?.classList.toggle("hidden", !isCombinedBill);
+  form.sourceKey.disabled = isCombinedBill;
+  form.sourceKey.required = !isCombinedBill;
+  if (isCombinedBill) {
+    document.getElementById("manual-wip-bill-fields")?.classList.add("hidden");
+    document.getElementById("manual-wip-assign-fields")?.classList.add("hidden");
+    form.customerId.required = false;
+    form.itemDescription.required = false;
+    form.targetOrderId.required = false;
+    form.departmentRoute.required = false;
+    form.issueGrossWeight.required = false;
+    form.issueWaxStoneWeight.required = false;
+    form.issueHandStoneWeight.required = false;
+    const sources = manualWipBillingSources();
+    const combined = manualWipCombinedBillingSource(sources);
+    const puritySummary = manualWipCombinedPuritySummary(sources);
+    const breakdownText = nonGoldBreakdownText(combined.nonGoldBreakdown) || "No non-gold recorded";
+    document.getElementById("manual-wip-source-summary").innerHTML = `
+      <div><span>Combined Billing Pool</span><strong>${sources.length} holding${sources.length === 1 ? "" : "s"}</strong></div>
+      <div><span>Total Gross Weight</span><strong>${gram(combined.grossWeight)}</strong></div>
+      <div><span>Recorded Gold Weight</span><strong>${gram(combined.goldWeight)}</strong></div>
+      <div><span>Recorded Non-Gold</span><strong>${gram(combined.nonGoldWeight)}</strong><small>${escapeHtml(breakdownText)}</small></div>
+      <div><span>Available By Karat</span><strong>${escapeHtml(puritySummary.map((line) => `${line.purity} ${gram(line.grossWeight)}`).join(" / ") || "-")}</strong><small>Final Bill GW is deducted from matching karat holdings.</small></div>
+    `;
+    renderManualWipCombinedOrderPicker();
+    const selectedCount = manualWipCombinedOrderSelection.size;
+    document.getElementById("manual-wip-billing-note").textContent = selectedCount
+      ? `${selectedCount} item${selectedCount === 1 ? "" : "s"} will open together in one Bill. Enter each item's actual GW there; only the final total GW will reduce this combined manual pool.`
+      : "Select at least one Job Card item. Selecting an item does not issue or assign any GW to that Job Card.";
+    const submit = document.getElementById("save-manual-wip-billing");
+    submit.textContent = "Open Combined Bill";
+    submit.disabled = !selectedCount || combined.grossWeight <= 0.0005;
+    return;
+  }
   const source = manualWipSourceByKey(form.sourceKey.value);
   if (!source) return;
   let action = form.action.value || "manual-bill";
@@ -32931,7 +33252,72 @@ function createLotFromManualWip(source = {}, order = {}, action = "", route = nu
   };
 }
 
+function createManualWipCombinedBillLot(selectedOrders = [], lotNumber = "") {
+  const sources = manualWipBillingSources();
+  const combined = manualWipCombinedBillingSource(sources);
+  const orderIds = selectedOrders.map((order) => order.id);
+  const jobNumbers = [...new Set(selectedOrders.map((order) => order.jobNumber || order.number).filter(Boolean))];
+  const purities = [...new Set(selectedOrders.map((order) => transferPurityLabel(order.purity || "18K")))];
+  const createdAt = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    number: lotNumber,
+    issueDate: today(),
+    createdAt,
+    orderId: orderIds[0] || "",
+    orderIds,
+    billOrderIds: orderIds,
+    orderNumber: jobNumbers.length === 1 ? jobNumbers[0] : `MANUAL-BILL-${String(lotNumber).replace(/^LOT-/i, "")}`,
+    karigarId: "",
+    karigarName: "Bill / QC",
+    issueKarigarId: "",
+    issueKarigarName: "Bill / QC",
+    issueDepartment: "Bill / QC",
+    currentDepartment: "Bill / QC",
+    billingStage: "Bill / QC",
+    metalPurity: purities.length === 1 ? purities[0] : "Mixed",
+    grossIssuedWeight: 0,
+    waxStoneWeight: 0,
+    physicalWaxStoneWeight: 0,
+    plannedWaxStoneWeight: 0,
+    initialHandStoneWeight: 0,
+    issueOtherNonGoldWeight: 0,
+    issuedWeight: 0,
+    issueSourceName: "Combined Manual Billing Pool",
+    issueSourceDetail: `${sources.length} manual holding${sources.length === 1 ? "" : "s"}; available GW ${gram(combined.grossWeight)}`,
+    expectedWastage: 0,
+    finishedWeight: 0,
+    actualWastage: 0,
+    status: "Completed",
+    transfers: [],
+    manualWipLot: true,
+    manualWipCombinedBill: true,
+    manualWipAction: "combined-job-bill",
+    manualWipSourceKeys: sources.map((source) => source.key),
+    manualWipPoolSnapshot: {
+      capturedAt: createdAt,
+      grossWeight: combined.grossWeight,
+      goldWeight: combined.goldWeight,
+      nonGoldWeight: combined.nonGoldWeight,
+      byPurity: manualWipCombinedPuritySummary(sources),
+    },
+    createdBy: currentUser?.name || currentUser?.id || "User",
+  };
+}
+
+function commitManualWipCombinedBill() {
+  const selectedOrders = manualWipBillSelectableOrders().filter((order) => manualWipCombinedOrderSelection.has(order.id));
+  if (!selectedOrders.length) throw new Error("Select at least one Job Card item for the combined manual Bill.");
+  const sources = manualWipBillingSources();
+  if (!sources.length) throw new Error("No manual Billing weight is available now. Refresh and check the Billing holdings.");
+  const lotNumber = `LOT-${state.nextLot++}`;
+  const lot = createManualWipCombinedBillLot(selectedOrders, lotNumber);
+  state.lots.unshift(lot);
+  return { action: "combined-job-bill", source: manualWipCombinedBillingSource(sources), orders: selectedOrders, lot };
+}
+
 function commitManualWipDisposition(data = {}) {
+  if (data.action === "combined-job-bill") return commitManualWipCombinedBill();
   const source = manualWipSourceByKey(data.sourceKey);
   if (!source) throw new Error("The selected WIP holding is no longer available. Refresh and select it again.");
   const action = data.action === "assign-job" ? "assign-job" : "manual-bill";
@@ -33060,7 +33446,7 @@ function saveManualWipBillingDisposition(event) {
   }
   closeManualWipBillingDialog();
   render();
-  if (result.action === "manual-bill") {
+  if (result.action === "manual-bill" || result.action === "combined-job-bill") {
     openBill(result.lot.id);
     return;
   }
@@ -35228,6 +35614,7 @@ function openBill(lotId) {
       : "Make Bill";
   document.getElementById("bill-summary").textContent = [
     `${lot.number} / ${lot.orderNumber || "-"} / ${customer} / ${billableOrders.length} current item${billableOrders.length === 1 ? "" : "s"} / Finished ${gram(lot.finishedWeight)}`,
+    lot.manualWipCombinedBill ? `Combined manual pool: enter each item's actual GW; deduction happens only when this Bill is saved.${lot.manualWipPoolSnapshot ? ` Pool at selection ${gram(lot.manualWipPoolSnapshot.grossWeight)}.` : ""}` : "",
     lockedForUser ? "Bill already generated. Bill Dept can view only; Manager and Owner can edit." : (isOrderBillQcMode(bill) ? "Order Dept can update QC and transfer QC OK items to Office; generated bill weights are locked." : ""),
   ].filter(Boolean).join(" | ");
   renderBillLotTrace(lot);
@@ -35242,7 +35629,7 @@ function billLotTraceEntries(lot = {}) {
   const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
   const issueEntry = {
     step: 1,
-    type: lot.manualWipLot ? "Non-Job-Card WIP" : lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
+    type: lot.manualWipCombinedBill ? "Combined Manual Bill" : lot.manualWipLot ? "Non-Job-Card WIP" : lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
     date: lot.issueDate || "-",
     createdAt: lot.createdAt || "",
     from: lotIssueSourceName(lot),
@@ -35723,7 +36110,7 @@ function renderBillItems(lot, bill = {}) {
   const qcDisabled = canEditQcStatus() ? "" : " disabled";
   const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
-    const lotManualWip = Boolean(lot.manualWipLot && getLotOrderIds(lot).includes(order.id));
+    const lotManualWip = Boolean(lot.manualWipLot && !lot.manualWipCombinedBill && getLotOrderIds(lot).includes(order.id));
     const calculationOrder = lotManualWip ? {
       ...order,
       manualWipOrder: true,

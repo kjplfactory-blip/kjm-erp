@@ -7,10 +7,10 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=626">
-  <link rel="stylesheet" href="department-holdings-v615.css?v=626">
-  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=626">
-  <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=626">
+  <link rel="stylesheet" href="styles.css?v=627">
+  <link rel="stylesheet" href="department-holdings-v615.css?v=627">
+  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=627">
+  <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=627">
   </head>
   <body>
     <section id="login-screen" class="login-screen">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v626</small>
+      <small class="app-version-badge">App v627</small>
           </div>
         </div>
         <label>User
@@ -129,7 +129,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v626</span>
+          <span class="app-version-badge">App v627</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2487,27 +2487,45 @@
       <form id="manual-wip-billing-form" class="dialog-card manual-wip-billing-card">
         <div class="dialog-header">
           <div>
-            <h2>Billing Item / WIP Movement</h2>
-            <p class="dialog-note">Shows non-job-card WIP held in Billing. Make a manual Bill, issue only part of a holding, or add another linked lot to an existing production Job Card.</p>
+            <h2>Combined Manual Billing</h2>
+            <p class="dialog-note">Combine manual Billing holdings, select the required Job Card items, and enter each piece's actual GW in the Bill. No GW is assigned to a Job Card before the Bill is saved.</p>
           </div>
           <button type="button" class="ghost-button" id="close-manual-wip-billing">Close</button>
         </div>
 
         <div class="manual-wip-route-grid">
-          <label>WIP Holding
+          <label id="manual-wip-source-field">Single WIP Holding
             <select name="sourceKey" required></select>
           </label>
-          <label>Clear By
+          <label>Billing Method
             <select name="action" required>
-              <option value="manual-bill">Make Manual Bill</option>
-              <option value="assign-job">Part Issue / Add Billing Item To Job Card</option>
+              <option value="combined-job-bill">Combine All Manual Weight / Select Job Items</option>
+              <option value="manual-bill">Manual Bill Without Job Card (Single Holding)</option>
             </select>
           </label>
         </div>
 
         <section id="manual-wip-source-summary" class="manual-wip-source-summary"></section>
 
-        <section id="manual-wip-bill-fields" class="manual-wip-option-panel">
+        <section id="manual-wip-combined-fields" class="manual-wip-option-panel">
+          <div class="section-title-row">
+            <div>
+              <h3>Select Job Card Items For One Bill</h3>
+              <small>Select individual PR items. Their GW remains blank until you enter the actual piece weights in the Bill.</small>
+            </div>
+          </div>
+          <div class="manual-wip-picker-toolbar">
+            <label class="search">Search Job Card / PR / Design / Customer
+              <input id="manual-wip-job-search" type="search" placeholder="Type job number, PR, design or customer">
+            </label>
+            <button type="button" class="ghost-button" id="manual-wip-select-visible">Select Visible</button>
+            <button type="button" class="ghost-button" id="manual-wip-clear-selection">Clear Selection</button>
+          </div>
+          <div id="manual-wip-job-selection-summary" class="manual-wip-selection-summary"></div>
+          <div id="manual-wip-job-item-picker" class="manual-wip-job-item-picker"></div>
+        </section>
+
+        <section id="manual-wip-bill-fields" class="manual-wip-option-panel hidden">
           <div class="section-title-row">
             <div>
               <h3>Manual Bill Item</h3>
@@ -3350,7 +3368,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=626"></script>
+  <script src="app.js?v=627"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
