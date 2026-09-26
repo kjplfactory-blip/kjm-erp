@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v628";
+const APP_VERSION = "v629";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3024,11 +3024,20 @@ document.getElementById("cancel-production-return")?.addEventListener("click", (
 document.getElementById("bill-form").addEventListener("input", handleBillAmountChange);
 document.getElementById("bill-form").addEventListener("change", handleBillAmountChange);
 document.getElementById("clear-bill-item-search")?.addEventListener("click", clearBillItemSearch);
+document.getElementById("add-pending-combined-bill-items")?.addEventListener("click", openCombinedBillAddItemsDialog);
+document.getElementById("delete-bill")?.addEventListener("click", deleteBillFromDialog);
 document.getElementById("bill-item-search")?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
   focusFirstBillSearchMatch();
 });
+document.getElementById("close-combined-bill-add-items")?.addEventListener("click", closeCombinedBillAddItemsDialog);
+document.getElementById("cancel-combined-bill-add-items")?.addEventListener("click", closeCombinedBillAddItemsDialog);
+document.getElementById("combined-bill-add-items-search")?.addEventListener("input", renderCombinedBillAddItemsDialog);
+document.getElementById("combined-bill-add-items-list")?.addEventListener("change", handleCombinedBillAddItemSelection);
+document.getElementById("combined-bill-add-select-visible")?.addEventListener("click", selectVisibleCombinedBillAddItems);
+document.getElementById("combined-bill-add-clear")?.addEventListener("click", clearCombinedBillAddItemSelection);
+document.getElementById("save-combined-bill-add-items")?.addEventListener("click", addPendingItemsToCombinedBill);
 
 document.getElementById("bill-form").addEventListener("pointerover", (event) => {
   const button = event.target.closest?.("[data-bill-design-preview]");
@@ -3261,6 +3270,138 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
     sourceId: lot.id,
   });
   return summary;
+}
+
+function billDeletionRepairDependencies(lot = {}, bill = {}) {
+  const childLots = (state.lots || []).filter((entry) => entry.parentLotId === lot.id || entry.qcReturnSourceLotId === lot.id);
+  const returnedSafeItems = (state.safeItems || []).filter((entry) =>
+    entry.returnSourceLotId === lot.id || (bill.id && entry.returnSourceBillId === bill.id)
+  );
+  const reworkIds = new Set((bill.items || []).map((item) => item.reworkLotId).filter(Boolean));
+  const reworkLots = (state.lots || []).filter((entry) => reworkIds.has(entry.id));
+  const lots = [...new Map([...childLots, ...reworkLots].map((entry) => [entry.id, entry])).values()];
+  const advancedOfficeItems = (bill.items || []).filter((item) =>
+    Boolean(
+      item.hallmarkStatus
+      || item.huid1
+      || item.huid2
+      || item.hallmarkLotNo
+      || item.hallmarkLotNumber
+      || item.salesTeam
+      || item.saleStatus
+      || item.tagPrinted
+      || item.discardStatus
+      || item.discardMeltingId
+    )
+  );
+  return { lots, returnedSafeItems, advancedOfficeItems };
+}
+
+function restoreOrdersAfterCombinedBillDeletion(lot = {}) {
+  const orderIds = new Set(billableOrderIdsForLot(lot, lot.bill || {}));
+  (state.orders || []).forEach((order) => {
+    if (!orderIds.has(order.id) && order.manualCombinedBillLotId !== lot.id) return;
+    if (order.manualCombinedBillLotId === lot.id) {
+      order.status = order.manualCombinedBillPreviousStatus || "Pending";
+      delete order.manualCombinedBillPreviousStatus;
+      delete order.manualCombinedBillLotId;
+      delete order.manualCombinedBillNo;
+      delete order.manualCombinedBillAt;
+    }
+  });
+}
+
+function resetLotAfterBillDeletion(lot = {}, bill = {}) {
+  lot.status = "Completed";
+  lot.billingStage = "Bill / QC";
+  lot.currentDepartment = "Bill / QC";
+  lot.karigarName = "Bill / QC";
+  lot.issueDepartment = lot.issueDepartment || "Bill / QC";
+  lot.productionStockWeight = Number(lot.finishedWeight || lot.grossIssuedWeight || 0);
+  delete lot.officeDestination;
+  delete lot.bill;
+  if (!lot.manualWipCombinedBill) return;
+  clearManualWipCombinedBillAllocations(lot.id);
+  restoreOrdersAfterCombinedBillDeletion({ ...lot, bill });
+  lot.grossIssuedWeight = 0;
+  lot.finishedWeight = 0;
+  lot.issuedWeight = 0;
+  lot.productionStockWeight = 0;
+  lot.manualWipGrossWeight = 0;
+  lot.manualWipGoldWeight = 0;
+  lot.manualWipNonGoldWeight = 0;
+  lot.manualWipSourceNetWeight = 0;
+  lot.manualWipSourceNonGoldWeight = 0;
+  delete lot.manualWipCombinedAllocation;
+}
+
+function deleteBillFromDialog() {
+  const form = document.getElementById("bill-form");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || null;
+  if (!lot || !bill?.id) {
+    alert("No generated Bill is available to delete.");
+    return;
+  }
+  if (!canDeleteErpData() || isReadOnlyUser()) {
+    alert("Only Owner or Manager can delete a Bill.");
+    return;
+  }
+  const dependencies = billDeletionRepairDependencies(lot, bill);
+  if (dependencies.lots.length || dependencies.returnedSafeItems.length || dependencies.advancedOfficeItems.length) {
+    alert(`This Bill cannot be deleted safely because it has ${dependencies.lots.length} linked repair lot${dependencies.lots.length === 1 ? "" : "s"}, ${dependencies.returnedSafeItems.length} returned shelf entr${dependencies.returnedSafeItems.length === 1 ? "y" : "ies"}, and ${dependencies.advancedOfficeItems.length} item${dependencies.advancedOfficeItems.length === 1 ? "" : "s"} already moved through Hallmarking, Sales, tagging, or discard. Reverse those downstream movements first so HUID, sales, and production history remain intact.`);
+    return;
+  }
+  const officeCount = (bill.items || []).filter((item) => item.officeStatus === "Office" || item.factoryStatus === "Factory Out").length;
+  const factoryOutText = isBillFactoryOutPosted(bill) ? " The linked Factory Out and party balance will also be reversed." : "";
+  const officeText = officeCount ? ` ${officeCount} Office item record${officeCount === 1 ? "" : "s"} will return to Bill / QC.` : "";
+  if (!confirm(`Delete Bill ${bill.billNo || ""}?${factoryOutText}${officeText}\n\nThe production lot will remain available to make a corrected Bill.`)) return;
+  const rollback = structuredClone({
+    bills: state.bills || [],
+    lots: state.lots || [],
+    orders: state.orders || [],
+    safeDepartmentIssues: state.safeDepartmentIssues || [],
+    factoryLedger: state.factoryLedger || [],
+    ledger: state.ledger || [],
+    vendors: state.vendors || [],
+    billDeletionHistory: state.billDeletionHistory || [],
+  });
+  try {
+    state.billDeletionHistory = state.billDeletionHistory || [];
+    state.billDeletionHistory.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: new Date().toISOString(),
+      billId: bill.id,
+      billNo: bill.billNo || "",
+      lotId: lot.id,
+      lotNumber: lot.number || "",
+      jobNumber: lot.orderNumber || "",
+      itemCount: (bill.items || []).length,
+      totalGrossWeight: billTotals(bill.items || []).finalGw,
+      factoryOutReversed: isBillFactoryOutPosted(bill),
+      deletedBy: currentUser?.name || currentUser?.id || "User",
+    });
+    state.factoryLedger = (state.factoryLedger || []).filter((entry) =>
+      String(entry.sourceId || entry.billId || "") !== String(bill.id)
+    );
+    state.bills = (state.bills || []).filter((entry) => entry.id !== bill.id && entry.lotId !== lot.id);
+    resetLotAfterBillDeletion(lot, bill);
+    syncFactoryOutForBill();
+  } catch (error) {
+    Object.assign(state, rollback);
+    alert(error?.message || "The Bill could not be reversed.");
+    return;
+  }
+  if (!saveState({ alertOnFailure: true, context: `${bill.billNo || lot.number} Bill deletion reversal` })) {
+    Object.assign(state, rollback);
+    render();
+    alert("Bill deletion was cancelled because the reversed data could not be saved safely on this laptop.");
+    return;
+  }
+  document.getElementById("bill-dialog")?.close();
+  render();
+  alert(`Bill ${bill.billNo || ""} deleted and reversed successfully.\nFactory Out: ${isBillFactoryOutPosted(bill) ? "reversed" : "not posted"}.\nThe lot remains in Bill / QC so a corrected Bill can be created.`);
 }
 
 function saveBillFromForm(closeDialog = false, options = {}) {
@@ -32706,6 +32847,141 @@ function clearManualWipBillOrderSelection() {
   updateManualWipBillingDialog();
 }
 
+let combinedBillPendingItemSelection = new Set();
+
+function combinedBillAddTargetLot() {
+  const dialog = document.getElementById("combined-bill-add-items-dialog");
+  return dialog?.dataset?.lotId ? findById("lots", dialog.dataset.lotId) : null;
+}
+
+function combinedBillPendingOrders(lot = {}) {
+  if (!lot?.manualWipCombinedBill) return [];
+  const existingIds = new Set(billableOrderIdsForLot(lot, lot.bill || {}));
+  return manualWipBillSelectableOrders().filter((order) => !existingIds.has(order.id));
+}
+
+function combinedBillPendingOrderSearchText(order = {}) {
+  return manualWipOrderSearchText(order);
+}
+
+function visibleCombinedBillPendingOrders(lot = combinedBillAddTargetLot()) {
+  const query = String(document.getElementById("combined-bill-add-items-search")?.value || "").trim().toLowerCase();
+  return combinedBillPendingOrders(lot).filter((order) => !query || combinedBillPendingOrderSearchText(order).includes(query));
+}
+
+function renderCombinedBillAddItemsDialog() {
+  const lot = combinedBillAddTargetLot();
+  const list = document.getElementById("combined-bill-add-items-list");
+  const summary = document.getElementById("combined-bill-add-items-summary");
+  const saveButton = document.getElementById("save-combined-bill-add-items");
+  if (!list || !summary || !saveButton) return;
+  const pendingOrders = combinedBillPendingOrders(lot);
+  const availableIds = new Set(pendingOrders.map((order) => order.id));
+  combinedBillPendingItemSelection = new Set([...combinedBillPendingItemSelection].filter((id) => availableIds.has(id)));
+  const visibleOrders = visibleCombinedBillPendingOrders(lot);
+  list.innerHTML = visibleOrders.map((order) => {
+    const design = billOrderDesignCode(order) || order.item || order.category || "Item";
+    const reference = [order.jobNumber || order.number || "Job Card", order.productionNo || order.number || "PR", design].filter(Boolean).join(" / ");
+    const detail = [order.customer, order.category, order.color, transferPurityLabel(order.purity || "18K")].filter(Boolean).join(" / ");
+    return `<label class="manual-wip-job-option">
+      <input type="checkbox" class="combined-bill-pending-item-check" value="${escapeHtml(order.id)}" ${combinedBillPendingItemSelection.has(order.id) ? "checked" : ""}>
+      <span><strong>${escapeHtml(reference)}</strong><small>${escapeHtml(detail || "Pending Job Card item")}</small></span>
+      <em>${escapeHtml(order.status || "Pending")}</em>
+    </label>`;
+  }).join("") || '<p class="dialog-note">No unbilled pending item matches this search.</p>';
+  summary.innerHTML = `<strong>${combinedBillPendingItemSelection.size} item${combinedBillPendingItemSelection.size === 1 ? "" : "s"} selected</strong><span>${pendingOrders.length} unbilled item${pendingOrders.length === 1 ? "" : "s"} available</span><span>New items will open with blank Final GW.</span>`;
+  saveButton.disabled = !combinedBillPendingItemSelection.size;
+}
+
+function openCombinedBillAddItemsDialog() {
+  const billForm = document.getElementById("bill-form");
+  const lot = findById("lots", billForm?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!lot?.manualWipCombinedBill) {
+    alert("Pending items can be added here only to a Combined Manual Bill.");
+    return;
+  }
+  if ((bill.id && !canEditGeneratedBill()) || (!bill.id && !canCreateBill())) {
+    alert(bill.id ? "Only Owner or Manager can add items to a generated Combined Bill." : "This login cannot add items to this Combined Bill.");
+    return;
+  }
+  const dialog = document.getElementById("combined-bill-add-items-dialog");
+  dialog.dataset.lotId = lot.id;
+  combinedBillPendingItemSelection.clear();
+  const search = document.getElementById("combined-bill-add-items-search");
+  if (search) search.value = "";
+  const note = document.getElementById("combined-bill-add-items-note");
+  if (note) note.textContent = `${lot.number} / ${bill.billNo || "Bill not saved yet"}. Select later-added unbilled items; current Bill entries remain unchanged.`;
+  renderCombinedBillAddItemsDialog();
+  dialog.showModal();
+}
+
+function closeCombinedBillAddItemsDialog() {
+  document.getElementById("combined-bill-add-items-dialog")?.close();
+}
+
+function handleCombinedBillAddItemSelection(event) {
+  const checkbox = event.target.closest?.(".combined-bill-pending-item-check");
+  if (!checkbox) return;
+  if (checkbox.checked) combinedBillPendingItemSelection.add(checkbox.value);
+  else combinedBillPendingItemSelection.delete(checkbox.value);
+  renderCombinedBillAddItemsDialog();
+}
+
+function selectVisibleCombinedBillAddItems() {
+  visibleCombinedBillPendingOrders().forEach((order) => combinedBillPendingItemSelection.add(order.id));
+  renderCombinedBillAddItemsDialog();
+}
+
+function clearCombinedBillAddItemSelection() {
+  combinedBillPendingItemSelection.clear();
+  renderCombinedBillAddItemsDialog();
+}
+
+function addPendingItemsToCombinedBill() {
+  const lot = combinedBillAddTargetLot();
+  if (!lot?.manualWipCombinedBill) return;
+  const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  if ((bill.id && !canEditGeneratedBill()) || (!bill.id && !canCreateBill())) {
+    alert("Only an authorized Bill user can add these items.");
+    return;
+  }
+  const selectedOrders = combinedBillPendingOrders(lot).filter((order) => combinedBillPendingItemSelection.has(order.id));
+  if (!selectedOrders.length) {
+    alert("Select at least one pending item.");
+    return;
+  }
+  const draftItems = billItemRows(bill.items || []);
+  const snapshot = structuredClone(lot);
+  const orderIds = [...new Set([...(lot.orderIds || []), ...selectedOrders.map((order) => order.id)])];
+  lot.orderId = lot.orderId || orderIds[0] || "";
+  lot.orderIds = orderIds;
+  lot.billOrderIds = [...new Set([...(lot.billOrderIds || []), ...selectedOrders.map((order) => order.id)])];
+  lot.manualWipAddedItemsHistory = [...(lot.manualWipAddedItemsHistory || []), {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    orderIds: selectedOrders.map((order) => order.id),
+    productionNos: selectedOrders.map((order) => order.productionNo || order.number).filter(Boolean),
+    addedBy: currentUser?.name || currentUser?.id || "User",
+  }];
+  if (!saveState({ alertOnFailure: true, context: `${lot.number} add pending Bill items` })) {
+    Object.keys(lot).forEach((key) => delete lot[key]);
+    Object.assign(lot, snapshot);
+    return;
+  }
+  closeCombinedBillAddItemsDialog();
+  const previewBill = { ...bill, items: draftItems };
+  renderBillItems(lot, previewBill);
+  const billSearch = document.getElementById("bill-item-search");
+  if (billSearch) billSearch.value = "";
+  filterBillItems();
+  updateBillAmount();
+  const summary = document.getElementById("bill-summary");
+  if (summary) summary.textContent = `${summary.textContent} | Added ${selectedOrders.length} pending item${selectedOrders.length === 1 ? "" : "s"}; enter Final GW and save the Bill.`;
+  alert(`${selectedOrders.length} pending item${selectedOrders.length === 1 ? " was" : "s were"} added to this Combined Bill. Enter the actual Final GW for the new item${selectedOrders.length === 1 ? "" : "s"}, then save the Bill.`);
+}
+
 function manualWipAssignableOrders() {
   return (state.orders || [])
     .filter((order) =>
@@ -35720,6 +35996,10 @@ function applyBillAccessMode() {
   form.classList.toggle("locked-bill-form", lockedForUser);
   form.querySelectorAll("input, textarea").forEach((input) => {
     if (input.type === "hidden") return;
+    if (input.id === "bill-item-search") {
+      input.readOnly = false;
+      return;
+    }
     input.readOnly = qcOnlyMode || lockedForUser || input.hasAttribute("readonly");
   });
   form.querySelectorAll("select").forEach((select) => {
@@ -35729,11 +36009,16 @@ function applyBillAccessMode() {
   const transferFailed = document.getElementById("bill-qc-failed");
   const bulkQcToolbar = document.getElementById("bill-qc-bulk-toolbar");
   const bulkQcOk = document.getElementById("bill-qc-all-ok");
+  const addPendingItems = document.getElementById("add-pending-combined-bill-items");
+  const deleteBillButton = document.getElementById("delete-bill");
   const submitButton = form.querySelector('button[type="submit"]');
   if (transferOk) transferOk.classList.toggle("hidden", !canChangeQc);
   if (transferFailed) transferFailed.classList.toggle("hidden", !canSendQcFailedItems());
   if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", !canChangeQc);
   if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
+  const canAddPending = Boolean(lot?.manualWipCombinedBill && (bill.id ? canEditGeneratedBill() : canCreateBill()));
+  if (addPendingItems) addPendingItems.classList.toggle("hidden", !canAddPending);
+  if (deleteBillButton) deleteBillButton.classList.toggle("hidden", !(bill.id && canDeleteErpData() && !isReadOnlyUser()));
   if (submitButton) {
     submitButton.classList.toggle("hidden", lockedForUser);
     submitButton.disabled = lockedForUser;
@@ -36718,7 +37003,11 @@ function defaultMakingPercentForPurity(purity) {
 }
 
 function nextBillNumber() {
-  const next = (state.bills || []).length + 1;
+  const highest = (state.bills || []).reduce((maximum, bill) => {
+    const match = String(bill.billNo || "").match(/(\d+)(?!.*\d)/);
+    return match ? Math.max(maximum, Number(match[1]) || 0) : maximum;
+  }, 0);
+  const next = highest + 1;
   return `BILL-${String(next).padStart(4, "0")}`;
 }
 

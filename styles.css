@@ -6170,13 +6170,31 @@ dialog::backdrop {
 
 .bill-item-search-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-template-columns: minmax(260px, 1fr) auto auto auto;
   align-items: end;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid #b9d8eb;
   border-radius: 8px;
   background: #eef8ff;
+}
+
+#combined-bill-add-items-dialog {
+  width: calc(100vw - 16px);
+  max-width: none;
+  height: calc(100vh - 16px);
+  max-height: calc(100vh - 16px);
+}
+
+.combined-bill-add-items-card {
+  align-content: start;
+  overflow: hidden;
+}
+
+.combined-bill-add-items-card .manual-wip-job-item-picker {
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .bill-item-search-toolbar label {
