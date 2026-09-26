@@ -4210,6 +4210,10 @@ input[type="hidden"] {
   }
 }
 
+@media print {
+  .bill-item-search-toolbar { display: none !important; }
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -6162,6 +6166,65 @@ dialog::backdrop {
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.bill-item-search-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #b9d8eb;
+  border-radius: 8px;
+  background: #eef8ff;
+}
+
+.bill-item-search-toolbar label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #174e73;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.bill-item-search-toolbar input {
+  width: 100%;
+  min-width: 0;
+  border-color: #8ec4e4;
+  background: #fff;
+}
+
+.bill-item-search-toolbar > strong {
+  align-self: center;
+  color: #0b5684;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bill-item-search-toolbar > small {
+  grid-column: 1 / -1;
+  color: #4f7188;
+  font-size: 10px;
+}
+
+#bill-item-table tr.bill-item-search-hidden {
+  display: none;
+}
+
+#bill-item-table tr.bill-item-search-match td {
+  background: #eef9ff;
+}
+
+@media (max-width: 700px) {
+  .bill-item-search-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .bill-item-search-toolbar > strong,
+  .bill-item-search-toolbar > small {
+    grid-column: 1 / -1;
+  }
 }
 
 .transfer-entry-table table {

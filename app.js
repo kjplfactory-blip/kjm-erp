@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v627";
+const APP_VERSION = "v628";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3023,6 +3023,12 @@ document.getElementById("cancel-production-return")?.addEventListener("click", (
 
 document.getElementById("bill-form").addEventListener("input", handleBillAmountChange);
 document.getElementById("bill-form").addEventListener("change", handleBillAmountChange);
+document.getElementById("clear-bill-item-search")?.addEventListener("click", clearBillItemSearch);
+document.getElementById("bill-item-search")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  focusFirstBillSearchMatch();
+});
 
 document.getElementById("bill-form").addEventListener("pointerover", (event) => {
   const button = event.target.closest?.("[data-bill-design-preview]");
@@ -35594,6 +35600,8 @@ function openBill(lotId) {
     return;
   }
   const form = document.getElementById("bill-form");
+  const billItemSearch = document.getElementById("bill-item-search");
+  if (billItemSearch) billItemSearch.value = "";
   const billableOrders = billableOrdersForLot(lot, bill);
   const customer = billableOrders[0]?.customer || "-";
   form.lotId.value = lot.id;
@@ -35619,6 +35627,7 @@ function openBill(lotId) {
   ].filter(Boolean).join(" | ");
   renderBillLotTrace(lot);
   renderBillItems(lot, bill);
+  filterBillItems();
   updateBillAmount();
   applyBillAccessMode();
   document.getElementById("bill-dialog").showModal();
@@ -35923,7 +35932,69 @@ function applyBillWastageToAllItems(value) {
   updateBillAmount({ preserveWastageField: true });
 }
 
+function normalizeBillItemSearch(value = "") {
+  const text = String(value || "").trim().toLowerCase();
+  return {
+    text,
+    compact: text.replace(/[^a-z0-9]/g, ""),
+  };
+}
+
+function billItemRowMatchesSearch(row, query = normalizeBillItemSearch()) {
+  if (!query.text) return true;
+  const searchable = [
+    row.dataset.productionNo,
+    row.dataset.designNo,
+    row.dataset.category,
+    row.dataset.ringType,
+    row.dataset.cmItemType,
+    row.querySelector("td:first-child")?.textContent,
+  ].filter(Boolean).join(" ").toLowerCase();
+  const compactSearchable = searchable.replace(/[^a-z0-9]/g, "");
+  return searchable.includes(query.text) || Boolean(query.compact && compactSearchable.includes(query.compact));
+}
+
+function filterBillItems() {
+  const searchInput = document.getElementById("bill-item-search");
+  const countNode = document.getElementById("bill-item-search-count");
+  const rows = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"));
+  const query = normalizeBillItemSearch(searchInput?.value || "");
+  let matches = 0;
+  rows.forEach((row) => {
+    const matched = billItemRowMatchesSearch(row, query);
+    row.classList.toggle("bill-item-search-hidden", !matched);
+    row.classList.toggle("bill-item-search-match", Boolean(query.text && matched));
+    if (matched) matches += 1;
+  });
+  if (countNode) {
+    countNode.textContent = query.text
+      ? `${matches} of ${rows.length} item${rows.length === 1 ? "" : "s"} found`
+      : `Showing all ${rows.length} item${rows.length === 1 ? "" : "s"}`;
+  }
+  return rows.filter((row) => !row.classList.contains("bill-item-search-hidden"));
+}
+
+function focusFirstBillSearchMatch() {
+  const matches = filterBillItems();
+  const finalGwInput = matches[0]?.querySelector('[name="billItemFinalGw"]');
+  if (finalGwInput) {
+    finalGwInput.focus();
+    finalGwInput.select();
+  }
+}
+
+function clearBillItemSearch() {
+  const input = document.getElementById("bill-item-search");
+  if (input) input.value = "";
+  filterBillItems();
+  input?.focus();
+}
+
 function handleBillAmountChange(event) {
+  if (event?.target?.id === "bill-item-search") {
+    filterBillItems();
+    return;
+  }
   if (event?.target?.name === "billWastagePercent") {
     applyBillWastageToAllItems(event.target.value);
     return;
