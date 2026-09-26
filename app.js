@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v633";
+const APP_VERSION = "v634";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3596,9 +3596,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     document.getElementById("bill-dialog").close();
   }
   render();
-  if (closeDialog && gwSaveAllowance.appliedNow) {
-    alert(`${bill.billNo || lot.number} saved. ${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g was added once to ${gwSaveAllowance.appliedNow} item${gwSaveAllowance.appliedNow === 1 ? "" : "s"}. It will not be added again when this Bill is reopened or saved again.`);
-  }
+  if (closeDialog) alert("Bill entries saved.");
   return { lot, bill };
 }
 
