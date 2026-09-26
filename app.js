@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v629";
+const APP_VERSION = "v631";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3025,6 +3025,7 @@ document.getElementById("bill-form").addEventListener("input", handleBillAmountC
 document.getElementById("bill-form").addEventListener("change", handleBillAmountChange);
 document.getElementById("clear-bill-item-search")?.addEventListener("click", clearBillItemSearch);
 document.getElementById("add-pending-combined-bill-items")?.addEventListener("click", openCombinedBillAddItemsDialog);
+document.getElementById("save-bill-draft")?.addEventListener("click", () => saveBillDraftNow());
 document.getElementById("delete-bill")?.addEventListener("click", deleteBillFromDialog);
 document.getElementById("bill-item-search")?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -3061,6 +3062,12 @@ document.getElementById("bill-form").addEventListener("focusout", (event) => {
 });
 
 document.getElementById("bill-form").addEventListener("click", async (event) => {
+  const removeButton = event.target.closest?.("[data-remove-bill-item]");
+  if (removeButton) {
+    event.preventDefault();
+    removeBillDraftItem(removeButton.dataset.removeBillItem || "");
+    return;
+  }
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button) return;
   event.preventDefault();
@@ -3073,7 +3080,17 @@ document.getElementById("bill-form").addEventListener("submit", (event) => {
   saveBillFromForm(true);
 });
 
-document.getElementById("bill-dialog").addEventListener("close", hideBillDesignHoverPreview);
+document.getElementById("bill-dialog").addEventListener("close", () => {
+  hideBillDesignHoverPreview();
+  if (suppressBillDraftSaveOnClose) {
+    suppressBillDraftSaveOnClose = false;
+    cancelBillDraftSaveTimer();
+    return;
+  }
+  flushBillDraftSave();
+});
+
+window.addEventListener("beforeunload", flushBillDraftSave);
 
 document.getElementById("bill-qc-ok").addEventListener("click", () => {
   if (!canEditQcStatus()) {
@@ -3320,6 +3337,8 @@ function resetLotAfterBillDeletion(lot = {}, bill = {}) {
   lot.productionStockWeight = Number(lot.finishedWeight || lot.grossIssuedWeight || 0);
   delete lot.officeDestination;
   delete lot.bill;
+  delete lot.billDraft;
+  delete lot.billDraftUpdatedAt;
   if (!lot.manualWipCombinedBill) return;
   clearManualWipCombinedBillAllocations(lot.id);
   restoreOrdersAfterCombinedBillDeletion({ ...lot, bill });
@@ -3336,15 +3355,53 @@ function resetLotAfterBillDeletion(lot = {}, bill = {}) {
 }
 
 function deleteBillFromDialog() {
+  cancelBillDraftSaveTimer();
   const form = document.getElementById("bill-form");
   const lot = findById("lots", form?.lotId?.value || "");
   const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || null;
-  if (!lot || !bill?.id) {
-    alert("No generated Bill is available to delete.");
+  const pendingCombinedBill = Boolean(lot?.manualWipCombinedBill && !bill?.id);
+  if (!lot || (!bill?.id && !pendingCombinedBill)) {
+    alert("No pending Combined Bill or generated Bill is available to delete.");
     return;
   }
   if (!canDeleteErpData() || isReadOnlyUser()) {
     alert("Only Owner or Manager can delete a Bill.");
+    return;
+  }
+  if (pendingCombinedBill) {
+    const pendingItems = billableOrdersForLot(lot, {});
+    if (!confirm(`Delete pending Combined Bill ${lot.number || ""}?\n\n${pendingItems.length} reserved item${pendingItems.length === 1 ? " will" : "s will"} be released back to the pending Billing list. No Billing stock will be deducted.`)) return;
+    const rollback = structuredClone({
+      lots: state.lots || [],
+      billDeletionHistory: state.billDeletionHistory || [],
+    });
+    state.billDeletionHistory = state.billDeletionHistory || [];
+    state.billDeletionHistory.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: new Date().toISOString(),
+      action: "Pending Combined Bill Cancelled",
+      billId: "",
+      billNo: "Pending",
+      lotId: lot.id,
+      lotNumber: lot.number || "",
+      jobNumber: lot.orderNumber || "",
+      itemCount: pendingItems.length,
+      totalGrossWeight: 0,
+      factoryOutReversed: false,
+      deletedBy: currentUser?.name || currentUser?.id || "User",
+    });
+    state.lots = (state.lots || []).filter((entry) => entry.id !== lot.id);
+    if (!saveState({ alertOnFailure: true, context: `${lot.number || "Pending Combined Bill"} cancellation` })) {
+      Object.assign(state, rollback);
+      render();
+      alert("The pending Combined Bill was not deleted because the released items could not be saved safely.");
+      return;
+    }
+    suppressBillDraftSaveOnClose = true;
+    document.getElementById("bill-dialog")?.close();
+    render();
+    alert(`Pending Combined Bill ${lot.number || ""} deleted. ${pendingItems.length} item${pendingItems.length === 1 ? " is" : "s are"} available for Billing again.`);
     return;
   }
   const dependencies = billDeletionRepairDependencies(lot, bill);
@@ -3399,12 +3456,14 @@ function deleteBillFromDialog() {
     alert("Bill deletion was cancelled because the reversed data could not be saved safely on this laptop.");
     return;
   }
+  suppressBillDraftSaveOnClose = true;
   document.getElementById("bill-dialog")?.close();
   render();
   alert(`Bill ${bill.billNo || ""} deleted and reversed successfully.\nFactory Out: ${isBillFactoryOutPosted(bill) ? "reversed" : "not posted"}.\nThe lot remains in Bill / QC so a corrected Bill can be created.`);
 }
 
 function saveBillFromForm(closeDialog = false, options = {}) {
+  cancelBillDraftSaveTimer();
   const form = document.getElementById("bill-form");
   updateBillAmount();
   const data = getFormData(form);
@@ -3428,7 +3487,8 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     alert("Bill is already generated. Bill Dept can view it only. Only Manager and Owner can edit the bill.");
     return null;
   }
-  const items = billItemRows(existingBill.items || []);
+  const draft = billDraftForLot(lot, existingBill);
+  const items = billItemRows(draft?.items || existingBill.items || []);
   const totals = billTotals(items);
   const netWeight = totals.netWeight;
   const effectiveWastagePercent = netWeight > 0
@@ -3498,10 +3558,27 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   lot.billingStage = lot.billingStage || "Bill / QC";
   lot.currentDepartment = lot.billingStage;
   lot.karigarName = "Bill / QC";
+  if (lot.billDraft) {
+    lot.billDraft = {
+      ...lot.billDraft,
+      billId: bill.id,
+      finalizedBillId: bill.id,
+      finalizedAt: new Date().toISOString(),
+    };
+  }
+  if (!saveState({ alertOnFailure: true, context: `${bill.billNo || lot.number} Bill` })) {
+    setBillDraftStatus("Final Bill could not be saved. Your protected draft remains available for retry.", "error");
+    return null;
+  }
+  if (lot.billDraft) {
+    delete lot.billDraft;
+    delete lot.billDraftUpdatedAt;
+    saveState({ alertOnFailure: false, context: `${bill.billNo || lot.number} completed Bill draft cleanup` });
+  }
   if (closeDialog) {
+    suppressBillDraftSaveOnClose = true;
     document.getElementById("bill-dialog").close();
   }
-  saveState();
   render();
   return { lot, bill };
 }
@@ -9866,13 +9943,20 @@ function billForLotRecord(lot = {}) {
 }
 
 function billableOrderIdsForLot(lot = {}, bill = {}) {
-  if (Array.isArray(lot.billOrderIds) && lot.billOrderIds.length) return lot.billOrderIds;
-  if (lot.qcReturn || lot.parentLotId) return getLotOrderIds(lot);
-  const repairBillItemIds = (bill.items || [])
-    .filter((item) => item.reworkLotId === lot.id || item.repairFinalBillLotId === lot.id)
-    .map((item) => item.orderId)
-    .filter(Boolean);
-  return repairBillItemIds.length ? repairBillItemIds : getLotOrderIds(lot);
+  let orderIds = [];
+  if (Array.isArray(lot.billOrderIds) && lot.billOrderIds.length) {
+    orderIds = lot.billOrderIds;
+  } else if (lot.qcReturn || lot.parentLotId) {
+    orderIds = getLotOrderIds(lot);
+  } else {
+    const repairBillItemIds = (bill.items || [])
+      .filter((item) => item.reworkLotId === lot.id || item.repairFinalBillLotId === lot.id)
+      .map((item) => item.orderId)
+      .filter(Boolean);
+    orderIds = repairBillItemIds.length ? repairBillItemIds : getLotOrderIds(lot);
+  }
+  const excludedIds = new Set(lot.billExcludedOrderIds || []);
+  return [...new Set(orderIds)].filter((id) => id && !excludedIds.has(id));
 }
 
 function billableOrdersForLot(lot = {}, bill = {}) {
@@ -32951,12 +33035,15 @@ function addPendingItemsToCombinedBill() {
     alert("Select at least one pending item.");
     return;
   }
-  const draftItems = billItemRows(bill.items || []);
+  const currentDraft = billDraftForLot(lot, bill);
+  const draftItems = billItemRows(currentDraft?.items || bill.items || []);
   const snapshot = structuredClone(lot);
   const orderIds = [...new Set([...(lot.orderIds || []), ...selectedOrders.map((order) => order.id)])];
   lot.orderId = lot.orderId || orderIds[0] || "";
   lot.orderIds = orderIds;
   lot.billOrderIds = [...new Set([...(lot.billOrderIds || []), ...selectedOrders.map((order) => order.id)])];
+  const selectedIds = new Set(selectedOrders.map((order) => order.id));
+  lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => !selectedIds.has(id));
   lot.manualWipAddedItemsHistory = [...(lot.manualWipAddedItemsHistory || []), {
     id: crypto.randomUUID(),
     date: today(),
@@ -32971,12 +33058,13 @@ function addPendingItemsToCombinedBill() {
     return;
   }
   closeCombinedBillAddItemsDialog();
-  const previewBill = { ...bill, items: draftItems };
+  const previewBill = { ...workingBillRecord(lot, bill), items: draftItems };
   renderBillItems(lot, previewBill);
   const billSearch = document.getElementById("bill-item-search");
   if (billSearch) billSearch.value = "";
   filterBillItems();
   updateBillAmount();
+  saveBillDraftNow();
   const summary = document.getElementById("bill-summary");
   if (summary) summary.textContent = `${summary.textContent} | Added ${selectedOrders.length} pending item${selectedOrders.length === 1 ? "" : "s"}; enter Final GW and save the Bill.`;
   alert(`${selectedOrders.length} pending item${selectedOrders.length === 1 ? " was" : "s were"} added to this Combined Bill. Enter the actual Final GW for the new item${selectedOrders.length === 1 ? "" : "s"}, then save the Bill.`);
@@ -35871,6 +35959,8 @@ function openBill(lotId) {
   const lot = findById("lots", lotId);
   if (!lot) return;
   const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  const draft = billDraftForLot(lot, bill);
+  const displayBill = workingBillRecord(lot, bill);
   if (isBillQcOnlyMode() && !bill.id) {
     alert("Bill must be created by Bill Dept, Manager, or Owner before QC check.");
     return;
@@ -35878,15 +35968,15 @@ function openBill(lotId) {
   const form = document.getElementById("bill-form");
   const billItemSearch = document.getElementById("bill-item-search");
   if (billItemSearch) billItemSearch.value = "";
-  const billableOrders = billableOrdersForLot(lot, bill);
+  const billableOrders = billableOrdersForLot(lot, displayBill);
   const customer = billableOrders[0]?.customer || "-";
   form.lotId.value = lot.id;
-  form.billNo.value = bill.billNo || nextBillNumber();
-  form.billDate.value = bill.billDate || isoToday();
-  form.remarks.value = bill.remarks || "";
-  const savedCommonWastage = billCommonWastagePercent(bill.items || []);
-  const openingWastagePercent = bill.billWastagePercent
-    ?? (savedCommonWastage === "" ? bill.effectiveWastagePercent : savedCommonWastage)
+  form.billNo.value = displayBill.billNo || nextBillNumber();
+  form.billDate.value = displayBill.billDate || isoToday();
+  form.remarks.value = displayBill.remarks || "";
+  const savedCommonWastage = billCommonWastagePercent(displayBill.items || []);
+  const openingWastagePercent = displayBill.billWastagePercent
+    ?? (savedCommonWastage === "" ? displayBill.effectiveWastagePercent : savedCommonWastage)
     ?? 0;
   form.elements.billWastagePercent.value = String(factoryWstgPercent(openingWastagePercent));
   const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
@@ -35901,8 +35991,16 @@ function openBill(lotId) {
     lot.manualWipCombinedBill ? `Combined manual pool: enter each item's actual GW; deduction happens only when this Bill is saved.${lot.manualWipPoolSnapshot ? ` Pool at selection ${gram(lot.manualWipPoolSnapshot.grossWeight)}.` : ""}` : "",
     lockedForUser ? "Bill already generated. Bill Dept can view only; Manager and Owner can edit." : (isOrderBillQcMode(bill) ? "Order Dept can update QC and transfer QC OK items to Office; generated bill weights are locked." : ""),
   ].filter(Boolean).join(" | ");
+  if (draft) {
+    const restoredAt = new Date(draft.updatedAt || Date.now()).toLocaleString("en-IN");
+    setBillDraftStatus(`Protected draft restored from ${restoredAt}. Every new entry will continue saving automatically.`, "saved");
+  } else if (canPersistBillDraft(lot, bill)) {
+    setBillDraftStatus("Draft protection is active. Each entry saves automatically after a short pause.", "saved");
+  } else {
+    setBillDraftStatus("View-only Bill. Draft saving is not required for this login.", "");
+  }
   renderBillLotTrace(lot);
-  renderBillItems(lot, bill);
+  renderBillItems(lot, displayBill);
   filterBillItems();
   updateBillAmount();
   applyBillAccessMode();
@@ -36010,6 +36108,7 @@ function applyBillAccessMode() {
   const bulkQcToolbar = document.getElementById("bill-qc-bulk-toolbar");
   const bulkQcOk = document.getElementById("bill-qc-all-ok");
   const addPendingItems = document.getElementById("add-pending-combined-bill-items");
+  const saveDraftButton = document.getElementById("save-bill-draft");
   const deleteBillButton = document.getElementById("delete-bill");
   const submitButton = form.querySelector('button[type="submit"]');
   if (transferOk) transferOk.classList.toggle("hidden", !canChangeQc);
@@ -36017,8 +36116,16 @@ function applyBillAccessMode() {
   if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", !canChangeQc);
   if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
   const canAddPending = Boolean(lot?.manualWipCombinedBill && (bill.id ? canEditGeneratedBill() : canCreateBill()));
-  if (addPendingItems) addPendingItems.classList.toggle("hidden", !canAddPending);
-  if (deleteBillButton) deleteBillButton.classList.toggle("hidden", !(bill.id && canDeleteErpData() && !isReadOnlyUser()));
+  if (addPendingItems) {
+    addPendingItems.classList.toggle("hidden", !canAddPending);
+    addPendingItems.textContent = bill.id ? "Add Pending Items To Bill" : "Add Pending Items";
+  }
+  if (saveDraftButton) saveDraftButton.classList.toggle("hidden", !canPersistBillDraft(lot, bill));
+  const canDeleteBillOrDraft = Boolean((bill.id || lot?.manualWipCombinedBill) && canDeleteErpData() && !isReadOnlyUser());
+  if (deleteBillButton) {
+    deleteBillButton.classList.toggle("hidden", !canDeleteBillOrDraft);
+    deleteBillButton.textContent = bill.id ? "Delete Bill" : "Delete Pending Bill";
+  }
   if (submitButton) {
     submitButton.classList.toggle("hidden", lockedForUser);
     submitButton.disabled = lockedForUser;
@@ -36275,6 +36382,147 @@ function clearBillItemSearch() {
   input?.focus();
 }
 
+let billDraftSaveTimer = null;
+let suppressBillDraftSaveOnClose = false;
+
+function billDraftForLot(lot = {}, bill = {}) {
+  const draft = lot.billDraft;
+  if (!draft || typeof draft !== "object" || draft.finalizedBillId) return null;
+  if (draft.billId && draft.billId !== bill.id) return null;
+  return draft;
+}
+
+function workingBillRecord(lot = {}, bill = {}) {
+  const draft = billDraftForLot(lot, bill);
+  return draft ? { ...bill, ...draft, items: draft.items || bill.items || [] } : bill;
+}
+
+function canPersistBillDraft(lot = {}, bill = {}) {
+  if (!lot?.id || isReadOnlyUser()) return false;
+  if (!bill.id) return canCreateBill();
+  if (canEditGeneratedBill()) return true;
+  return Boolean((isBillQcOnlyMode() || isOrderBillQcMode(bill)) && canEditQcStatus());
+}
+
+function setBillDraftStatus(message = "", status = "") {
+  const node = document.getElementById("bill-draft-status");
+  if (!node) return;
+  node.textContent = message;
+  node.classList.remove("saving", "saved", "error");
+  if (status) node.classList.add(status);
+}
+
+function cancelBillDraftSaveTimer() {
+  if (billDraftSaveTimer !== null) clearTimeout(billDraftSaveTimer);
+  billDraftSaveTimer = null;
+}
+
+function billDraftItemsFromForm(existingItems = []) {
+  const rows = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"));
+  return billItemRows(existingItems).map((item, index) => {
+    const finalGwValue = String(rows[index]?.querySelector('[name="billItemFinalGw"]')?.value || "").trim();
+    return { ...item, finalGw: finalGwValue === "" ? "" : item.finalGw };
+  });
+}
+
+function buildBillDraftRecord(lot = {}, bill = {}, itemsOverride = null) {
+  const form = document.getElementById("bill-form");
+  const previousDraft = billDraftForLot(lot, bill) || {};
+  const baseItems = previousDraft.items || bill.items || [];
+  const data = getFormData(form);
+  const updatedAt = new Date().toISOString();
+  return {
+    billId: bill.id || "",
+    billNo: data.billNo || "",
+    billDate: data.billDate || "",
+    billWastagePercent: factoryWstgPercent(data.billWastagePercent || 0),
+    remarks: data.remarks || "",
+    items: Array.isArray(itemsOverride) ? itemsOverride : billDraftItemsFromForm(baseItems),
+    updatedAt,
+    updatedBy: currentUser?.name || currentUser?.id || "User",
+    finalizedBillId: "",
+  };
+}
+
+function saveBillDraftNow(options = {}) {
+  cancelBillDraftSaveTimer();
+  const form = document.getElementById("bill-form");
+  const dialog = document.getElementById("bill-dialog");
+  if (!form || !dialog?.open) return false;
+  const lot = findById("lots", form.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!canPersistBillDraft(lot, bill)) return false;
+  lot.billDraft = buildBillDraftRecord(lot, bill, options.items);
+  lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
+  const saved = saveState({ alertOnFailure: false, context: `${lot.number || "Bill"} draft` });
+  if (!saved) {
+    setBillDraftStatus("Draft could not be saved on this laptop. Keep this Bill window open and try again.", "error");
+    return false;
+  }
+  const time = new Date(lot.billDraft.updatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  setBillDraftStatus(`Draft saved automatically at ${time}. Closing or refreshing will not lose these entries.`, "saved");
+  return true;
+}
+
+function scheduleBillDraftSave(options = {}) {
+  const form = document.getElementById("bill-form");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!canPersistBillDraft(lot, bill)) return;
+  cancelBillDraftSaveTimer();
+  setBillDraftStatus("Saving this entry as a protected Bill draft...", "saving");
+  billDraftSaveTimer = setTimeout(() => saveBillDraftNow(), options.immediate ? 80 : 700);
+}
+
+function flushBillDraftSave() {
+  if (billDraftSaveTimer === null) return false;
+  return saveBillDraftNow();
+}
+
+function removeBillDraftItem(orderId = "") {
+  const form = document.getElementById("bill-form");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!lot?.manualWipCombinedBill || !orderId) {
+    alert("Items can be removed here only from a Combined Bill that is still being prepared.");
+    return;
+  }
+  const generatedItem = (bill.items || []).some((item) => item.orderId === orderId);
+  if (bill.id && generatedItem) {
+    alert("This item is already part of the generated Bill. Delete and reverse the Bill first if the completed Bill itself must be rebuilt.");
+    return;
+  }
+  if ((bill.id && !canEditGeneratedBill()) || (!bill.id && !canCreateBill()) || isReadOnlyUser()) {
+    alert("This login cannot remove an item from this Bill draft.");
+    return;
+  }
+  const currentIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
+  if (currentIds.length <= 1) {
+    alert("A Combined Bill must keep at least one item. Use Delete Pending Bill to cancel the complete pending Bill.");
+    return;
+  }
+  const order = findById("orders", orderId) || {};
+  const label = [order.productionNo || order.number, billOrderDesignCode(order)].filter(Boolean).join(" / ") || "this item";
+  if (!confirm(`Remove ${label} from this Bill draft?\n\nThe Job Card item will return to the pending Billing list and will not be deleted.`)) return;
+  const snapshot = structuredClone(lot);
+  const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
+  const remainingItems = billDraftItemsFromForm(existingItems).filter((item) => item.orderId !== orderId);
+  lot.billExcludedOrderIds = [...new Set([...(lot.billExcludedOrderIds || []), orderId])];
+  lot.billOrderIds = currentIds.filter((id) => id !== orderId);
+  lot.billDraft = buildBillDraftRecord(lot, bill, remainingItems);
+  lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
+  if (!saveState({ alertOnFailure: true, context: `${lot.number} remove pending Bill item` })) {
+    Object.keys(lot).forEach((key) => delete lot[key]);
+    Object.assign(lot, snapshot);
+    return;
+  }
+  renderBillItems(lot, workingBillRecord(lot, bill));
+  filterBillItems();
+  updateBillAmount();
+  applyBillAccessMode();
+  setBillDraftStatus(`${label} removed from this draft and returned to pending Billing. Remaining entries are saved.`, "saved");
+}
+
 function handleBillAmountChange(event) {
   if (event?.target?.id === "bill-item-search") {
     filterBillItems();
@@ -36282,9 +36530,11 @@ function handleBillAmountChange(event) {
   }
   if (event?.target?.name === "billWastagePercent") {
     applyBillWastageToAllItems(event.target.value);
+    scheduleBillDraftSave({ immediate: event.type === "change" });
     return;
   }
   updateBillAmount();
+  scheduleBillDraftSave({ immediate: event?.type === "change" });
 }
 
 function updateBillAmount(options = {}) {
@@ -36463,6 +36713,13 @@ function renderBillItems(lot, bill = {}) {
   if (!body) return;
   const savedItems = Array.isArray(bill.items) ? bill.items : [];
   const billableOrders = billableOrdersForLot(lot, bill);
+  const generatedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  const generatedOrderIds = new Set((generatedBill.items || []).map((item) => item.orderId).filter(Boolean));
+  const canManageDraftItems = Boolean(
+    lot.manualWipCombinedBill
+    && !isReadOnlyUser()
+    && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
+  );
   const qcDisabled = canEditQcStatus() ? "" : " disabled";
   const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
@@ -36489,6 +36746,9 @@ function renderBillItems(lot, bill = {}) {
       order.productionNo || order.number || "",
       order.ringType || "",
     ].filter(Boolean).join(" / ");
+    const canRemoveFromDraft = canManageDraftItems
+      && billableOrders.length > 1
+      && (!generatedBill.id || !generatedOrderIds.has(order.id));
     return `
       <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}">
         <td>
@@ -36496,6 +36756,7 @@ function renderBillItems(lot, bill = {}) {
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
+          ${canRemoveFromDraft ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove From Draft</button>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>

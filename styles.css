@@ -6103,6 +6103,7 @@ dialog::backdrop {
 
 .bill-dialog-card h2,
 .bill-dialog-card > .dialog-note,
+.bill-dialog-card > .bill-draft-status,
 .bill-dialog-card .bill-lot-trace,
 .bill-dialog-card .bill-item-table,
 .bill-dialog-card .bill-fields,
@@ -6110,6 +6111,35 @@ dialog::backdrop {
 .bill-dialog-card .bill-qc-bulk-toolbar,
 .bill-dialog-card .dialog-actions {
   width: 100%;
+}
+
+.bill-draft-status {
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid #a9d5ed;
+  border-radius: 7px;
+  background: #eef9ff;
+  color: #12547d;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.bill-draft-status.saving {
+  border-color: #e7c46a;
+  background: #fff9df;
+  color: #7a5400;
+}
+
+.bill-draft-status.saved {
+  border-color: #86cfad;
+  background: #edfdf5;
+  color: #11653e;
+}
+
+.bill-draft-status.error {
+  border-color: #e8a3a3;
+  background: #fff0f0;
+  color: #9b1c1c;
 }
 
 .bill-fields {
@@ -6681,6 +6711,25 @@ dialog::backdrop {
   border-color: #3b82f6;
   background: #d9f4eb;
   color: #063f39;
+}
+
+#bill-dialog .bill-item-remove-button {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-color: #e2a0a0;
+  background: #fff4f4;
+  color: #a51d2d;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+#bill-dialog .bill-item-remove-button:hover,
+#bill-dialog .bill-item-remove-button:focus-visible {
+  border-color: #c92f42;
+  background: #ffe2e5;
+  color: #7c1020;
 }
 
 .bill-design-hover-preview {
