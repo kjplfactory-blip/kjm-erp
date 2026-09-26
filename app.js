@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v635";
+const APP_VERSION = "v636";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -36,6 +36,8 @@ const ERP_STATE_INDEXED_DB_POINTER_FORMAT = "KJM-ERP-INDEXEDDB-POINTER";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
 const LOCAL_COMPACT_MODE_SESSION_KEY = "gold-jewellery-erp-compact-storage-mode";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
+const SYNC_DELETION_TOMBSTONE_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+const SYNC_DELETION_TOMBSTONE_LIMIT = 20000;
 const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
@@ -65,9 +67,9 @@ const SUPABASE_RETRY_MAX_MS = 5 * 60 * 1000;
 const SUPABASE_RETRY_JITTER_RATIO = 0.2;
 const SUPABASE_SAVE_DELAY_MS = 750;
 const SUPABASE_CDN_TIMEOUT_MS = 12000;
-const SUPABASE_REQUEST_TIMEOUT_MS = 120000;
-const SUPABASE_FULL_LOAD_TIMEOUT_MS = 180000;
-const SUPABASE_REVISION_TIMEOUT_MS = 45000;
+const SUPABASE_REQUEST_TIMEOUT_MS = 60000;
+const SUPABASE_FULL_LOAD_TIMEOUT_MS = 90000;
+const SUPABASE_REVISION_TIMEOUT_MS = 20000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
 const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const CLOUD_BACKUP_TABLE = "erp_state_backups";
@@ -5355,6 +5357,190 @@ function nestedSyncArrayItemKey(item = {}) {
   return String(item.id || item.productionNo || item.orderId || item.itemKey || item.lookupCode || item.code || "");
 }
 
+function syncDeletionTombstoneKey(path = [], id = "") {
+  return JSON.stringify([...(path || []).map(String), String(id)]);
+}
+
+function normalizeSyncDeletionTombstones(source = {}) {
+  const cutoff = Date.now() - SYNC_DELETION_TOMBSTONE_RETENTION_MS;
+  return Object.fromEntries(Object.entries(source && typeof source === "object" ? source : {})
+    .map(([key, value]) => {
+      const entry = value && typeof value === "object" ? value : { deleted: true, updatedAt: value };
+      const updatedAt = entry.updatedAt || entry.deletedAt || entry.clearedAt || "";
+      return [key, {
+        deleted: entry.deleted !== false,
+        updatedAt,
+        deletedAt: entry.deleted !== false ? (entry.deletedAt || updatedAt) : "",
+        clearedAt: entry.deleted === false ? (entry.clearedAt || updatedAt) : "",
+        user: entry.user || "",
+        appVersion: entry.appVersion || "",
+      }];
+    })
+    .filter(([, entry]) => {
+      const time = Date.parse(entry.updatedAt || "");
+      return !Number.isFinite(time) || time >= cutoff;
+    })
+    .sort((left, right) => Date.parse(right[1].updatedAt || 0) - Date.parse(left[1].updatedAt || 0))
+    .slice(0, SYNC_DELETION_TOMBSTONE_LIMIT));
+}
+
+function mergeSyncDeletionTombstones(localSource = {}, cloudSource = {}) {
+  const local = normalizeSyncDeletionTombstones(localSource);
+  const cloud = normalizeSyncDeletionTombstones(cloudSource);
+  const merged = { ...cloud };
+  Object.entries(local).forEach(([key, entry]) => {
+    const cloudTime = Date.parse(merged[key]?.updatedAt || 0);
+    const localTime = Date.parse(entry.updatedAt || 0);
+    if (!merged[key] || localTime >= cloudTime) merged[key] = entry;
+  });
+  return normalizeSyncDeletionTombstones(merged);
+}
+
+function captureSyncDeletionTombstones(previousState = {}, currentState = {}) {
+  if (!previousState || !currentState || typeof currentState !== "object") return false;
+  if (factoryResetTimestamp(stateFactoryResetAt(currentState)) > factoryResetTimestamp(stateFactoryResetAt(previousState))) {
+    currentState.syncDeletionTombstones = {};
+    return false;
+  }
+  const before = normalizeSyncDeletionTombstones(currentState.syncDeletionTombstones);
+  const tombstones = { ...before };
+  const updatedAt = new Date().toISOString();
+  const metadata = {
+    user: currentUser?.name || currentUser?.id || "ERP User",
+    appVersion: APP_VERSION,
+  };
+
+  const walk = (previousValue, currentValue, path = []) => {
+    if (syncValuesEqual(previousValue, currentValue)) return;
+    if (Array.isArray(previousValue) && Array.isArray(currentValue)) {
+      const combined = [...previousValue, ...currentValue];
+      const keyed = combined.length > 0 && combined.every((item) => Boolean(nestedSyncArrayItemKey(item)));
+      if (!keyed) return;
+      const previousMap = new Map(previousValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+      const currentMap = new Map(currentValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+      previousMap.forEach((previousItem, id) => {
+        const key = syncDeletionTombstoneKey(path, id);
+        if (!currentMap.has(id)) {
+          tombstones[key] = { deleted: true, updatedAt, deletedAt: updatedAt, clearedAt: "", ...metadata };
+          return;
+        }
+        walk(previousItem, currentMap.get(id), [...path, id]);
+      });
+      currentMap.forEach((currentItem, id) => {
+        if (previousMap.has(id)) return;
+        const key = syncDeletionTombstoneKey(path, id);
+        tombstones[key] = { deleted: false, updatedAt, deletedAt: "", clearedAt: updatedAt, ...metadata };
+      });
+      return;
+    }
+    const previousIsObject = previousValue && typeof previousValue === "object" && !Array.isArray(previousValue);
+    const currentIsObject = currentValue && typeof currentValue === "object" && !Array.isArray(currentValue);
+    if (!previousIsObject || !currentIsObject) return;
+    const keys = new Set([...Object.keys(previousValue), ...Object.keys(currentValue)]);
+    keys.forEach((key) => {
+      if (key === "syncDeletionTombstones") return;
+      walk(previousValue[key], currentValue[key], [...path, key]);
+    });
+  };
+
+  const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
+  keys.forEach((key) => {
+    if (key === "syncDeletionTombstones") return;
+    walk(previousState[key], currentState[key], [key]);
+  });
+  currentState.syncDeletionTombstones = normalizeSyncDeletionTombstones(tombstones);
+  return !syncValuesEqual(before, currentState.syncDeletionTombstones);
+}
+
+function mergeIncomingCloudValues(localValue, cloudValue, baseValue, path, tombstones, localHas = true, cloudHas = true, baseHas = true) {
+  if (localHas && !cloudHas) return structuredClone(localValue);
+  if (!localHas && cloudHas) return structuredClone(cloudValue);
+  if (!localHas && !cloudHas) return undefined;
+  if (syncValuesEqual(localValue, cloudValue)) return structuredClone(localValue);
+
+  if (Array.isArray(localValue) && Array.isArray(cloudValue)) {
+    const combined = [...cloudValue, ...localValue];
+    const keyed = combined.length > 0 && combined.every((item) => Boolean(nestedSyncArrayItemKey(item)));
+    if (!keyed) {
+      const merged = structuredClone(cloudValue);
+      localValue.forEach((item) => {
+        if (!merged.some((entry) => syncValuesEqual(entry, item))) merged.push(structuredClone(item));
+      });
+      return merged;
+    }
+    const localMap = new Map(localValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const cloudMap = new Map(cloudValue.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const baseArray = Array.isArray(baseValue) ? baseValue : [];
+    const baseMap = new Map(baseArray.map((item) => [nestedSyncArrayItemKey(item), item]));
+    const order = [...cloudMap.keys(), ...localMap.keys().filter((id) => !cloudMap.has(id))];
+    return order.map((id) => {
+      const tombstone = tombstones[syncDeletionTombstoneKey(path, id)];
+      if (tombstone && tombstone.deleted !== false) return undefined;
+      return mergeIncomingCloudValues(
+        localMap.get(id),
+        cloudMap.get(id),
+        baseMap.get(id),
+        [...path, id],
+        tombstones,
+        localMap.has(id),
+        cloudMap.has(id),
+        baseMap.has(id),
+      );
+    }).filter((item) => item !== undefined);
+  }
+
+  const localIsObject = localValue && typeof localValue === "object" && !Array.isArray(localValue);
+  const cloudIsObject = cloudValue && typeof cloudValue === "object" && !Array.isArray(cloudValue);
+  const baseIsObject = baseValue && typeof baseValue === "object" && !Array.isArray(baseValue);
+  if (localIsObject && cloudIsObject) {
+    const merged = {};
+    const keys = new Set([...Object.keys(localValue), ...Object.keys(cloudValue)]);
+    keys.forEach((key) => {
+      if (key === "syncDeletionTombstones") return;
+      const localHasKey = Object.prototype.hasOwnProperty.call(localValue, key);
+      const cloudHasKey = Object.prototype.hasOwnProperty.call(cloudValue, key);
+      const baseHasKey = baseIsObject && Object.prototype.hasOwnProperty.call(baseValue, key);
+      const value = mergeIncomingCloudValues(
+        localValue[key], cloudValue[key], baseValue?.[key], [...path, key], tombstones,
+        localHasKey, cloudHasKey, baseHasKey,
+      );
+      if (value !== undefined) merged[key] = value;
+    });
+    return merged;
+  }
+
+  if (!baseHas) return structuredClone(cloudValue);
+  return mergeConcurrentSyncValues(baseValue, localValue, cloudValue, baseHas, localHas, cloudHas);
+}
+
+function reconcileIncomingCloudState(localState = {}, cloudState = {}, previousCloudBaseline = null) {
+  if (!localState || typeof localState !== "object") return structuredClone(cloudState || {});
+  if (!cloudState || typeof cloudState !== "object") return structuredClone(localState || {});
+  if (isEmptyBusinessState(localState) || isFallbackOpeningState(localState)) return structuredClone(cloudState);
+  if (factoryResetTimestamp(stateFactoryResetAt(cloudState)) > factoryResetTimestamp(stateFactoryResetAt(localState))) {
+    return structuredClone(cloudState);
+  }
+  const tombstones = mergeSyncDeletionTombstones(
+    localState.syncDeletionTombstones,
+    cloudState.syncDeletionTombstones,
+  );
+  const merged = mergeIncomingCloudValues(
+    localState,
+    cloudState,
+    previousCloudBaseline || {},
+    [],
+    tombstones,
+    true,
+    true,
+    Boolean(previousCloudBaseline),
+  );
+  merged.syncDeletionTombstones = tombstones;
+  ["nextOrder", "nextJob", "nextProduction", "nextLot"].forEach((key) => {
+    merged[key] = Math.max(Number(localState[key] || 0), Number(cloudState[key] || 0), Number(merged[key] || 0));
+  });
+  return merged;
+}
+
 function mergeConcurrentSyncValues(baseValue, localValue, remoteValue, baseHasValue = true, localHasValue = true, remoteHasValue = true) {
   if (baseHasValue && localHasValue && syncValuesEqual(localValue, baseValue)) return remoteHasValue ? structuredClone(remoteValue) : undefined;
   if (baseHasValue && remoteHasValue && syncValuesEqual(remoteValue, baseValue)) return localHasValue ? structuredClone(localValue) : undefined;
@@ -5505,6 +5691,7 @@ function saveState(options = {}) {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
+  captureSyncDeletionTombstones(lastLocallyPersistedState, state);
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state);
   lastLocallyPersistedState = structuredClone(state);
@@ -5521,6 +5708,7 @@ function saveStateLocalOnly(options = {}) {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
+  captureSyncDeletionTombstones(lastLocallyPersistedState, state);
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state);
   lastLocallyPersistedState = structuredClone(state);
@@ -6615,7 +6803,10 @@ async function refreshLiveData() {
     const pending = supabasePendingCloudState;
     supabasePendingCloudState = null;
     if (blockOlderCloudState(pending.data, { manual: true })) return;
-    applyCloudState(pending.data, pending.updated_at, { manual: true });
+    applyCloudState(pending.data, pending.updated_at, {
+      manual: true,
+      previousCloudBaseline: pending.previousCloudBaseline || null,
+    });
     return;
   }
   await loadSupabaseState({ manual: true });
@@ -7053,6 +7244,8 @@ async function loadSupabaseState(options = {}) {
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
   if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
+  const loadStartRevision = supabaseLocalRevision;
+  const loadStartCloudUpdatedAt = supabaseLastCloudUpdatedAt;
   supabaseIsLoading = true;
   if (!isAuto) setSyncStatus("connecting", "Sync: Loading");
   const wakeNoticeTimer = setTimeout(() => {
@@ -7085,10 +7278,34 @@ async function loadSupabaseState(options = {}) {
     scheduleSupabaseReconnect(error);
     return false;
   }
+  if (data?.data) {
+    const responseTime = new Date(data.updated_at || 0).getTime();
+    const knownCloudTime = new Date(supabaseLastCloudUpdatedAt || loadStartCloudUpdatedAt || 0).getTime();
+    const localChangedWhileLoading = supabaseLocalRevision !== loadStartRevision;
+    const responseIsOlderThanKnownCloud = Number.isFinite(knownCloudTime)
+      && Number.isFinite(responseTime)
+      && knownCloudTime > responseTime + 250;
+    if (localChangedWhileLoading || responseIsOlderThanKnownCloud) {
+      if (Number.isFinite(responseTime) && responseTime > knownCloudTime + 250) {
+        supabasePendingCloudState = {
+          data: data.data,
+          updated_at: data.updated_at || "",
+          previousCloudBaseline: supabaseVerifiedCloudState ? structuredClone(supabaseVerifiedCloudState) : null,
+        };
+      }
+      const localSavePending = hasUnsyncedLocalState();
+      if (localSavePending && !supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave();
+      setSyncStatus(
+        localSavePending ? "saving" : "online",
+        "Delayed Cloud Reply Ignored - Local Safe",
+        "A slow response started before newer laptop work. It was not allowed to replace current ERP entries.",
+      );
+      return true;
+    }
+  }
   clearSupabaseRetryBackoff();
   let handledCloudState = false;
   if (data?.data) {
-    rememberVerifiedCloudBaseline(data.data, data.updated_at || "");
     handledCloudState = applyCloudStateFromRow(data, options);
   } else {
     supabaseInitialReadComplete = true;
@@ -7138,13 +7355,15 @@ async function pollSupabaseStateRevision(options = {}) {
 }
 
 function applyCloudStateFromRow(row = {}, options = {}) {
+  const previousCloudBaseline = supabaseVerifiedCloudState ? structuredClone(supabaseVerifiedCloudState) : null;
+  const applyOptions = { ...options, previousCloudBaseline };
   rememberVerifiedCloudBaseline(row.data, row.updated_at || "");
   if (cloudStateRequiresNewerApp(row.data)) {
     const newerVersion = String(row.data?.appVersion || `build ${stateSyncBuild(row.data)}`);
     supabaseVersionWriteBlocked = true;
     supabaseStartupProtectionActive = true;
     if (options.initial && !isEmptyBusinessState(row.data)) {
-      applyCloudState(row.data, row.updated_at || "", { ...options, newerCloudReadOnly: true });
+      applyCloudState(row.data, row.updated_at || "", { ...applyOptions, newerCloudReadOnly: true });
       supabaseStartupProtectionActive = true;
     }
     setSyncStatus("offline", "Update Required", `Cloud data uses ${newerVersion}. Data can be viewed, but this older app cannot save. Open the latest ERP version.`);
@@ -7158,7 +7377,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     clearLocalSyncDirty();
     supabasePendingCloudState = null;
     supabaseStartupProtectionActive = false;
-    applyCloudState(row.data, row.updated_at || "", options);
+    applyCloudState(row.data, row.updated_at || "", applyOptions);
     setSyncStatus("online", "Live Data Restored", "The new version loaded the richer verified cloud copy. A local pre-cloud recovery copy was retained when browser storage allowed it.");
     return true;
   }
@@ -7174,7 +7393,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     recoveryState.metalSafeMovements = (recoveryState.metalSafeMovements || []).filter((entry) => entry.sourceType !== "factory-default" && entry.sourceId !== "factory-default-ledger");
     recoveryState.ledger = (recoveryState.ledger || []).filter((entry) => entry.id !== "factory-default-ledger");
     recoveryState.cloudRecoveryRequired = true;
-    applyCloudState(recoveryState, row.updated_at || "", { ...options, recoveryFallback: true });
+    applyCloudState(recoveryState, row.updated_at || "", { ...applyOptions, recoveryFallback: true });
     stateLoadedFromFallback = true;
     supabaseStartupProtectionActive = true;
     setSyncStatus("offline", "Cloud Recovery Required", "Fallback opening stock was hidden. Recover from a laptop or JSON backup with the correct ERP data, then Owner can click Upload Data.");
@@ -7188,7 +7407,7 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     if (isNewerCloudData(cloudUpdatedAt)) {
       const pendingTime = new Date(supabasePendingCloudState?.updated_at || 0).getTime();
       if (!supabasePendingCloudState || new Date(cloudUpdatedAt || 0).getTime() >= pendingTime) {
-        supabasePendingCloudState = { data: row.data, updated_at: cloudUpdatedAt };
+        supabasePendingCloudState = { data: row.data, updated_at: cloudUpdatedAt, previousCloudBaseline };
       }
     }
     if (!supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave();
@@ -7203,11 +7422,12 @@ function applyCloudStateFromRow(row = {}, options = {}) {
     supabasePendingCloudState = {
       data: row.data,
       updated_at: cloudUpdatedAt,
+      previousCloudBaseline,
     };
     setSyncStatus("connecting", "New Data - Refresh", "Another laptop saved new data. Close the open form or click Refresh Live Data to load it.");
     return true;
   }
-  applyCloudState(row.data, cloudUpdatedAt, options);
+  applyCloudState(row.data, cloudUpdatedAt, applyOptions);
   return true;
 }
 
@@ -7220,12 +7440,19 @@ function applyPendingCloudState(source = "auto") {
   const pending = supabasePendingCloudState;
   supabasePendingCloudState = null;
   if (blockOlderCloudState(pending.data, { auto: source === "auto" })) return false;
-  applyCloudState(pending.data, pending.updated_at, { auto: source === "auto" });
+  applyCloudState(pending.data, pending.updated_at, {
+    auto: source === "auto",
+    previousCloudBaseline: pending.previousCloudBaseline || null,
+  });
   return true;
 }
 
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
+  const reconciledCloudState = options.recoveryFallback
+    ? structuredClone(cloudState)
+    : reconcileIncomingCloudState(state, cloudState, options.previousCloudBaseline || null);
+  const preservedLocalData = !syncValuesEqual(reconciledCloudState, cloudState);
   const shouldUpgradeCloudVersion = !options.recoveryFallback && cloudStateNeedsCurrentVersionSave(cloudState);
   if (shouldUpgradeCloudVersion) {
     const sourceVersion = cloudBackupVersionLabel(cloudState);
@@ -7237,7 +7464,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     };
   }
   restoredRecentJobOrderCount = 0;
-  state = normalizeState(cloudState);
+  state = normalizeState(reconciledCloudState);
   stateLoadedFromFallback = false;
   if (!options.recoveryFallback && !options.newerCloudReadOnly && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
@@ -7252,13 +7479,21 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   if (!persistStateToBrowser()) {
     console.warn("The cloud data is active in memory, but browser storage is full. Download an Owner data backup after checking the records.");
   }
+  if (preservedLocalData && !options.newerCloudReadOnly && !options.recoveryFallback) {
+    capturePendingSyncMutations(cloudState, state);
+    markLocalSyncDirty();
+    supabaseLastLocalChangeAt = Date.now();
+  }
   lastLocallyPersistedState = structuredClone(state);
   render();
   restoreOrderDraftOrReset(orderDraft);
   resetMeltingSources();
   updateMeltingCalculation();
   const time = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  if (options.manual) {
+  if (preservedLocalData && !options.newerCloudReadOnly && !options.recoveryFallback) {
+    setSyncStatus("saving", "Live Sync: Safe Merge Pending", "Local and cloud records were combined without deleting unmatched entries. The merged copy is queued for cloud save.");
+    if (!supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave();
+  } else if (options.manual) {
     setSyncStatus("online", `Live Sync: Refreshed ${time}`);
   } else if (options.realtime) {
     setSyncStatus("online", `Live Sync: Updated ${time}`);
@@ -42354,6 +42589,7 @@ function normalizeState(currentState) {
   if (!currentState || typeof currentState !== "object") {
     currentState = structuredClone(demoState);
   }
+  currentState.syncDeletionTombstones = normalizeSyncDeletionTombstones(currentState.syncDeletionTombstones);
   migrateTransferHistoryTimestamps(currentState);
   currentState.factoryResetAt = currentState.factoryResetAt || "";
   currentState.factoryResetReason = currentState.factoryResetReason || "";
