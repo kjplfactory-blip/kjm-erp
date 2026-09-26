@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v632";
+const APP_VERSION = "v633";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -3495,7 +3495,9 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   }
   const draft = billDraftForLot(lot, existingBill);
   const applyGwSaveAdjustment = !qcOnlyWorkflow && (!existingBill.id || options.applyGwSaveAdjustment === true);
-  const items = billItemRows(draft?.items || existingBill.items || [], { applyGwSaveAdjustment });
+  const rawItems = billItemRows(draft?.items || existingBill.items || []);
+  const gwSaveAllowance = applyOneTimeBillGwSaveAllowance(rawItems, existingBill, applyGwSaveAdjustment);
+  const items = gwSaveAllowance.items;
   const totals = billTotals(items);
   const netWeight = totals.netWeight;
   const effectiveWastagePercent = netWeight > 0
@@ -3536,8 +3538,12 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     billAmount: 0,
     items,
     gwSaveAdjustmentPerItem: BILL_ITEM_GW_SAVE_INCREMENT,
-    gwSaveAdjustmentItemCount: items.filter(billGwSaveAdjustmentIsApplied).length,
-    gwSaveAdjustmentTotal: Number(weight3(items.filter(billGwSaveAdjustmentIsApplied).length * BILL_ITEM_GW_SAVE_INCREMENT)),
+    gwSaveAdjustmentItemCount: gwSaveAllowance.appliedKeys.length,
+    gwSaveAdjustmentTotal: Number(weight3(gwSaveAllowance.appliedKeys.length * BILL_ITEM_GW_SAVE_INCREMENT)),
+    gwSaveAdjustmentOrderIds: gwSaveAllowance.appliedKeys,
+    gwSaveAdjustmentUpdatedAt: gwSaveAllowance.appliedNow
+      ? new Date().toISOString()
+      : (existingBill.gwSaveAdjustmentUpdatedAt || ""),
     nonGoldStockAdjustment,
     manualWipCombinedAllocation,
     netWeight,
@@ -3590,6 +3596,9 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     document.getElementById("bill-dialog").close();
   }
   render();
+  if (closeDialog && gwSaveAllowance.appliedNow) {
+    alert(`${bill.billNo || lot.number} saved. ${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g was added once to ${gwSaveAllowance.appliedNow} item${gwSaveAllowance.appliedNow === 1 ? "" : "s"}. It will not be added again when this Bill is reopened or saved again.`);
+  }
   return { lot, bill };
 }
 
@@ -36166,6 +36175,82 @@ function billGwSaveAdjustmentIsApplied(item = {}) {
     && Math.abs(Number(item.gwSaveAdjustmentAmount || BILL_ITEM_GW_SAVE_INCREMENT) - BILL_ITEM_GW_SAVE_INCREMENT) < 0.0005;
 }
 
+function billGwSaveAdjustmentKey(item = {}, index = 0) {
+  return String(item.orderId || item.productionNo || item.designNo || `BILL-ITEM-${index + 1}`);
+}
+
+function billGwSaveAdjustmentKeys(bill = {}) {
+  const keys = new Set((bill.gwSaveAdjustmentOrderIds || []).map(String).filter(Boolean));
+  (bill.items || []).forEach((item, index) => {
+    if (billGwSaveAdjustmentIsApplied(item)) keys.add(billGwSaveAdjustmentKey(item, index));
+  });
+  return keys;
+}
+
+function updateBillRowAfterGwSaveAllowance(item = {}) {
+  const row = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"))
+    .find((entry) => entry.dataset.orderId === item.orderId || entry.dataset.productionNo === item.productionNo);
+  if (!row) return;
+  const finalGwInput = row.querySelector('[name="billItemFinalGw"]');
+  const netInput = row.querySelector('[name="billItemNetWeight"]');
+  if (finalGwInput) finalGwInput.value = billWeightInputValue(item.finalGw);
+  if (netInput) netInput.value = weight3(item.netWeight);
+  row.dataset.billFinalGwBaseline = String(item.finalGw);
+  row.dataset.billGwEdited = "false";
+  row.dataset.billGwAdjustmentApplied = "true";
+  row.dataset.billGwAdjustmentOriginalApplied = "true";
+  const note = row.querySelector("[data-bill-gw-adjustment-note]");
+  if (note) note.textContent = `Save allowance +${weight3(BILL_ITEM_GW_SAVE_INCREMENT)} g applied once`;
+}
+
+function applyOneTimeBillGwSaveAllowance(items = [], existingBill = {}, shouldApply = false) {
+  const appliedKeys = billGwSaveAdjustmentKeys(existingBill);
+  const existingByKey = new Map((existingBill.items || []).map((item, index) => [billGwSaveAdjustmentKey(item, index), item]));
+  let appliedNow = 0;
+  const adjustedItems = items.map((item, index) => {
+    const key = billGwSaveAdjustmentKey(item, index);
+    const existingItem = existingByKey.get(key) || {};
+    const alreadyApplied = appliedKeys.has(key) || billGwSaveAdjustmentIsApplied(item) || billGwSaveAdjustmentIsApplied(existingItem);
+    if (alreadyApplied) {
+      appliedKeys.add(key);
+      const normalizedItem = {
+        ...item,
+        gwBeforeSaveAdjustment: Number(weight3(item.gwBeforeSaveAdjustment ?? existingItem.gwBeforeSaveAdjustment ?? Math.max(Number(item.finalGw || 0) - BILL_ITEM_GW_SAVE_INCREMENT, 0))),
+        gwSaveAdjustmentApplied: true,
+        gwSaveAdjustmentAmount: BILL_ITEM_GW_SAVE_INCREMENT,
+        gwSaveAdjustmentAppliedAt: item.gwSaveAdjustmentAppliedAt || existingItem.gwSaveAdjustmentAppliedAt || existingBill.gwSaveAdjustmentUpdatedAt || "",
+      };
+      updateBillRowAfterGwSaveAllowance(normalizedItem);
+      return normalizedItem;
+    }
+    if (!shouldApply || Number(item.finalGw || 0) <= 0) return item;
+    const gwBeforeSaveAdjustment = Number(weight3(item.finalGw));
+    const finalGw = Number(weight3(gwBeforeSaveAdjustment + BILL_ITEM_GW_SAVE_INCREMENT));
+    const reducedWeight = Number(weight3(item.reducedWeight || 0));
+    const netWeight = Number(weight3(Math.max(finalGw - reducedWeight, 0)));
+    const wastagePercent = factoryWstgPercent(item.wastagePercent ?? item.wstgPercent ?? 0);
+    const baseFineWeight = fineGoldWeight(netWeight, item.purity || "18K");
+    const wastageFineWeight = Number(weight3(netWeight * (wastagePercent / 100)));
+    const appliedItem = {
+      ...item,
+      finalGw,
+      netWeight,
+      baseFineWeight,
+      wastageFineWeight,
+      fineWeight: Number(weight3(baseFineWeight + wastageFineWeight)),
+      gwBeforeSaveAdjustment,
+      gwSaveAdjustmentApplied: true,
+      gwSaveAdjustmentAmount: BILL_ITEM_GW_SAVE_INCREMENT,
+      gwSaveAdjustmentAppliedAt: new Date().toISOString(),
+    };
+    appliedKeys.add(key);
+    appliedNow += 1;
+    updateBillRowAfterGwSaveAllowance(appliedItem);
+    return appliedItem;
+  });
+  return { items: adjustedItems, appliedNow, appliedKeys: [...appliedKeys] };
+}
+
 function markBillFinalGwInputEdited(input) {
   const row = input?.closest?.("tr[data-order-id]");
   if (!row) return;
@@ -36173,10 +36258,11 @@ function markBillFinalGwInputEdited(input) {
   const baselineText = String(row.dataset.billFinalGwBaseline || "").trim();
   const matchesBaseline = currentText === baselineText
     || (currentText !== "" && baselineText !== "" && Math.abs(Number(currentText) - Number(baselineText)) < 0.0005);
+  const alreadyApplied = row.dataset.billGwAdjustmentOriginalApplied === "true";
   row.dataset.billGwEdited = matchesBaseline ? "false" : "true";
-  row.dataset.billGwAdjustmentApplied = matchesBaseline
-    ? (row.dataset.billGwAdjustmentOriginalApplied || "false")
-    : "false";
+  row.dataset.billGwAdjustmentApplied = alreadyApplied
+    ? "true"
+    : (matchesBaseline ? (row.dataset.billGwAdjustmentOriginalApplied || "false") : "false");
   const note = row.querySelector("[data-bill-gw-adjustment-note]");
   if (note) {
     note.textContent = row.dataset.billGwAdjustmentApplied === "true"
@@ -37001,8 +37087,7 @@ function billItemRows(existingItems = [], options = {}) {
     const netInput = row.querySelector('[name="billItemNetWeight"]');
     const qcStatusInput = row.querySelector('[name="billItemQcStatus"]');
     const enteredFinalGw = Number(finalGwInput?.value || 0);
-    const rowEdited = row.dataset.billGwEdited === "true";
-    let gwSaveAdjustmentApplied = row.dataset.billGwAdjustmentApplied === "true" && !rowEdited;
+    let gwSaveAdjustmentApplied = row.dataset.billGwAdjustmentApplied === "true";
     let gwSaveAdjustmentAppliedAt = gwSaveAdjustmentApplied ? (existing.gwSaveAdjustmentAppliedAt || "") : "";
     let gwBeforeSaveAdjustment = gwSaveAdjustmentApplied
       ? Number(existing.gwBeforeSaveAdjustment ?? Math.max(enteredFinalGw - BILL_ITEM_GW_SAVE_INCREMENT, 0))
@@ -42489,6 +42574,13 @@ function normalizeState(currentState) {
     manufacturingBillAmount: 0,
     billAmount: 0,
     netWeight: Number(bill.netWeight || 0),
+    gwSaveAdjustmentPerItem: Number(bill.gwSaveAdjustmentPerItem || 0),
+    gwSaveAdjustmentItemCount: Number(bill.gwSaveAdjustmentItemCount || 0),
+    gwSaveAdjustmentTotal: Number(bill.gwSaveAdjustmentTotal || 0),
+    gwSaveAdjustmentOrderIds: Array.isArray(bill.gwSaveAdjustmentOrderIds)
+      ? [...new Set(bill.gwSaveAdjustmentOrderIds.map(String).filter(Boolean))]
+      : [],
+    gwSaveAdjustmentUpdatedAt: bill.gwSaveAdjustmentUpdatedAt || "",
     makingGold: 0,
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
@@ -42505,6 +42597,10 @@ function normalizeState(currentState) {
       cgSize: item.cgSize || "",
       purity: item.purity || "",
       finalGw: Number(item.finalGw || 0),
+      gwBeforeSaveAdjustment: Number(item.gwBeforeSaveAdjustment ?? item.finalGw ?? 0),
+      gwSaveAdjustmentApplied: Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt),
+      gwSaveAdjustmentAmount: Number(item.gwSaveAdjustmentAmount || 0),
+      gwSaveAdjustmentAppliedAt: item.gwSaveAdjustmentAppliedAt || "",
       bbNo: item.bbNo || item.blackBeads || "",
       bbType: normalizeBbType(item.bbType || ""),
       blackBeadsWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
