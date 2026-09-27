@@ -10,7 +10,7 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v636";
+const APP_VERSION = "v637";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -67,11 +67,13 @@ const SUPABASE_RETRY_MAX_MS = 5 * 60 * 1000;
 const SUPABASE_RETRY_JITTER_RATIO = 0.2;
 const SUPABASE_SAVE_DELAY_MS = 750;
 const SUPABASE_CDN_TIMEOUT_MS = 12000;
-const SUPABASE_REQUEST_TIMEOUT_MS = 60000;
+const SUPABASE_REQUEST_TIMEOUT_MS = 70000;
 const SUPABASE_FULL_LOAD_TIMEOUT_MS = 90000;
 const SUPABASE_REVISION_TIMEOUT_MS = 20000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
 const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
+const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-PERFORMANCE-v637.sql";
 const CLOUD_BACKUP_TABLE = "erp_state_backups";
 const CLOUD_BACKUP_SETUP_FILE = "ENABLE-CLOUD-SAFETY-BACKUPS.sql";
 const LOGIN_LOCATION_TIMEOUT_MS = 6000;
@@ -333,6 +335,7 @@ let postCloudMigrationsStarted = false;
 let supabaseLastSafetySnapshotBucket = "";
 let pendingCloudVersionBackup = null;
 let cloudBackupUnavailable = false;
+let supabaseAtomicSaveAvailable = null;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
 let loginSessionHeartbeatTimer = null;
@@ -6622,6 +6625,7 @@ function syncStatusForError(error, fallback) {
   if (message.includes("older erp app version") || message.includes("app version downgrade")) return "Sync: Update Required";
   if (isSupabaseGatewayUnavailableError(error)) return "Sync: Project Unreachable";
   if (isSupabaseDatabaseUnavailableError(error)) return "Sync: Database Unavailable";
+  if (message.includes("statement timeout") || message.includes("canceling statement")) return "Sync: Database Timeout";
   if (message.includes("timeout") || message.includes("abort") || message.includes("failed to fetch") || message.includes("networkerror") || message.includes("load failed")) {
     return "Sync: Internet Error";
   }
@@ -6646,6 +6650,9 @@ function syncErrorDetail(error) {
   }
   if (isSupabaseDatabaseUnavailableError(error)) {
     return `Supabase database API is unavailable. Automatic retry uses increasing wait times; local ERP data remains protected. If it continues, check project health and run RECOVER-PGRST002-SCHEMA-CACHE.sql in Supabase. ${detail}`;
+  }
+  if (normalized.includes("statement timeout") || normalized.includes("canceling statement")) {
+    return `Supabase stopped a large ERP save before it finished. Local entries remain protected. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once in Supabase SQL Editor, then use Refresh Live Data. ${detail}`;
   }
   if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
     return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
@@ -6927,30 +6934,40 @@ function flushSupabaseSave() {
 }
 
 async function prepareSafeCloudOverwrite(localState = state, options = {}) {
+  const baselineUpdatedAt = supabaseVerifiedCloudUpdatedAt || supabaseLastCloudUpdatedAt || "";
+  const baselineAvailable = Boolean(baselineUpdatedAt && supabaseVerifiedCloudState);
+  const needsFullPreflight = Boolean(options.force || !baselineAvailable);
   let result;
   try {
-    result = await withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .select("data, updated_at")
-        .eq("id", supabaseStateId)
-        .maybeSingle(),
-      "Supabase pre-save safety check timeout."
+    result = await fetchSupabaseStateRow(
+      needsFullPreflight ? "data,updated_at" : "updated_at",
+      needsFullPreflight ? SUPABASE_FULL_LOAD_TIMEOUT_MS : SUPABASE_REVISION_TIMEOUT_MS,
     );
   } catch (error) {
     return { ok: false, error };
   }
   if (result?.error) return { ok: false, error: result.error };
-  const row = result?.data || null;
-  if (!row?.data) {
+  let row = result?.data || null;
+  if (!row) {
     if (options.force) return { ok: true, row: null };
     return { ok: false, error: new Error("The live ERP row is missing. Automatic save was stopped; Owner must verify and use Upload Data.") };
   }
 
-  const baselineUpdatedAt = supabaseVerifiedCloudUpdatedAt || supabaseLastCloudUpdatedAt || "";
   const liveTime = new Date(row.updated_at || 0).getTime();
   const baselineTime = new Date(baselineUpdatedAt || 0).getTime();
   const liveChangedSinceBaseline = Boolean(baselineTime && Math.abs(liveTime - baselineTime) > 250);
+  if (!row.data && (liveChangedSinceBaseline || !baselineAvailable)) {
+    const fullResult = await fetchSupabaseStateRow("data,updated_at", SUPABASE_FULL_LOAD_TIMEOUT_MS);
+    if (fullResult?.error) return { ok: false, error: fullResult.error };
+    row = fullResult?.data || null;
+  } else if (!row.data && baselineAvailable) {
+    row = { ...row, data: structuredClone(supabaseVerifiedCloudState), baselineCopy: true };
+  }
+  if (!row?.data) {
+    if (options.force) return { ok: true, row: null };
+    return { ok: false, error: new Error("The live ERP data could not be verified. Automatic save was stopped without changing cloud data.") };
+  }
+
   const journalHasChanges = pendingSyncMutationsHasChanges();
   let stateToSave = localState;
   let mergedConcurrentData = false;
@@ -6978,6 +6995,66 @@ async function prepareSafeCloudOverwrite(localState = state, options = {}) {
     console.warn("A second browser recovery copy could not be stored. The conditional cloud save can still continue without replacing newer data from another laptop.");
   }
   return { ok: true, row, stateToSave, mergedConcurrentData };
+}
+
+function isMissingAtomicSaveFunctionError(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return detail.includes(SUPABASE_ATOMIC_SAVE_FUNCTION)
+    && (detail.includes("pgrst202") || detail.includes("could not find the function") || detail.includes("schema cache"));
+}
+
+async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = null) {
+  if (!currentRow || supabaseAtomicSaveAvailable === false) return { handled: false };
+  const bucket = cloudSafetySnapshotBucket();
+  const pendingVersion = pendingCloudVersionBackup;
+  const needsBackup = Boolean(pendingVersion || supabaseLastSafetySnapshotBucket !== bucket);
+  const currentCloudState = currentRow.data || supabaseVerifiedCloudState || {};
+  const sourceVersion = pendingVersion?.sourceVersion || cloudBackupVersionLabel(currentCloudState);
+  const isVersionUpgrade = needsBackup && Boolean(pendingVersion || cloudStateNeedsCurrentVersionSave(currentCloudState));
+  const backupKey = needsBackup
+    ? (pendingVersion?.backupKey || (isVersionUpgrade
+      ? `version-${cloudBackupKeyPart(sourceVersion)}-before-${cloudBackupKeyPart(APP_VERSION)}`
+      : `daily-${bucket}`))
+    : null;
+  let result;
+  try {
+    result = await withSupabaseTimeout(
+      supabaseClient.rpc(SUPABASE_ATOMIC_SAVE_FUNCTION, {
+        p_state_id: supabaseStateId,
+        p_data: stateToSave,
+        p_expected_updated_at: currentRow.updated_at,
+        p_updated_at: updatedAt,
+        p_backup_key: backupKey,
+        p_backup_kind: isVersionUpgrade ? "version-upgrade" : "daily",
+        p_source_version: sourceVersion,
+        p_target_version: APP_VERSION,
+        p_profile: stateBusinessProfile(currentCloudState),
+      }),
+      "Supabase atomic save timeout.",
+      SUPABASE_REQUEST_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (isMissingAtomicSaveFunctionError(error)) {
+      supabaseAtomicSaveAvailable = false;
+      return { handled: false };
+    }
+    return { handled: true, data: null, error };
+  }
+  if (result?.error) {
+    if (isMissingAtomicSaveFunctionError(result.error)) {
+      supabaseAtomicSaveAvailable = false;
+      return { handled: false };
+    }
+    return { handled: true, data: null, error: result.error };
+  }
+  supabaseAtomicSaveAvailable = true;
+  const response = Array.isArray(result?.data) ? result.data[0] : result?.data;
+  if (response?.backup_ready) supabaseLastSafetySnapshotBucket = bucket;
+  return {
+    handled: true,
+    data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null,
+    error: null,
+  };
 }
 
 async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow = null) {
@@ -7059,21 +7136,6 @@ async function syncStateToSupabase(options = {}) {
   let mergedConcurrentData = false;
   let error = null;
   try {
-    if (pendingCloudVersionBackup) {
-      const versionBackup = pendingCloudVersionBackup;
-      const versionBackupResult = await saveCloudBackupRecord(versionBackup.data, {
-        kind: "version-upgrade",
-        backupKey: versionBackup.backupKey,
-        sourceVersion: versionBackup.sourceVersion,
-        targetVersion: APP_VERSION,
-        sourceUpdatedAt: versionBackup.updatedAt,
-      });
-      if (versionBackupResult.ok) {
-        pendingCloudVersionBackup = null;
-        supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
-      }
-      else console.warn("The optional version backup could not be added, so the main conditional ERP save continued.", versionBackupResult.error);
-    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const preflight = await prepareSafeCloudOverwrite(stateToSave, {
         ...options,
@@ -7081,16 +7143,38 @@ async function syncStateToSupabase(options = {}) {
         savingMutationSerial,
       });
       if (!preflight.ok) throw preflight.error;
-      if (attempt === 0) {
-        const dailyBackupResult = await saveCloudSafetySnapshotForRow(preflight.row);
-        if (!dailyBackupResult.ok) {
-          console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
-        }
-      }
       stateToSave = preflight.stateToSave || stateToSave;
       mergedConcurrentData = mergedConcurrentData || Boolean(preflight.mergedConcurrentData);
       stampCurrentAppVersion(stateToSave, updatedAt);
-      const result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
+      const atomicResult = await writeCloudStateAtomically(stateToSave, updatedAt, preflight.row);
+      let result = atomicResult;
+      if (atomicResult.handled && !atomicResult.error && atomicResult.data) pendingCloudVersionBackup = null;
+      if (!atomicResult.handled) {
+        if (attempt === 0) {
+          if (pendingCloudVersionBackup) {
+            const versionBackup = pendingCloudVersionBackup;
+            const versionBackupResult = await saveCloudBackupRecord(versionBackup.data, {
+              kind: "version-upgrade",
+              backupKey: versionBackup.backupKey,
+              sourceVersion: versionBackup.sourceVersion,
+              targetVersion: APP_VERSION,
+              sourceUpdatedAt: versionBackup.updatedAt,
+            });
+            if (versionBackupResult.ok) {
+              pendingCloudVersionBackup = null;
+              supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
+            } else {
+              console.warn("The optional version backup could not be added, so the main conditional ERP save continued.", versionBackupResult.error);
+            }
+          } else {
+            const dailyBackupResult = await saveCloudSafetySnapshotForRow(preflight.row);
+            if (!dailyBackupResult.ok) {
+              console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
+            }
+          }
+        }
+        result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
+      }
       error = result?.error || null;
       if (error || !preflight.row || result?.data) break;
       if (attempt === 2) {
