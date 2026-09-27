@@ -1,0 +1,43 @@
+KHUSHALI JEWELLS MANUFACTURING - GITHUB DESKTOP SETUP
+
+Use this folder in GitHub Desktop:
+C:\Users\KJPLF\Documents\Codex\2026-07-09\wa\outputs\erp-web-app
+
+Important:
+GitHub Desktop will catch software/page changes from this folder.
+Customer/job/order/design live data is synced by Supabase, not GitHub.
+
+FIRST TIME SETUP
+1. Open GitHub Desktop.
+2. Click File > Add local repository.
+3. Select:
+   C:\Users\KJPLF\Documents\Codex\2026-07-09\wa\outputs\erp-web-app
+4. If GitHub Desktop says this is not a repository, click:
+   create a repository
+5. Repository name:
+   khushali-jewells-manufacturing
+6. Keep the local path same:
+   C:\Users\KJPLF\Documents\Codex\2026-07-09\wa\outputs\erp-web-app
+7. Click Create repository.
+8. Click Publish repository.
+
+EVERY TIME CODEX MAKES CHANGES
+1. Open GitHub Desktop.
+2. Select repository:
+   khushali-jewells-manufacturing
+3. Changes will automatically show on the left side.
+4. In Summary write short message, for example:
+   update software
+5. Click Commit to main.
+6. Click Push origin.
+
+AFTER PUSHING
+Open the live website and press Ctrl + F5 once.
+
+DO NOT USE THESE FOLDERS FOR GITHUB DESKTOP
+Do not select old package folders like:
+khushali-live-upload-20260717-155320
+khushali-live-upload-20260717-152317
+
+Always use only:
+outputs\erp-web-app

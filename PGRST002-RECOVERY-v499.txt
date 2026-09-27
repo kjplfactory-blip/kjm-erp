@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS ERP v499 - SUPABASE PGRST002 RECOVERY
+
+ERROR
+Could not query the database for the schema cache. Retrying.
+
+WHAT IT MEANS
+The website reached Supabase, but Supabase Data API could not connect to the project's PostgreSQL database while building its schema cache. The ERP keeps local browser data protected and retries automatically.
+
+SAFE RECOVERY
+1. Open the Supabase project dashboard.
+2. Check that the project/database status is healthy and not paused, restarting, restoring, or upgrading.
+3. Open SQL Editor.
+4. Run RECOVER-PGRST002-SCHEMA-CACHE.sql.
+5. Wait 30 seconds and refresh the ERP website.
+6. The top status should return to Live Sync.
+
+IF THE ERROR CONTINUES
+1. Open Project Settings > Data API.
+2. Check Exposed Schemas. Every listed schema must exist in the database. Public must remain listed for this ERP.
+3. Remove any old exposed schema that was deleted from the database, save, and run RECOVER-PGRST002-SCHEMA-CACHE.sql again.
+4. If all listed schemas exist but the project still returns PGRST002, contact Supabase Support for this project-specific database/Data API outage.
+
+DO NOT
+Do not reset ERP data, recreate the project, run inventory reset SQL, or upload an empty laptop state while this error is present.

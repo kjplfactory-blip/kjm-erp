@@ -1,0 +1,35 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+LIVE SYNC AUDIT - v500
+Date: 17-08-2026 IST
+
+PROBLEM FOUND
+The ERP stores its shared data in one Supabase row. In v499, if another laptop saved after this page loaded, the first laptop either stayed in a repeated conflict or replaced unrelated newer cloud work with its complete older copy.
+
+FIX IN v500
+1. Every local save records only the changed top-level record, field, addition, or deletion in a persistent pending-change journal.
+2. Before upload, v500 reads the newest Supabase row and applies those pending changes to that newest copy.
+3. If both laptops changed different fields of one record, both changes are retained.
+4. If another save happens during upload, v500 reads, merges, and retries up to three times.
+5. The journal remains on the laptop until Supabase confirms the cloud save.
+6. Factory Out Bill rows are rebuilt from the merged Bill data before upload.
+7. Pending work retries on internet recovery, window focus, page visibility, and every 15-second background cycle.
+
+LIVE READ-ONLY CHECK
+Supabase was online during the audit.
+Cloud App: v499 before deployment of this package.
+Cloud Bills: 4.
+Bills posted to Factory Out: 4.
+Matching Bill Factory Ledger rows: 4.
+Latest verified cloud update: 17-08-2026 13:26 IST approximately.
+
+TESTS PASSED
+- Factory Out on one laptop plus Job Order creation on another.
+- Local Factory Out plus remote edit to another Bill field.
+- Record deletion plus remote record addition.
+- Counter protection so next Job/Lot number does not move backward.
+- Concurrent master-option additions.
+- v500 browser page loaded with no JavaScript errors.
+- v500 connected as Live Sync: Realtime.
+
+DATABASE ACTION
+No SQL file needs to be run for this update. Upload the complete v500 website folder to the existing live GitHub repository.
