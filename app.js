@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v643";
+const APP_VERSION = "v644";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -16318,6 +16318,130 @@ function lotOrderNumberFromIds(orderIds = [], fallback = "") {
   return jobNumbers.length ? jobNumbers.join(", ") : fallback;
 }
 
+function normalizedJobCardMergeWeightMode(value = "") {
+  return value === "add" ? "add" : value === "items-only" ? "items-only" : "";
+}
+
+function jobCardMergeWeightModeLabel(value = "") {
+  return normalizedJobCardMergeWeightMode(value) === "add"
+    ? "GW, stone and non-gold added"
+    : "Items merged without adding weights";
+}
+
+function jobCardMergeLinkedLots(orderIds = []) {
+  const orderIdSet = orderIds instanceof Set ? orderIds : new Set(orderIds);
+  return (state.lots || []).filter((lot) => getLotOrderIds(lot).some((orderId) => orderIdSet.has(orderId)));
+}
+
+function jobCardWeightOwner(lot = {}) {
+  return String(lot.jobCardWeightOwner || "").trim();
+}
+
+function jobCardOrderWeightOwner(order = {}) {
+  return String(order.jobCardWeightOwner || "").trim();
+}
+
+function jobCardMergeTransferableLots(orderIds, sourceJobNumbers) {
+  const sourceNumbers = sourceJobNumbers instanceof Set ? sourceJobNumbers : new Set([sourceJobNumbers].filter(Boolean));
+  return jobCardMergeLinkedLots(orderIds).filter((lot) => {
+    const owner = jobCardWeightOwner(lot);
+    return !owner || sourceNumbers.has(owner);
+  });
+}
+
+function jobCardMergeWeightSnapshot(orders = [], sourceJobNumbers = new Set()) {
+  const sourceNumbers = sourceJobNumbers instanceof Set ? sourceJobNumbers : new Set([sourceJobNumbers].filter(Boolean));
+  const transferableOrders = orders.filter((order) => {
+    const owner = jobCardOrderWeightOwner(order);
+    return !owner || sourceNumbers.has(owner);
+  });
+  const orderIds = new Set(orders.map((order) => order.id).filter(Boolean));
+  const lots = jobCardMergeTransferableLots(orderIds, sourceNumbers);
+  const stone = productionStoneTotalsForOrders(transferableOrders);
+  const nonGoldWeight = lots.reduce((total, lot) => total + Number(productionNonGoldTotalsForLot(lot).weight || 0), 0);
+  return {
+    lotIds: lots.map((lot) => lot.id),
+    lotNumbers: lots.map((lot) => lot.number).filter(Boolean),
+    grossWeight: Number(weight3(lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0))),
+    stoneWeight: Number(weight3(stone.weight || 0)),
+    stonePcs: Number(stone.pcs || 0),
+    nonGoldWeight: Number(weight3(nonGoldWeight)),
+  };
+}
+
+function jobCardMergeWeightSummaryText(summary = {}) {
+  return `GW ${gram(summary.grossWeight || 0)} / Stone ${gram(summary.stoneWeight || 0)} / Non-Gold ${gram(summary.nonGoldWeight || 0)}`;
+}
+
+function jobCardMergeSharedLots(selectedOrderIds, sourceOrderIds, sourceJobNumbers) {
+  const selectedIds = selectedOrderIds instanceof Set ? selectedOrderIds : new Set(selectedOrderIds);
+  const sourceIds = sourceOrderIds instanceof Set ? sourceOrderIds : new Set(sourceOrderIds);
+  return jobCardMergeTransferableLots(selectedIds, sourceJobNumbers).filter((lot) => {
+    const ids = getLotOrderIds(lot);
+    return ids.some((orderId) => selectedIds.has(orderId))
+      && ids.some((orderId) => sourceIds.has(orderId) && !selectedIds.has(orderId));
+  });
+}
+
+function applyJobCardMergeWeightPolicy({
+  sourceJobNumbers,
+  targetJobNumber,
+  selectedOrders,
+  destinationOrders,
+  weightMode,
+  movedAt,
+}) {
+  const sourceNumbers = sourceJobNumbers instanceof Set ? sourceJobNumbers : new Set([sourceJobNumbers].filter(Boolean));
+  const selectedOrderIds = new Set(selectedOrders.map((order) => order.id).filter(Boolean));
+  const destinationOrderIds = new Set(destinationOrders.map((order) => order.id).filter(Boolean));
+  const summary = jobCardMergeWeightSnapshot(selectedOrders, sourceNumbers);
+  jobCardMergeLinkedLots(destinationOrderIds).forEach((lot) => {
+    if (!jobCardWeightOwner(lot)) lot.jobCardWeightOwner = targetJobNumber;
+  });
+  destinationOrders.forEach((order) => {
+    if (!jobCardOrderWeightOwner(order)) order.jobCardWeightOwner = targetJobNumber;
+  });
+  jobCardMergeTransferableLots(selectedOrderIds, sourceNumbers).forEach((lot) => {
+    const previousOwner = jobCardWeightOwner(lot)
+      || getLotOrders(lot).map(mergeJobNumber).find((jobNumber) => sourceNumbers.has(jobNumber))
+      || [...sourceNumbers][0]
+      || "";
+    if (weightMode === "add") lot.jobCardWeightOwner = targetJobNumber;
+    else if (!jobCardWeightOwner(lot)) lot.jobCardWeightOwner = previousOwner;
+    lot.jobCardWeightMergeMode = weightMode;
+    lot.jobCardWeightMergeUpdatedAt = movedAt;
+    lot.jobCardWeightMergeHistory = [...(lot.jobCardWeightMergeHistory || []), {
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: movedAt,
+      fromJobNumber: previousOwner,
+      toJobNumber: targetJobNumber,
+      mode: weightMode,
+      grossWeight: Number(weight3(currentTransferIssueWeight(lot))),
+    }];
+  });
+  const historyEntry = {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: movedAt,
+    sourceJobNumbers: [...sourceNumbers],
+    targetJobNumber,
+    mode: weightMode,
+    ...summary,
+  };
+  selectedOrders.forEach((order) => {
+    const previousOwner = jobCardOrderWeightOwner(order) || mergeJobNumber(order);
+    if (sourceNumbers.has(previousOwner) || !jobCardOrderWeightOwner(order)) {
+      order.jobCardWeightOwner = weightMode === "add" ? targetJobNumber : previousOwner;
+    }
+  });
+  [...destinationOrders, ...selectedOrders].forEach((order) => {
+    order.jobCardMergeWeightMode = weightMode;
+    order.jobCardMergeWeightHistory = [...(order.jobCardMergeWeightHistory || []), historyEntry];
+  });
+  return summary;
+}
+
 function moveJobItemDestinationJobs(sourceJobNumber = "") {
   const family = mergeJobFamily(sourceJobNumber);
   return (family?.jobs || [])
@@ -16355,16 +16479,22 @@ function openMoveSelectedJobItemsDialog() {
   moveSelectedOrderIds = new Set(selectedIds);
   const sourceInput = document.getElementById("move-job-items-source");
   const targetSelect = document.getElementById("move-job-items-target");
+  const weightModeSelect = document.getElementById("move-job-items-weight-mode");
   const summary = document.getElementById("move-job-items-summary");
   const holder = document.getElementById("move-job-items-selected-list");
+  const weightSummary = document.getElementById("move-job-items-weight-summary");
   if (sourceInput) sourceInput.value = sourceJobNumber;
   if (targetSelect) {
     targetSelect.innerHTML = destinations.map((job) => `
       <option value="${escapeHtml(job.jobNumber)}">${escapeHtml(jobOrderFamilyRole(job))} / ${escapeHtml(mergeJobLabel(job))}</option>
     `).join("");
   }
+  if (weightModeSelect) weightModeSelect.value = "";
   const selectedOrders = selectedIds.map((orderId) => findById("orders", orderId)).filter(Boolean);
+  const sourceNumbers = new Set([sourceJobNumber]);
+  const selectedWeightSummary = jobCardMergeWeightSnapshot(selectedOrders, sourceNumbers);
   if (summary) summary.textContent = `${selectedOrders.length} item${selectedOrders.length === 1 ? "" : "s"} selected from ${sourceJobNumber}`;
+  if (weightSummary) weightSummary.textContent = `Available to add: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}. Choose Yes or No before merging.`;
   if (holder) {
     holder.innerHTML = selectedOrders.map((order) => `
       <span class="selected-design-chip job-split-selected-chip"><b>${escapeHtml(jobSplitItemLabel(order))}</b></span>
@@ -16419,6 +16549,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const submitButton = document.getElementById("confirm-move-job-items");
   const sourceJobNumber = moveItemsSourceJobNumber;
   const targetJobNumber = form.targetJobNumber.value;
+  const weightMode = normalizedJobCardMergeWeightMode(form.weightMode.value);
   const sourceOrders = state.orders.filter((order) => mergeJobNumber(order) === sourceJobNumber);
   const sourceOrderIds = new Set(sourceOrders.map((order) => order.id));
   const selectedOrderIds = new Set([...moveSelectedOrderIds].filter((orderId) => sourceOrderIds.has(orderId)));
@@ -16430,6 +16561,10 @@ async function mergeSelectedItemsIntoJobCard(event) {
     alert("Choose another related Job Card as the destination.");
     return;
   }
+  if (!weightMode) {
+    alert("Choose whether GW, stone and non-gold weights should be added to the destination Job Card.");
+    return;
+  }
   if (!selectedOrders.length) {
     alert("The selected PR items are no longer available in this Job Card. Reopen it and select the items again.");
     return;
@@ -16438,12 +16573,22 @@ async function mergeSelectedItemsIntoJobCard(event) {
     alert("The destination must be the main Job Card or a child Job Card from the same split family.");
     return;
   }
+  const sourceNumbers = new Set([sourceJobNumber]);
+  const sharedWeightLots = jobCardMergeSharedLots(selectedOrderIds, sourceOrderIds, sourceNumbers);
+  if (weightMode === "add" && sharedWeightLots.length) {
+    alert(`Weight cannot be added because the selected items share production lot ${sharedWeightLots.map((lot) => lot.number).filter(Boolean).join(", ")} with items staying in ${sourceJobNumber}. Split the exact lot GW first, or choose No - Merge Items Only.`);
+    return;
+  }
   const sourceWillBeEmpty = selectedOrders.length === sourceOrders.length;
+  const selectedWeightSummary = jobCardMergeWeightSnapshot(selectedOrders, sourceNumbers);
   const selectedLabels = selectedOrders.map((order) => order.productionNo || order.number || order.id).join(", ");
   const sourceResult = sourceWillBeEmpty
     ? `${sourceJobNumber} will close because all of its items are moving.`
     : `${sourceJobNumber} will keep ${sourceOrders.length - selectedOrders.length} item(s).`;
-  if (!confirm(`Merge ${selectedOrders.length} selected item(s) into ${targetJobNumber}?\n\nPR: ${selectedLabels}\n${sourceResult}\n\nProduction lots, weights, departments, transfers, bills, and item status will remain unchanged.`)) return;
+  const weightDecision = weightMode === "add"
+    ? `ADD TO ${targetJobNumber}: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}`
+    : `DO NOT ADD WEIGHTS: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}`;
+  if (!confirm(`Merge ${selectedOrders.length} selected item(s) into ${targetJobNumber}?\n\nPR: ${selectedLabels}\n${sourceResult}\n\n${weightDecision}\n\nProduction stock will not be duplicated. PR numbers, departments, transfers, bills, and item status remain unchanged.`)) return;
 
   const rollback = {
     orders: structuredClone(state.orders || []),
@@ -16458,6 +16603,14 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const movedAt = new Date().toISOString();
   const movedBy = currentUser?.name || currentUser?.id || "ERP User";
   const familyRoot = destinationFamily?.root || splitJobRootNumber(sourceJobNumber);
+  const appliedWeightSummary = applyJobCardMergeWeightPolicy({
+    sourceJobNumbers: sourceNumbers,
+    targetJobNumber,
+    selectedOrders,
+    destinationOrders,
+    weightMode,
+    movedAt,
+  });
   selectedOrders.forEach((order) => {
     order.movedFromJobNumbers = [...new Set([...(order.movedFromJobNumbers || []), sourceJobNumber])];
     order.jobNumber = targetJobNumber;
@@ -16515,7 +16668,11 @@ async function mergeSelectedItemsIntoJobCard(event) {
     movedFromJobNumber: sourceJobNumber,
     orderIds: [...selectedOrderIds],
     productionNos: selectedOrders.map((order) => order.productionNo || order.number || "").filter(Boolean),
-    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; physical production lots, weights, and transfers unchanged.`,
+    mergeWeightMode: weightMode,
+    mergeGrossWeight: appliedWeightSummary.grossWeight,
+    mergeStoneWeight: appliedWeightSummary.stoneWeight,
+    mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
+    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); physical production stock and transfers unchanged.`,
   });
 
   if (submitButton) {
@@ -16548,7 +16705,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const cloudMessage = savedToCloud
     ? "Saved on this laptop and confirmed in Supabase cloud."
     : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\nAll PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
+  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\nAll PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
 }
 
 function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
@@ -22050,13 +22207,70 @@ function updateIssueGoldFromOrderButton(jobOrders = []) {
     : "This job card has no pending item left for gold issue.";
 }
 
+function jobCardDisplayedWeightSummary(jobOrders = [], lots = []) {
+  const jobNumber = mergeJobNumber(jobOrders[0] || {});
+  const policyActive = lots.some((lot) => jobCardWeightOwner(lot) || lot.jobCardWeightMergeMode)
+    || jobOrders.some((order) => jobCardOrderWeightOwner(order) || order.jobCardMergeWeightMode);
+  const includedLots = policyActive
+    ? lots.filter((lot) => !jobCardWeightOwner(lot) || jobCardWeightOwner(lot) === jobNumber)
+    : lots;
+  const includedOrderIds = new Set(includedLots.flatMap((lot) => getLotOrderIds(lot)));
+  const includedOrders = policyActive
+    ? jobOrders.filter((order) => !jobCardOrderWeightOwner(order) || jobCardOrderWeightOwner(order) === jobNumber)
+    : jobOrders.filter((order) => includedOrderIds.has(order.id));
+  const stone = productionStoneTotalsForOrders(includedOrders);
+  const nonGoldWeight = includedLots.reduce((total, lot) => total + Number(productionNonGoldTotalsForLot(lot).weight || 0), 0);
+  return {
+    jobNumber,
+    policyActive,
+    includedLots,
+    excludedLots: lots.filter((lot) => !includedLots.includes(lot)),
+    grossWeight: Number(weight3(includedLots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0))),
+    issuedWeight: Number(weight3(includedLots.reduce((total, lot) => total + Number(lot.grossIssuedWeight || lot.issuedWeight || 0), 0))),
+    stoneWeight: Number(weight3(stone.weight || 0)),
+    stonePcs: Number(stone.pcs || 0),
+    nonGoldWeight: Number(weight3(nonGoldWeight)),
+    addedMode: jobOrders.some((order) => order.jobCardMergeWeightMode === "add" && jobCardOrderWeightOwner(order) === jobNumber),
+  };
+}
+
 function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
-  const currentLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;
+  const weightSummary = jobCardDisplayedWeightSummary(jobOrders, lots);
+  const currentLot = weightSummary.includedLots.find((lot) => lot.status !== "Completed") || weightSummary.includedLots[0] || null;
   const pendingCount = jobOrders.filter((order) => order.status === "Pending").length;
   const completedCount = jobOrders.filter(isCompletedOrder).length;
   const activeCount = Math.max(jobOrders.length - pendingCount - completedCount, 0);
   const currentStage = jobCurrentStage(jobOrders);
   const deliveryText = jobOrderDeliverySummary(jobOrders);
+  if (!currentLot && weightSummary.policyActive) {
+    return `
+      <article class="order-current-card order-current-card-main">
+        <span>Current Stage</span>
+        <strong>${escapeHtml(currentStage)}</strong>
+        <small>${deliveryText ? escapeHtml(deliveryText) : "Delivery completed or not required"}</small>
+      </article>
+      <article class="order-current-card">
+        <span>Merged Weight</span>
+        <strong>${weightSummary.addedMode ? "Added" : "Not Added"}</strong>
+        <small>${weightSummary.addedMode ? "Stone data included; no current GW lot is available" : `${weightSummary.excludedLots.length} linked production lot${weightSummary.excludedLots.length === 1 ? "" : "s"} kept outside this Job Card total`}</small>
+      </article>
+      <article class="order-current-card">
+        <span>Current GW</span>
+        <strong>${gram(0)}</strong>
+        <small>No source-card GW added</small>
+      </article>
+      <article class="order-current-card">
+        <span>Stone Weight</span>
+        <strong>${gram(weightSummary.stoneWeight)}</strong>
+        <small>${weightSummary.stonePcs} pcs included</small>
+      </article>
+      <article class="order-current-card">
+        <span>Non-Gold Weight</span>
+        <strong>${gram(weightSummary.nonGoldWeight)}</strong>
+        <small>${weightSummary.addedMode ? "Included in merged Job Card total" : "No source-card non-gold added"}</small>
+      </article>
+    `;
+  }
   if (!currentLot) {
     return `
       <article class="order-current-card order-current-card-main">
@@ -22072,7 +22286,7 @@ function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
     `;
   }
   const transferCount = (currentLot.transfers || []).length;
-  const currentWeight = currentTransferIssueWeight(currentLot);
+  const currentWeight = weightSummary.policyActive ? weightSummary.grossWeight : currentTransferIssueWeight(currentLot);
   const completedStages = completedProductionStagesForLots(lots);
   return `
     <article class="order-current-card order-current-card-main">
@@ -22096,8 +22310,20 @@ function orderCurrentLotStatusHtml(jobOrders = [], lots = []) {
     <article class="order-current-card">
       <span>Current GW</span>
       <strong>${gram(currentWeight)}</strong>
-      <small>Issued ${gram(currentLot.grossIssuedWeight || currentLot.issuedWeight || 0)}</small>
+      <small>${weightSummary.policyActive ? `${weightSummary.includedLots.length} included lot${weightSummary.includedLots.length === 1 ? "" : "s"} / ${weightSummary.excludedLots.length} excluded` : `Issued ${gram(currentLot.grossIssuedWeight || currentLot.issuedWeight || 0)}`}</small>
     </article>
+    ${weightSummary.policyActive ? `
+      <article class="order-current-card">
+        <span>Stone Weight</span>
+        <strong>${gram(weightSummary.stoneWeight)}</strong>
+        <small>${weightSummary.stonePcs} pcs included</small>
+      </article>
+      <article class="order-current-card">
+        <span>Non-Gold Weight</span>
+        <strong>${gram(weightSummary.nonGoldWeight)}</strong>
+        <small>Included in merged Job Card total</small>
+      </article>
+    ` : ""}
     <article class="order-current-card">
       <span>Transfers</span>
       <strong>${transferCount}</strong>
@@ -22111,6 +22337,11 @@ function renderOrderLotCard(lot) {
   const waxStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "wax");
   const handStoneTotals = productionStoneTotalsForOrders(getLotOrders(lot), "hand");
   const nonGoldTotals = productionNonGoldTotalsForLot(lot);
+  const mergeWeightStatus = lot.jobCardWeightMergeMode === "add"
+    ? `Added To ${jobCardWeightOwner(lot) || lot.orderNumber || "Merged Job Card"}`
+    : lot.jobCardWeightMergeMode === "items-only"
+      ? `Not Added / Kept Under ${jobCardWeightOwner(lot) || "Source Job Card"}`
+      : "";
   const primaryActions = isSettingManagerUser()
     ? '<span class="status transfer">Stone details only</span>'
     : lot.status === "Completed"
@@ -22132,6 +22363,7 @@ function renderOrderLotCard(lot) {
         <span><b>Wax Stone</b>${waxStoneTotals.pcs} pcs / ${weight3(waxStoneTotals.weight)}g</span>
         <span><b>Hand Stone</b>${handStoneTotals.pcs} pcs / ${weight3(handStoneTotals.weight)}g</span>
         <span><b>Non-Gold</b>${nonGoldTotals.pcs ? `${nonGoldTotals.pcs} pcs / ` : ""}${weight3(nonGoldTotals.weight)}g</span>
+        ${mergeWeightStatus ? `<span><b>Merge Weight</b>${escapeHtml(mergeWeightStatus)}</span>` : ""}
         <span><b>Transfers</b>${(lot.transfers || []).length}</span>
       </div>
       <div class="row-actions">${actions}</div>
@@ -29829,9 +30061,11 @@ function openMergeJobCardsDialog(preferredJobNumber = "", mode = "family") {
   if (!requireMergeSplitJobCardsPermission()) return;
   const dialog = document.getElementById("merge-job-cards-dialog");
   const search = document.getElementById("merge-job-search");
+  const weightMode = document.getElementById("merge-job-weight-mode");
   mergeJobMode = mode === "children" ? "children" : "family";
   mergeSelectedJobNumbers.clear();
   if (search) search.value = "";
+  if (weightMode) weightMode.value = "";
   configureMergeJobDialog();
   if (!renderMergeJobPrimaryOptions(preferredJobNumber)) {
     alert(mergeJobMode === "children"
@@ -29954,11 +30188,16 @@ async function mergeSelectedJobCards(event) {
   const childMode = mergeJobMode === "children";
   const submitLabel = submitButton?.textContent || (childMode ? "Merge Two Child Job Cards" : "Merge Selected Into Kept Job Card");
   const primaryJobNumber = form.primaryJobNumber.value;
+  const weightMode = normalizedJobCardMergeWeightMode(form.weightMode.value);
   const sourceJobNumbers = new Set([...mergeSelectedJobNumbers].filter((jobNumber) => jobNumber !== primaryJobNumber));
   const family = mergeJobFamily(primaryJobNumber);
   const familyJobNumbers = new Set((family?.jobs || []).map((job) => job.jobNumber));
   if (!primaryJobNumber || !family) {
     alert("Choose a valid Job Card to keep.");
+    return;
+  }
+  if (!weightMode) {
+    alert("Choose whether GW, stone and non-gold weights should be added to the kept Job Card.");
     return;
   }
   if (!sourceJobNumbers.size) {
@@ -29979,11 +30218,22 @@ async function mergeSelectedJobCards(event) {
     alert("The selected Job Cards could not be found. Refresh and try again.");
     return;
   }
+  const selectedOrderIds = new Set(sourceOrders.map((order) => order.id));
+  const familyOrderIds = new Set((family.jobs || []).flatMap((job) => job.orders || []).map((order) => order.id).filter(Boolean));
+  const sharedWeightLots = jobCardMergeSharedLots(selectedOrderIds, familyOrderIds, sourceJobNumbers);
+  if (weightMode === "add" && sharedWeightLots.length) {
+    alert(`Weight cannot be added because production lot ${sharedWeightLots.map((lot) => lot.number).filter(Boolean).join(", ")} also contains items from a Job Card that is not being merged. Merge that related card too, split the exact lot GW first, or choose No - Merge Items Only.`);
+    return;
+  }
+  const sourceWeightSummary = jobCardMergeWeightSnapshot(sourceOrders, sourceJobNumbers);
   const sourceSummary = [...sourceJobNumbers].join(", ");
   const finalItemCount = primaryOrders.length + sourceOrders.length;
   const keepDescription = childMode ? "child Job Card" : "kept Job Card";
   const parentDescription = childMode ? `\n\nParent ${family.root} will remain unchanged.` : "";
-  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the ${keepDescription} with ${finalItemCount} total items. All PR numbers, lots, weights, departments, transfers, bills, and item statuses will be preserved.${parentDescription}`)) return;
+  const weightDecision = weightMode === "add"
+    ? `ADD TO ${primaryJobNumber}: ${jobCardMergeWeightSummaryText(sourceWeightSummary)}`
+    : `DO NOT ADD WEIGHTS: ${jobCardMergeWeightSummaryText(sourceWeightSummary)}`;
+  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the ${keepDescription} with ${finalItemCount} total items.\n${weightDecision}\n\nProduction stock will not be duplicated. All PR numbers, lots, departments, transfers, bills, and item statuses will be preserved.${parentDescription}`)) return;
 
   const rollback = {
     orders: structuredClone(state.orders || []),
@@ -29997,6 +30247,14 @@ async function mergeSelectedJobCards(event) {
   };
   const mergedAt = new Date().toISOString();
   const sourceOrderIds = new Set(sourceOrders.map((order) => order.id));
+  const appliedWeightSummary = applyJobCardMergeWeightPolicy({
+    sourceJobNumbers,
+    targetJobNumber: primaryJobNumber,
+    selectedOrders: sourceOrders,
+    destinationOrders: primaryOrders,
+    weightMode,
+    movedAt: mergedAt,
+  });
   sourceOrders.forEach((order) => {
     const previousJobNumber = mergeJobNumber(order);
     order.mergedFromJobNumbers = [...new Set([...(order.mergedFromJobNumbers || []), previousJobNumber])];
@@ -30036,7 +30294,11 @@ async function mergeSelectedJobCards(event) {
     weight: 0,
     jobNumber: primaryJobNumber,
     mergedFromJobNumbers: [...sourceJobNumbers],
-    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production lots and weights unchanged.`,
+    mergeWeightMode: weightMode,
+    mergeGrossWeight: appliedWeightSummary.grossWeight,
+    mergeStoneWeight: appliedWeightSummary.stoneWeight,
+    mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock unchanged.`,
   });
 
   if (submitButton) {
@@ -30065,7 +30327,7 @@ async function mergeSelectedJobCards(event) {
     submitButton.textContent = submitLabel;
   }
   const cloudMessage = savedToCloud ? "Saved on this laptop and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
+  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
