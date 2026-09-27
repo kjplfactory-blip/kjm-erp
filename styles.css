@@ -485,6 +485,25 @@ th {
   line-height: 1.25;
 }
 
+button.sync-pill {
+  width: auto;
+  min-height: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+button.sync-pill:hover,
+button.sync-pill:focus-visible {
+  filter: brightness(0.96);
+  outline: 2px solid rgba(37, 99, 235, 0.32);
+  outline-offset: 2px;
+}
+
 .app-version-badge {
   display: inline-flex;
   align-items: center;
@@ -18721,7 +18740,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: rgba(247, 252, 255, 0.97);
 }
 
-/* v639 operational workspace */
+/* v640 operational workspace and advanced sync health */
 .universal-search-group {
   position: relative;
   overflow: visible !important;

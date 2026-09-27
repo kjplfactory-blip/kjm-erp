@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v639";
+const APP_VERSION = "v640";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -44,6 +44,7 @@ const ERP_STATE_INDEXED_DB_POINTER_FORMAT = "KJM-ERP-INDEXEDDB-POINTER";
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
 const LOCAL_COMPACT_MODE_SESSION_KEY = "gold-jewellery-erp-compact-storage-mode";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
+const LOCAL_SYNC_OPERATION_STORAGE_KEY = "gold-jewellery-erp-pending-operation-v2";
 const SYNC_DELETION_TOMBSTONE_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
 const SYNC_DELETION_TOMBSTONE_LIMIT = 20000;
 const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
@@ -69,7 +70,7 @@ const IMAGE_PREVIEW_BATCH_SIZE = 8;
 const DESIGN_IMAGE_CACHE_LIMIT = 96;
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
-const AUTO_SYNC_INTERVAL_MS = 15000;
+const AUTO_SYNC_INTERVAL_MS = 5000;
 const SUPABASE_RETRY_BASE_MS = 5000;
 const SUPABASE_RETRY_MAX_MS = 60 * 1000;
 const SUPABASE_RETRY_JITTER_RATIO = 0.2;
@@ -81,8 +82,10 @@ const SUPABASE_REVISION_TIMEOUT_MS = 15000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
 const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
+const SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic_v640";
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-LIVE-SYNC-v638.sql";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ADVANCED-SYNC-v640.sql";
+const SYNC_BROADCAST_CHANNEL_NAME = `kjm-erp-sync-${supabaseStateId}`;
 const CLOUD_BACKUP_TABLE = "erp_state_backups";
 const CLOUD_BACKUP_SETUP_FILE = "ENABLE-CLOUD-SAFETY-BACKUPS.sql";
 const LOGIN_LOCATION_TIMEOUT_MS = 6000;
@@ -345,8 +348,10 @@ let supabaseLastSafetySnapshotBucket = "";
 let pendingCloudVersionBackup = null;
 let cloudBackupUnavailable = false;
 let supabaseAtomicSaveAvailable = null;
+let supabaseAdvancedAtomicSaveAvailable = null;
 let supabaseSyncSignalAvailable = null;
 let supabaseSyncSignalRetryAt = 0;
+let supabaseLastSignalRevision = 0;
 let supabaseSaveRequested = false;
 let supabaseLastCloudUpdatedAt = "";
 let supabaseLastLocalChangeAt = 0;
@@ -356,6 +361,8 @@ let loginSessionHeartbeatInProgress = false;
 let loginSessionLastConfirmedAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
 let supabaseLocalRevision = supabaseLocalDirty ? 1 : 0;
+let supabasePendingOperationId = loadPendingSyncOperationId();
+let localSyncBroadcastChannel = null;
 let appVersionCheckTimer = null;
 let appVersionCheckInProgress = false;
 let appVersionPendingUpdate = null;
@@ -499,8 +506,8 @@ const demoState = {
 };
 
 let stateLoadedFromFallback = false;
-let state = loadState();
 let pendingSyncMutations = loadPendingSyncMutations();
+let state = loadState();
 let lastLocallyPersistedState = structuredClone(state);
 let localFullStateRecoveryPromise = restoreFullErpStateFromIndexedDb();
 let currentUser = loadCurrentUser();
@@ -1050,6 +1057,7 @@ document.getElementById("logout").addEventListener("click", () => {
 });
 
 document.getElementById("refresh-live-data").addEventListener("click", refreshLiveData);
+document.getElementById("sync-status")?.addEventListener("click", showSyncDiagnostics);
 document.getElementById("push-live-data")?.addEventListener("click", pushLocalDataToCloud);
 document.getElementById("download-data-backup")?.addEventListener("click", downloadErpDataBackup);
 document.getElementById("restore-data-backup")?.addEventListener("click", () => document.getElementById("restore-data-backup-file")?.click());
@@ -4884,7 +4892,7 @@ function readOnlyButtonAllowed(button) {
   if (!isReadOnlyUser()) return true;
   if (!button) return true;
   if (button.closest("#login-form")) return true;
-  if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan" || button.id === "open-header-job-card") return true;
+  if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "sync-status" || button.id === "focus-barcode-scan" || button.id === "open-header-job-card") return true;
   if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button, .operations-task, .universal-search-result")) return true;
   if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-moti-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
   const onclick = String(button.getAttribute("onclick") || "").trim();
@@ -5276,6 +5284,41 @@ function emptyPendingSyncMutations() {
   return { version: 1, serial: 0, arrays: {}, values: {} };
 }
 
+function loadPendingSyncOperationId() {
+  try {
+    return String(localStorage.getItem(LOCAL_SYNC_OPERATION_STORAGE_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function ensurePendingSyncOperationId() {
+  if (supabasePendingOperationId) return supabasePendingOperationId;
+  supabasePendingOperationId = crypto.randomUUID();
+  try {
+    localStorage.setItem(LOCAL_SYNC_OPERATION_STORAGE_KEY, supabasePendingOperationId);
+  } catch (error) {
+    console.warn("The cloud operation ID could not be stored separately; the ERP data remains protected locally.", error);
+  }
+  return supabasePendingOperationId;
+}
+
+function clearPendingSyncOperationId(operationId = "") {
+  if (operationId && supabasePendingOperationId && operationId !== supabasePendingOperationId) return false;
+  supabasePendingOperationId = "";
+  try {
+    localStorage.removeItem(LOCAL_SYNC_OPERATION_STORAGE_KEY);
+  } catch (error) {
+    console.warn("The completed cloud operation marker could not be cleared.", error);
+  }
+  return true;
+}
+
+function pendingSyncMutationCount(journal = pendingSyncMutations) {
+  return Object.keys(journal?.values || {}).length
+    + Object.values(journal?.arrays || {}).reduce((total, entries) => total + Object.keys(entries || {}).length, 0);
+}
+
 function loadPendingSyncMutations() {
   try {
     const saved = JSON.parse(localStorage.getItem(LOCAL_SYNC_MUTATION_STORAGE_KEY) || "null");
@@ -5381,7 +5424,7 @@ function recordPendingArrayMutations(key, previous = [], current = [], serial) {
 
 function capturePendingSyncMutations(previousState = {}, currentState = {}) {
   if (!previousState || !currentState) return false;
-  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired"]);
+  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired", "syncMeta"]);
   const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
   const changedKeys = [...keys].filter((key) => !ignoredKeys.has(key) && !syncValuesEqual(previousState[key], currentState[key]));
   if (!changedKeys.length) return false;
@@ -5708,7 +5751,7 @@ function applyPendingSyncMutationsToCloud(cloudState = {}, journal = pendingSync
 function mergeLegacyDirtyState(cloudState = {}, localState = {}) {
   const merged = structuredClone(cloudState || {});
   Object.entries(localState || {}).forEach(([key, localValue]) => {
-    if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired"].includes(key)) return;
+    if (["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired", "syncMeta"].includes(key)) return;
     const remoteValue = merged[key];
     if (["nextOrder", "nextJob", "nextProduction", "nextLot"].includes(key)) {
       merged[key] = Math.max(Number(remoteValue || 0), Number(localValue || 0));
@@ -5782,6 +5825,7 @@ function saveStateLocalOnly(options = {}) {
 function markLocalSyncDirty() {
   supabaseLocalDirty = true;
   supabaseLocalRevision += 1;
+  ensurePendingSyncOperationId();
   try {
     localStorage.setItem(LOCAL_SYNC_DIRTY_STORAGE_KEY, "1");
   } catch (error) {
@@ -5791,6 +5835,7 @@ function markLocalSyncDirty() {
 
 function clearLocalSyncDirty() {
   supabaseLocalDirty = false;
+  clearPendingSyncOperationId();
   localStorage.removeItem(LOCAL_SYNC_DIRTY_STORAGE_KEY);
 }
 
@@ -6454,9 +6499,19 @@ function isMissingSyncSignalError(error) {
     && (detail.includes("pgrst205") || detail.includes("42p01") || detail.includes("does not exist") || detail.includes("schema cache"));
 }
 
+function syncSignalRevision(row = {}) {
+  const revision = Number(row?.revision || 0);
+  return Number.isFinite(revision) && revision > 0 ? revision : 0;
+}
+
 async function fetchSupabaseStateRevision(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS) {
   if (supabaseSyncSignalAvailable !== false || Date.now() >= supabaseSyncSignalRetryAt) {
-    const signalResult = await fetchSupabaseTableRow(SUPABASE_SYNC_SIGNAL_TABLE, supabaseStateId, "updated_at", timeoutMs);
+    const signalResult = await fetchSupabaseTableRow(
+      SUPABASE_SYNC_SIGNAL_TABLE,
+      supabaseStateId,
+      "updated_at,revision,app_version,last_operation_id,last_device_id",
+      timeoutMs,
+    );
     if (!signalResult?.error && signalResult?.data?.updated_at) {
       supabaseSyncSignalAvailable = true;
       supabaseSyncSignalRetryAt = 0;
@@ -6709,17 +6764,46 @@ function friendlySyncLabel(status = "", message = "") {
 
 function setSyncStatus(status, message, detail = "") {
   const pill = document.getElementById("sync-status");
+  const pendingCount = pendingSyncMutationCount();
   if (pill) {
     pill.className = `sync-pill ${status}`;
     pill.textContent = friendlySyncLabel(status, message);
     pill.dataset.syncTechnical = message || "";
-    pill.title = [message, detail].filter(Boolean).join(" - ") || friendlySyncLabel(status, message);
+    pill.title = `${[message, detail].filter(Boolean).join(" - ") || friendlySyncLabel(status, message)}. Click for sync health.`;
   }
   const detailNode = document.getElementById("sync-detail");
   if (detailNode) {
     const detailText = detail ? String(detail).replace(/\s+/g, " ").trim().slice(0, 150) : "automatic cloud refresh active";
-    detailNode.textContent = `${APP_VERSION} / ${message || "Sync"} / ${detailText}`;
+    const queueText = pendingCount ? `${pendingCount} change${pendingCount === 1 ? "" : "s"} queued` : "queue clear";
+    detailNode.textContent = `${APP_VERSION} / ${message || "Sync"} / ${queueText} / ${detailText}`;
   }
+}
+
+function showSyncDiagnostics() {
+  const lastContact = supabaseLastSuccessfulContactAt
+    ? new Date(supabaseLastSuccessfulContactAt).toLocaleString("en-IN")
+    : "Not connected yet";
+  const mode = supabaseRealtimeChannel
+    ? "Realtime + 5-second safety check"
+    : (supabaseClient ? "5-second automatic safety check" : "Local safety mode");
+  const pendingCount = pendingSyncMutationCount();
+  const operation = supabasePendingOperationId ? supabasePendingOperationId.slice(-8).toUpperCase() : "None";
+  const exactSave = supabaseAdvancedAtomicSaveAvailable === true
+    ? "Enabled"
+    : (supabaseAdvancedAtomicSaveAvailable === false ? `Compatibility mode; run ${SUPABASE_PERFORMANCE_SETUP_FILE}` : "Checking");
+  alert([
+    "MULTI-DEVICE SYNC HEALTH",
+    `Status: ${document.getElementById("sync-status")?.textContent || "Checking"}`,
+    `Mode: ${mode}`,
+    `Internet: ${navigator.onLine ? "Online" : "Offline"}`,
+    `Last cloud contact: ${lastContact}`,
+    `Pending record changes: ${pendingCount}`,
+    `Protected save operation: ${operation}`,
+    `Exact-save confirmation: ${exactSave}`,
+    `Cloud revision: ${supabaseLastSignalRevision || "Checking"}`,
+    "",
+    "Local data stays protected until Supabase confirms the save.",
+  ].join("\n"));
 }
 
 function syncStatusForError(error, fallback) {
@@ -6809,6 +6893,44 @@ function stopSupabaseRealtime() {
   supabaseRealtimeChannel = null;
 }
 
+function startLocalSyncBroadcast() {
+  if (localSyncBroadcastChannel || typeof BroadcastChannel !== "function") return false;
+  try {
+    localSyncBroadcastChannel = new BroadcastChannel(SYNC_BROADCAST_CHANNEL_NAME);
+    localSyncBroadcastChannel.addEventListener("message", (event) => {
+      const message = event.data || {};
+      if (message.type !== "cloud-saved" || message.deviceId === loginDeviceId()) return;
+      const incomingRevision = Number(message.revision || 0);
+      const hasNewerRevision = incomingRevision > Number(supabaseLastSignalRevision || 0);
+      if (!hasNewerRevision && message.updatedAt && !isNewerCloudData(message.updatedAt)) return;
+      if (supabaseClient && !supabaseIsLoading && !supabaseIsSaving) {
+        loadSupabaseState({ auto: true, broadcast: true, signalRevision: incomingRevision });
+      }
+    });
+    return true;
+  } catch (error) {
+    console.warn("Same-device instant sync is unavailable; Supabase automatic sync remains active.", error);
+    localSyncBroadcastChannel = null;
+    return false;
+  }
+}
+
+function announceLocalCloudSave(updatedAt = "", operationId = "", revision = 0) {
+  try {
+    localSyncBroadcastChannel?.postMessage({
+      type: "cloud-saved",
+      stateId: supabaseStateId,
+      updatedAt,
+      operationId,
+      revision: Number(revision || 0),
+      deviceId: loginDeviceId(),
+      appVersion: APP_VERSION,
+    });
+  } catch (error) {
+    console.warn("The same-device sync notice could not be sent.", error);
+  }
+}
+
 function startSupabaseRealtime() {
   if (!supabaseClient?.channel || supabaseRealtimeChannel || supabaseSyncSignalAvailable === false) return false;
   try {
@@ -6822,7 +6944,11 @@ function startSupabaseRealtime() {
       }, (payload) => {
         const row = payload.new || {};
         supabaseLastSuccessfulContactAt = Date.now();
-        if (!row.updated_at || isNewerCloudData(row.updated_at)) loadSupabaseState({ auto: true, realtime: true });
+        const incomingRevision = syncSignalRevision(row);
+        const hasNewerRevision = incomingRevision > Number(supabaseLastSignalRevision || 0);
+        if (hasNewerRevision || !row.updated_at || isNewerCloudData(row.updated_at)) {
+          loadSupabaseState({ auto: true, realtime: true, signalRevision: incomingRevision });
+        }
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
@@ -6838,7 +6964,7 @@ function startSupabaseRealtime() {
           } catch (error) {
             console.warn("Supabase realtime channel cleanup failed.", error);
           }
-          setSyncStatus("connecting", "Live Sync: Reconnecting", "Realtime is reconnecting; a lightweight cloud revision check continues every 15 seconds.");
+          setSyncStatus("connecting", "Live Sync: Reconnecting", "Realtime is reconnecting; a lightweight cloud revision check continues every 5 seconds.");
         }
       });
     return true;
@@ -7118,8 +7244,14 @@ function isMissingAtomicSaveFunctionError(error) {
     && (detail.includes("pgrst202") || detail.includes("could not find the function") || detail.includes("schema cache"));
 }
 
-async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = null) {
-  if (!currentRow || supabaseAtomicSaveAvailable === false) return { handled: false };
+function isMissingAdvancedAtomicSaveFunctionError(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return detail.includes(SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION)
+    && (detail.includes("pgrst202") || detail.includes("could not find the function") || detail.includes("schema cache"));
+}
+
+async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = null, metadata = {}) {
+  if (!currentRow) return { handled: false };
   const bucket = cloudSafetySnapshotBucket();
   const pendingVersion = pendingCloudVersionBackup;
   const needsBackup = Boolean(pendingVersion || supabaseLastSafetySnapshotBucket !== bucket);
@@ -7131,20 +7263,63 @@ async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = nu
       ? `version-${cloudBackupKeyPart(sourceVersion)}-before-${cloudBackupKeyPart(APP_VERSION)}`
       : `daily-${bucket}`))
     : null;
+  const baseParams = {
+    p_state_id: supabaseStateId,
+    p_data: stateToSave,
+    p_expected_updated_at: currentRow.updated_at,
+    p_updated_at: updatedAt,
+    p_backup_key: backupKey,
+    p_backup_kind: isVersionUpgrade ? "version-upgrade" : "daily",
+    p_source_version: sourceVersion,
+    p_target_version: APP_VERSION,
+    p_profile: stateBusinessProfile(currentCloudState),
+  };
+
+  if (supabaseAdvancedAtomicSaveAvailable !== false) {
+    let advancedResult;
+    try {
+      advancedResult = await withSupabaseTimeout(
+        supabaseClient.rpc(SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION, {
+          ...baseParams,
+          p_operation_id: metadata.operationId || ensurePendingSyncOperationId(),
+          p_device_id: loginDeviceId(),
+          p_user_name: currentUser?.name || currentUser?.id || "ERP User",
+        }),
+        "Supabase exact-save confirmation timeout.",
+        SUPABASE_REQUEST_TIMEOUT_MS,
+      );
+    } catch (error) {
+      if (isMissingAdvancedAtomicSaveFunctionError(error)) {
+        supabaseAdvancedAtomicSaveAvailable = false;
+      } else {
+        return { handled: true, data: null, error };
+      }
+    }
+    if (advancedResult?.error) {
+      if (isMissingAdvancedAtomicSaveFunctionError(advancedResult.error)) {
+        supabaseAdvancedAtomicSaveAvailable = false;
+      } else {
+        return { handled: true, data: null, error: advancedResult.error };
+      }
+    } else if (advancedResult) {
+      supabaseAdvancedAtomicSaveAvailable = true;
+      const response = Array.isArray(advancedResult.data) ? advancedResult.data[0] : advancedResult.data;
+      if (response?.backup_ready) supabaseLastSafetySnapshotBucket = bucket;
+      return {
+        handled: true,
+        data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null,
+        error: null,
+        revision: Number(response?.signal_revision || 0),
+        duplicateOperation: Boolean(response?.duplicate_operation),
+      };
+    }
+  }
+
+  if (supabaseAtomicSaveAvailable === false) return { handled: false };
   let result;
   try {
     result = await withSupabaseTimeout(
-      supabaseClient.rpc(SUPABASE_ATOMIC_SAVE_FUNCTION, {
-        p_state_id: supabaseStateId,
-        p_data: stateToSave,
-        p_expected_updated_at: currentRow.updated_at,
-        p_updated_at: updatedAt,
-        p_backup_key: backupKey,
-        p_backup_kind: isVersionUpgrade ? "version-upgrade" : "daily",
-        p_source_version: sourceVersion,
-        p_target_version: APP_VERSION,
-        p_profile: stateBusinessProfile(currentCloudState),
-      }),
+      supabaseClient.rpc(SUPABASE_ATOMIC_SAVE_FUNCTION, baseParams),
       "Supabase atomic save timeout.",
       SUPABASE_REQUEST_TIMEOUT_MS,
     );
@@ -7165,11 +7340,7 @@ async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = nu
   supabaseAtomicSaveAvailable = true;
   const response = Array.isArray(result?.data) ? result.data[0] : result?.data;
   if (response?.backup_ready) supabaseLastSafetySnapshotBucket = bucket;
-  return {
-    handled: true,
-    data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null,
-    error: null,
-  };
+  return { handled: true, data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null, error: null };
 }
 
 async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow = null) {
@@ -7256,6 +7427,7 @@ async function syncStateToSupabase(options = {}) {
   supabaseIsSaving = true;
   const savingRevision = supabaseLocalRevision;
   const savingMutationSerial = Number(pendingSyncMutations.serial || 0);
+  const savingOperationId = ensurePendingSyncOperationId();
   supabaseSaveRequested = false;
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving");
   let updatedAt = nextSupabaseUpdatedAt(supabaseLastCloudUpdatedAt, supabaseVerifiedCloudUpdatedAt);
@@ -7264,6 +7436,8 @@ async function syncStateToSupabase(options = {}) {
   persistStateToBrowser({ context: "Live ERP" });
   let stateToSave = structuredClone(state);
   let mergedConcurrentData = false;
+  let savedSignalRevision = 0;
+  let duplicateOperationConfirmed = false;
   let error = null;
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -7277,7 +7451,18 @@ async function syncStateToSupabase(options = {}) {
       mergedConcurrentData = mergedConcurrentData || Boolean(preflight.mergedConcurrentData);
       updatedAt = nextSupabaseUpdatedAt(updatedAt, preflight.row?.updated_at);
       stampCurrentAppVersion(stateToSave, updatedAt);
-      const atomicResult = await writeCloudStateAtomically(stateToSave, updatedAt, preflight.row);
+      stateToSave.syncMeta = {
+        lastOperationId: savingOperationId,
+        lastDeviceId: loginDeviceId(),
+        lastUser: currentUser?.name || currentUser?.id || "ERP User",
+        lastSavedAt: updatedAt,
+        appVersion: APP_VERSION,
+      };
+      const atomicResult = await writeCloudStateAtomically(stateToSave, updatedAt, preflight.row, {
+        operationId: savingOperationId,
+      });
+      savedSignalRevision = Math.max(savedSignalRevision, Number(atomicResult?.revision || 0));
+      duplicateOperationConfirmed = duplicateOperationConfirmed || Boolean(atomicResult?.duplicateOperation);
       let result = atomicResult;
       if (atomicResult.handled && !atomicResult.error && atomicResult.data) pendingCloudVersionBackup = null;
       if (!atomicResult.handled) {
@@ -7337,9 +7522,12 @@ async function syncStateToSupabase(options = {}) {
   supabaseVersionWriteBlocked = false;
   supabaseLastSuccessfulContactAt = Date.now();
   supabaseLastCloudUpdatedAt = savedUpdatedAt;
+  if (savedSignalRevision) supabaseLastSignalRevision = Math.max(supabaseLastSignalRevision, savedSignalRevision);
   supabaseStartupProtectionActive = false;
-  rememberVerifiedCloudBaseline(stateToSave, savedUpdatedAt);
+  if (!duplicateOperationConfirmed) rememberVerifiedCloudBaseline(stateToSave, savedUpdatedAt);
   prunePendingSyncMutations(savingMutationSerial);
+  clearPendingSyncOperationId(savingOperationId);
+  announceLocalCloudSave(savedUpdatedAt, savingOperationId, savedSignalRevision);
   if (supabaseLocalRevision === savingRevision) {
     state = normalizeState(stateToSave);
     lastLocallyPersistedState = structuredClone(state);
@@ -7358,7 +7546,14 @@ async function syncStateToSupabase(options = {}) {
     setSyncStatus("saving", "Live Sync: Saving Next Change", "A newer local update was made while the previous save was finishing.");
     queueSupabaseSave({ delayMs: 100 });
   } else {
-    setSyncStatus("online", `${mergedConcurrentData ? "Live Sync: Merged" : "Live Sync: Saved"} ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+    if (duplicateOperationConfirmed) {
+      setSyncStatus("online", "Live Sync: Save Confirmed", "A previously timed-out operation was confirmed by Supabase without writing it twice. Verifying the latest cloud copy now.");
+      await loadSupabaseState({ manual: true, duplicateConfirm: true, signalRevision: savedSignalRevision });
+    } else if (supabaseAdvancedAtomicSaveAvailable === false) {
+      setSyncStatus("online", "Live Sync: Compatibility Mode", `Saved successfully using the existing sync method. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once to enable exact-save confirmation.`);
+    } else {
+      setSyncStatus("online", `${mergedConcurrentData ? "Live Sync: Merged" : "Live Sync: Saved"} ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
+    }
   }
   return true;
 }
@@ -7579,7 +7774,14 @@ async function pollSupabaseStateRevision(options = {}) {
   clearSupabaseRetryBackoff();
   supabaseLastSuccessfulContactAt = Date.now();
   const cloudUpdatedAt = result?.data?.updated_at || "";
-  if (cloudUpdatedAt && isNewerCloudData(cloudUpdatedAt)) return loadSupabaseState({ auto: true, revisionPoll: true });
+  const signalRevision = syncSignalRevision(result?.data);
+  const hasNewerRevision = signalRevision > Number(supabaseLastSignalRevision || 0);
+  if (hasNewerRevision || (cloudUpdatedAt && isNewerCloudData(cloudUpdatedAt))) {
+    const loaded = await loadSupabaseState({ auto: true, revisionPoll: true, signalRevision });
+    if (loaded && signalRevision) supabaseLastSignalRevision = Math.max(supabaseLastSignalRevision, signalRevision);
+    return loaded;
+  }
+  if (signalRevision) supabaseLastSignalRevision = Math.max(supabaseLastSignalRevision, signalRevision);
   if (supabaseSyncSignalAvailable === false) {
     setSyncStatus("online", "Live Sync: Compatibility Mode", `Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once in Supabase to enable the faster multi-laptop signal.`);
   } else {
@@ -7710,6 +7912,9 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     setFactoryResetProtection(false);
   }
   supabaseLastCloudUpdatedAt = cloudUpdatedAt || supabaseLastCloudUpdatedAt;
+  if (Number(options.signalRevision || 0) > 0) {
+    supabaseLastSignalRevision = Math.max(supabaseLastSignalRevision, Number(options.signalRevision));
+  }
   if (!persistStateToBrowser()) {
     console.warn("The cloud data is active in memory, but browser storage is full. Download an Owner data backup after checking the records.");
   }
@@ -44272,6 +44477,7 @@ restoreOrderDraftOrReset();
 resetMeltingSources();
 updateMeltingCalculation();
 resetXrfForm();
+startLocalSyncBroadcast();
 initializeSupabase();
 startAppVersionAutoRefresh();
 if (!supabaseSettings.url || !supabaseSettings.anonKey) runPostCloudMigrations();
