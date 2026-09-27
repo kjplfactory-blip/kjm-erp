@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v645";
+const APP_VERSION = "v646";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -22354,7 +22354,7 @@ function renderOrderLotCard(lot) {
     : lot.fittingItemsJobCard
       ? `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer To Fitting</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
       : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" type="button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
-  const actions = `${primaryActions}${goldIssueCorrectionButtonHtml(lot)}`;
+  const actions = `${primaryActions}${goldIssueCorrectionButtonHtml(lot)}${jobLotPreviousStageButtonHtml(lot, "Return Previous")}`;
   return `
     <article class="order-lot-card">
       <div>
@@ -23889,6 +23889,40 @@ function transferHistoryEditButtonHtml(lot = {}, transfer = {}) {
   return `<button class="ghost-button" type="button" onclick="openTransferEdit('${escapeHtml(lot.id)}', '${escapeHtml(transfer.id)}')" title="Correct Issue GW or Receive GW">Edit</button>`;
 }
 
+function jobLotPreviousStageBlockReason(lot = {}) {
+  if (!canUndoOnlineTransferHistory()) return "Only Owner or Manager can return a Job Card to its previous stage.";
+  if (!lot?.id) return "Production lot was not found.";
+  if (lot.status === "Completed" || billForLotRecord(lot)) return "A completed or billed Job Card cannot be returned from here.";
+  const latestTransfer = (lot.transfers || []).at(-1);
+  return latestTransfer ? lotTransferUndoBlockReason(lot, latestTransfer) : goldIssueCorrectionBlockReason(lot);
+}
+
+function jobLotPreviousStageButtonHtml(lot = {}, label = "Delete / Previous Stage") {
+  if (!canUndoOnlineTransferHistory() || !lot?.id) return "";
+  const reason = jobLotPreviousStageBlockReason(lot);
+  return `<button class="danger-button${reason ? " disabled-action" : ""}" type="button" ${reason ? "disabled" : `onclick="returnJobLotToPreviousStage('${escapeHtml(lot.id)}')"`} title="${escapeHtml(reason || "Delete the latest department movement and restore the previous stage")}">${escapeHtml(label)}</button>`;
+}
+
+function returnJobLotToPreviousStage(lotId = "") {
+  if (!requireOnlineTransferUndoPermission()) return;
+  const lot = findById("lots", lotId);
+  if (!lot) {
+    alert("Production lot was not found.");
+    return;
+  }
+  const reason = jobLotPreviousStageBlockReason(lot);
+  if (reason) {
+    alert(reason);
+    return;
+  }
+  const latestTransfer = (lot.transfers || []).at(-1);
+  if (latestTransfer) {
+    undoOnlineLotTransfer(lot.id, latestTransfer.id);
+    return;
+  }
+  undoGoldIssue(lot.id);
+}
+
 function deleteTransfer(lotId, transferId) {
   undoOnlineLotTransfer(lotId, transferId);
 }
@@ -24005,7 +24039,13 @@ function undoOnlineLotTransfer(lotId, transferId) {
     return;
   }
   const transferLabel = `${transfer.fromDepartment || transfer.fromKarigarName || "-"} to ${transfer.toDepartment || transfer.toKarigarName || "-"}`;
-  if (!confirm(`Delete this transfer entry?\n\n${lot.number}: ${transferLabel}\nGW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)}\n\nThe remaining transfer chain and current department will be recalculated. This deletion stays in the audit history.`)) return;
+  const latestTransfer = (lot.transfers || []).at(-1);
+  const restoringPreviousStage = latestTransfer?.id === transfer.id;
+  const previousStage = transfer.fromDepartment || transfer.fromKarigarName || lot.issueDepartment || lot.issueKarigarName || "previous department";
+  const effectText = restoringPreviousStage
+    ? `The full Job Card lot and all linked PR items will return to ${previousStage}.`
+    : "The remaining transfer chain and current department will be recalculated.";
+  if (!confirm(`Delete this transfer entry?\n\n${lot.number}: ${transferLabel}\nGW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)}\n\n${effectText}\nGW, stone, non-gold, and net weight will be restored from the previous movement. This deletion stays in the audit history.`)) return;
   const stateBefore = structuredClone(state);
   lot.transfers = (lot.transfers || []).filter((item) => item.id !== transferId);
   rewireLotTransferChain(lot);
@@ -24017,7 +24057,7 @@ function undoOnlineLotTransfer(lotId, transferId) {
     `${transferLabel} deleted; GW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)} / Net ${gram(transfer.receivedWeight)}; recalculated current department ${restoredDepartment}`,
   );
   if (!saveOnlineTransferUndo(stateBefore, `Delete transfer ${lot.number}`, { lotId: lot.id })) return;
-  alert(`${lot.number} transfer entry was deleted.\nCurrent department: ${restoredDepartment}.`);
+  alert(`${lot.number} transfer entry was deleted.\nThe full Job Card lot and linked PR items are now back in ${restoredDepartment}.`);
 }
 
 function safeDepartmentIssueUndoBlockReason(issueId = "") {
@@ -34498,7 +34538,7 @@ function renderSettingManager() {
         <td><strong>${gram(liveTotals.nonGold)}</strong><br><small>BB / Moti / Spring / Other</small></td>
         <td><strong>${gram(liveTotals.gold)}</strong><br><small>Current physical net</small></td>
         <td>${settingStatusHtml(lot)}</td>
-        <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openSettingManagerJobCard('${lot.id}')">Open Job Card</button>${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue / Split</button>`}${historyButton}</div></td>
+        <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openSettingManagerJobCard('${lot.id}')">Open Job Card</button>${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue / Split</button>`}${historyButton}${jobLotPreviousStageButtonHtml(lot, "Delete / Previous Stage")}</div></td>
       </tr>
     `;
   }).join("");
@@ -42920,6 +42960,9 @@ function departmentTransferEvents() {
       const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
       events.push({
         id: `${lot.id}-issue-in`,
+        lotId: lot.id,
+        transferId: "",
+        movementType: "issue",
         sortIndex: sortIndex++,
         createdAt: lot.createdAt || "",
         createdAtInferred: Boolean(lot.createdAtInferred),
@@ -42976,6 +43019,9 @@ function departmentTransferEvents() {
       const toProcess = transfer.toDepartment || toDepartment;
       const common = {
         id: transfer.id || `${lot.id}-${sortIndex}`,
+        lotId: lot.id,
+        transferId: transfer.id || "",
+        movementType: "transfer",
         sortIndex: sortIndex++,
         createdAt: transfer.createdAt || "",
         createdAtInferred: Boolean(transfer.createdAtInferred),
@@ -43197,6 +43243,24 @@ function transferOneLinePopupCell(value = "") {
   `;
 }
 
+function departmentPreviousStageActionHtml(event = {}, direction = "") {
+  if (direction !== "in" || !event.lotId || !canUndoOnlineTransferHistory()) return "";
+  const lot = findById("lots", event.lotId);
+  if (!lot || lot.status === "Completed") return "";
+  const currentDepartment = departmentTransferMasterGroupName(
+    dashboardDepartmentNameFromId(lot.karigarId) || lot.karigarName || lot.currentDepartment || lot.issueDepartment || "Unassigned",
+    lot.currentDepartment || lot.karigarName || lot.issueDepartment || "Unassigned",
+  );
+  if (departmentTextKey(currentDepartment) !== departmentTextKey(event.department)) return "";
+  if (event.movementType === "transfer") {
+    const latestTransfer = (lot.transfers || []).at(-1);
+    if (!latestTransfer || latestTransfer.id !== event.transferId) return "";
+  } else if (event.movementType === "issue" && (lot.transfers || []).length) {
+    return "";
+  }
+  return jobLotPreviousStageButtonHtml(lot, "Delete / Previous Stage");
+}
+
 function renderDepartmentTransferRow(event, direction) {
   const gw = event.receiveGw;
   const difference = direction === "out" ? gram(event.difference) : "-";
@@ -43208,6 +43272,7 @@ function renderDepartmentTransferRow(event, direction) {
   const referenceHtml = event.hasLot === false
     ? `<strong>${escapeHtml(event.lotNumber || "DIRECT SHELF")}</strong>`
     : `<button class="link-button" type="button" onclick="openLotHistoryByNumber(decodeURIComponent('${encodeURIComponent(event.lotNumber)}'))">${escapeHtml(event.lotNumber || "-")}</button>`;
+  const previousStageAction = departmentPreviousStageActionHtml(event, direction);
   return `
     <tr>
       <td>${escapeHtml(transferHistoryDateTime(event.date, event.createdAt))}</td>
@@ -43221,7 +43286,7 @@ function renderDepartmentTransferRow(event, direction) {
       <td>${gram(event.netWeight)}</td>
       <td>${difference}</td>
       <td>${fineGold}</td>
-      <td class="remark-cell">${transferRemarkCell(event.remarks)}</td>
+      <td class="remark-cell"><div class="online-transfer-remarks-actions">${transferRemarkCell(event.remarks)}${previousStageAction ? `<div class="row-actions transfer-history-actions">${previousStageAction}</div>` : ""}</div></td>
     </tr>
   `;
 }
