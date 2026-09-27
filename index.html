@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=642">
+  <link rel="stylesheet" href="styles.css?v=643">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v642</small>
+      <small class="app-version-badge">App v643</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v642</span>
+          <span class="app-version-badge">App v643</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2127,6 +2127,40 @@
       </form>
     </dialog>
 
+    <dialog id="move-job-items-dialog">
+      <form id="move-job-items-form" class="dialog-card merge-job-cards-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Merge Selected Items Into Job Card</h2>
+            <p class="dialog-note">Move only the selected PR items into the main Job Card or another child Job Card from the same family. PR numbers, physical production lots, weights, transfers, bills, and item status remain unchanged.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-move-job-items">Close</button>
+        </div>
+        <section class="merge-job-primary-panel">
+          <label>Current Job Card
+            <input id="move-job-items-source" type="text" readonly>
+          </label>
+          <label>Move Selected Items To
+            <select id="move-job-items-target" name="targetJobNumber" required></select>
+          </label>
+        </section>
+        <section class="merge-job-selected-panel">
+          <div class="merge-job-section-heading">
+            <div>
+              <strong>Selected PR Items</strong>
+              <small id="move-job-items-summary">0 items selected</small>
+            </div>
+          </div>
+          <div id="move-job-items-selected-list" class="selected-design-chips"></div>
+        </section>
+        <p class="dialog-note">A production lot shared with items left behind will continue as one physical lot and will show both Job Card numbers. No production weight is split by this action.</p>
+        <div class="dialog-actions">
+          <button type="submit" id="confirm-move-job-items">Merge Selected Items</button>
+          <button class="ghost-button" type="button" id="cancel-move-job-items">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="order-dialog">
       <div class="dialog-card order-dialog">
         <div class="dialog-header">
@@ -2186,6 +2220,7 @@
               <button class="ghost-button" type="button" id="add-job-card-item">Add Item</button>
               <label id="standard-split-job-gw">Split GW <input id="split-job-gw" type="number" min="0" step="0.001" placeholder="Only if in production"></label>
               <button class="ghost-button" type="button" id="split-job-items">Split Selected</button>
+              <button class="ghost-button" type="button" id="move-job-items">Merge Selected Items</button>
               <button class="ghost-button hidden" type="button" id="split-fitting-items-card">Split GW / Wax Stone</button>
             </div>
           </div>
@@ -3423,7 +3458,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=642"></script>
+  <script src="app.js?v=643"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

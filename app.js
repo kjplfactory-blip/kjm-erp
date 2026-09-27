@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v642";
+const APP_VERSION = "v643";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -389,6 +389,8 @@ let selectedDesignIds = new Set();
 let activeDesignMasterId = "";
 let mergeSelectedJobNumbers = new Set();
 let mergeJobMode = "family";
+let moveSelectedOrderIds = new Set();
+let moveItemsSourceJobNumber = "";
 let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueSelectionQuantities = new Map();
@@ -846,6 +848,9 @@ document.getElementById("merge-job-clear-selection")?.addEventListener("click", 
 document.getElementById("merge-job-candidates")?.addEventListener("change", handleMergeJobSelectionChange);
 document.getElementById("merge-job-selected-list")?.addEventListener("click", handleMergeJobSelectedListClick);
 document.getElementById("merge-job-cards-form")?.addEventListener("submit", mergeSelectedJobCards);
+document.getElementById("move-job-items-form")?.addEventListener("submit", mergeSelectedItemsIntoJobCard);
+document.getElementById("close-move-job-items")?.addEventListener("click", closeMoveSelectedJobItemsDialog);
+document.getElementById("cancel-move-job-items")?.addEventListener("click", closeMoveSelectedJobItemsDialog);
 
 document.querySelectorAll("[data-design-page]").forEach((button) => {
   button.addEventListener("click", () => switchDesignPage(button.dataset.designPage));
@@ -3745,6 +3750,7 @@ document.getElementById("close-job-item-detail").addEventListener("click", () =>
 });
 
 document.getElementById("split-job-items").addEventListener("click", splitSelectedJobItems);
+document.getElementById("move-job-items")?.addEventListener("click", openMoveSelectedJobItemsDialog);
 document.getElementById("add-job-card-item").addEventListener("click", openJobCardAddItem);
 document.getElementById("order-items-detail")?.addEventListener("input", (event) => {
   if (event.target.matches("#job-split-search")) filterJobSplitItems();
@@ -16107,6 +16113,7 @@ function applySettingManagerJobCardMode() {
       "add-job-card-item",
       "standard-split-job-gw",
       "split-job-items",
+      "move-job-items",
       "split-fitting-items-card",
       "standard-split-job-picker",
     ].forEach((id) => document.getElementById(id)?.classList.add("hidden"));
@@ -16160,11 +16167,11 @@ function renderJobItemsDetail(orders) {
       </div>
       <div class="job-split-selected-panel">
         <div class="job-split-selected-heading">
-          <strong>Selected For Split</strong>
+          <strong>Selected Items</strong>
           <span id="job-split-selected-count">0 selected</span>
         </div>
         <div id="job-split-selected-items" class="selected-design-chips">
-          <small class="selected-design-empty">No items selected for split.</small>
+          <small class="selected-design-empty">No items selected.</small>
         </div>
       </div>
     </section>
@@ -16192,7 +16199,7 @@ function renderJobItemsDetail(orders) {
           <article class="job-item-select-card ${stoneEntryEdited ? "stone-entry-edited" : ""}" data-job-split-card="${escapeHtml(order.id)}" data-job-split-search="${escapeHtml(searchText)}" data-stone-entry-edited="${stoneEntryEdited ? "true" : "false"}">
             <label class="job-split-select ${isFittingAccessoriesOrder(order) || settingManagerMode ? "hidden" : ""}">
               <input type="checkbox" class="job-split-check" value="${escapeHtml(order.id)}">
-              <span>Split</span>
+              <span>Select</span>
             </label>
             <button type="button" class="job-item-open-button ${stoneEntryEdited ? "has-stone-entry-edit" : ""}" data-job-item-id="${escapeHtml(order.id)}" onclick="openJobItemDetail('${escapeHtml(order.id)}')">
               <strong>${escapeHtml(order.productionNo || order.number)}</strong>
@@ -16243,7 +16250,7 @@ function updateJobSplitSelectionUi() {
   if (count) count.textContent = `${selectedIds.length} selected`;
   if (!holder) return;
   if (!selectedIds.length) {
-    holder.innerHTML = '<small class="selected-design-empty">No items selected for split.</small>';
+    holder.innerHTML = '<small class="selected-design-empty">No items selected.</small>';
     return;
   }
   holder.innerHTML = selectedIds.map((orderId) => {
@@ -16252,7 +16259,7 @@ function updateJobSplitSelectionUi() {
     return `
       <span class="selected-design-chip job-split-selected-chip">
         <b>${escapeHtml(jobSplitItemLabel(order))}</b>
-        <button type="button" data-remove-job-split-item="${escapeHtml(orderId)}" aria-label="Remove item from split" title="Remove item">&times;</button>
+        <button type="button" data-remove-job-split-item="${escapeHtml(orderId)}" aria-label="Remove selected item" title="Remove selected item">&times;</button>
       </span>
     `;
   }).join("");
@@ -16309,6 +16316,239 @@ function lotOrderNumberFromIds(orderIds = [], fallback = "") {
     return order?.jobNumber || order?.productionNo || order?.number || "";
   }).filter(Boolean))];
   return jobNumbers.length ? jobNumbers.join(", ") : fallback;
+}
+
+function moveJobItemDestinationJobs(sourceJobNumber = "") {
+  const family = mergeJobFamily(sourceJobNumber);
+  return (family?.jobs || [])
+    .filter((job) => job.jobNumber !== sourceJobNumber)
+    .sort(compareJobOrderFamilyMembers);
+}
+
+function closeMoveSelectedJobItemsDialog() {
+  document.getElementById("move-job-items-dialog")?.close();
+  moveSelectedOrderIds.clear();
+  moveItemsSourceJobNumber = "";
+}
+
+function openMoveSelectedJobItemsDialog() {
+  if (!requireMergeSplitJobCardsPermission()) return;
+  const currentOrderId = document.getElementById("update-order-form")?.orderId?.value || "";
+  const currentOrder = findById("orders", currentOrderId);
+  if (!currentOrder) {
+    alert("Open a Job Card first.");
+    return;
+  }
+  const sourceJobNumber = mergeJobNumber(currentOrder);
+  const sourceOrderIds = new Set(getJobOrders(currentOrder).map((order) => order.id));
+  const selectedIds = selectedJobSplitIds().filter((orderId) => sourceOrderIds.has(orderId));
+  if (!selectedIds.length) {
+    alert("Select one or more PR items first.");
+    return;
+  }
+  const destinations = moveJobItemDestinationJobs(sourceJobNumber);
+  if (!destinations.length) {
+    alert(`No related main or child Job Card is available for ${sourceJobNumber}. Create a split child Job Card first.`);
+    return;
+  }
+  moveItemsSourceJobNumber = sourceJobNumber;
+  moveSelectedOrderIds = new Set(selectedIds);
+  const sourceInput = document.getElementById("move-job-items-source");
+  const targetSelect = document.getElementById("move-job-items-target");
+  const summary = document.getElementById("move-job-items-summary");
+  const holder = document.getElementById("move-job-items-selected-list");
+  if (sourceInput) sourceInput.value = sourceJobNumber;
+  if (targetSelect) {
+    targetSelect.innerHTML = destinations.map((job) => `
+      <option value="${escapeHtml(job.jobNumber)}">${escapeHtml(jobOrderFamilyRole(job))} / ${escapeHtml(mergeJobLabel(job))}</option>
+    `).join("");
+  }
+  const selectedOrders = selectedIds.map((orderId) => findById("orders", orderId)).filter(Boolean);
+  if (summary) summary.textContent = `${selectedOrders.length} item${selectedOrders.length === 1 ? "" : "s"} selected from ${sourceJobNumber}`;
+  if (holder) {
+    holder.innerHTML = selectedOrders.map((order) => `
+      <span class="selected-design-chip job-split-selected-chip"><b>${escapeHtml(jobSplitItemLabel(order))}</b></span>
+    `).join("");
+  }
+  const dialog = document.getElementById("move-job-items-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function explicitOrderIdsForJobReference(record = {}) {
+  const ids = [];
+  if (record.orderId) ids.push(record.orderId);
+  [record.orderIds, record.billOrderIds].forEach((values) => {
+    if (Array.isArray(values)) ids.push(...values);
+  });
+  (record.items || []).forEach((item) => {
+    if (item?.orderId) ids.push(item.orderId);
+  });
+  return [...new Set(ids.filter(Boolean))];
+}
+
+function refreshMovedItemJobReference(record, selectedOrderIds, sourceJobNumber, targetJobNumber, sourceWillBeEmpty, movedAt) {
+  if (!record || typeof record !== "object") return false;
+  const linkedOrderIds = explicitOrderIdsForJobReference(record);
+  const linkedToMovedItem = linkedOrderIds.some((orderId) => selectedOrderIds.has(orderId));
+  const sourceOnlyFallback = sourceWillBeEmpty
+    && !linkedOrderIds.length
+    && (record.jobNumber === sourceJobNumber || record.orderNumber === sourceJobNumber);
+  if (!linkedToMovedItem && !sourceOnlyFallback) return false;
+  const currentJobReference = linkedOrderIds.length
+    ? (lotOrderNumberFromIds(linkedOrderIds, targetJobNumber) || targetJobNumber)
+    : targetJobNumber;
+  let changed = false;
+  ["jobNumber", "orderNumber"].forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(record, field)) return;
+    if (record[field] === currentJobReference) return;
+    record[field] = currentJobReference;
+    changed = true;
+  });
+  if (changed) {
+    record.jobCardItemsMovedAt = movedAt;
+    record.jobCardItemsMovedFrom = sourceJobNumber;
+    record.jobCardItemsMovedTo = targetJobNumber;
+  }
+  return changed;
+}
+
+async function mergeSelectedItemsIntoJobCard(event) {
+  event.preventDefault();
+  if (!requireMergeSplitJobCardsPermission()) return;
+  const form = event.currentTarget;
+  const submitButton = document.getElementById("confirm-move-job-items");
+  const sourceJobNumber = moveItemsSourceJobNumber;
+  const targetJobNumber = form.targetJobNumber.value;
+  const sourceOrders = state.orders.filter((order) => mergeJobNumber(order) === sourceJobNumber);
+  const sourceOrderIds = new Set(sourceOrders.map((order) => order.id));
+  const selectedOrderIds = new Set([...moveSelectedOrderIds].filter((orderId) => sourceOrderIds.has(orderId)));
+  const selectedOrders = sourceOrders.filter((order) => selectedOrderIds.has(order.id));
+  const destinationOrders = state.orders.filter((order) => mergeJobNumber(order) === targetJobNumber);
+  const destinationFamily = mergeJobFamily(sourceJobNumber);
+  const familyJobNumbers = new Set((destinationFamily?.jobs || []).map((job) => job.jobNumber));
+  if (!sourceJobNumber || !targetJobNumber || sourceJobNumber === targetJobNumber) {
+    alert("Choose another related Job Card as the destination.");
+    return;
+  }
+  if (!selectedOrders.length) {
+    alert("The selected PR items are no longer available in this Job Card. Reopen it and select the items again.");
+    return;
+  }
+  if (!destinationOrders.length || !familyJobNumbers.has(targetJobNumber)) {
+    alert("The destination must be the main Job Card or a child Job Card from the same split family.");
+    return;
+  }
+  const sourceWillBeEmpty = selectedOrders.length === sourceOrders.length;
+  const selectedLabels = selectedOrders.map((order) => order.productionNo || order.number || order.id).join(", ");
+  const sourceResult = sourceWillBeEmpty
+    ? `${sourceJobNumber} will close because all of its items are moving.`
+    : `${sourceJobNumber} will keep ${sourceOrders.length - selectedOrders.length} item(s).`;
+  if (!confirm(`Merge ${selectedOrders.length} selected item(s) into ${targetJobNumber}?\n\nPR: ${selectedLabels}\n${sourceResult}\n\nProduction lots, weights, departments, transfers, bills, and item status will remain unchanged.`)) return;
+
+  const rollback = {
+    orders: structuredClone(state.orders || []),
+    lots: structuredClone(state.lots || []),
+    bills: structuredClone(state.bills || []),
+    safeItems: structuredClone(state.safeItems || []),
+    productionNonGoldIssues: structuredClone(state.productionNonGoldIssues || []),
+    settingManagerEntries: structuredClone(state.settingManagerEntries || []),
+    factoryLedger: structuredClone(state.factoryLedger || []),
+    ledger: structuredClone(state.ledger || []),
+  };
+  const movedAt = new Date().toISOString();
+  const movedBy = currentUser?.name || currentUser?.id || "ERP User";
+  const familyRoot = destinationFamily?.root || splitJobRootNumber(sourceJobNumber);
+  selectedOrders.forEach((order) => {
+    order.movedFromJobNumbers = [...new Set([...(order.movedFromJobNumbers || []), sourceJobNumber])];
+    order.jobNumber = targetJobNumber;
+    if (targetJobNumber !== familyRoot && !order.splitFromJobNumber) order.splitFromJobNumber = familyRoot;
+    order.lastJobCardItemMoveAt = movedAt;
+    order.lastJobCardItemMoveBy = movedBy;
+  });
+
+  (state.lots || []).forEach((lot) => {
+    const lotOrderIds = getLotOrderIds(lot);
+    const linkedToMovedItem = lotOrderIds.some((orderId) => selectedOrderIds.has(orderId));
+    const sourceOnlyFallback = sourceWillBeEmpty && !lotOrderIds.length && lot.orderNumber === sourceJobNumber;
+    if (!linkedToMovedItem && !sourceOnlyFallback) return;
+    lot.orderNumber = lotOrderIds.length
+      ? (lotOrderNumberFromIds(lotOrderIds, targetJobNumber) || targetJobNumber)
+      : targetJobNumber;
+    lot.jobCardItemsMovedAt = movedAt;
+    lot.jobCardItemsMovedFrom = sourceJobNumber;
+    lot.jobCardItemsMovedTo = targetJobNumber;
+    if (lot.bill) refreshMovedItemJobReference(lot.bill, selectedOrderIds, sourceJobNumber, targetJobNumber, sourceWillBeEmpty, movedAt);
+  });
+  (state.bills || []).forEach((bill) => {
+    const linkedOrderIds = explicitOrderIdsForJobReference(bill);
+    if (!linkedOrderIds.length && bill.lotId) {
+      const billLot = findById("lots", bill.lotId);
+      if (billLot) linkedOrderIds.push(...getLotOrderIds(billLot));
+    }
+    const linkedToMovedItem = linkedOrderIds.some((orderId) => selectedOrderIds.has(orderId));
+    const sourceOnlyFallback = sourceWillBeEmpty && !linkedOrderIds.length && bill.jobNumber === sourceJobNumber;
+    if (!linkedToMovedItem && !sourceOnlyFallback) return;
+    bill.jobNumber = linkedOrderIds.length
+      ? (lotOrderNumberFromIds(linkedOrderIds, targetJobNumber) || targetJobNumber)
+      : targetJobNumber;
+    bill.jobCardItemsMovedAt = movedAt;
+    bill.jobCardItemsMovedFrom = sourceJobNumber;
+    bill.jobCardItemsMovedTo = targetJobNumber;
+  });
+  [
+    state.safeItems,
+    state.productionNonGoldIssues,
+    state.settingManagerEntries,
+    state.factoryLedger,
+  ].forEach((records) => (records || []).forEach((record) => {
+    refreshMovedItemJobReference(record, selectedOrderIds, sourceJobNumber, targetJobNumber, sourceWillBeEmpty, movedAt);
+  }));
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: movedAt,
+    type: "Job Card Item Merge",
+    purity: "-",
+    weight: 0,
+    jobNumber: targetJobNumber,
+    movedFromJobNumber: sourceJobNumber,
+    orderIds: [...selectedOrderIds],
+    productionNos: selectedOrders.map((order) => order.productionNo || order.number || "").filter(Boolean),
+    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; physical production lots, weights, and transfers unchanged.`,
+  });
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Saving Items...";
+  }
+  const savedLocally = saveState({ alertOnFailure: true, context: `Move selected items to ${targetJobNumber}` });
+  if (!savedLocally) {
+    Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Merge Selected Items";
+    }
+    return;
+  }
+  const remainingSourceOrders = state.orders.filter((order) => mergeJobNumber(order) === sourceJobNumber);
+  const updatedDestinationOrders = state.orders.filter((order) => mergeJobNumber(order) === targetJobNumber);
+  backupRecentJobOrders([...remainingSourceOrders, ...updatedDestinationOrders]);
+  if (submitButton) submitButton.textContent = "Saving To Cloud...";
+  const savedToCloud = await saveJobOrderToCloudNow();
+  closeMoveSelectedJobItemsDialog();
+  document.getElementById("order-dialog")?.close();
+  render();
+  switchOrderPage("active");
+  openJobOrder(targetJobNumber, "all");
+  if (submitButton) {
+    submitButton.disabled = false;
+    submitButton.textContent = "Merge Selected Items";
+  }
+  const cloudMessage = savedToCloud
+    ? "Saved on this laptop and confirmed in Supabase cloud."
+    : "Saved safely on this laptop; cloud sync will retry automatically.";
+  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\nAll PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
 }
 
 function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
@@ -16438,6 +16678,7 @@ function updateFittingItemsJobToolbar(order = {}) {
   document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("move-job-items")?.classList.toggle("hidden", isSpecialCard || restricted || !canMergeSplitJobCards());
   document.getElementById("standard-split-job-picker")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit || restricted);
 }
