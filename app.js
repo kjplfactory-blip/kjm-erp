@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v646";
+const APP_VERSION = "v647";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -7121,8 +7121,24 @@ function runPostCloudMigrations() {
   (async () => {
     const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
-    if (correctedSetterBalances || correctedFilingTransfers) {
-      saveState({ context: "LOT-203 setter balance and downstream department net-weight correction" });
+    const repairedMergedSettingLots = repairPreviouslyMergedSettingSplitLots();
+    if (repairedMergedSettingLots.count) {
+      state.ledger = state.ledger || [];
+      state.ledger.unshift({
+        id: crypto.randomUUID(),
+        date: today(),
+        createdAt: new Date().toISOString(),
+        type: "Setting Lot Merge Repair",
+        purity: "-",
+        weight: 0,
+        settingLotsRejoined: repairedMergedSettingLots.count,
+        settingLotsRejoinedFrom: repairedMergedSettingLots.sourceLotNumbers,
+        settingLotsRejoinedInto: repairedMergedSettingLots.targetLotNumbers,
+        reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
+      });
+    }
+    if (correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
+      saveState({ context: "Post-cloud production and merged Setting lot correction" });
       render();
     }
     await migrateLegacyDesignImages();
@@ -16330,7 +16346,7 @@ function jobCardMergeWeightModeLabel(value = "") {
 
 function jobCardMergeLinkedLots(orderIds = []) {
   const orderIdSet = orderIds instanceof Set ? orderIds : new Set(orderIds);
-  return (state.lots || []).filter((lot) => getLotOrderIds(lot).some((orderId) => orderIdSet.has(orderId)));
+  return (state.lots || []).filter((lot) => !lot.mergedIntoLotId && getLotOrderIds(lot).some((orderId) => orderIdSet.has(orderId)));
 }
 
 function jobCardWeightOwner(lot = {}) {
@@ -16656,6 +16672,9 @@ async function mergeSelectedItemsIntoJobCard(event) {
   ].forEach((records) => (records || []).forEach((record) => {
     refreshMovedItemJobReference(record, selectedOrderIds, sourceJobNumber, targetJobNumber, sourceWillBeEmpty, movedAt);
   }));
+  const settingLotRejoinResult = weightMode === "add"
+    ? rejoinEligibleSettingSplitLotsForJobCard(targetJobNumber, movedAt)
+    : { count: 0, skipped: 0, sourceLotNumbers: [], targetLotNumbers: [], reasons: [] };
   const settingWeightSyncCount = syncSettingEntriesForUpdatedStoneOrders(
     [...destinationOrders, ...selectedOrders],
     `Job Card item merge ${sourceJobNumber} to ${targetJobNumber}`,
@@ -16676,8 +16695,11 @@ async function mergeSelectedItemsIntoJobCard(event) {
     mergeGrossWeight: appliedWeightSummary.grossWeight,
     mergeStoneWeight: appliedWeightSummary.stoneWeight,
     mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
+    settingLotsRejoined: settingLotRejoinResult.count,
+    settingLotsRejoinedFrom: settingLotRejoinResult.sourceLotNumbers,
+    settingLotsRejoinedInto: settingLotRejoinResult.targetLotNumbers,
     settingWeightSyncCount,
-    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; physical production stock and transfers unchanged.`,
+    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingLotRejoinResult.count} eligible Setting sub-lot(s) rejoined; ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; physical production stock preserved.`,
   });
 
   if (submitButton) {
@@ -16710,7 +16732,13 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const cloudMessage = savedToCloud
     ? "Saved on this laptop and confirmed in Supabase cloud."
     : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}All PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
+  const settingRejoinMessage = settingLotRejoinResult.count
+    ? `${settingLotRejoinResult.count} free Setting sub-lot(s) (${settingLotRejoinResult.sourceLotNumbers.join(", ")}) were rejoined into ${settingLotRejoinResult.targetLotNumbers.join(", ")}.\n`
+    : "";
+  const settingPendingMessage = settingLotRejoinResult.skipped
+    ? `${settingLotRejoinResult.skipped} Setting sub-lot(s) remain separate because they are still with a setter or cannot be safely combined.\n`
+    : "";
+  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingRejoinMessage}${settingPendingMessage}${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}All PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
 }
 
 function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
@@ -22184,7 +22212,9 @@ function renderOrderLots(order, scopedLotId = "") {
   const jobOrders = scopedLot ? getLotOrders(scopedLot) : getJobOrders(order);
   const orderIds = new Set(jobOrders.map((item) => item.id));
   const lots = state.lots.filter((lot) =>
-    getLotOrderIds(lot).some((id) => orderIds.has(id))
+    !lot.mergedIntoLotId
+    && lot.status !== "Merged"
+    && getLotOrderIds(lot).some((id) => orderIds.has(id))
     && (!scopedLotId || lot.id === scopedLotId)
   );
   const status = document.getElementById("order-current-status");
@@ -24272,6 +24302,7 @@ function isFittingItemsTransferDestination(transfer = {}) {
 }
 
 function factoryStockHoldingLot(lot = {}) {
+  if (lot.mergedIntoLotId) return false;
   return lot.status !== "Completed" || Boolean(lot.fittingItemsJobCard && lot.fittingItemsIssuedToFitting);
 }
 
@@ -24286,23 +24317,224 @@ function lotHasJobCardStonePlan(lot = {}, sourceState = state) {
   );
 }
 
+function activeLotAfterSettingMerge(lot = {}) {
+  let currentLot = lot;
+  const visited = new Set();
+  while (currentLot?.mergedIntoLotId && !visited.has(currentLot.id)) {
+    visited.add(currentLot.id);
+    currentLot = findById("lots", currentLot.mergedIntoLotId) || currentLot;
+    if (!currentLot?.mergedIntoLotId) break;
+  }
+  return currentLot;
+}
+
+function settingLotMergeDepartmentKey(lot = {}) {
+  return departmentTextKey(mergedProductionDepartmentName(
+    lot.currentDepartment || lot.karigarName || "",
+    lot.karigarName || lot.currentDepartment || "",
+  ));
+}
+
+function settingLotHasPendingSetter(lot = {}) {
+  return (state.settingManagerEntries || []).some((entry) =>
+    entry.entryType !== "Accessory"
+    && entry.lotId === lot.id
+    && entry.status === "Issued"
+  );
+}
+
+function settingSplitRejoinBlockReason(sourceLot = {}, targetLot = {}, targetJobNumber = "") {
+  if (!sourceLot?.id || !targetLot?.id || sourceLot.id === targetLot.id) return "Setting split source or original lot was not found.";
+  if (sourceLot.mergedIntoLotId) return "This Setting sub-lot is already rejoined.";
+  if (!sourceLot.settingSplitFromLotId) return "This is not a Setting split sub-lot.";
+  if (sourceLot.status === "Completed" || targetLot.status === "Completed" || billForLotRecord(sourceLot) || billForLotRecord(targetLot)) {
+    return "A completed or billed production lot cannot be rejoined automatically.";
+  }
+  if (!isSettingDepartment(`${sourceLot.currentDepartment || ""} ${sourceLot.karigarName || ""}`)
+    || !isSettingDepartment(`${targetLot.currentDepartment || ""} ${targetLot.karigarName || ""}`)) {
+    return "Both physical lots must currently be back in the Setting Department.";
+  }
+  if (settingLotMergeDepartmentKey(sourceLot) !== settingLotMergeDepartmentKey(targetLot)) {
+    return "The physical lots are in different departments.";
+  }
+  if (karatPurityKey(sourceLot.metalPurity || "") !== karatPurityKey(targetLot.metalPurity || "")) {
+    return "The physical lots have different karat purity.";
+  }
+  if (settingLotHasPendingSetter(sourceLot) || settingLotHasPendingSetter(targetLot)) {
+    return "A physical lot is still with a setter and must be received before it can be rejoined.";
+  }
+  if ((state.lots || []).some((lot) => lot.settingSplitFromLotId === sourceLot.id && !lot.mergedIntoLotId && lot.status !== "Completed")) {
+    return "This Setting sub-lot still has an active child split.";
+  }
+  const sourceOrders = getLotOrders(sourceLot);
+  const targetOrders = getLotOrders(targetLot);
+  if (!sourceOrders.length || !targetOrders.length) return "The Setting lot no longer has linked PR items.";
+  if ([...sourceOrders, ...targetOrders].some((order) => mergeJobNumber(order) !== targetJobNumber)) {
+    return "The physical lots do not yet belong to the same merged Job Card.";
+  }
+  if (sourceLot.jobCardWeightMergeMode !== "add" || jobCardWeightOwner(sourceLot) !== targetJobNumber) {
+    return "The source Job Card weight was not selected for addition.";
+  }
+  return "";
+}
+
+function relinkSettingSplitLotRecords(sourceLot = {}, targetLot = {}, targetJobNumber = "", mergedAt = "") {
+  const relink = (record = {}) => {
+    let changed = false;
+    if (record.lotId === sourceLot.id) {
+      record.mergedFromLotId = record.mergedFromLotId || sourceLot.id;
+      record.mergedFromLotNumber = record.mergedFromLotNumber || sourceLot.number || "";
+      record.lotId = targetLot.id;
+      if (Object.prototype.hasOwnProperty.call(record, "lotNumber")) record.lotNumber = targetLot.number || record.lotNumber || "";
+      changed = true;
+    }
+    if (record.productionLotId === sourceLot.id) {
+      record.mergedFromProductionLotId = record.mergedFromProductionLotId || sourceLot.id;
+      record.productionLotId = targetLot.id;
+      changed = true;
+    }
+    if (changed) {
+      if (Object.prototype.hasOwnProperty.call(record, "jobNumber")) record.jobNumber = targetJobNumber || record.jobNumber || "";
+      if (Object.prototype.hasOwnProperty.call(record, "orderNumber")) record.orderNumber = targetJobNumber || record.orderNumber || "";
+      record.settingLotRejoinedAt = mergedAt;
+    }
+    return changed;
+  };
+  let updated = 0;
+  [
+    state.settingManagerEntries,
+    state.productionNonGoldIssues,
+    state.safeDepartmentIssues,
+    state.safeDepartmentReturns,
+  ].forEach((records) => (records || []).forEach((record) => {
+    if (relink(record)) updated += 1;
+  }));
+  return updated;
+}
+
+function rejoinSettingSplitLot(sourceLot = {}, targetLot = {}, targetJobNumber = "", mergedAt = new Date().toISOString()) {
+  const sourceOrderIds = getLotOrderIds(sourceLot);
+  const targetOrderIds = getLotOrderIds(targetLot);
+  const sourceOrders = getLotOrders(sourceLot);
+  const sourceStone = productionStoneTotalsForOrders(sourceOrders);
+  const targetCurrentGw = Number(weight3(currentTransferIssueWeight(targetLot)));
+  const sourceCurrentGw = Number(weight3(currentTransferIssueWeight(sourceLot)));
+  const combinedCurrentGw = Number(weight3(targetCurrentGw + sourceCurrentGw));
+  const combinedWaxStone = Number(weight3(transferWaxStoneWeight(targetLot) + transferWaxStoneWeight(sourceLot)));
+  const combinedHandStone = Number(weight3(currentHandStoneWeight(targetLot) + currentHandStoneWeight(sourceLot)));
+  const combinedProvisionalNonGold = Number(weight3(currentTransferProvisionalNonGold(targetLot) + currentTransferProvisionalNonGold(sourceLot)));
+
+  targetLot.orderIds = [...new Set([...targetOrderIds, ...sourceOrderIds])];
+  targetLot.orderId = targetLot.orderIds[0] || targetLot.orderId || "";
+  targetLot.orderNumber = targetJobNumber || targetLot.orderNumber || "";
+  targetLot.grossIssuedWeight = Number(weight3(Number(targetLot.grossIssuedWeight || 0) + Number(sourceLot.grossIssuedWeight || 0)));
+  targetLot.issuedWeight = Number(weight3(Number(targetLot.issuedWeight || 0) + Number(sourceLot.issuedWeight || 0)));
+  targetLot.waxStoneWeight = combinedWaxStone;
+  targetLot.physicalWaxStoneWeight = combinedWaxStone;
+  targetLot.initialHandStoneWeight = combinedHandStone;
+  targetLot.issueOtherNonGoldWeight = Number(weight3(Number(targetLot.issueOtherNonGoldWeight || 0) + Number(sourceLot.issueOtherNonGoldWeight || 0)));
+  targetLot.jobCardWeightOwner = targetJobNumber;
+  targetLot.jobCardWeightMergeMode = "add";
+  targetLot.jobCardWeightMergeUpdatedAt = mergedAt;
+  targetLot.transfers = targetLot.transfers || [];
+  targetLot.settingMergedCurrentGw = combinedCurrentGw;
+  targetLot.settingMergedHandStoneWeight = combinedHandStone;
+  targetLot.settingMergedProvisionalNonGoldWeight = combinedProvisionalNonGold;
+  targetLot.settingMergedBaseTransferCount = targetLot.transfers.length;
+  targetLot.settingMergedCurrentAt = mergedAt;
+  targetLot.mergedSettingLotHistory = [...(targetLot.mergedSettingLotHistory || []), {
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: mergedAt,
+    sourceLotId: sourceLot.id,
+    sourceLotNumber: sourceLot.number || "",
+    sourceOrderIds,
+    grossWeight: sourceCurrentGw,
+    stonePcs: Number(sourceStone.pcs || 0),
+    stoneWeight: Number(weight3(sourceStone.weight || 0)),
+    waxStoneWeight: Number(weight3(transferWaxStoneWeight(sourceLot))),
+    handStoneWeight: Number(weight3(currentHandStoneWeight(sourceLot))),
+  }];
+
+  const relinkedRecords = relinkSettingSplitLotRecords(sourceLot, targetLot, targetJobNumber, mergedAt);
+  sourceLot.status = "Merged";
+  sourceLot.mergedIntoLotId = targetLot.id;
+  sourceLot.mergedIntoLotNumber = targetLot.number || "";
+  sourceLot.settingLotRejoinedAt = mergedAt;
+  sourceLot.settingLotRejoinedJobNumber = targetJobNumber;
+  sourceLot.settingLotRejoinedBy = currentUser?.name || currentUser?.id || "ERP";
+  return { sourceLot, targetLot, relinkedRecords, sourceCurrentGw };
+}
+
+function rejoinEligibleSettingSplitLotsForJobCard(targetJobNumber = "", mergedAt = new Date().toISOString()) {
+  const result = { count: 0, skipped: 0, sourceLotNumbers: [], targetLotNumbers: [], reasons: [] };
+  if (!targetJobNumber) return result;
+  const candidates = (state.lots || [])
+    .filter((lot) => lot.settingSplitFromLotId && !lot.mergedIntoLotId)
+    .sort((left, right) => String(left.createdAt || left.issueDate || "").localeCompare(String(right.createdAt || right.issueDate || "")));
+  candidates.forEach((sourceLot) => {
+    const originalLot = findById("lots", sourceLot.settingSplitFromLotId);
+    const targetLot = activeLotAfterSettingMerge(originalLot || {});
+    const relatedToJob = getLotOrders(sourceLot).some((order) => mergeJobNumber(order) === targetJobNumber);
+    if (!relatedToJob) return;
+    const blockReason = settingSplitRejoinBlockReason(sourceLot, targetLot, targetJobNumber);
+    if (blockReason) {
+      result.skipped += 1;
+      result.reasons.push(`${sourceLot.number || "Setting sub-lot"}: ${blockReason}`);
+      return;
+    }
+    rejoinSettingSplitLot(sourceLot, targetLot, targetJobNumber, mergedAt);
+    result.count += 1;
+    result.sourceLotNumbers.push(sourceLot.number || "-");
+    result.targetLotNumbers.push(targetLot.number || "-");
+  });
+  result.targetLotNumbers = [...new Set(result.targetLotNumbers)];
+  return result;
+}
+
+function repairPreviouslyMergedSettingSplitLots() {
+  const targetJobNumbers = [...new Set((state.lots || [])
+    .filter((lot) => lot.settingSplitFromLotId && !lot.mergedIntoLotId && lot.jobCardWeightMergeMode === "add")
+    .map((lot) => jobCardWeightOwner(lot))
+    .filter(Boolean))];
+  const repaired = { count: 0, skipped: 0, sourceLotNumbers: [], targetLotNumbers: [], reasons: [], stoneRecordsUpdated: 0 };
+  targetJobNumbers.forEach((jobNumber) => {
+    const result = rejoinEligibleSettingSplitLotsForJobCard(jobNumber, new Date().toISOString());
+    repaired.count += result.count;
+    repaired.skipped += result.skipped;
+    repaired.sourceLotNumbers.push(...result.sourceLotNumbers);
+    repaired.targetLotNumbers.push(...result.targetLotNumbers);
+    repaired.reasons.push(...result.reasons);
+    if (result.count) {
+      repaired.stoneRecordsUpdated += syncSettingEntriesForUpdatedStoneOrders(
+        (state.orders || []).filter((order) => mergeJobNumber(order) === jobNumber),
+        `Previous merged Setting lots rejoined for ${jobNumber}`,
+      );
+    }
+  });
+  repaired.targetLotNumbers = [...new Set(repaired.targetLotNumbers)];
+  return repaired;
+}
+
 function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card stone plan updated") {
   const orderIds = new Set((orders || []).map((order) => order?.id).filter(Boolean));
   if (!orderIds.size) return 0;
   let updated = 0;
   (state.lots || []).forEach((lot) => {
+    if (lot.mergedIntoLotId) return;
     if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return;
     const settingEntries = (state.settingManagerEntries || []).filter((entry) => entry.lotId === lot.id && entry.entryType !== "Accessory");
-    const currentEntry = settingEntries.find((entry) => entry.status === "Issued")
-      || settingEntries.find((entry) => entry.status === "Received");
-    const selectedOrders = currentEntry?.selectedOrderIds?.length
-      ? currentEntry.selectedOrderIds.map((orderId) => findById("orders", orderId)).filter(Boolean)
-      : getLotOrders(lot);
-    const handStoneWeight = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "hand").weight || 0));
+    const lotOrders = getLotOrders(lot);
+    const handStoneWeight = Number(weight3(productionStoneTotalsForOrders(lotOrders, "hand").weight || 0));
     const waxStoneWeight = Number(weight3(transferWaxStoneWeight(lot)));
     const syncedAt = new Date().toISOString();
 
-    if (currentEntry) {
+    settingEntries.forEach((currentEntry) => {
+      const selectedOrders = currentEntry.selectedOrderIds?.length
+        ? currentEntry.selectedOrderIds.map((orderId) => findById("orders", orderId)).filter(Boolean)
+        : lotOrders;
+      const entryHandStoneWeight = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "hand").weight || 0));
+      const entryWaxStoneWeight = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "wax").weight || 0));
       const before = JSON.stringify({
         jobNumber: currentEntry.jobNumber,
         handStoneWeight: currentEntry.handStoneWeight,
@@ -24316,10 +24548,10 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card
         difference: currentEntry.difference,
       });
       currentEntry.jobNumber = lot.orderNumber || currentEntry.jobNumber || "";
-      currentEntry.handStoneWeight = handStoneWeight;
+      currentEntry.handStoneWeight = entryHandStoneWeight;
       currentEntry.handStoneWeightSource = "Job Card";
       if (currentEntry.receiveGw !== undefined && currentEntry.receiveGw !== null && String(currentEntry.receiveGw) !== "") {
-        const receiveNetWeight = Number(weight3(Number(currentEntry.receiveGw || 0) - handStoneWeight));
+        const receiveNetWeight = Number(weight3(Number(currentEntry.receiveGw || 0) - entryHandStoneWeight));
         const returnedMaterialWeight = settingReturnMaterialTotal(normalizeSettingReturnMaterialBreakdown(currentEntry));
         const balanceWeight = Number(weight3(
           Number(currentEntry.issueGw || 0)
@@ -24332,8 +24564,10 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card
         currentEntry.difference = Number(weight3(receiveNetWeight - Number(currentEntry.issueGw || 0)));
       }
       const liveTotals = departmentCurrentLotTotals(lot);
-      currentEntry.waxStoneWeight = Number(weight3(liveTotals.waxStone || waxStoneWeight));
-      currentEntry.totalStoneWeight = Number(weight3(currentEntry.waxStoneWeight + handStoneWeight));
+      currentEntry.waxStoneWeight = currentEntry.selectedOrderIds?.length
+        ? entryWaxStoneWeight
+        : Number(weight3(liveTotals.waxStone || waxStoneWeight));
+      currentEntry.totalStoneWeight = Number(weight3(currentEntry.waxStoneWeight + entryHandStoneWeight));
       currentEntry.nonGoldWeight = Number(weight3(liveTotals.nonGold || 0));
       currentEntry.currentNetWeight = Number(weight3(liveTotals.gold || 0));
       const after = JSON.stringify({
@@ -24354,9 +24588,9 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card
         currentEntry.jobCardMergeWeightSyncedAt = reason.toLowerCase().includes("merge") ? syncedAt : currentEntry.jobCardMergeWeightSyncedAt || "";
         updated += 1;
       }
-    }
+    });
 
-    if (isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`) || currentEntry) {
+    if (isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`) || settingEntries.length) {
       const liveTotals = departmentCurrentLotTotals(lot);
       const snapshotValues = {
         jobNumber: lot.orderNumber || "",
@@ -24560,8 +24794,17 @@ function transferWaxStoneWeight(lot, sourceState = state) {
   return Number(weight3(productionStoneTotalsForOrderList(sourceState, getLotOrders(lot, sourceState), "wax").weight || 0));
 }
 
+function settingMergedSnapshotIsCurrent(lot = {}) {
+  if (!lot.settingMergedCurrentAt) return false;
+  const transferCount = (lot.transfers || []).length;
+  return transferCount <= Number(lot.settingMergedBaseTransferCount || 0);
+}
+
 function currentHandStoneWeight(lot, beforeTransferId = "") {
   if (!lot) return 0;
+  if (!beforeTransferId && settingMergedSnapshotIsCurrent(lot)) {
+    return Number(weight3(Math.max(Number(lot.settingMergedHandStoneWeight || 0), 0)));
+  }
   const allTransfers = lot.transfers || [];
   const transferIndex = beforeTransferId ? allTransfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
   const transfers = transferIndex >= 0 ? allTransfers.slice(0, transferIndex) : allTransfers;
@@ -24574,6 +24817,7 @@ function isSettingDepartment(value = "") {
 }
 
 function currentTransferIssueWeight(lot, sourceState = state) {
+  if (settingMergedSnapshotIsCurrent(lot)) return Number(lot.settingMergedCurrentGw || 0);
   const transfers = lot.transfers || [];
   if (!transfers.length) return Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot, sourceState)));
   const latest = transfers.at(-1);
@@ -24593,6 +24837,7 @@ function transferProvisionalNonGoldBefore(lot = {}, beforeTransferId = "") {
 }
 
 function currentTransferProvisionalNonGold(lot = {}) {
+  if (settingMergedSnapshotIsCurrent(lot)) return Number(weight3(Math.max(Number(lot.settingMergedProvisionalNonGoldWeight || 0), 0)));
   return transferProvisionalNonGoldBefore(lot);
 }
 
@@ -30383,6 +30628,9 @@ async function mergeSelectedJobCards(event) {
     state.settingManagerEntries,
     state.factoryLedger,
   ].forEach((records) => (records || []).forEach((record) => updateMergedJobReference(record, sourceJobNumbers, primaryJobNumber, mergedAt)));
+  const settingLotRejoinResult = weightMode === "add"
+    ? rejoinEligibleSettingSplitLotsForJobCard(primaryJobNumber, mergedAt)
+    : { count: 0, skipped: 0, sourceLotNumbers: [], targetLotNumbers: [], reasons: [] };
   const settingWeightSyncCount = syncSettingEntriesForUpdatedStoneOrders(
     mergedOrders,
     `Job Card merge ${sourceSummary} to ${primaryJobNumber}`,
@@ -30401,8 +30649,11 @@ async function mergeSelectedJobCards(event) {
     mergeGrossWeight: appliedWeightSummary.grossWeight,
     mergeStoneWeight: appliedWeightSummary.stoneWeight,
     mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
+    settingLotsRejoined: settingLotRejoinResult.count,
+    settingLotsRejoinedFrom: settingLotRejoinResult.sourceLotNumbers,
+    settingLotsRejoinedInto: settingLotRejoinResult.targetLotNumbers,
     settingWeightSyncCount,
-    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock unchanged.`,
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingLotRejoinResult.count} eligible Setting sub-lot(s) rejoined; ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock preserved.`,
   });
 
   if (submitButton) {
@@ -30431,7 +30682,13 @@ async function mergeSelectedJobCards(event) {
     submitButton.textContent = submitLabel;
   }
   const cloudMessage = savedToCloud ? "Saved on this laptop and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
+  const settingRejoinMessage = settingLotRejoinResult.count
+    ? `${settingLotRejoinResult.count} free Setting sub-lot(s) (${settingLotRejoinResult.sourceLotNumbers.join(", ")}) were rejoined into ${settingLotRejoinResult.targetLotNumbers.join(", ")}.\n`
+    : "";
+  const settingPendingMessage = settingLotRejoinResult.skipped
+    ? `${settingLotRejoinResult.skipped} Setting sub-lot(s) remain separate because they are still with a setter or cannot be safely combined.\n`
+    : "";
+  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingRejoinMessage}${settingPendingMessage}${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} All PR numbers and production history were preserved.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
@@ -33114,7 +33371,9 @@ function reconcileSettingEntriesForLotDeparture(lot = {}, currentState = state) 
 
 function settingManagerLots() {
   return (state.lots || []).filter((lot) =>
-    lot.status !== "Completed"
+    !lot.mergedIntoLotId
+    && lot.status !== "Merged"
+    && lot.status !== "Completed"
     && isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)
   );
 }
