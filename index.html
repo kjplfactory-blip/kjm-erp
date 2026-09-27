@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=640">
+  <link rel="stylesheet" href="styles.css?v=642">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v640</small>
+      <small class="app-version-badge">App v642</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v640</span>
+          <span class="app-version-badge">App v642</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -514,6 +514,10 @@
           <button class="action-tile" type="button" id="merge-split-job-cards">
             <strong>Merge Split Job Cards</strong>
             <span>Select related split cards and keep one main job number</span>
+          </button>
+          <button class="action-tile" type="button" id="merge-child-job-cards">
+            <strong>Merge Two Child Job Cards</strong>
+            <span>Combine two sibling child cards without changing their parent</span>
           </button>
           <button class="action-tile" type="button" data-order-page="completed">
             <strong>Completed Job Order</strong>
@@ -2079,13 +2083,13 @@
       <form id="merge-job-cards-form" class="dialog-card merge-job-cards-card">
         <div class="dialog-header">
           <div>
-            <h2>Merge Split Job Cards</h2>
-            <p class="dialog-note">Choose the first job card as Main. Every PR item from the selected split cards will move into that Main Job Card. Production numbers, lots, weights, departments, transfers, bills, and item status remain unchanged.</p>
+            <h2 id="merge-job-dialog-title">Merge Split Job Cards</h2>
+            <p id="merge-job-dialog-note" class="dialog-note">Choose the first Job Card to keep. Every PR item from the selected related split cards will move into it. Production numbers, lots, weights, departments, transfers, bills, and item status remain unchanged.</p>
           </div>
           <button class="ghost-button" type="button" id="close-merge-job-cards">Close</button>
         </div>
         <section class="merge-job-primary-panel">
-          <label>Main / First Job Card (Job Number Kept)
+          <label><span id="merge-job-primary-label">Job Card To Keep (Job Number Kept)</span>
             <select id="merge-job-primary" name="primaryJobNumber" required></select>
           </label>
           <label>Search Related Split Cards
@@ -2110,14 +2114,14 @@
         <section class="merge-job-candidate-panel">
           <div class="merge-job-section-heading">
             <div>
-              <strong>Related Split Job Cards</strong>
+              <strong id="merge-job-candidate-heading">Related Split Job Cards</strong>
               <small id="merge-job-candidate-summary"></small>
             </div>
           </div>
           <div id="merge-job-candidates" class="merge-job-candidate-grid"></div>
         </section>
         <div class="dialog-actions">
-          <button type="submit" id="confirm-merge-job-cards">Merge Selected Into Main Job Card</button>
+          <button type="submit" id="confirm-merge-job-cards">Merge Selected Into Kept Job Card</button>
           <button class="ghost-button" type="button" id="cancel-merge-job-cards">Cancel</button>
         </div>
       </form>
@@ -3419,7 +3423,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=640"></script>
+  <script src="app.js?v=642"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

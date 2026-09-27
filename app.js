@@ -17,9 +17,10 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v640";
+const APP_VERSION = "v642";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
+const MIN_NORMALIZED_STATE_BUILD = 640;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
 const APP_VERSION_CHECK_INTERVAL_MS = 20000;
 const APP_VERSION_INITIAL_CHECK_DELAY_MS = 2500;
@@ -375,6 +376,7 @@ let erpStateIndexedDbPendingRecord = null;
 let erpStateIndexedDbWritePromise = null;
 let erpStateIndexedDbFailureReported = false;
 let localStorageCompactMode = (() => {
+  if (typeof indexedDB !== "undefined") return true;
   try {
     return sessionStorage.getItem(LOCAL_COMPACT_MODE_SESSION_KEY) === "1";
   } catch (error) {
@@ -386,6 +388,7 @@ let localFactoryResetAt = localStorage.getItem(FACTORY_RESET_MARKER_KEY) || "";
 let selectedDesignIds = new Set();
 let activeDesignMasterId = "";
 let mergeSelectedJobNumbers = new Set();
+let mergeJobMode = "family";
 let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueSelectionQuantities = new Map();
@@ -415,6 +418,7 @@ const designImageUnsyncedIds = new Set();
 let designThumbnailObserver = null;
 let activeRenderCache = null;
 let billDesignHoverRequest = 0;
+let lastUserInteractionAt = 0;
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
@@ -825,7 +829,8 @@ document.querySelectorAll("[data-order-page]").forEach((button) => {
 document.getElementById("job-order-search")?.addEventListener("input", debounceInput(renderOrders));
 document.getElementById("completed-job-order-search")?.addEventListener("input", debounceInput(renderOrders));
 
-document.getElementById("merge-split-job-cards")?.addEventListener("click", openMergeJobCardsDialog);
+document.getElementById("merge-split-job-cards")?.addEventListener("click", () => openMergeJobCardsDialog("", "family"));
+document.getElementById("merge-child-job-cards")?.addEventListener("click", () => openMergeJobCardsDialog("", "children"));
 document.getElementById("close-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
 document.getElementById("cancel-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
 document.getElementById("merge-job-primary")?.addEventListener("change", () => {
@@ -4296,13 +4301,15 @@ function loadState() {
       rememberFactoryResetMarker(parsed.factoryResetAt || "");
       return normalized;
     }
-    const normalized = normalizeState(parsed);
+    const normalized = normalizeLoadedState(parsed);
     stateLoadedFromFallback = false;
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
-    try {
-      localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(normalized));
-    } catch (error) {
-      console.warn("The valid saved ERP was loaded, but its upgraded copy could not be rewritten because browser storage is full. The original saved copy was kept.", error);
+    if (!localStorageCompactMode) {
+      try {
+        localStorage.setItem(ERP_STATE_STORAGE_KEY, JSON.stringify(normalized));
+      } catch (error) {
+        console.warn("The valid saved ERP was loaded, but its upgraded copy could not be rewritten because browser storage is full. The original saved copy was kept.", error);
+      }
     }
     return normalized;
   } catch (error) {
@@ -5167,7 +5174,7 @@ function queueFullErpStateToIndexedDb(source = state) {
   erpStateIndexedDbPendingRecord = {
     id: ERP_STATE_INDEXED_DB_KEY,
     savedAt: Date.now(),
-    state: structuredClone(source),
+    state: source,
   };
   if (erpStateIndexedDbWritePromise) return erpStateIndexedDbWritePromise;
   erpStateIndexedDbWritePromise = (async () => {
@@ -5209,7 +5216,7 @@ async function restoreFullErpStateFromIndexedDb() {
   try {
     const record = await readLatestErpStateIndexedDb();
     if (!record?.state || typeof record.state !== "object") return false;
-    const restored = normalizeState(structuredClone(record.state));
+    const restored = normalizeLoadedState(record.state);
     if (factoryResetTimestamp(stateFactoryResetAt(state)) > factoryResetTimestamp(stateFactoryResetAt(restored))) return false;
     const currentProfile = stateBusinessProfile(state);
     const restoredProfile = stateBusinessProfile(restored);
@@ -5375,6 +5382,75 @@ function syncArraySupportsRecordMerge(previous = [], current = []) {
   return items.length === 0 || items.every((item) => Boolean(syncArrayItemKey(item)));
 }
 
+const SYNC_IGNORED_STATE_KEYS = new Set([
+  "appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired", "syncMeta",
+]);
+
+function analyzeSyncStateChanges(previousState = {}, currentState = {}) {
+  const changedKeys = new Set();
+  const arrayChanges = new Map();
+  const keys = new Set([...Object.keys(previousState || {}), ...Object.keys(currentState || {})]);
+  keys.forEach((key) => {
+    if (SYNC_IGNORED_STATE_KEYS.has(key)) return;
+    const previousValue = previousState?.[key];
+    const currentValue = currentState?.[key];
+    if (previousValue === currentValue) return;
+    if (Array.isArray(previousValue) && Array.isArray(currentValue) && syncArraySupportsRecordMerge(previousValue, currentValue)) {
+      const previousMap = new Map(previousValue.map((item) => [syncArrayItemKey(item), item]));
+      const currentMap = new Map(currentValue.map((item) => [syncArrayItemKey(item), item]));
+      const changedIds = new Set();
+      new Set([...previousMap.keys(), ...currentMap.keys()]).forEach((id) => {
+        if (!previousMap.has(id) || !currentMap.has(id) || !syncValuesEqual(previousMap.get(id), currentMap.get(id))) changedIds.add(id);
+      });
+      if (changedIds.size) {
+        changedKeys.add(key);
+        arrayChanges.set(key, { previousMap, currentMap, changedIds });
+      }
+      return;
+    }
+    if (!syncValuesEqual(previousValue, currentValue)) changedKeys.add(key);
+  });
+  return { changedKeys, arrayChanges };
+}
+
+function syncAnalysisWithChangedKey(analysis, key) {
+  if (analysis.changedKeys.has(key)) return analysis;
+  return {
+    changedKeys: new Set([...analysis.changedKeys, key]),
+    arrayChanges: analysis.arrayChanges,
+  };
+}
+
+function updatePersistedStateBaseline(previousState = {}, currentState = {}, analysis = null) {
+  const changeAnalysis = analysis || analyzeSyncStateChanges(previousState, currentState);
+  const nextBaseline = { ...previousState };
+  changeAnalysis.changedKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(currentState, key)) {
+      delete nextBaseline[key];
+      return;
+    }
+    const arrayChange = changeAnalysis.arrayChanges.get(key);
+    if (arrayChange && Array.isArray(currentState[key])) {
+      nextBaseline[key] = currentState[key].map((item) => {
+        const id = syncArrayItemKey(item);
+        if (!arrayChange.changedIds.has(id) && arrayChange.previousMap.has(id)) return arrayChange.previousMap.get(id);
+        return structuredClone(item);
+      });
+      return;
+    }
+    nextBaseline[key] = structuredClone(currentState[key]);
+  });
+  SYNC_IGNORED_STATE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(currentState, key)) {
+      delete nextBaseline[key];
+      return;
+    }
+    const value = currentState[key];
+    nextBaseline[key] = value && typeof value === "object" ? structuredClone(value) : value;
+  });
+  return nextBaseline;
+}
+
 function recordPendingValueMutation(key, previousHasKey, previousValue, currentHasKey, currentValue, serial) {
   const prior = pendingSyncMutations.values[key];
   const baseHasKey = prior ? Boolean(prior.baseHasKey) : previousHasKey;
@@ -5392,11 +5468,11 @@ function recordPendingValueMutation(key, previousHasKey, previousValue, currentH
   };
 }
 
-function recordPendingArrayMutations(key, previous = [], current = [], serial) {
+function recordPendingArrayMutations(key, previous = [], current = [], serial, analyzedChange = null) {
   const changes = pendingSyncMutations.arrays[key] || {};
-  const previousMap = new Map(previous.map((item) => [syncArrayItemKey(item), item]));
-  const currentMap = new Map(current.map((item) => [syncArrayItemKey(item), item]));
-  const ids = new Set([...previousMap.keys(), ...currentMap.keys()]);
+  const previousMap = analyzedChange?.previousMap || new Map(previous.map((item) => [syncArrayItemKey(item), item]));
+  const currentMap = analyzedChange?.currentMap || new Map(current.map((item) => [syncArrayItemKey(item), item]));
+  const ids = analyzedChange?.changedIds || new Set([...previousMap.keys(), ...currentMap.keys()]);
   ids.forEach((id) => {
     const previousHasItem = previousMap.has(id);
     const currentHasItem = currentMap.has(id);
@@ -5422,11 +5498,10 @@ function recordPendingArrayMutations(key, previous = [], current = [], serial) {
   else delete pendingSyncMutations.arrays[key];
 }
 
-function capturePendingSyncMutations(previousState = {}, currentState = {}) {
+function capturePendingSyncMutations(previousState = {}, currentState = {}, analysis = null) {
   if (!previousState || !currentState) return false;
-  const ignoredKeys = new Set(["appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired", "syncMeta"]);
-  const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
-  const changedKeys = [...keys].filter((key) => !ignoredKeys.has(key) && !syncValuesEqual(previousState[key], currentState[key]));
+  const changeAnalysis = analysis || analyzeSyncStateChanges(previousState, currentState);
+  const changedKeys = [...changeAnalysis.changedKeys];
   if (!changedKeys.length) return false;
   const serial = Number(pendingSyncMutations.serial || 0) + 1;
   pendingSyncMutations.serial = serial;
@@ -5436,7 +5511,7 @@ function capturePendingSyncMutations(previousState = {}, currentState = {}) {
     const previousValue = previousState[key];
     const currentValue = currentState[key];
     if (Array.isArray(previousValue) && Array.isArray(currentValue) && syncArraySupportsRecordMerge(previousValue, currentValue)) {
-      recordPendingArrayMutations(key, previousValue, currentValue, serial);
+      recordPendingArrayMutations(key, previousValue, currentValue, serial, changeAnalysis.arrayChanges.get(key));
       return;
     }
     recordPendingValueMutation(key, previousHasKey, previousValue, currentHasKey, currentValue, serial);
@@ -5501,7 +5576,7 @@ function mergeSyncDeletionTombstones(localSource = {}, cloudSource = {}) {
   return normalizeSyncDeletionTombstones(merged);
 }
 
-function captureSyncDeletionTombstones(previousState = {}, currentState = {}) {
+function captureSyncDeletionTombstones(previousState = {}, currentState = {}, analysis = null) {
   if (!previousState || !currentState || typeof currentState !== "object") return false;
   if (factoryResetTimestamp(stateFactoryResetAt(currentState)) > factoryResetTimestamp(stateFactoryResetAt(previousState))) {
     currentState.syncDeletionTombstones = {};
@@ -5515,8 +5590,8 @@ function captureSyncDeletionTombstones(previousState = {}, currentState = {}) {
     appVersion: APP_VERSION,
   };
 
-  const walk = (previousValue, currentValue, path = []) => {
-    if (syncValuesEqual(previousValue, currentValue)) return;
+  const walk = (previousValue, currentValue, path = [], knownChanged = false) => {
+    if (!knownChanged && syncValuesEqual(previousValue, currentValue)) return;
     if (Array.isArray(previousValue) && Array.isArray(currentValue)) {
       const combined = [...previousValue, ...currentValue];
       const keyed = combined.length > 0 && combined.every((item) => Boolean(nestedSyncArrayItemKey(item)));
@@ -5548,10 +5623,28 @@ function captureSyncDeletionTombstones(previousState = {}, currentState = {}) {
     });
   };
 
-  const keys = new Set([...Object.keys(previousState), ...Object.keys(currentState)]);
-  keys.forEach((key) => {
+  const changeAnalysis = analysis || analyzeSyncStateChanges(previousState, currentState);
+  changeAnalysis.changedKeys.forEach((key) => {
     if (key === "syncDeletionTombstones") return;
-    walk(previousState[key], currentState[key], [key]);
+    const arrayChange = changeAnalysis.arrayChanges.get(key);
+    if (!arrayChange) {
+      walk(previousState[key], currentState[key], [key], true);
+      return;
+    }
+    arrayChange.changedIds.forEach((id) => {
+      const previousHasItem = arrayChange.previousMap.has(id);
+      const currentHasItem = arrayChange.currentMap.has(id);
+      const tombstoneKey = syncDeletionTombstoneKey([key], id);
+      if (previousHasItem && !currentHasItem) {
+        tombstones[tombstoneKey] = { deleted: true, updatedAt, deletedAt: updatedAt, clearedAt: "", ...metadata };
+        return;
+      }
+      if (!previousHasItem && currentHasItem) {
+        tombstones[tombstoneKey] = { deleted: false, updatedAt, deletedAt: "", clearedAt: updatedAt, ...metadata };
+        return;
+      }
+      walk(arrayChange.previousMap.get(id), arrayChange.currentMap.get(id), [key, id], true);
+    });
   });
   currentState.syncDeletionTombstones = normalizeSyncDeletionTombstones(tombstones);
   return !syncValuesEqual(before, currentState.syncDeletionTombstones);
@@ -5796,10 +5889,12 @@ function saveState(options = {}) {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
-  captureSyncDeletionTombstones(lastLocallyPersistedState, state);
+  let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state);
+  const tombstonesChanged = captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
+  if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
   if (!persistStateToBrowser(options)) return false;
-  capturePendingSyncMutations(lastLocallyPersistedState, state);
-  lastLocallyPersistedState = structuredClone(state);
+  capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
+  lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
@@ -5813,10 +5908,12 @@ function saveStateLocalOnly(options = {}) {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
-  captureSyncDeletionTombstones(lastLocallyPersistedState, state);
+  let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state);
+  const tombstonesChanged = captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
+  if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
   if (!persistStateToBrowser(options)) return false;
-  capturePendingSyncMutations(lastLocallyPersistedState, state);
-  lastLocallyPersistedState = structuredClone(state);
+  capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
+  lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   return true;
@@ -7528,11 +7625,11 @@ async function syncStateToSupabase(options = {}) {
   prunePendingSyncMutations(savingMutationSerial);
   clearPendingSyncOperationId(savingOperationId);
   announceLocalCloudSave(savedUpdatedAt, savingOperationId, savedSignalRevision);
-  if (supabaseLocalRevision === savingRevision) {
-    state = normalizeState(stateToSave);
+  if (supabaseLocalRevision === savingRevision && mergedConcurrentData) {
+    state = normalizeLoadedState(stateToSave);
     lastLocallyPersistedState = structuredClone(state);
     persistStateToBrowser({ context: "Merged live ERP" });
-    if (mergedConcurrentData) render();
+    render();
   }
   runPostCloudMigrations();
   const newerLocalWorkPending = supabaseLocalRevision !== savingRevision
@@ -7885,8 +7982,13 @@ function applyPendingCloudState(source = "auto") {
 
 function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   const orderDraft = captureOrderDraft();
-  const reconciledCloudState = options.recoveryFallback
-    ? structuredClone(cloudState)
+  const usesAuthoritativeCloudState = Boolean(
+    options.recoveryFallback
+    || options.newerCloudReadOnly
+    || !hasUnsyncedLocalState()
+  );
+  const reconciledCloudState = usesAuthoritativeCloudState
+    ? cloudState
     : reconcileIncomingCloudState(state, cloudState, options.previousCloudBaseline || null);
   const preservedLocalData = !syncValuesEqual(reconciledCloudState, cloudState);
   const shouldUpgradeCloudVersion = !options.recoveryFallback && cloudStateNeedsCurrentVersionSave(cloudState);
@@ -7900,7 +8002,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     };
   }
   restoredRecentJobOrderCount = 0;
-  state = normalizeState(reconciledCloudState);
+  state = normalizeLoadedState(reconciledCloudState);
   stateLoadedFromFallback = false;
   if (!options.recoveryFallback && !options.newerCloudReadOnly && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
@@ -7923,7 +8025,12 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     markLocalSyncDirty();
     supabaseLastLocalChangeAt = Date.now();
   }
-  lastLocallyPersistedState = structuredClone(state);
+  const verifiedBaselineCanBeReused = usesAuthoritativeCloudState
+    && stateSyncBuild(cloudState) >= MIN_NORMALIZED_STATE_BUILD
+    && supabaseVerifiedCloudState;
+  lastLocallyPersistedState = verifiedBaselineCanBeReused
+    ? supabaseVerifiedCloudState
+    : structuredClone(state);
   render();
   restoreOrderDraftOrReset(orderDraft);
   resetMeltingSources();
@@ -7959,7 +8066,12 @@ function isUserActivelyEditing() {
   const editingElement = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
   const openDialog = document.querySelector("dialog[open]");
   const activeOrderDraft = orderFormActive() && orderDraftHasWork(captureOrderDraft());
-  return Boolean(editingElement || openDialog || activeOrderDraft);
+  const recentInteraction = Date.now() - lastUserInteractionAt < 1400;
+  return Boolean(editingElement || openDialog || activeOrderDraft || recentInteraction);
+}
+
+function noteUserInteraction() {
+  lastUserInteractionAt = Date.now();
 }
 
 function activeViewId() {
@@ -25247,91 +25359,119 @@ function formatStoneWeight(value) {
 function renderSelects(view = activeViewId() || "dashboard") {
   const viewsWithLiveSelects = ["designs", "stone-library", "moti-library", "orders", "production", "safe", "factory", "daily-tally", "melting", "billing", "office"];
   if (!viewsWithLiveSelects.includes(view)) return;
-  renderDesignCategoryDatalist();
-  const customerOptions = state.customers
-    .map((customer) => `<option value="${customer.id}">${escapeHtml(customer.name)}</option>`)
-    .join("");
-  const designOptions = renderDesignOptions();
-  const orderOptions = groupedJobOrders()
-    .filter((job) => job.status === "Pending")
-    .map((job) => {
-      const details = `${job.jobNumber} - ${job.customer || "-"} - ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} - ${job.categories}`;
-      return `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(details)}</option>`;
-    })
-    .join("");
-  const activeLotOptions = (state.lots || [])
-    .filter((lot) => lot.status !== "Completed")
-    .map((lot) => {
-      const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
-      const details = `${lot.number} - ${lot.orderNumber || "-"} - ${lot.currentDepartment || lot.karigarName || "-"} - ${purity}`;
-      return `<option value="${escapeHtml(lot.id)}">${escapeHtml(details)}</option>`;
-    })
-    .join("");
-  const karigarOptions = state.karigars
-    .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
-    .join("");
-  document.querySelectorAll('#production-form select[name="jobNumber"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = orderOptions ? `<option value="">Select job card</option>${orderOptions}` : '<option value="">No open job cards</option>';
-    select.value = groupedJobOrders().some((job) => job.jobNumber === selected && job.status === "Pending") ? selected : "";
-  });
-  applyIssuePurityFromJob();
-  updateProductionCastingItemOptions();
-  updateIssueMetalSummary();
-  document.querySelectorAll('#production-non-gold-form select[name="lotId"], #production-non-gold-remove-form select[name="lotId"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = activeLotOptions ? `<option value="">Direct department issue</option>${activeLotOptions}` : '<option value="">Direct department issue</option>';
-    select.value = (state.lots || []).some((lot) => lot.id === selected && lot.status !== "Completed") ? selected : "";
-  });
-  document.querySelectorAll('#production-non-gold-form select[name="departmentId"], #production-non-gold-remove-form select[name="departmentId"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
-    select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
-  });
-  applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-form"));
-  applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-remove-form"));
-  updateProductionNonGoldSummary();
-  updateProductionNonGoldRemoveSummary();
-  renderSettingManagerSelects();
-  document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
-    select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
-  });
-  document.querySelectorAll('#safe-issue-form select[name="departmentId"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
-    select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
-    renderSafeIssueProcessOptions(select.value);
-  });
-  const safeIssueForm = document.getElementById("safe-issue-form");
-  if (safeIssueForm) {
-    const selectedSafeIssueLot = safeIssueForm.lotId?.value || "";
-    const selectedSafeIssueOrder = safeIssueForm.orderId?.value || "";
-    renderSafeIssueLotOptions(selectedSafeIssueLot);
-    renderSafeIssueOrderOptions(safeIssueForm.lotId?.value || "", selectedSafeIssueOrder);
-    updateSafeIssueDestinationMode();
+  const needsDesignCategories = ["designs", "orders", "catalogue"].includes(view);
+  if (needsDesignCategories) renderDesignCategoryDatalist();
+
+  if (["orders", "billing"].includes(view)) {
+    const customerOptions = state.customers
+      .map((customer) => `<option value="${customer.id}">${escapeHtml(customer.name)}</option>`)
+      .join("");
+    document.querySelectorAll('select[name="customerId"]').forEach((select) => {
+      const selected = select.value;
+      select.innerHTML = customerOptions || '<option value="">Add a customer first</option>';
+      if (selected && state.customers.some((customer) => customer.id === selected)) select.value = selected;
+    });
   }
-  document.querySelectorAll('select[name="meltingDepartmentId"]').forEach((select) => {
-    select.innerHTML = `
-      <option value="Casting Department">Casting Department</option>
-      <option value="Melting Department">Melting Department</option>
-    `;
-  });
-  refreshXrfSourceOptions();
-  renderDailyTallyDepartmentOptions();
-  document.querySelectorAll('select[name="customerId"]').forEach((select) => {
-    select.innerHTML = customerOptions || '<option value="">Add a customer first</option>';
-  });
-  document.querySelectorAll('select[name="designId"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = designOptions;
-    select.value = state.designs.some((design) => design.id === selected) ? selected : "";
-  });
-  document.querySelectorAll('select[name="stoneDesignCategory"]').forEach((select) => {
-    const selected = select.value;
-    select.innerHTML = renderCategoryOptions(selected);
-    select.value = designCategoryGroups().some((group) => group.category === selected) ? selected : "";
-  });
-  updateStoneDesignOptions(document.querySelector('#stone-entry-form [name="stoneDesignId"]')?.value || "");
+
+  if (view === "orders") {
+    const designOptions = renderDesignOptions();
+    document.querySelectorAll('select[name="designId"]').forEach((select) => {
+      const selected = select.value;
+      select.innerHTML = designOptions;
+      select.value = state.designs.some((design) => design.id === selected) ? selected : "";
+    });
+  }
+
+  if (["orders", "production"].includes(view)) {
+    const karigarOptions = state.karigars
+      .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
+      .join("");
+    document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
+      const selected = select.value;
+      select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
+      if (selected && state.karigars.some((karigar) => karigar.id === selected)) select.value = selected;
+    });
+
+    if (view === "production") {
+      const pendingJobs = groupedJobOrders().filter((job) => job.status === "Pending");
+      const orderOptions = pendingJobs.map((job) => {
+        const details = `${job.jobNumber} - ${job.customer || "-"} - ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} - ${job.categories}`;
+        return `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(details)}</option>`;
+      }).join("");
+      const activeLotOptions = (state.lots || [])
+        .filter((lot) => lot.status !== "Completed")
+        .map((lot) => {
+          const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+          const details = `${lot.number} - ${lot.orderNumber || "-"} - ${lot.currentDepartment || lot.karigarName || "-"} - ${purity}`;
+          return `<option value="${escapeHtml(lot.id)}">${escapeHtml(details)}</option>`;
+        })
+        .join("");
+      document.querySelectorAll('#production-form select[name="jobNumber"]').forEach((select) => {
+        const selected = select.value;
+        select.innerHTML = orderOptions ? `<option value="">Select job card</option>${orderOptions}` : '<option value="">No open job cards</option>';
+        select.value = pendingJobs.some((job) => job.jobNumber === selected) ? selected : "";
+      });
+      applyIssuePurityFromJob();
+      updateProductionCastingItemOptions();
+      updateIssueMetalSummary();
+      document.querySelectorAll('#production-non-gold-form select[name="lotId"], #production-non-gold-remove-form select[name="lotId"]').forEach((select) => {
+        const selected = select.value;
+        select.innerHTML = activeLotOptions ? `<option value="">Direct department issue</option>${activeLotOptions}` : '<option value="">Direct department issue</option>';
+        select.value = (state.lots || []).some((lot) => lot.id === selected && lot.status !== "Completed") ? selected : "";
+      });
+      document.querySelectorAll('#production-non-gold-form select[name="departmentId"], #production-non-gold-remove-form select[name="departmentId"]').forEach((select) => {
+        const selected = select.value;
+        select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
+        select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
+      });
+      applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-form"));
+      applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-remove-form"));
+      updateProductionNonGoldSummary();
+      updateProductionNonGoldRemoveSummary();
+      renderSettingManagerSelects();
+    }
+  }
+
+  if (view === "safe") {
+    const karigarOptions = state.karigars
+      .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
+      .join("");
+    document.querySelectorAll('#safe-issue-form select[name="departmentId"]').forEach((select) => {
+      const selected = select.value;
+      select.innerHTML = karigarOptions ? `<option value="">Select department</option>${karigarOptions}` : '<option value="">Add a department first</option>';
+      select.value = state.karigars.some((karigar) => karigar.id === selected) ? selected : "";
+      renderSafeIssueProcessOptions(select.value);
+    });
+    const safeIssueForm = document.getElementById("safe-issue-form");
+    if (safeIssueForm) {
+      const selectedSafeIssueLot = safeIssueForm.lotId?.value || "";
+      const selectedSafeIssueOrder = safeIssueForm.orderId?.value || "";
+      renderSafeIssueLotOptions(selectedSafeIssueLot);
+      renderSafeIssueOrderOptions(safeIssueForm.lotId?.value || "", selectedSafeIssueOrder);
+      updateSafeIssueDestinationMode();
+    }
+  }
+
+  if (view === "melting") {
+    document.querySelectorAll('select[name="meltingDepartmentId"]').forEach((select) => {
+      select.innerHTML = `
+        <option value="Casting Department">Casting Department</option>
+        <option value="Melting Department">Melting Department</option>
+      `;
+    });
+    refreshXrfSourceOptions();
+  }
+
+  if (view === "daily-tally") renderDailyTallyDepartmentOptions();
+
+  if (view === "designs") {
+    document.querySelectorAll('select[name="stoneDesignCategory"]').forEach((select) => {
+      const selected = select.value;
+      select.innerHTML = renderCategoryOptions(selected);
+      select.value = designCategoryGroups().some((group) => group.category === selected) ? selected : "";
+    });
+    updateStoneDesignOptions(document.querySelector('#stone-entry-form [name="stoneDesignId"]')?.value || "");
+  }
 }
 
 function updateStoneDesignOptions(selectedDesignId = "", keepCategory = false) {
@@ -29400,29 +29540,62 @@ function mergeJobLabel(job = {}) {
   return `${job.jobNumber} / ${job.orders?.length || 0} item${job.orders?.length === 1 ? "" : "s"} / ${job.customer || "-"} / ${job.categories || "-"} / ${job.status || "-"}`;
 }
 
+function mergeModeFamilies() {
+  const families = mergeEligibleJobFamilies();
+  if (mergeJobMode !== "children") return families;
+  return families.filter((family) => family.jobs.filter((job) => job.jobNumber !== family.root).length >= 2);
+}
+
+function mergeModeJobs(family = {}) {
+  const jobs = family.jobs || [];
+  return mergeJobMode === "children" ? jobs.filter((job) => job.jobNumber !== family.root) : jobs;
+}
+
 function renderMergeJobPrimaryOptions(preferredJobNumber = "") {
   const select = document.getElementById("merge-job-primary");
   if (!select) return false;
-  const families = mergeEligibleJobFamilies();
-  const availableJobNumbers = new Set(families.flatMap((family) => family.jobs.map((job) => job.jobNumber)));
+  const families = mergeModeFamilies();
+  const availableJobNumbers = new Set(families.flatMap((family) => mergeModeJobs(family).map((job) => job.jobNumber)));
   select.innerHTML = families.map((family) => `
     <optgroup label="${escapeHtml(family.root)}">
-      ${family.jobs.map((job) => `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(mergeJobLabel(job))}</option>`).join("")}
+      ${mergeModeJobs(family).map((job) => `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(mergeJobLabel(job))}</option>`).join("")}
     </optgroup>
   `).join("");
-  const preferred = availableJobNumbers.has(preferredJobNumber) ? preferredJobNumber : families[0]?.jobs[0]?.jobNumber || "";
+  const preferred = availableJobNumbers.has(preferredJobNumber) ? preferredJobNumber : mergeModeJobs(families[0])[0]?.jobNumber || "";
   select.value = preferred;
   return Boolean(preferred);
 }
 
-function openMergeJobCardsDialog(preferredJobNumber = "") {
+function configureMergeJobDialog() {
+  const childMode = mergeJobMode === "children";
+  const title = document.getElementById("merge-job-dialog-title");
+  const note = document.getElementById("merge-job-dialog-note");
+  const primaryLabel = document.getElementById("merge-job-primary-label");
+  const candidateHeading = document.getElementById("merge-job-candidate-heading");
+  const selectAll = document.getElementById("merge-job-select-all");
+  const submit = document.getElementById("confirm-merge-job-cards");
+  if (title) title.textContent = childMode ? "Merge Two Child Job Cards" : "Merge Split Job Cards";
+  if (note) note.textContent = childMode
+    ? "Choose the child Job Card number to keep, then select one sibling child from the same parent. The parent Job Card remains unchanged. Every PR, lot, weight, department, transfer, bill, and item status is preserved."
+    : "Choose the first Job Card to keep. Every PR item from the selected related split cards will move into it. Production numbers, lots, weights, departments, transfers, bills, and item status remain unchanged.";
+  if (primaryLabel) primaryLabel.textContent = childMode ? "First Child Job Card (Number Kept)" : "Job Card To Keep (Job Number Kept)";
+  if (candidateHeading) candidateHeading.textContent = childMode ? "Sibling Child Job Card To Merge" : "Related Split Job Cards";
+  if (selectAll) selectAll.classList.toggle("hidden", childMode);
+  if (submit) submit.textContent = childMode ? "Merge Two Child Job Cards" : "Merge Selected Into Kept Job Card";
+}
+
+function openMergeJobCardsDialog(preferredJobNumber = "", mode = "family") {
   if (!requireMergeSplitJobCardsPermission()) return;
   const dialog = document.getElementById("merge-job-cards-dialog");
   const search = document.getElementById("merge-job-search");
+  mergeJobMode = mode === "children" ? "children" : "family";
   mergeSelectedJobNumbers.clear();
   if (search) search.value = "";
+  configureMergeJobDialog();
   if (!renderMergeJobPrimaryOptions(preferredJobNumber)) {
-    alert("No related split Job Cards are available to merge.");
+    alert(mergeJobMode === "children"
+      ? "At least two child Job Cards from the same parent are required."
+      : "No related split Job Cards are available to merge.");
     return;
   }
   renderMergeJobCandidates();
@@ -29432,6 +29605,7 @@ function openMergeJobCardsDialog(preferredJobNumber = "") {
 function closeMergeJobCardsDialog() {
   document.getElementById("merge-job-cards-dialog")?.close();
   mergeSelectedJobNumbers.clear();
+  mergeJobMode = "family";
 }
 
 function visibleMergeJobCandidates() {
@@ -29440,6 +29614,7 @@ function visibleMergeJobCandidates() {
   const family = mergeJobFamily(primaryJobNumber);
   return (family?.jobs || []).filter((job) => {
     if (job.jobNumber === primaryJobNumber) return false;
+    if (mergeJobMode === "children" && job.jobNumber === family.root) return false;
     return !query || mergeJobLabel(job).toLowerCase().includes(query);
   });
 }
@@ -29447,14 +29622,19 @@ function visibleMergeJobCandidates() {
 function renderMergeJobCandidates() {
   const primaryJobNumber = document.getElementById("merge-job-primary")?.value || "";
   const family = mergeJobFamily(primaryJobNumber);
-  const validJobNumbers = new Set((family?.jobs || []).map((job) => job.jobNumber).filter((jobNumber) => jobNumber !== primaryJobNumber));
+  const validJobNumbers = new Set((family?.jobs || [])
+    .filter((job) => job.jobNumber !== primaryJobNumber)
+    .filter((job) => mergeJobMode !== "children" || job.jobNumber !== family.root)
+    .map((job) => job.jobNumber));
   mergeSelectedJobNumbers = new Set([...mergeSelectedJobNumbers].filter((jobNumber) => validJobNumbers.has(jobNumber)));
   const visibleJobs = visibleMergeJobCandidates();
   const holder = document.getElementById("merge-job-candidates");
   const summary = document.getElementById("merge-job-candidate-summary");
   if (summary) summary.textContent = family
-    ? `${visibleJobs.length} of ${Math.max(family.jobs.length - 1, 0)} related card${family.jobs.length - 1 === 1 ? "" : "s"} shown. Main card ${primaryJobNumber} will be kept.`
-    : "Choose a Main Job Card.";
+    ? (mergeJobMode === "children"
+      ? `${visibleJobs.length} sibling child card${visibleJobs.length === 1 ? "" : "s"} shown. ${primaryJobNumber} will be kept; parent ${family.root} will not change.`
+      : `${visibleJobs.length} of ${Math.max(family.jobs.length - 1, 0)} related card${family.jobs.length - 1 === 1 ? "" : "s"} shown. ${primaryJobNumber} will be kept.`)
+    : "Choose a Job Card to keep.";
   if (holder) {
     holder.innerHTML = visibleJobs.length ? visibleJobs.map((job) => `
       <label class="merge-job-candidate-card ${mergeSelectedJobNumbers.has(job.jobNumber) ? "selected" : ""}">
@@ -29490,7 +29670,8 @@ function renderMergeJobSelectedList() {
 function handleMergeJobSelectionChange(event) {
   const checkbox = event.target.closest?.("[data-merge-job-number]");
   if (!checkbox) return;
-  if (checkbox.checked) mergeSelectedJobNumbers.add(checkbox.dataset.mergeJobNumber);
+  if (checkbox.checked && mergeJobMode === "children") mergeSelectedJobNumbers = new Set([checkbox.dataset.mergeJobNumber]);
+  else if (checkbox.checked) mergeSelectedJobNumbers.add(checkbox.dataset.mergeJobNumber);
   else mergeSelectedJobNumbers.delete(checkbox.dataset.mergeJobNumber);
   renderMergeJobCandidates();
 }
@@ -29529,13 +29710,14 @@ async function mergeSelectedJobCards(event) {
   if (!requireMergeSplitJobCardsPermission()) return;
   const form = event.currentTarget;
   const submitButton = document.getElementById("confirm-merge-job-cards");
-  const submitLabel = submitButton?.textContent || "Merge Selected Into Main Job Card";
+  const childMode = mergeJobMode === "children";
+  const submitLabel = submitButton?.textContent || (childMode ? "Merge Two Child Job Cards" : "Merge Selected Into Kept Job Card");
   const primaryJobNumber = form.primaryJobNumber.value;
   const sourceJobNumbers = new Set([...mergeSelectedJobNumbers].filter((jobNumber) => jobNumber !== primaryJobNumber));
   const family = mergeJobFamily(primaryJobNumber);
   const familyJobNumbers = new Set((family?.jobs || []).map((job) => job.jobNumber));
   if (!primaryJobNumber || !family) {
-    alert("Choose a valid Main Job Card.");
+    alert("Choose a valid Job Card to keep.");
     return;
   }
   if (!sourceJobNumbers.size) {
@@ -29546,6 +29728,10 @@ async function mergeSelectedJobCards(event) {
     alert("Only Job Cards from the same original split family can be merged together.");
     return;
   }
+  if (childMode && (primaryJobNumber === family.root || sourceJobNumbers.size !== 1 || sourceJobNumbers.has(family.root))) {
+    alert("Choose exactly two child Job Cards from the same parent. The parent Job Card cannot be selected.");
+    return;
+  }
   const primaryOrders = state.orders.filter((order) => mergeJobNumber(order) === primaryJobNumber);
   const sourceOrders = state.orders.filter((order) => sourceJobNumbers.has(mergeJobNumber(order)));
   if (!primaryOrders.length || !sourceOrders.length) {
@@ -29554,7 +29740,9 @@ async function mergeSelectedJobCards(event) {
   }
   const sourceSummary = [...sourceJobNumbers].join(", ");
   const finalItemCount = primaryOrders.length + sourceOrders.length;
-  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the Main Job Card with ${finalItemCount} total items. All PR numbers, lots, weights, departments, transfers, bills, and item statuses will be preserved.`)) return;
+  const keepDescription = childMode ? "child Job Card" : "kept Job Card";
+  const parentDescription = childMode ? `\n\nParent ${family.root} will remain unchanged.` : "";
+  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the ${keepDescription} with ${finalItemCount} total items. All PR numbers, lots, weights, departments, transfers, bills, and item statuses will be preserved.${parentDescription}`)) return;
 
   const rollback = {
     orders: structuredClone(state.orders || []),
@@ -29602,12 +29790,12 @@ async function mergeSelectedJobCards(event) {
     id: crypto.randomUUID(),
     date: today(),
     createdAt: mergedAt,
-    type: "Job Card Merge",
+    type: childMode ? "Child Job Card Merge" : "Job Card Merge",
     purity: "-",
     weight: 0,
     jobNumber: primaryJobNumber,
     mergedFromJobNumbers: [...sourceJobNumbers],
-    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); physical production lots and weights unchanged.`,
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production lots and weights unchanged.`,
   });
 
   if (submitButton) {
@@ -29636,7 +29824,7 @@ async function mergeSelectedJobCards(event) {
     submitButton.textContent = submitLabel;
   }
   const cloudMessage = savedToCloud ? "Saved on this laptop and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${sourceJobNumbers.size} split Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${finalItemCount} items retained. No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
+  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
@@ -43375,6 +43563,13 @@ function normalizeManufacturingCustomers(customers = [], orders = []) {
   return normalized;
 }
 
+function normalizeLoadedState(currentState) {
+  if (currentState && typeof currentState === "object" && stateSyncBuild(currentState) >= MIN_NORMALIZED_STATE_BUILD) {
+    return currentState;
+  }
+  return normalizeState(currentState);
+}
+
 function normalizeState(currentState) {
   if (!currentState || typeof currentState !== "object") {
     currentState = structuredClone(demoState);
@@ -44469,6 +44664,10 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+document.addEventListener("pointerdown", noteUserInteraction, { passive: true });
+document.addEventListener("keydown", noteUserInteraction, { passive: true });
+document.addEventListener("input", noteUserInteraction, { passive: true });
 
 initializeOperationTiles();
 applyLoginState();
