@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v586
+Date: 2026-09-23 IST
+Result: PASS
+
+Department grouping validation
+- Pre Polish and Final Polish both resolve to the single POLISH DEPT dashboard/history heading.
+- The combined Polish view retains separate Pre-Final Polish and Final Polish process labels.
+- Centrifugal Finishing resolves to CENTRIFUGAL FINISHING DEPT even when an old process record refers to Filing.
+- Filing remains a separate department from Centrifugal Finishing.
+
+Regression validation
+- Actual Department Master history grouping: PASS.
+- Manual Production Item receipt and Hand Stone logic: PASS.
+- Supabase gateway recovery classification: PASS.
+- JavaScript syntax: PASS.
+- Existing transfer routes and ERP records: unchanged.
+- Supabase SQL change: Not required.

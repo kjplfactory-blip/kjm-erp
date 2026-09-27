@@ -1,0 +1,45 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v572 AUDIT
+Date: 2026-09-22 IST
+
+SCOPE
+- Manual Setting issue and receipt without Job Card.
+- Department-selected Daily Stock Tally history.
+- Stock-affecting Daily Tally loss and unified Loss Ledger.
+
+VERIFIED SETTING FLOW
+- Manual Production Item - No Job Card is available in Issue Type.
+- Item reference, karat, issue GW and setter are required.
+- The item remains pending with the selected setter without a Job Card or PR number.
+- Receipt permits manual Total Hand Stone entry.
+- Receive Net = Receive GW - Hand Stone.
+- Receive Net + returned material + booked loss must equal Issue GW before closing.
+- Test: Issue 10.000 g, Receive GW 10.400 g, Hand Stone 0.400 g => Receive Net 10.000 g and Balance 0.000 g.
+
+VERIFIED DAILY TALLY AND LOSS
+- Selecting a department filters Department Tally History and Loss Ledger to that department.
+- A saved positive tally loss creates one linked department loss record.
+- The linked loss reduces department GW, factory GW, net gold and fine gold once.
+- Karat-specific tallies use the selected karat; all-karat tallies use the department's live purity split.
+- Editing replaces the linked loss instead of duplicating it.
+- Deleting the tally deletes the linked loss and restores the stock.
+- Test: 0.500 g loss reduced department and factory GW by 0.500 g and restored exactly after removal.
+
+LOSS LEDGER SOURCES
+- Daily Stock Tally loss.
+- Department receipt / manufacturing loss.
+- Setter loss.
+- Job Card manufacturing loss.
+- Melting / Casting loss.
+- XRF gold loss.
+
+REGRESSION
+- v571 casting wax trace: PASS.
+- v570 factory non-gold stage: PASS.
+- v569 setting hand-stone receipt: PASS.
+- v568 Daily GW Tally: PASS.
+- v564 Fine Sheet reconciliation: PASS.
+- v561 transfer and department separation: PASS.
+- JavaScript syntax check: PASS.
+
+DATABASE
+- No Supabase SQL change is required. The new records are stored inside the existing ERP state.

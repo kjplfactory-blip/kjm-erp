@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v621 AUDIT
+Date: 2026-09-25 IST
+
+FITTING ACCESSORY IMAGE VERIFICATION
+- Add Fitting Accessory To Job Item opens in full-screen mode.
+- The selected fitting design loads its current Design Master image through the existing image store.
+- The preview identifies the design, category, and selected fitting item.
+- A selection token prevents a previous asynchronous image load from replacing the current design image.
+- Missing images display a clear No Design Master image message.
+- Images use object-fit contain so the complete fitting design remains visible.
+- Tablet and mobile layouts stack the preview and form without horizontal scrolling.
+
+COMPATIBILITY
+- Fitting quantity and stone multiplication from v620 remain active.
+- No image is duplicated into ERP state.
+- No data conversion or Supabase SQL change is required.
+
+VERIFICATION
+- App JavaScript syntax check passed.
+- Automated v621 preview/layout test passed.
+- Automated v620 fitting quantity multiplication test passed.
+- Existing v618 and v619 Setting transfer regression tests passed.

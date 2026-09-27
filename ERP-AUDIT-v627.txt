@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+V627 RELEASE AUDIT - 26 SEPTEMBER 2026
+
+CHANGE
+- Added combined manual Billing weight pool.
+- Added searchable multi-select for Job Card / PR items.
+- Removed GW assignment from the Job Card selection step.
+- Actual GW is entered per item in the Bill and deducted only when the Bill is saved.
+- Added karat-wise availability validation and source-by-source FIFO allocation.
+- Added duplicate-safe recalculation when an authorized user edits a generated Bill.
+- Preserved individual item design, size, purity, non-gold, and QC details.
+
+SAFETY
+- No Supabase schema or SQL change is required.
+- Existing ERP operational data is not reset or migrated.
+- A complete v626 backup ZIP was created before editing.
+
+VERIFICATION
+- app.js JavaScript syntax: PASS
+- styles.css opening/closing brace count: PASS
+- v627 asset query and manifest references: PASS
+- Combined Billing control IDs and event handlers: PASS
+- Local browser navigation was not used because file URLs are blocked by the browser automation safety policy.

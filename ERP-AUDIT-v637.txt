@@ -1,0 +1,35 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v637 SUPABASE PERFORMANCE AND SAVE-SAFETY AUDIT
+
+PROBLEM FOUND
+- Supabase was cancelling the large erp_state operation at the database statement timeout.
+- Before each save, the browser downloaded the full ERP JSON and could upload another full JSON copy for the safety backup before uploading the actual save.
+- The app uses the Data API anon role, whose short database timeout is unsuitable for this growing ERP record.
+
+CLIENT PERFORMANCE FIX
+- A normal save first reads only erp_state.updated_at.
+- If that revision matches the verified laptop baseline, no full pre-save ERP download is performed.
+- If another laptop changed the revision, the full row is still loaded and merged before saving.
+- Conditional revision matching remains active, so a concurrent laptop save cannot be overwritten.
+- The older compatible save method remains available automatically until the new SQL setup has been run.
+
+ATOMIC DATABASE SAVE
+- SUPABASE-PERFORMANCE-v637.sql sets the anon and authenticated Data API statement timeout to 60 seconds.
+- save_erp_state_atomic locks the current state row and verifies the expected updated_at value.
+- It copies the previous cloud state into the daily/version backup table and writes the new state inside one transaction.
+- A conflict returns without writing, allowing the browser to reload, merge, and retry.
+- Row-lock waiting is bounded to 8 seconds so one busy laptop cannot hold every other save until the full statement limit.
+- The function itself is bounded to 55 seconds so it finishes before the Data API limit.
+
+DATA SAFETY
+- The SQL contains no ERP reset, delete, truncate, or replacement command.
+- A failed or timed-out save leaves laptop data queued locally and schedules a bounded retry.
+- Existing v636 delayed-response protection, non-destructive record merge, and explicit deletion markers remain active.
+
+VERIFICATION
+- JavaScript syntax passed.
+- Lightweight unchanged-revision preflight passed.
+- Concurrent cloud revision full-read path passed.
+- Missing atomic function compatibility fallback passed.
+- Atomic SQL lock, conditional update, duplicate-safe backup, and non-destructive checks passed.
+- Existing multi-laptop sync safety tests passed.

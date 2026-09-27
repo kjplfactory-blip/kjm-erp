@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v598 AUDIT
+Date: 2026-09-23 IST
+
+VERIFIED CHANGES
+- Department tiles are grouped by saved master department, not by process.
+- Vinod, Vinod Fitting, Fitting, and Fitting Department resolve to one Fitting group.
+- Filing with process Fitting resolves to Filing, never Fitting.
+- Transfer rows with a saved department ID use that ID to recover the master department.
+- Dashboard holdings and department transfer history use the same master-first rule.
+
+DATA SAFETY
+- Existing department, transfer, stock, and Supabase records are not rewritten.
+- No Supabase SQL change is required.

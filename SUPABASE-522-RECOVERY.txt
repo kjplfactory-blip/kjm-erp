@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING - SUPABASE 522 RECOVERY
+Date: 2026-09-23 IST
+
+Current diagnosis
+- The Supabase ERP endpoint and Auth health endpoint both returned HTTP 522.
+- This is a Supabase project availability problem, not an ERP SQL or permission error.
+- Do not reset the ERP and do not use Upload Data while the project is unreachable.
+
+Safe recovery steps
+1. Keep the laptop with the latest ERP data available. Its local data remains protected.
+2. Open the Supabase Dashboard:
+   https://supabase.com/dashboard/project/okjwzonpiwiwfctbikcm/settings/general
+3. If the project is Paused, click Resume Project.
+4. If it is Active, open Project Settings / General and choose Restart Project.
+5. Wait a few minutes for Database, Auth, REST API, and Realtime to become healthy.
+6. Reopen ERP v585 or click Refresh. It retries automatically every 15 seconds.
+7. Confirm the header shows Live Sync: Realtime or Live Sync: Auto before entering data on multiple laptops.
+
+If HTTP 522 continues after restart
+- Check Database Reports and Infrastructure for CPU, RAM, Disk IO, or unhealthy services.
+- Contact Supabase Support with project reference okjwzonpiwiwfctbikcm and report that both REST and Auth health return HTTP 522.
+
+No SQL script is required for this recovery.

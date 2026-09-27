@@ -1,0 +1,17 @@
+SETTING MANAGER - TWO DEVICE LOGIN SETUP
+
+1. Open Supabase for the live ERP project.
+2. Open SQL Editor.
+3. Open ENABLE-LOGIN-LIMITS.sql from this v605 folder.
+4. Copy the complete SQL into a new query and click Run.
+5. Confirm the result says LOGIN LIMITS READY.
+6. Upload the complete v605 website folder to GitHub.
+7. Open the refreshed website on both Setting Manager devices and log in normally.
+
+EXPECTED LIMITS
+- Owner: 2 devices.
+- Manager: 2 devices.
+- Setting Manager: 2 devices.
+- Every other login: 1 device.
+
+The SQL does not change ERP stock, Job Cards, bills, production, designs, or erp_state data.

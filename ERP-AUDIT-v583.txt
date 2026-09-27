@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v583
+Date: 2026-09-23 IST
+Result: PASS
+
+Department Master grouping
+- Department Transfer History groups entries by the actual Department Master name.
+- Processes do not create separate department-history tiles.
+- Process remains visible as row-level transfer detail.
+- FILING, FITTING, and REPAIR processes registered under FILING DEPT appear in the FILING DEPT history.
+- CHAIN FITTING registered under VINOD FITTING appears in the VINOD FITTING history.
+
+Focused validation
+- Generated department groups: FILING DEPT and VINOD FITTING.
+- FILING DEPT row processes: FITTING and REPAIR.
+- VINOD FITTING row process: CHAIN FITTING.
+- No Filing, Fitting, or Repair process-only summary tile was generated.
+
+Regression validation
+- v582 Department OUT Receive GW behavior: PASS.
+- v581 main-stock non-gold and department-history behavior: PASS.
+- v580 setter receipt reconciliation: PASS.
+- JavaScript syntax: PASS.
+- Supabase SQL change: Not required.

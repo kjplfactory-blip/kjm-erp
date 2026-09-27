@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING - v605 SETTING MANAGER LOGIN LIMIT
+Updated: 24 September 2026 IST
+
+SIMULTANEOUS LOGIN POLICY
+- Owner: maximum 2 active devices.
+- Manager: maximum 2 active devices.
+- Setting Manager: maximum 2 active devices.
+- Every other built-in or custom login: maximum 1 active device.
+- A disconnected login slot expires after 15 minutes when its heartbeat stops.
+
+WEBSITE CONTROL
+- The login page now displays the revised policy.
+- Owner Login Details reports 2 active devices for Setting Manager.
+- The Setting Manager built-in ID is recognised case-insensitively.
+- The saved-login policy version was increased so existing sessions are revalidated.
+
+SUPABASE CONTROL
+- ENABLE-LOGIN-LIMITS.sql now grants 2 slots when the login ID is Setting Manager or the saved role is setting-manager.
+- The database function keeps the atomic lock and device-count check, preventing two laptops from taking the same final slot simultaneously.
+- Run ENABLE-LOGIN-LIMITS.sql once in Supabase SQL Editor and confirm LOGIN LIMITS READY.
+
+DATA SAFETY
+- The SQL updates only the login-session table and its three session functions.
+- ERP job cards, production, stock, designs, bills and erp_state are not read, reset or modified.

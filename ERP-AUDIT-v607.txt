@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT - v607
+Date: 2026-09-24 IST
+
+SCOPE
+- Added a second Fine Sheet display pattern organised by Department, Safe / Shelf, Billing / other factory adjustments and Party.
+- Preserved the existing exact Fine Sheet as Pattern 1.
+
+HOLDING PATTERN
+- Department holdings are displayed department-wise and purity-wise.
+- Each row shows GW, non-gold, net gold, fine calculation, fine effect and running fine.
+- Metal Safe and Safe Locker rows are grouped separately.
+- Billing and other physical-stock adjustments are separately identified.
+- Party payable fine reduces the final balance; party receivable fine increases it.
+
+RECONCILIATION
+- Pattern 2 is derived from the same physical-stock and party data as Pattern 1.
+- Named department holdings are reconciled against the exact physical Fine Sheet rows by purity.
+- Any unallocated difference is shown explicitly as Department Reconciliation instead of being hidden.
+- Both patterns independently compare their accumulated fine with Net Factory Fine.
+
+BACKUP AND PRINT
+- New daily snapshots store holdingRows as well as calculationRows.
+- Older snapshots receive a compatible grouped holding view without modifying saved ERP data.
+- The A4 landscape detailed Fine Sheet report prints both patterns with their reconciliation results.
+
+DATA SAFETY
+- No stock, job card, bill, transfer, design, customer or login data is reset or migrated.
+- No Supabase schema change is required.

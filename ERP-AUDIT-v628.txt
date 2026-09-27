@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+V628 RELEASE AUDIT - 26 SEPTEMBER 2026
+
+CHANGE
+- Added instant Bill-item search by PR number and Design number.
+- Added compact matching so number-only input can find prefixed PR and design values.
+- Added live match count and Clear action.
+- Enter moves focus to the first matching Final GW field.
+- Filtering hides rows without deleting or rebuilding them, preserving all Bill input values.
+- Search controls are not printed.
+
+SAFETY
+- No Supabase schema or SQL change is required.
+- Existing ERP operational data is unchanged.
+- A complete v627 backup ZIP was created before editing.
+
+VERIFICATION
+- app.js JavaScript syntax: PASS
+- styles.css opening/closing brace count: PASS
+- Search control IDs and event handlers: PASS
+- Local file references: PASS

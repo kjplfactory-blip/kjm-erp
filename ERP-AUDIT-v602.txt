@@ -1,0 +1,45 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v602
+Audit date: 23 September 2026 IST
+
+FINE STOCK CHECK
+- User reference: approximately 4234.61 g at 8:35 pm yesterday and 4308.61 g today, an apparent increase of about 74.000 g.
+- Latest ERP saved Fine Sheet for 22 Sep 2026: 4235.129 g.
+- During the live audit today's figure was first observed at 4308.116 g, then changed to 4297.236 g and finally 4291.796 g as cloud data refreshed and new work was saved.
+- The current exact comparison is 4291.796 - 4235.129 = +56.667 g.
+- Seven Fine Sheet rows explain that +56.667 g exactly:
+  1. Department Receipts / Loss Adjustment, 18K: -1026.765 g fine.
+  2. Safe Items In Departments, 18K: +744.163 g fine.
+  3. Safe Locker Items, 18K: +267.179 g fine.
+  4. Safe Locker Items, 75.25%: +60.178 g fine.
+  5. Opening Non-Gold Remaining, 18K: +10.020 g fine.
+  6. XRF Sample Pending, 75.25%: +1.686 g fine.
+  7. Production Lots, 18K: +0.206 g fine.
+- These seven changes total +56.667 g. The earlier approximately +74 g observation was a real earlier live state, not a display-rounding error; later saved transactions reduced it.
+- v602 shows this row-by-row comparison against the previous saved day and also shows the difference from today's saved copy.
+
+DEPARTMENT RECONCILIATION OBSERVED DURING AUDIT
+- FINAL POLISHING DPT: current physical GW 732.820 g; Transfer History balance 841.250 g; variance -108.430 g.
+- Filing: current physical GW 505.482 g; Transfer History balance 397.052 g; variance +108.430 g.
+- The equal opposite 108.430 g variances show that the weight is not missing from factory stock. It is assigned to Filing in the current-holding path and to Final Polishing in the Transfer History path.
+- Recent movements totalling 108.430 g should be rechecked, especially 85.050 g, 5.240 g and 18.140 g entries around Filing / Final Polishing.
+- STONE SETTING DEPT: current physical GW 338.396 g; Transfer History balance 334.040 g; variance +4.356 g. Recheck direct issues, receipt adjustments, or edited stone/transfer data.
+- Fitting, Billing, EP, Paper Filing, Centrifugal Finishing, Hallmarking, Tar Pata Mfg, Laser and Plating matched at the audit time.
+- Opening Stock Adjustment and XRF had physical balances but no comparable standard Transfer History balance, so they are shown without a false mismatch.
+
+v602 DISPLAY RULE
+- Large Dashboard GW = authoritative current physical department holding, including current lots, direct shelf/non-gold movements, losses and other supported movements.
+- History Balance = amount reconstructed from Transfer History.
+- Variance = Current Physical GW - Transfer History Balance.
+- A yellow CHECK warning appears whenever the variance is not zero.
+
+DATA SAFETY
+- No historical transaction was rewritten or deleted by this audit.
+- Correct the highlighted source movements only after checking the paper/manual records.
+
+SOFTWARE CHECK
+- JavaScript syntax check passed.
+- Reconciliation and Fine Sheet comparison tests passed.
+- All 681 static HTML IDs are unique.
+- Dashboard, Customers, Designs, Catalogue, Stone Library, Moti Library, Job Orders, Melting, Production, Bill, Office, Safe Locker, Factory In / Out, Fine Sheet, Daily Stock Tally, Departments, Transfer History and Reports opened successfully in the read-only audit session.
+- Login Details correctly remained Owner-only during the read-only audit.
+- Live Sync showed Realtime while the audit was performed.

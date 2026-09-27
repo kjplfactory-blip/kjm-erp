@@ -1,0 +1,32 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v580
+Date: 2026-09-22 IST
+Result: PASS
+
+Setter receipt reconciliation
+- A stale Issued setter entry linked to a completed Setting-to-Filing movement is automatically changed to Received.
+- Test Issue GW 37.620 g, Receive GW 38.120 g, Hand Stone 0.675 g and Receive Net 37.445 g were reconciled.
+- The active setter-lot count became zero.
+- The genuine returned-lot metal balance of 0.175 g remained separately accountable.
+- Removing the departure transfer correctly reopens an automatically closed entry, keeping transfer undo behavior reversible.
+
+Manual production item without Job Card
+- An unlinked manufactured item held in Stone Setting appears as Manual Production Item / No Job Card.
+- A 40.000 g source split by 15.000 g correctly leaves 25.000 g available for another setter.
+- Manufactured/WIP sources are excluded from the accessory list.
+- Wastage/Scrap remains available through the accessory/direct-material flow.
+
+Regression validation
+- v579 setter full account ledger: PASS.
+- v578 downstream stone propagation: PASS.
+- v577 setter metal balance correction: PASS.
+- v576 Filing transfer stone correction: PASS.
+- v574 Setting balance and stone settlement: PASS.
+- v573 Setting Manager job stone access: PASS.
+- v572 manual Setting tally and loss: PASS.
+- v571 Casting wax trace: PASS.
+- v570 factory non-gold stage flow: PASS.
+- v569 Setting hand-stone receipt: PASS.
+- v568 daily tally gross-weight logic: PASS.
+
+JavaScript syntax: PASS.
+Supabase SQL change: Not required.

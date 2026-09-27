@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING - v603 DASHBOARD DEPARTMENT TILES
+Updated: 24 September 2026 IST
+
+Each department tile now shows:
+1. GW DIFF (ISSUE - RECEIVE) - the prominent current gross-weight holding.
+2. NET WT DIFF - the current net gold weight after recorded non-gold is removed.
+3. NON-GOLD HOLDING - wax stone + hand stone + moti/black beads/spring/other non-gold.
+4. FINE GOLD HOLDING - current net gold converted by the recorded karat/purity.
+5. HISTORY GW DIFF - the same department balance reconstructed from Transfer History.
+
+The hover detail also shows:
+- Issued To Department GW.
+- Received From Department GW.
+- History GW Diff.
+- History Net Diff.
+
+When current GW and History GW differ, the yellow HISTORY VARIANCE warning remains visible with the reason to recheck.
+This is a display and verification update only. Existing stock, job cards, department transfers and cloud data are not changed.

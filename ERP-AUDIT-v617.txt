@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v617 AUDIT
+Date: 2026-09-24 IST
+
+SETTING MANAGER TILES
+- Seven Setting Manager operations are available as tiles.
+- Forms and tables stay hidden until their tile is opened.
+- Every operation opens in a full-screen workspace with Back and Escape navigation.
+- Tile counters refresh from the current ERP state.
+
+SETTER RECEIVE AND DIRECT TRANSFER
+- Keep Lot In Setting records the setter receipt without moving the production lot.
+- Receive & Transfer validates the target department and registered process before saving.
+- Setter receipt uses the entered Receive GW and current hand-stone weight.
+- The following department movement uses the standard production transfer calculation and ledger.
+- One setter receipt and one real Setting-to-next-department transfer are recorded; no Safe Locker issue is created.
+- Manual no-Job-Card items and combined rawa/loss settlement remain receive-only.
+
+SUPABASE
+- No SQL or schema change is required for v617.

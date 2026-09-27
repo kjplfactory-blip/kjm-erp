@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING - LOGIN LIMIT SETUP v590
+
+FIRST-TIME OR REPAIR SETUP
+1. Open Supabase Dashboard and wait until Table Editor opens normally.
+2. Open SQL Editor > New query.
+3. Open ENABLE-LOGIN-LIMITS.sql from the v590 folder.
+4. Paste the SQL CONTENT into Supabase. Do not paste the Windows file path.
+5. Press Run once.
+6. Confirm LOGIN LIMITS READY and all three function-ready columns are true.
+7. Upload the complete v590 website and refresh each laptop.
+
+LOGIN LIMITS
+- Owner: maximum 2 active devices.
+- Manager: maximum 2 active devices.
+- Every other built-in or custom user: maximum 1 active device.
+
+FIXES INCLUDED
+- Supabase login functions are recreated with the exact website parameters.
+- The API schema cache is reloaded.
+- Saved logins no longer receive a false page-access warning while session validation is pending.
+- Genuine role and page restrictions remain active after validation.
+
+DATA SAFETY
+- The SQL does not modify erp_state or ERP business records.
+- It does not reset jobs, designs, stock, production, bills, or users.

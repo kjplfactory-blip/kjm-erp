@@ -1,0 +1,26 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+V631 RELEASE AUDIT - 26 SEPTEMBER 2026
+
+CHANGE
+- Added protected Bill draft auto-save for pending and authorised generated Bill edits.
+- Added automatic draft restoration with visible save status and timestamp.
+- Added Save Draft Now for an immediate operator-controlled draft save.
+- Added close, Escape, refresh, and page-exit draft flushing.
+- Kept final Bill generation as a separate explicit Save Bill action.
+- Added Remove From Draft for eligible unfinished Combined Bill items.
+- Removed items return to pending Billing without deleting the Job Card / PR.
+- Protected already-generated Bill items from unsafe individual removal.
+- Preserved all v630 pending Combined Bill deletion and generated Bill reversal controls.
+
+SAFETY
+- No Supabase schema or SQL change is required.
+- Drafts use the existing synced ERP state document.
+- A failed final Bill save keeps the latest protected draft available for retry.
+- A complete v630 backup ZIP was created before editing.
+
+VERIFICATION
+- app.js JavaScript syntax: PASS.
+- styles.css opening/closing brace count: PASS (2981 / 2981).
+- Required control IDs and handlers: PASS.
+- Draft auto-save, page-exit flush, restoration, finalisation, and pending-item release markers: PASS.
+- Local file references: PASS.

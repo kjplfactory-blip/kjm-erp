@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+V630 RELEASE AUDIT - 26 SEPTEMBER 2026
+
+CHANGE
+- Add Pending Items is available for pending and generated Combined Bills.
+- Added Owner/Manager Delete Pending Bill action.
+- Cancelling a pending Combined Bill removes its temporary lot and releases all reserved Job Card / PR items.
+- Pending cancellation does not consume or alter Billing stock.
+- Kept the full protected reversal workflow for generated Bills.
+- Recorded both cancellation and deletion in Bill deletion audit history.
+
+SAFETY
+- No Supabase schema or SQL change is required.
+- Lot and Bill number sequences are not rolled back or reused.
+- A complete v629 backup ZIP was created before editing.
+
+VERIFICATION
+- app.js JavaScript syntax: pending final package check.
+- styles.css opening/closing brace count: pending final package check.
+- Required control IDs and event handlers: pending final package check.
+- Local file references: pending final package check.

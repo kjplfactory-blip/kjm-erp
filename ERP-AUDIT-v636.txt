@@ -1,0 +1,33 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v636 SYNC SAFETY AUDIT
+
+SLOW RESPONSE PROTECTION
+- Every full cloud load records the laptop revision at request start.
+- If laptop data changes before the response arrives, that delayed response is not allowed to replace current entries.
+- A response older than the latest known cloud revision is ignored.
+- Request timeouts are bounded at 60 seconds for ordinary calls, 90 seconds for a full load, and 20 seconds for a revision check.
+
+NON-DESTRUCTIVE MULTI-LAPTOP MERGE
+- Incoming cloud data is reconciled by record identity with the current laptop data.
+- Local-only and cloud-only records are both preserved.
+- Concurrent additions from different laptops are combined.
+- Newer cloud field updates are accepted using the previous verified cloud copy as the shared baseline.
+- A safe merged copy is queued back to Supabase automatically.
+
+EXPLICIT DELETION CONTROL
+- A missing record is no longer treated as proof that the record was deleted.
+- Actual ERP deletions create synchronized tombstones containing time, user, and app version.
+- Tombstones work for top-level records and nested records such as transfer entries.
+- Re-adding a record creates a newer clearance marker so it remains available.
+- Tombstones are retained for 180 days and bounded to 20,000 records.
+
+VERIFICATION
+- JavaScript syntax passed.
+- Local-only record preservation passed.
+- Cross-laptop addition merge passed.
+- Explicit deletion and re-add passed.
+- Nested transfer deletion plus newer cloud edit passed.
+- Existing production regression tests passed.
+
+DATABASE
+- No Supabase schema change is required. Sync metadata is stored inside the existing erp_state.data JSON.

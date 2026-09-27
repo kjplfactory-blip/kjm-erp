@@ -1,0 +1,20 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v616 AUDIT
+Date: 2026-09-24 IST
+
+SETTING MANAGER SPLIT
+- A Setting Manager split is an internal allocation to a setter.
+- The split child does not create a second Safe Locker Gold Issue.
+- Technical Setting-to-Setting split-adjustment rows are hidden from stock transfer histories.
+- Existing and new split child lots use Setting Manager as their internal source metadata instead of inheriting Shelf/Filing issue details.
+- Real production transfers made after the split remain visible and continue to affect department holdings.
+- Owner/Manager Restore Split remains available from the split lot history.
+- Existing split records are interpreted using their saved settingSplit and splitAdjustment markers, so no cloud-data rewrite is required.
+
+BILL EXCEL
+- A generated bill has an Export Excel action in the bill list and bill window.
+- Export All Bills Excel creates one combined item-wise workbook.
+- Columns include bill, job card, customer, PR/design/item, size, colour, purity, GW, all non-gold components, net weight, wastage, fine weights, QC, office status, and remarks.
+- The file is Excel-compatible .xls and does not need an internet connection to generate.
+
+SUPABASE
+- No SQL or schema change is required for v616.

@@ -1,0 +1,26 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v575
+PRODUCTION STONE ENTRY LAYOUT AUDIT
+Date: 2026-09-22 IST
+
+CHANGE VERIFIED
+- Production Stone Entry uses a full-height flex layout.
+- The stone workspace receives the remaining dialog height.
+- Stone chart and stone-detail rows scroll inside that workspace.
+- The action bar is a separate non-overlapping footer.
+- The stone table includes 24 px bottom clearance and scroll clearance.
+- The product selector scrolls independently when many matching PR items exist.
+- Tablet and mobile layouts use normal vertical dialog scrolling.
+- Browser loaded App v575 and styles.css?v=575.
+
+AUTOMATED CHECKS
+- app.js syntax: PASS
+- v574 Setting balance and stone regression: PASS
+- v573 Setting Job Card stone permissions regression: PASS
+- v572 Setting tally and loss regression: PASS
+- v571 casting wax trace regression: PASS
+- v570 factory non-gold stage regression: PASS
+- v569 Setting hand-stone receipt regression: PASS
+- v568 daily tally gross-weight regression: PASS
+
+DATABASE
+- No Supabase SQL change required.

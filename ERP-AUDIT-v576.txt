@@ -1,0 +1,35 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v576
+JOB-1689-S2 FILING TRANSFER STONE CORRECTION AUDIT
+Date: 2026-09-22 IST
+
+CHANGE VERIFIED
+- A latest Setting-to-Filing transfer is matched without creating a duplicate transfer.
+- Hand stone is recalculated from the linked Job Card PR stone entries.
+- Receive GW changes by the same hand-stone difference.
+- Wax stone, reduced weight, net weight, department difference and fine difference are recalculated together.
+- The linked transfer ledger entry is refreshed.
+- JOB-1689-S2 receives the correction after live cloud data loads.
+- Future Production Stone Entry changes automatically apply the same synchronization.
+- A second synchronization makes no additional change.
+
+FOCUSED TEST
+- Previous hand stone: 0.500 g
+- Corrected hand stone: 0.675 g
+- Previous receive GW: 38.120 g
+- Corrected receive GW: 38.295 g
+- Net weight preserved: 35.777 g
+- Department difference preserved: 0.000 g
+- Idempotent second pass: PASS
+
+REGRESSION CHECKS
+- app.js syntax: PASS
+- v574 Setting balance and production stone synchronization: PASS
+- v573 Setting Job Card stone permissions: PASS
+- v572 Setting tally and loss: PASS
+- v571 casting wax trace: PASS
+- v570 factory non-gold stage: PASS
+- v569 Setting hand-stone receipt: PASS
+- v568 daily tally gross weight: PASS
+
+DATABASE
+- No Supabase SQL change required.

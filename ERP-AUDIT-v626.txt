@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v626 AUDIT
+Date: 2026-09-25 IST
+
+ORIGINAL VELLA LOGO
+- The supplied image is byte-for-byte identical to the ERP's stored original VELLA logo.
+- The original dark-blue background and yellow VELLA artwork are preserved without recolouring.
+- A cache-safe asset named assets/vella-logo-original-v626.jpeg is used.
+- Login, sidebar, floating brand, bill print, and Fine Sheet print reference the same asset.
+- The v625 cloud-sky interface colour palette remains unchanged.
+
+SAFETY
+- ERP data, Supabase state, calculations, permissions, workflows, and print dimensions are unchanged.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- Application version references are aligned to v626.
+- No active application reference points to the modified light-blue logo.
+- The versioned original asset matches the supplied image SHA-256 checksum.
+- Local file references and JavaScript syntax checks passed.

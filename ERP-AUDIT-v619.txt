@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v619 AUDIT
+Date: 2026-09-24 IST
+
+RECEIVED MANUAL SETTER LOTS
+- Manual receipts are identified by their Setting Manager entry, not only by their shared source stock item.
+- Multiple setter receipts from the same STUD BR holding remain separate.
+- S6-Kartik is tracked as Receive GW 24.220 g / Hand Stone 4.122 g / Receive Net 20.098 g.
+- S5-Kunal is tracked as Receive GW 27.530 g / Hand Stone 3.532 g / Receive Net 23.998 g.
+- Each receipt has an independent Transfer This Receipt button.
+- Full and partial transfer reduce only that receipt's remaining GW, hand stone, and net gold.
+- The underlying shared Setting holding is reduced once through linked OUT/IN records.
+- No Job Card, PR number, duplicate Safe Locker entry, or duplicate factory stock is created.
+
+SYNC
+- Existing received entries are recognized automatically from their saved Setting Manager records.
+- No data conversion or Supabase SQL change is required.
+
+VERIFICATION
+- JavaScript syntax checks passed for the app and both manual-transfer modules.
+- Automated shared-source test passed for the exact S6 and S5 STUD BR receipt weights.
+- Existing v618 manual transfer regression test also passed.

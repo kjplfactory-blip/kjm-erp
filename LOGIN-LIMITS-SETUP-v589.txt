@@ -1,0 +1,26 @@
+KHUSHALI JEWELLS MANUFACTURING - LOGIN LIMIT REPAIR v589
+
+THIS FIXES
+- Could not find public.acquire_erp_user_session(...) in the schema cache.
+- Damaged messages where the letter S appeared to be missing.
+
+RUN THIS IN SUPABASE
+1. Open the Supabase project and wait until Table Editor opens normally.
+2. Open SQL Editor > New query.
+3. Open ENABLE-LOGIN-LIMITS.sql from the v589 folder.
+4. Paste the SQL CONTENT into Supabase. Do not paste the Windows file path.
+5. Press Run once.
+6. The result must show LOGIN LIMITS READY and all three function-ready columns as true.
+7. Wait 10 seconds, refresh the ERP login page, and log in again.
+
+LOGIN LIMITS
+- Owner: maximum 2 active devices.
+- Manager: maximum 2 active devices.
+- Every other built-in or custom user: maximum 1 active device.
+- Logout releases a slot immediately; an abandoned session expires after 2 minutes.
+
+DATA SAFETY
+- The SQL recreates only the three login-session functions.
+- The login-session register table is retained.
+- It does not update, delete, reset, or replace erp_state.
+- Job cards, production, stock, designs, bills, and other ERP records are untouched.

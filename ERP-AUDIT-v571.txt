@@ -1,0 +1,38 @@
+KHUSHALI JEWELLS MANUFACTURING ERP AUDIT
+Version: v571
+Date: 2026-09-22 IST
+
+REQUEST
+Check ROSECASTING/1/21SEPTEMBER2026 because its 0.173 g wax stone was not appearing in factory non-gold.
+
+LIVE CLOUD FINDING
+- Casting receipt: 6.430 g casting item GW.
+- Actual casting wax stone: 0.173 g.
+- Actual casting net gold: 6.257 g.
+- Linked production: LOT-208 / JOB-1701.
+- The Job Card estimate was 0.174 g, which had overridden the physical casting value in the lot and transfers.
+- The previous Safe Locker factory calculation also treated separate wax-stone weight as gold while the casting item remained on the shelf.
+
+CORRECTION
+- Safe Locker factory non-gold now includes its separate wax-stone weight immediately after casting receipt.
+- Safe Locker net gold and fine gold now deduct that wax stone correctly.
+- Gold Issue uses the physical wax available in the selected casting item. A Job Card estimate can no longer exceed and replace the physical casting wax.
+- Existing lots recover actual wax from their recorded Safe issue movement.
+- Existing generated transfer rows that carried the Job Card estimate are corrected to the physical wax value.
+- Wax moving from Safe Locker into Production reduces the Opening Non-Gold location by the same amount, so Total Factory Non-Gold is not duplicated.
+
+VERIFIED BATCH RESULT
+- ROSECASTING/1/21SEPTEMBER2026: 6.430 g GW / 0.173 g Wax / 6.257 g Net Gold.
+- LOT-208 current Setting holding: 5.560 g GW / 0.173 g Wax / 5.387 g Net Gold.
+- Factory Non-Gold continues to reconcile at 357.362 g in the fixed audit snapshot.
+
+VERIFICATION
+- JavaScript syntax check: PASSED.
+- Exact 0.173 g casting-wax trace test: PASSED.
+- Safe Locker wax classification test: PASSED.
+- Existing LOT / transfer normalization test: PASSED.
+- Casting / Setting stage regression: PASSED.
+- No live ERP data was changed during this read-only audit.
+
+DATABASE
+No Supabase SQL change is required for v571.

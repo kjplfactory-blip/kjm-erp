@@ -1,0 +1,264 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - LIVE UPLOAD
+
+VERSION v639
+- Upload every file and folder from the v639 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, after all other files have finished uploading.
+- v639 adds My Work, permission-aware Universal Search, faster list searching, clearer sync status, and stronger Job Order draft protection.
+- Existing stock, Job Cards, transfers, Bills, Office records, users, images, and cloud data are preserved.
+- If SUPABASE-LIVE-SYNC-v638.sql was already run, no new Supabase SQL is required.
+- Keep the v638 pre-v639 backup ZIP on this laptop; do not upload the backup ZIP to the website.
+
+VERSION v638
+- Before uploading the website, run SUPABASE-LIVE-SYNC-v638.sql once in Supabase Dashboard > SQL Editor.
+- Upload every file and folder from the v638 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- The script does not clear, reset, replace, or delete ERP data.
+- Realtime now sends a tiny revision signal instead of the complete ERP JSON to every laptop.
+- Each laptop serializes its saves and safely queues any changes made while another save is running.
+- A 15-second lightweight fallback check keeps laptops synchronized if the Realtime connection pauses.
+- Older ERP builds also update the new revision signal through the database trigger.
+
+VERSION v637
+- Upload every file and folder from the v637 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- Run SUPABASE-PERFORMANCE-v637.sql once in Supabase Dashboard > SQL Editor.
+- The script does not clear, reset, replace, or delete ERP data.
+- Every normal save now checks only the small cloud revision first; the full ERP row is read only when another laptop changed it.
+- The new atomic Supabase function saves one safety backup and the new ERP state in one protected transaction.
+- If the SQL has not yet been run, v637 automatically uses the older compatible save method without losing local entries.
+
+VERSION v636
+- Upload every file and folder from the v636 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- Slow or delayed cloud replies cannot replace newer laptop entries.
+- Laptop and cloud records are combined safely; absence alone is not treated as deletion.
+- Explicit ERP deletions synchronize using protected deletion markers.
+- No Supabase SQL update is required for v636.
+
+VERSION v635
+- Upload every file and folder from the v635 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- Bill rows no longer display any 0.004 g allowance text.
+- A saved adjusted GW that was restored to its original value by cloud/browser merging is repaired automatically without double addition.
+- The final message remains: Bill entries saved.
+- No Supabase SQL update is required for v635.
+
+VERSION v634
+- Upload every file and folder from the v634 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- The Bill save confirmation now says only: Bill entries saved.
+- The one-time 0.004 g Bill item calculation remains active.
+- No Supabase SQL update is required for v634.
+
+VERSION v633
+- Upload every file and folder from the v633 LIVE folder.
+- Upload app-version.json last, after all other files have finished uploading.
+- On the first Save Bill, an item with Final GW 10.000 g becomes 10.004 g.
+- Reopen and save that Bill again: the same item must remain 10.004 g, not 10.008 g.
+- No Supabase SQL update is required for v633.
+
+IMPORTANT:
+The home page must be index.html.
+Do not rename app.js to index.html.
+Do not paste app.js code into the website page.
+
+If the website shows text starting:
+const currency = new Intl.NumberFormat(...)
+
+Then the website is opening app.js as the page. Upload the files again so index.html is the main page and app.js is only a script file beside it.
+
+Required files/folders:
+- index.html
+- app.js
+- app-version.json (upload this file last so every laptop refreshes only after the complete new version is online)
+- styles.css
+- stone-library-data.js
+- supabase-config.js
+- navigation-fallback.js
+- assets/vella-logo-original-v626.jpeg
+
+v633 ONE-TIME BILL GW ALLOWANCE PERSISTENCE FIX:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v633-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v633 release is online.
+3. Confirm the login page shows App v633.
+4. In a new Bill, enter Final GW 10.000 g and click Save Bill. The saved item GW must become 10.004 g and Net Wt must also increase by 0.004 g.
+5. Reopen the same Bill and save again. The GW must remain 10.004 g, not 10.008 g.
+6. The ERP stores the applied PR/item list on the Bill, so refresh, cloud synchronization, printing, QC, and later Bill edits cannot repeat the allowance.
+7. No Supabase SQL change is required.
+
+v632 BILL STONE AUTO-SYNC AND ONE-TIME GW ALLOWANCE:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v632-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v632 release is online.
+3. Confirm the login page shows App v632.
+4. Open Make Bill. Every Job Card item shows Auto-synced stone rows/weight and its own Refresh Stone Entry button.
+5. Edit and save an item's Production Stone Entry, then reopen the Bill; Stone Wt, total non-gold, Net Wt, and Fine Wt must show the latest item values automatically.
+6. Use Refresh Stone Entry against one Bill item to recheck only that PR and save the result into the protected draft.
+7. Enter an item Final GW such as 10.000 g and use Save Bill. The saved GW must be 10.004 g, and Net Wt must increase by the same 0.004 g after non-gold deduction.
+8. Reopen and save the same Bill without changing that GW; it must remain 10.004 g and must not become 10.008 g.
+9. No Supabase SQL change is required.
+
+v631 BILL DRAFT AUTO-SAVE AND REMOVE PENDING ITEM:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v631-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v631 release is online.
+3. Confirm the login page shows App v631.
+4. Open a pending or editable generated Bill. Enter a value and confirm the draft status changes from Saving to Draft saved automatically.
+5. Use Save Draft Now when an immediate save is required, then close and reopen the Bill to confirm the entries are restored before using the final Save Bill action.
+6. In an unfinished Combined Bill, use Remove From Draft to release an unwanted item back to pending Billing.
+7. Generated Bill items remain protected from individual removal; use Delete Bill only when the full reversal is required.
+8. No Supabase SQL change is required.
+
+v630 PENDING AND GENERATED COMBINED BILL CONTROLS:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v630-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v630 release is online.
+3. Confirm the login page shows App v630.
+4. Open a pending Combined Bill: Add Pending Items is available, and Owner/Manager sees Delete Pending Bill.
+5. Deleting the pending Bill releases all selected items and does not deduct Billing stock.
+6. Open an already generated Combined Bill: Owner/Manager can add later pending items or use Delete Bill for full reversal.
+7. No Supabase SQL change is required.
+
+v629 COMBINED BILL ADDITIONS AND REVERSIBLE BILL DELETE:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v629-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v629 release is online.
+3. Confirm the login page shows App v629.
+4. Open a Combined Manual Bill and use Add Pending Items to include eligible items added later.
+5. Enter the actual Final GW for every newly added item, then save the Bill.
+6. Owner or Manager can use Delete Bill. Confirm only after checking the Bill number because Factory Out and Office movement are reversed together.
+7. Deletion is intentionally blocked when repair, returned-shelf, Hallmarking, HUID, sales, tag, or discard records depend on that Bill.
+8. No Supabase SQL change is required.
+
+v628 BILL ITEM SEARCH:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v628-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v628 release is online.
+3. Confirm the login page shows App v628.
+4. Open a Bill and use Find Bill Item to search by PR number or Design number.
+5. Press Enter to move directly to the first matching item's Final GW field.
+6. No Supabase SQL change is required.
+
+v627 COMBINED MANUAL BILLING:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v627-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after the complete v627 release is online.
+3. Confirm the login page shows App v627.
+4. In Bill, open Combined Manual Billing, search and select the required Job Card / PR items, then open the combined Bill.
+5. Do not enter GW while selecting Job Card items. Enter each item's actual Final GW in the Bill itself.
+6. Saving the Bill deducts only the summed actual GW from the matching karat-wise manual Billing pool.
+7. No Supabase SQL change is required.
+
+v626 ORIGINAL VELLA LOGO:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v626-LIVE to the existing GitHub repository.
+2. Confirm assets/vella-logo-original-v626.jpeg is uploaded with the other assets.
+3. Upload app-version.json last so every open laptop refreshes only after the complete v626 release is online.
+4. Confirm the login page shows App v626 and the original dark-blue VELLA logo.
+5. ERP data, calculations, permissions, workflows, print layouts, and Supabase tables are unchanged.
+6. No Supabase SQL change is required.
+
+v625 CLOUD-SKY COLOUR THEME:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v625-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so every open laptop refreshes only after the complete v625 release is online.
+3. Confirm the login page shows App v625.
+4. The ERP now uses the cyan-blue, sky-blue, deep-blue, and mist-blue palette sampled from the supplied reference image.
+5. ERP data, calculations, permissions, workflows, print layouts, and Supabase tables are unchanged.
+6. No Supabase SQL change is required.
+
+v624 VELLA BLUE VISUAL THEME:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v624-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops reload only after the complete v624 release is online.
+3. Confirm the login page shows App v624.
+4. The interface now uses the bright VELLA logo blue with lighter blue pages, tiles, forms, tables, and popups.
+5. ERP data, calculations, permissions, workflows, print layouts, and Supabase tables are unchanged.
+6. No Supabase SQL change is required.
+
+v502 FACTORY OUT TRANSACTION REPAIR:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v502-LIVE to the existing GitHub repository.
+2. Upload app-version.json last. Every open laptop will reload only after the complete v502 release is online.
+3. A selected bill is now retained through screen redraws and can no longer silently fall into manual Factory Out mode.
+4. Saving a bill now requires the posted bill marker and exactly one linked Factory In / Out Ledger row.
+5. Failed local saves roll back the transaction; cloud success is shown only after Supabase read-back confirms both records.
+6. If cloud verification is delayed, the complete local transaction remains protected and automatically retries.
+7. Existing bill ledger rows now restore missing bill markers before ledger rebuilding, preventing future history loss during a concurrent merge.
+8. No Supabase schema change is required for v502.
+9. The four older Factory Out postings already confirmed in the protected backup can be restored by running RECOVER-FACTORY-OUT-v502.sql once after v502 is live.
+10. Upload app-version.json last, then confirm the login page shows App v502.
+
+v501 COMPLETE ERP AUDIT + SYNC REPAIR:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v501-LIVE to the existing GitHub repository.
+2. Upload app-version.json last. Every open laptop will then reload v501 after the complete release is online.
+3. v501 preserves fields and nested item data added by another laptop when an older laptop edits the same record.
+4. No Supabase schema change is required for the application update.
+5. The audit found four earlier Factory Out confirmations missing from live data but intact in the protected v500 backup.
+6. To restore only those four confirmed entries, run RECOVER-FACTORY-OUT-v501.sql once in Supabase SQL Editor after v501 is live.
+7. The recovery script first creates another protected backup and does not replace newer orders, stock, designs, bills, or other ERP data.
+8. Read ERP-AUDIT-v501.txt for the completed checks and results.
+
+After upload, open the website and confirm it shows the latest app version on the login page.
+
+v500 MULTI-LAPTOP SYNC:
+1. Upload every file and the assets folder from KHUSHALI-JEWELLS-ERP-v500-LIVE to the existing GitHub repository.
+2. Upload app-version.json last. This makes open laptops wait until all v500 files are available before refreshing.
+3. No Supabase SQL change is required for v500.
+4. After refresh, the login page must show App v500 and Live Sync: Realtime or Live Sync: Auto.
+5. A normal confirmed save shows Live Sync: Saved. A save combined with another laptop's newer work shows Live Sync: Merged.
+6. Do not use Owner Upload Data for routine work. It is a recovery-only full replacement command.
+7. Read SYNC-AUDIT-v500.txt for the live-data check and the exact synchronization fix.
+
+v483 BILL DESIGN VERIFICATION AND CLOUD DATA SAFETY:
+1. Every Bill item now includes View Design.
+2. Hover or focus View Design for a quick image preview; move away to close it.
+3. Click View Design for a full-screen Design Master image.
+4. The preview does not copy images or increase ERP state size.
+
+JOB ORDER CLOUD SAVE:
+1. Job Orders are confirmed in this laptop's browser storage before the form is cleared.
+2. If browser storage is full, the form stays open and the incomplete Job Order is rolled back.
+3. Save Job Order now waits for an immediate Supabase write and confirms when the cloud save is complete.
+4. The button is locked while saving so one click cannot accidentally create the same Job Order twice.
+5. If internet or cloud access is interrupted, the Job Order remains on the laptop and automatic cloud retry stays active.
+6. The direct Supabase connection supports the same protected conditional update as the normal connection.
+7. Newly saved local work cannot be replaced by an older automatic cloud refresh.
+8. Valid existing ERP data is never removed because an upgraded copy cannot be rewritten into full browser storage.
+9. Cloud backups are recommended, but a missing optional backup table does not block normal Job Order saving.
+
+REQUIRED OLD-VERSION PROTECTION:
+1. Open Supabase Dashboard > SQL Editor.
+2. Run ENABLE-APP-VERSION-GUARD.sql once.
+3. The result must show kjm_guard_erp_app_version.
+4. This setup does not change, reset, insert, or delete any ERP records.
+5. Upload v483 to the live website and refresh every laptop.
+6. Any laptop still running an older version can read cloud data but cannot overwrite a newer cloud build.
+
+OPTIONAL CLOUD BACKUP SETUP:
+1. Open Supabase Dashboard > SQL Editor.
+2. Run ENABLE-CLOUD-SAFETY-BACKUPS.sql once. It first snapshots the current live row and never modifies erp_state.
+3. Confirm both permission-check results show true.
+4. Open v483. Loading an older cloud version does not cause an automatic version-only cloud write.
+5. The first cloud save each day also creates a protected daily backup.
+6. Existing backup rows cannot be edited or deleted by the website.
+7. Log in as Owner and also use Backup Data periodically for a downloadable JSON copy kept outside Supabase.
+8. Read RECOVER-DATA-v483.txt before uploading data from a laptop after any missing-data incident.
+9. Run READ-ONLY-CLOUD-DATA-CHECK.sql whenever records look wrong; it works even when the backup table is missing.
+10. Run READ-CLOUD-BACKUPS-AFTER-SETUP.sql only after backup_table_exists shows true.
+
+If the top status says "Sync Paused: Backup Required":
+1. Do not reset or clear the browser.
+2. Run ENABLE-CLOUD-SAFETY-BACKUPS.sql in Supabase.
+3. Return to the ERP. It retries automatically.
+4. The cloud overwrite stays blocked until the backup succeeds.
+
+IMPORTANT RECOVERY RULE:
+If one laptop still shows the complete ERP data, do not refresh that tab. Use Backup Data first, check the JSON recovery copy, and only then use Upload Data from the verified laptop.
+
+If the website shows "permission denied for table erp_state":
+1. Open Supabase Dashboard > SQL Editor.
+2. Open FIX-SUPABASE-PERMISSIONS.sql from this folder.
+3. Paste the complete SQL file into a new query and press Run.
+4. Confirm all four permission-check results show true.
+5. Return to the ERP. It retries automatically, or press Refresh Live Data.
+
+If Design Master shows design names but not their images:
+1. Open Supabase Dashboard > SQL Editor.
+2. Open FIX-DESIGN-IMAGE-SYNC.sql from this folder.
+3. Paste the complete SQL file into a new query and press Run once.
+4. On the original laptop and browser used to upload the images, open Design > Design Master.
+5. Press Repair / Sync Images and keep the page open until the completion message appears.
+6. Open Design Master on the other laptop and confirm the images are visible.
+
+Important: design details and image files are stored separately. The repair action uploads the existing browser-held image files without changing design numbers, categories, stone details, or job cards.

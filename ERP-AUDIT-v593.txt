@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v593
+Date: 2026-09-23 IST
+Result: PASS
+
+Job Item readability
+- Job Item tiles use white backgrounds and dark high-contrast text: PASS.
+- Hover and active states use a light-green background: PASS.
+- PR, design, sub-item, stage, and delivery are visually separated: PASS.
+- Opened item detail values and labels are larger and clearer: PASS.
+- Laptop, tablet, and mobile layouts avoid sideways page scrolling: PASS.
+
+Stone edit visibility
+- An edited production stone plan adds a STONE EDITED square to that PR item only: PASS.
+- An unedited item does not show the marker: PASS.
+- The marker tooltip retains editor and saved-time detail: PASS.
+- Full stone edit detail remains available inside the opened item: PASS.
+
+Regression validation
+- JavaScript syntax: PASS.
+- Production Stone Entry permission and source-lock checks: PASS.
+- Supabase API reliability checks: PASS.
+- Login access and concurrent-login limits: PASS.
+- Large browser storage protection: PASS.
+- No Supabase SQL change is required.

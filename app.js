@@ -10,7 +10,14 @@ const gram = (value) => `${weight3(value)} g`;
 const optionalGram = (value) => Number(value || 0) > 0 ? gram(value) : "-";
 const today = () => new Date().toLocaleDateString("en-IN");
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const APP_VERSION = "v638";
+function debounceInput(callback, wait = 140) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => callback(...args), wait);
+  };
+}
+const APP_VERSION = "v639";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
@@ -28,6 +35,7 @@ const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
 const FACTORY_RESET_LOCK_KEY = "gold-jewellery-erp-reset-lock-until";
 const FACTORY_RESET_MARKER_KEY = "gold-jewellery-erp-factory-reset-at";
 const ORDER_DRAFT_STORAGE_KEY = "gold-jewellery-erp-create-order-draft";
+const ORDER_DRAFT_SESSION_KEY = "gold-jewellery-erp-create-order-session-draft";
 const ERP_STATE_STORAGE_KEY = "gold-jewellery-erp-state";
 const ERP_STATE_INDEXED_DB_NAME = "khushali-erp-local-state";
 const ERP_STATE_INDEXED_DB_STORE = "states";
@@ -381,6 +389,9 @@ let barcodeScanBuffer = "";
 let barcodeScanLastInputAt = 0;
 let barcodeScanStatusTimer = null;
 let jobCardSearchStatusTimer = null;
+let universalSearchInputTimer = null;
+let universalSearchBlurTimer = null;
+let universalSearchResultsCache = [];
 let phoneBarcodeScanner = null;
 let phoneBarcodeScannerActive = false;
 let phoneBarcodeScanSession = 0;
@@ -804,8 +815,8 @@ function openDefaultOperationPage(view) {
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
 });
-document.getElementById("job-order-search")?.addEventListener("input", renderOrders);
-document.getElementById("completed-job-order-search")?.addEventListener("input", renderOrders);
+document.getElementById("job-order-search")?.addEventListener("input", debounceInput(renderOrders));
+document.getElementById("completed-job-order-search")?.addEventListener("input", debounceInput(renderOrders));
 
 document.getElementById("merge-split-job-cards")?.addEventListener("click", openMergeJobCardsDialog);
 document.getElementById("close-merge-job-cards")?.addEventListener("click", closeMergeJobCardsDialog);
@@ -910,6 +921,17 @@ document.getElementById("catalogue-selected-list")?.addEventListener("change", (
 
 document.querySelectorAll("[data-dashboard-view]").forEach((button) => {
   button.addEventListener("click", () => openDashboardShortcut(button));
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) return;
+  const target = event.target;
+  if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)) return;
+  const input = document.getElementById("header-job-card-search");
+  if (!input || !hasValidatedLoginSession()) return;
+  event.preventDefault();
+  input.focus();
+  input.select();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1605,6 +1627,35 @@ globalBarcodeScanInput?.addEventListener("keydown", handleBarcodeScanFieldKeydow
 
 const headerJobCardSearchInput = document.getElementById("header-job-card-search");
 headerJobCardSearchInput?.addEventListener("keydown", handleHeaderJobCardSearchKeydown);
+headerJobCardSearchInput?.addEventListener("input", handleUniversalSearchInput);
+headerJobCardSearchInput?.addEventListener("focus", handleUniversalSearchInput);
+headerJobCardSearchInput?.addEventListener("blur", () => {
+  clearTimeout(universalSearchBlurTimer);
+  universalSearchBlurTimer = setTimeout(closeUniversalSearchResults, 180);
+});
+
+document.getElementById("universal-search-results")?.addEventListener("mousedown", (event) => {
+  const button = event.target.closest("[data-universal-search-key]");
+  if (button) event.preventDefault();
+});
+document.getElementById("universal-search-results")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-universal-search-key]");
+  if (button) openUniversalSearchResult(button.dataset.universalSearchKey);
+});
+document.getElementById("universal-search-results")?.addEventListener("keydown", (event) => {
+  const buttons = [...event.currentTarget.querySelectorAll("[data-universal-search-key]")];
+  const index = buttons.indexOf(event.target.closest("[data-universal-search-key]"));
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeUniversalSearchResults();
+    document.getElementById("header-job-card-search")?.focus();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp"].includes(event.key) || index < 0) return;
+  event.preventDefault();
+  const next = event.key === "ArrowDown" ? Math.min(index + 1, buttons.length - 1) : Math.max(index - 1, 0);
+  buttons[next]?.focus();
+});
 
 document.getElementById("open-header-job-card")?.addEventListener("click", openHeaderJobCardSearch);
 
@@ -1712,7 +1763,7 @@ document.getElementById("cancel-customer-edit").addEventListener("click", () => 
   resetCustomerForm();
 });
 
-document.getElementById("customer-search").addEventListener("input", renderCustomers);
+document.getElementById("customer-search").addEventListener("input", debounceInput(renderCustomers));
 document.getElementById("clear-customer-search").addEventListener("click", () => {
   const search = document.getElementById("customer-search");
   search.value = "";
@@ -2874,7 +2925,7 @@ document.getElementById("cancel-complete").addEventListener("click", () => {
   document.getElementById("complete-dialog").close();
 });
 
-document.getElementById("bill-search").addEventListener("input", renderBills);
+document.getElementById("bill-search").addEventListener("input", debounceInput(renderBills));
 document.getElementById("open-manual-wip-billing").addEventListener("click", openManualWipBillingDialog);
 document.getElementById("close-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
 document.getElementById("cancel-manual-wip-billing").addEventListener("click", closeManualWipBillingDialog);
@@ -2887,7 +2938,7 @@ document.getElementById("manual-wip-job-search")?.addEventListener("input", () =
 });
 document.getElementById("manual-wip-select-visible")?.addEventListener("click", selectVisibleManualWipBillOrders);
 document.getElementById("manual-wip-clear-selection")?.addEventListener("click", clearManualWipBillOrderSelection);
-document.getElementById("office-search").addEventListener("input", renderOffice);
+document.getElementById("office-search").addEventListener("input", debounceInput(renderOffice));
 document.getElementById("office").addEventListener("change", saveOfficeHuidFromTable);
 document.getElementById("office-table").addEventListener("change", saveOfficeHuidFromTable);
 document.getElementById("office-tile-board").addEventListener("change", saveOfficeHuidFromTable);
@@ -4678,6 +4729,9 @@ function applyLoginState() {
   renderLoginUserOptions();
   applyAccessControl();
   renderLoginUsers();
+  if (isLoggedIn && document.getElementById("dashboard")?.classList.contains("active-view")) {
+    renderOperationsCenter();
+  }
   openItemFromQrLink();
 }
 
@@ -4831,7 +4885,7 @@ function readOnlyButtonAllowed(button) {
   if (!button) return true;
   if (button.closest("#login-form")) return true;
   if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "focus-barcode-scan" || button.id === "open-header-job-card") return true;
-  if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button")) return true;
+  if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button, .operations-task, .universal-search-result")) return true;
   if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-moti-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
   const onclick = String(button.getAttribute("onclick") || "").trim();
   if (/^(open|switch|resetOperationPage|close)/i.test(onclick)) return true;
@@ -6640,17 +6694,31 @@ async function createSupabaseClient() {
   }
 }
 
+function friendlySyncLabel(status = "", message = "") {
+  const text = String(message || "").toLowerCase();
+  if (text.includes("update required") || text.includes("older")) return "Update Required";
+  if (text.includes("permission") || text.includes("setup missing")) return "Cloud Setup Needed";
+  if (text.includes("conflict") || text.includes("recovery required") || text.includes("empty cloud")) return "Cloud Check Needed";
+  if (status === "online") return "Saved & Synced";
+  if (status === "saving") return text.includes("queued") || text.includes("pending") || text.includes("local")
+    ? "Saved Here / Cloud Pending"
+    : "Saving Safely";
+  if (status === "connecting") return "Saved Here / Connecting";
+  return text.includes("save failed") ? "Save Needs Attention" : "Cloud Offline / Local Safe";
+}
+
 function setSyncStatus(status, message, detail = "") {
   const pill = document.getElementById("sync-status");
   if (pill) {
     pill.className = `sync-pill ${status}`;
-    pill.textContent = message;
-    pill.title = detail || message;
+    pill.textContent = friendlySyncLabel(status, message);
+    pill.dataset.syncTechnical = message || "";
+    pill.title = [message, detail].filter(Boolean).join(" - ") || friendlySyncLabel(status, message);
   }
   const detailNode = document.getElementById("sync-detail");
   if (detailNode) {
-    const detailText = detail ? String(detail).replace(/\s+/g, " ").trim().slice(0, 120) : "realtime + safe background refresh";
-    detailNode.textContent = `${APP_VERSION} / ${detailText}`;
+    const detailText = detail ? String(detail).replace(/\s+/g, " ").trim().slice(0, 150) : "automatic cloud refresh active";
+    detailNode.textContent = `${APP_VERSION} / ${message || "Sync"} / ${detailText}`;
   }
 }
 
@@ -8860,31 +8928,58 @@ function orderDraftHasWork(draft = null) {
 function saveOrderDraft() {
   const draft = captureOrderDraft();
   if (!orderDraftHasWork(draft)) {
-    localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+    clearOrderDraft();
+    setOrderDraftStatus("Draft protection ready", "");
     return;
   }
-  localStorage.setItem(ORDER_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  draft.updatedAt = new Date().toISOString();
+  const payload = JSON.stringify(draft);
+  try {
+    localStorage.setItem(ORDER_DRAFT_STORAGE_KEY, payload);
+    try { sessionStorage.removeItem(ORDER_DRAFT_SESSION_KEY); } catch (error) { /* session storage is optional */ }
+    setOrderDraftStatus(`Draft saved ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`, "saved");
+  } catch (error) {
+    try {
+      sessionStorage.setItem(ORDER_DRAFT_SESSION_KEY, payload);
+      setOrderDraftStatus("Draft protected for this browser session", "warning");
+    } catch (sessionError) {
+      setOrderDraftStatus("Draft protection unavailable - keep this form open", "error");
+    }
+  }
 }
 
 function loadOrderDraft() {
   try {
-    return JSON.parse(localStorage.getItem(ORDER_DRAFT_STORAGE_KEY) || "null");
+    const saved = localStorage.getItem(ORDER_DRAFT_STORAGE_KEY) || sessionStorage.getItem(ORDER_DRAFT_SESSION_KEY) || "null";
+    return JSON.parse(saved);
   } catch {
-    localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+    try { localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY); } catch (error) { /* storage can be unavailable */ }
+    try { sessionStorage.removeItem(ORDER_DRAFT_SESSION_KEY); } catch (error) { /* storage can be unavailable */ }
     return null;
   }
 }
 
 function clearOrderDraft() {
-  localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY);
+  try { localStorage.removeItem(ORDER_DRAFT_STORAGE_KEY); } catch (error) { /* storage can be unavailable */ }
+  try { sessionStorage.removeItem(ORDER_DRAFT_SESSION_KEY); } catch (error) { /* storage can be unavailable */ }
+}
+
+function setOrderDraftStatus(message = "Draft protection ready", mode = "") {
+  const node = document.getElementById("order-draft-status");
+  if (!node) return;
+  node.textContent = message;
+  node.className = ["order-draft-status", mode].filter(Boolean).join(" ");
 }
 
 function restoreOrderDraftOrReset(draft = loadOrderDraft()) {
   setDefaultOrderDates(document.getElementById("order-form"));
   if (orderDraftHasWork(draft)) {
     restoreOrderDraft(draft);
+    const restoredAt = draft.updatedAt ? new Date(draft.updatedAt).toLocaleString("en-IN") : "this browser";
+    setOrderDraftStatus(`Protected draft restored from ${restoredAt}`, "saved");
   } else {
     resetOrderItemRows();
+    setOrderDraftStatus("Draft protection ready", "");
   }
 }
 
@@ -9864,6 +9959,18 @@ function handleBarcodeScanFieldKeydown(event) {
 }
 
 function handleHeaderJobCardSearchKeydown(event) {
+  const results = document.getElementById("universal-search-results");
+  if (event.key === "ArrowDown" && results && !results.classList.contains("hidden")) {
+    event.preventDefault();
+    results.querySelector("[data-universal-search-key]")?.focus();
+    return;
+  }
+  if (event.key === "Escape" && results && !results.classList.contains("hidden")) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeUniversalSearchResults();
+    return;
+  }
   if (event.key !== "Enter") return;
   event.preventDefault();
   openHeaderJobCardSearch();
@@ -9873,42 +9980,270 @@ function openHeaderJobCardSearch() {
   const input = document.getElementById("header-job-card-search");
   const query = String(input?.value || "").trim();
   if (!query) {
-    setJobCardSearchStatus("Enter a Job Card number.", "error");
+    setJobCardSearchStatus("Enter a Job, PR, design, customer, Bill or HM batch.", "error");
     input?.focus();
     return false;
   }
   if (!currentUser) {
-    setJobCardSearchStatus("Login before opening a Job Card.", "error");
+    setJobCardSearchStatus("Login before searching the ERP.", "error");
     return false;
   }
-  const order = findJobCardByExactSearch(query);
-  if (!order) {
-    setJobCardSearchStatus(`Job Card ${query} not found.`, "error");
+  const results = universalSearchResults(query, 16);
+  universalSearchResultsCache = results;
+  if (!results.length) {
+    setJobCardSearchStatus(`No result for ${query}.`, "error");
+    renderUniversalSearchResults(query, results);
     input?.focus();
     return false;
   }
-  if (!canOpenScannedJobDetails()) {
-    setJobCardSearchStatus("This login cannot open Job Order details.", "error");
-    return false;
+  const exact = results.filter((result) => result.score >= 1000);
+  if (results.length > 1 && exact.length !== 1) {
+    renderUniversalSearchResults(query, results);
+    setJobCardSearchStatus(`${results.length} matches. Select one.`, "success");
+    return true;
   }
-  const result = openWholeJobCardFromHeaderSearch(order);
-  setJobCardSearchStatus(`Opened ${order.jobNumber || query}.`, "success");
-  if (input) input.value = "";
-  return result.ok;
+  return openUniversalSearchResult(String(results.indexOf(exact[0] || results[0])));
 }
 
 function setJobCardSearchStatus(message, mode = "") {
   const node = document.getElementById("job-card-search-status");
   if (!node) return;
-  node.textContent = message || "Enter Job Card No";
+  node.textContent = message || "Press / to search";
   node.className = ["scan-status", "job-card-search-status", mode].filter(Boolean).join(" ");
   clearTimeout(jobCardSearchStatusTimer);
   if (mode) {
     jobCardSearchStatusTimer = setTimeout(() => {
-      node.textContent = "Enter Job Card No";
+      node.textContent = "Press / to search";
       node.className = "scan-status job-card-search-status";
     }, 4500);
   }
+}
+
+function handleUniversalSearchInput(event) {
+  clearTimeout(universalSearchInputTimer);
+  const query = String(event?.target?.value || "").trim();
+  universalSearchInputTimer = setTimeout(() => {
+    if (!query) {
+      closeUniversalSearchResults();
+      return;
+    }
+    const results = universalSearchResults(query, 16);
+    universalSearchResultsCache = results;
+    renderUniversalSearchResults(query, results);
+  }, 110);
+}
+
+function closeUniversalSearchResults() {
+  const panel = document.getElementById("universal-search-results");
+  const input = document.getElementById("header-job-card-search");
+  panel?.classList.add("hidden");
+  if (panel) panel.innerHTML = "";
+  input?.setAttribute("aria-expanded", "false");
+}
+
+function universalSearchText(value = "") {
+  return String(value || "")
+    .toLocaleLowerCase("en-IN")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function universalSearchScore(query = "", values = []) {
+  const normalizedQuery = universalSearchText(query);
+  if (!normalizedQuery) return 0;
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const normalizedValues = values.map(universalSearchText).filter(Boolean);
+  const joined = normalizedValues.join(" ");
+  if (!tokens.every((token) => joined.includes(token))) return 0;
+  if (normalizedValues.some((value) => value === normalizedQuery)) return 1000;
+  if (normalizedValues.some((value) => value.startsWith(normalizedQuery))) return 700;
+  if (joined.includes(normalizedQuery)) return 500;
+  return 250 + tokens.length;
+}
+
+function addUniversalSearchResult(results, result, query) {
+  const score = universalSearchScore(query, result.values || [result.label, result.meta]);
+  if (score) results.push({ ...result, score });
+}
+
+function universalSearchResults(query = "", limit = 16) {
+  const results = [];
+  const canOrders = canAccessPage("orders");
+  const canDesigns = canAccessPage("designs");
+  const canCustomers = canAccessPage("customers");
+  const canBilling = canAccessPage("billing");
+  const canOffice = canAccessPage("office");
+  const canProduction = canAccessPage("production") || canAccessPage("transfer-history");
+
+  if (canOrders) {
+    const jobs = new Map();
+    (state.orders || []).filter((order) => !order.hiddenFromJobOrders).forEach((order) => {
+      const jobNumber = order.jobNumber || order.number || order.productionNo;
+      if (!jobNumber) return;
+      if (!jobs.has(jobNumber)) jobs.set(jobNumber, []);
+      jobs.get(jobNumber).push(order);
+      addUniversalSearchResult(results, {
+        type: "PR",
+        label: order.productionNo || order.number || "Production Item",
+        meta: `${jobNumber} / ${order.designNumber || order.designNo || "-"} / ${order.customer || "-"} / ${orderCurrentStage(order)}`,
+        values: [order.productionNo, order.number, order.barcode, order.designNumber, order.designNo, order.customer, jobNumber],
+        orderId: order.id,
+      }, query);
+    });
+    jobs.forEach((orders, jobNumber) => {
+      const first = orders[0];
+      addUniversalSearchResult(results, {
+        type: "JOB",
+        label: jobNumber,
+        meta: `${first.customer || "-"} / ${orders.length} item${orders.length === 1 ? "" : "s"} / ${jobCurrentStage(orders)}`,
+        values: [jobNumber, first.customer, ...orders.flatMap((order) => [order.productionNo, order.designNumber, order.designNo, order.remarks])],
+        orderId: first.id,
+      }, query);
+    });
+  }
+
+  if (canDesigns) {
+    (state.designs || []).forEach((design) => addUniversalSearchResult(results, {
+      type: "DESIGN",
+      label: design.number || design.name || "Design",
+      meta: `${design.category || "Uncategorised"} / ${design.name || design.number || "-"}`,
+      values: [design.number, design.name, design.category, ...normalizeDesignItemKeys(design.itemKeys || [], design.category || "")],
+      designId: design.id,
+    }, query));
+  }
+
+  if (canCustomers) {
+    (state.customers || []).forEach((customer) => addUniversalSearchResult(results, {
+      type: "CUSTOMER",
+      label: customer.name || "Customer",
+      meta: [customer.phone, customer.city, customer.gst].filter(Boolean).join(" / ") || "Customer Master",
+      values: [customer.name, customer.phone, customer.city, customer.gst, customer.address],
+      customerId: customer.id,
+    }, query));
+  }
+
+  if (canBilling || canOffice) {
+    (state.lots || []).forEach((lot) => {
+      const bill = billForLotRecord(lot);
+      if (!bill?.billNo) return;
+      const orders = billableOrdersForLot(lot, bill);
+      addUniversalSearchResult(results, {
+        type: "BILL",
+        label: bill.billNo,
+        meta: `${lot.orderNumber || lot.number || "-"} / ${orders[0]?.customer || "-"} / ${bill.items?.length || orders.length || 0} item(s)`,
+        values: [bill.billNo, lot.number, lot.orderNumber, ...orders.flatMap((order) => [order.customer, order.productionNo, order.designNumber])],
+        lotId: lot.id,
+      }, query);
+    });
+  }
+
+  if (canOffice) {
+    const hallmarkBatches = new Map();
+    allOfficeBillItemEntries().forEach((entry) => {
+      const batch = hallmarkLotLabel(entry.item);
+      if (!batch) return;
+      if (!hallmarkBatches.has(batch)) hallmarkBatches.set(batch, []);
+      hallmarkBatches.get(batch).push(entry);
+    });
+    hallmarkBatches.forEach((entries, batch) => {
+      const page = entries.some(({ item }) => officeDepartment(item) === "hallmarking") ? "hallmarking" : "hallmarked";
+      addUniversalSearchResult(results, {
+        type: "HM BATCH",
+        label: batch,
+        meta: `${entries.length} item${entries.length === 1 ? "" : "s"} / ${page === "hallmarking" ? "Pending Return" : "Hallmarked"}`,
+        values: [batch, ...entries.flatMap(({ lot, bill, item, order }) => [lot.orderNumber, bill.billNo, item.productionNo, item.huid1, item.huid2, order.designNumber])],
+        hallmarkBatch: batch,
+        officePage: page,
+      }, query);
+    });
+  }
+
+  if (canProduction) {
+    (state.lots || []).forEach((lot) => addUniversalSearchResult(results, {
+      type: "LOT",
+      label: lot.number || "Production Lot",
+      meta: `${lot.orderNumber || "No Job Card"} / ${lot.currentDepartment || lot.karigarName || lot.status || "Production"}`,
+      values: [lot.number, lot.orderNumber, lot.currentDepartment, lot.karigarName, lot.status],
+      lotId: lot.id,
+    }, query));
+  }
+
+  const typeOrder = { JOB: 0, PR: 1, BILL: 2, "HM BATCH": 3, LOT: 4, DESIGN: 5, CUSTOMER: 6 };
+  return results
+    .sort((a, b) => b.score - a.score || (typeOrder[a.type] ?? 20) - (typeOrder[b.type] ?? 20) || a.label.localeCompare(b.label, undefined, { numeric: true }))
+    .slice(0, limit);
+}
+
+function renderUniversalSearchResults(query = "", results = []) {
+  const panel = document.getElementById("universal-search-results");
+  const input = document.getElementById("header-job-card-search");
+  if (!panel || !input) return;
+  panel.innerHTML = results.length
+    ? results.map((result, index) => `
+      <button type="button" class="universal-search-result" data-universal-search-key="${index}" role="option">
+        <span class="universal-search-type">${escapeHtml(result.type)}</span>
+        <strong>${escapeHtml(result.label)}</strong>
+        <small>${escapeHtml(result.meta || "")}</small>
+      </button>
+    `).join("")
+    : `<div class="universal-search-empty">No permitted ERP record matches <strong>${escapeHtml(query)}</strong>.</div>`;
+  panel.classList.remove("hidden");
+  input.setAttribute("aria-expanded", "true");
+}
+
+function openUniversalSearchResult(key = "") {
+  const result = universalSearchResultsCache[Number(key)];
+  if (!result) return false;
+  const input = document.getElementById("header-job-card-search");
+  clearTimeout(universalSearchBlurTimer);
+  closeUniversalSearchResults();
+  let opened = false;
+  if (result.type === "JOB") {
+    const order = findById("orders", result.orderId);
+    if (order) opened = Boolean(openWholeJobCardFromHeaderSearch(order)?.ok);
+  } else if (result.type === "PR") {
+    const order = findById("orders", result.orderId);
+    if (order) opened = Boolean(openJobOrderFromBarcode(order)?.ok);
+  } else if (result.type === "DESIGN") {
+    switchView("designs");
+    switchDesignPage("master");
+    setTimeout(() => openDesignDetail(result.designId), 0);
+    opened = true;
+  } else if (result.type === "CUSTOMER") {
+    const customer = findById("customers", result.customerId);
+    switchView("customers");
+    openOperationPage("customers", "master");
+    const search = document.getElementById("customer-search");
+    if (search && customer) search.value = customer.name || "";
+    renderCustomers();
+    opened = true;
+  } else if (result.type === "BILL") {
+    if (canAccessPage("billing")) {
+      switchView("billing");
+      openOperationPage("billing", "bill");
+      openBill(result.lotId);
+    } else {
+      switchView("office");
+      openOfficeDialogPage("non-hallmarked");
+      setTimeout(() => openOfficeBillBatch(result.label), 0);
+    }
+    opened = true;
+  } else if (result.type === "HM BATCH") {
+    switchView("office");
+    openOfficeDialogPage(result.officePage || "hallmarking");
+    setTimeout(() => openHallmarkBatch(result.hallmarkBatch), 0);
+    opened = true;
+  } else if (result.type === "LOT") {
+    if (canAccessPage("transfer-history")) switchView("transfer-history");
+    else switchView("production");
+    openLotHistory(result.lotId);
+    opened = true;
+  }
+  if (opened) {
+    setJobCardSearchStatus(`Opened ${result.type} ${result.label}.`, "success");
+    if (input) input.value = "";
+  }
+  return opened;
 }
 
 function handleHardwareBarcodeScan(event) {
@@ -27190,6 +27525,88 @@ function designStoneSummaryText(items = []) {
   return `Total Stone: ${totals.pcs} pcs / ${weight3(totals.weight)} g`;
 }
 
+function operationalTaskDefinitions() {
+  const activeJobs = groupedJobOrders((order) => !isCompletedOrder(order), "active");
+  const urgentJobs = activeJobs.filter((job) => job.urgent || Number(daysRemaining(job.dueDate)) < 0);
+  const pendingBills = (state.lots || []).filter((lot) => {
+    const bill = billForLotRecord(lot);
+    return !bill && lot.status === "Completed" && lotIsAtBillingDepartment(lot);
+  });
+  const pendingQcItems = (state.lots || []).reduce((total, lot) => {
+    const bill = billForLotRecord(lot);
+    return total + (bill?.items || []).filter((item) => !isDiscardedItem(item) && (item.qcStatus || "Pending QC") === "Pending QC").length;
+  }, 0);
+  const officeEntries = officeItems();
+  const nonHallmarked = officeEntries.filter(({ item }) => officeDepartment(item) === "non-hallmarked").length;
+  const hallmarking = officeEntries.filter(({ item }) => officeDepartment(item) === "hallmarking").length;
+  const salesHolding = officeEntries.filter(({ item }) => officeDepartment(item) === "sales" && (!isSalesUser() || item.salesTeam === currentSalesTeam())).length;
+  const designsMissingStone = (state.designs || []).filter((design) => !(design.stoneItems || []).length).length;
+  const transfersToday = recentDashboardTransfers(500).filter((entry) => {
+    const data = entry.transfer || entry.issue || entry.departmentReturn || {};
+    return String(data.date || "") === today() || String(data.createdAt || "").slice(0, 10) === isoToday();
+  }).length;
+  const savedOrderDraft = loadOrderDraft();
+  const hasOrderDraft = orderDraftHasWork(savedOrderDraft);
+  const common = {
+    urgent: { id: "urgent", title: "Urgent / Overdue Jobs", count: urgentJobs.length, note: `${activeJobs.length} active Job Card${activeJobs.length === 1 ? "" : "s"}`, view: "orders", page: "active", priority: urgentJobs.length ? "urgent" : "clear" },
+    orders: { id: "orders", title: "Open Job Orders", count: activeJobs.length, note: "Open current production status", view: "orders", page: "active" },
+    create: { id: "create", title: "Create Job Order", count: hasOrderDraft ? 1 : 0, note: hasOrderDraft ? "Protected draft waiting" : "Start a new Job Card", view: "orders", page: "create", priority: hasOrderDraft ? "attention" : "" },
+    designs: { id: "designs", title: "Designs Missing Stone", count: designsMissingStone, note: `${state.designs?.length || 0} total designs`, view: "designs", page: "master", priority: designsMissingStone ? "attention" : "clear" },
+    billing: { id: "billing", title: "Pending Bill", count: pendingBills.length, note: "Completed lots ready for Bill", view: "billing", operation: "bill", priority: pendingBills.length ? "attention" : "clear" },
+    qc: { id: "qc", title: "Pending QC", count: pendingQcItems, note: "Bill items waiting for QC", view: "billing", operation: "bill", priority: pendingQcItems ? "attention" : "clear" },
+    setting: { id: "setting", title: "With Setters", count: settingPendingEntries().length, note: `${settingManagerLots().length} lot(s) in Setting`, view: "production", page: "setting", priority: settingPendingEntries().length ? "attention" : "clear" },
+    office: { id: "office", title: "Non-Hallmarked", count: nonHallmarked, note: "Office items ready for HM issue", view: "office", page: "non-hallmarked" },
+    hallmark: { id: "hallmark", title: "Hallmarking Return", count: hallmarking, note: "Items currently with Hallmarking", view: "office", page: "hallmarking", priority: hallmarking ? "attention" : "clear" },
+    sales: { id: "sales", title: isSalesUser() ? "My Team Holding" : "Sales Team Holding", count: salesHolding, note: isSalesUser() ? currentSalesTeam() : "Items issued to sales teams", view: "office", page: "sales" },
+    transfer: { id: "transfer", title: "Transfers Today", count: transfersToday, note: "Open online transfer history", view: "transfer-history", operation: "history" },
+    sync: { id: "sync", title: "Cloud Save Queue", count: pendingSyncMutationsHasChanges() ? 1 : (supabaseLocalDirty ? 1 : 0), note: supabaseLocalDirty ? "Laptop data protected; cloud update pending" : "No unsent local work", action: "refresh", priority: supabaseLocalDirty ? "urgent" : "clear" },
+  };
+  const role = currentUserConfig()?.role || "";
+  if (role === "setting-manager") return [common.setting, common.orders];
+  if (role === "bill") return [common.billing];
+  if (role === "qc") return [common.qc];
+  if (role === "office-main" || role === "office-ops") return [common.office, common.hallmark, common.sales, common.orders];
+  if (role === "sales") return [common.sales];
+  if (role === "order") return [common.urgent, common.create, common.orders, common.designs, common.billing];
+  if (role === "manager") return [common.urgent, common.billing, common.qc, common.setting, common.transfer, common.sync];
+  return [common.urgent, common.billing, common.qc, common.setting, common.hallmark, common.sync];
+}
+
+function renderOperationsCenter() {
+  const container = document.getElementById("operations-center-list");
+  if (!container) return;
+  const config = currentUserConfig();
+  const role = document.getElementById("operations-center-role");
+  const subtitle = document.getElementById("operations-center-subtitle");
+  if (role) role.textContent = config?.name || "User";
+  if (subtitle) subtitle.textContent = isReadOnlyUser() ? "View-only overview of current work" : "Priority work and direct actions for this login";
+  const tasks = operationalTaskDefinitions().filter((task) => task.action || canAccessPage(task.view));
+  container.innerHTML = tasks.map((task) => `
+    <button type="button" class="operations-task ${escapeHtml(task.priority || "")}" onclick="openOperationalTask('${escapeHtml(task.id)}')">
+      <span>${escapeHtml(task.title)}</span>
+      <strong>${Number(task.count || 0).toLocaleString("en-IN")}</strong>
+      <small>${escapeHtml(task.note || "Open")}</small>
+      <b>Open</b>
+    </button>
+  `).join("") || '<div class="empty">No pending work for this login.</div>';
+}
+
+function openOperationalTask(taskId = "") {
+  const task = operationalTaskDefinitions().find((item) => item.id === taskId);
+  if (!task) return;
+  if (task.action === "refresh") {
+    document.getElementById("refresh-live-data")?.click();
+    return;
+  }
+  switchView(task.view);
+  if (task.view === "orders" && task.page) switchOrderPage(task.page);
+  else if (task.view === "designs" && task.page) switchDesignPage(task.page);
+  else if (task.view === "production" && task.page) switchProductionPage(task.page);
+  else if (task.view === "office" && task.page) openOfficeDialogPage(task.page);
+  else if (task.view === "transfer-history" && task.operation) openTransferHistoryOperationDialog(task.operation);
+  else if (task.operation) openOperationPage(task.view, task.operation);
+}
+
 function renderDashboard() {
   const factoryStock = factoryPhysicalStock();
   const factoryVendorTotals = factoryVendorFineTotals();
@@ -27205,6 +27622,8 @@ function renderDashboard() {
   document.getElementById("metric-office-stock").textContent = gram(officeStockWeight());
   document.getElementById("metric-orders").textContent = state.orders.filter((order) => order.status !== "Completed").length;
   document.getElementById("metric-customers").textContent = state.customers.length;
+
+  renderOperationsCenter();
 
   const pendingOrders = groupedJobOrders((order) => !isCompletedOrder(order), "active");
   document.getElementById("pending-orders-list").innerHTML = pendingOrders.length

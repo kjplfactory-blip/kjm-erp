@@ -1,0 +1,35 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v573 AUDIT
+Date: 2026-09-22 IST
+
+SCOPE
+- Setting Manager Job Card access.
+- Item-level production stone editing.
+- Restricted Job Card permissions.
+
+VERIFIED SETTING MANAGER FLOW
+- Every live Setting lot has an Open Job Card action.
+- The popup is limited to PR items linked to that Setting lot.
+- Selecting a PR opens its complete read-only product and production details.
+- Edit Stone Details opens the existing full-screen Production Stone Entry editor.
+- Type, Shape, Size, Pcs, Wt/Pc, setting type, manufacturing stage and additional stone weight remain editable.
+- Cropped stone chart verification remains visible in the editor.
+- Saved values remain on the Job Card PR and do not modify Design Master.
+
+PERMISSION VERIFICATION
+- Setting Manager can edit a PR in a live Setting lot.
+- A PR in Filing or another department is rejected.
+- Same-design bulk targets are restricted to PR items currently in Setting.
+- Customer/date edits, gold issue, transfer, completion, non-gold actions, split, fitting accessories, item edit and item deletion are unavailable.
+- Stone-row deletion remains Owner/Manager-only.
+- Owner retains the normal full Job Card actions.
+
+REGRESSION
+- v572 manual Setting / Daily Tally loss: PASS.
+- v571 casting wax trace: PASS.
+- v570 factory non-gold stage: PASS.
+- v569 setting hand-stone receipt: PASS.
+- v568 Daily GW Tally: PASS.
+- JavaScript syntax check: PASS.
+
+DATABASE
+- No Supabase SQL change is required. Stone edits use the existing ERP state and live sync.

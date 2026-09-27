@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v582
+Date: 2026-09-22 IST
+Result: PASS
+
+Department OUT Receive GW correction
+- IN To Department rows display Receive GW.
+- OUT From Department rows now also display Receive GW instead of Issue GW.
+- Department history tile OUT totals use Receive GW.
+- Department total-card OUT values use Receive GW.
+- Karat-wise OUT GW values use Receive GW.
+- Difference, Net Weight and Fine Gold remain separate fields and calculations.
+
+Focused validation
+- Test transfer Issue GW: 20.000 g.
+- Test transfer Receive GW: 19.800 g.
+- OUT row displayed: 19.800 g.
+- Department OUT total: 19.800 g.
+- Karat-wise OUT total: 19.800 g.
+- No 20.000 g Issue GW appeared in the OUT row.
+
+Regression validation
+- v581 main-stock non-gold and Filing/Fitting separation: PASS.
+- v580 S7-style setter receipt reconciliation: PASS.
+- JavaScript syntax: PASS.
+- Supabase SQL change: Not required.

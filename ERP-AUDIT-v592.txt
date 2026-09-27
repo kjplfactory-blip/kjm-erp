@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v592
+Date: 2026-09-23 IST
+Result: PASS
+
+Supabase API reliability
+- Background revision polling reduced to one lightweight request every 45 seconds: PASS.
+- Poll, reconnect, focus, visibility, and pending-save retries share one retry window: PASS.
+- Exponential retry backoff with jitter is bounded between 10 seconds and 5 minutes: PASS.
+- A network-online event safely clears the wait and performs one immediate recovery attempt: PASS.
+- Timed-out Supabase fetches are aborted: PASS.
+- Older website builds stop repeating version-blocked writes: PASS.
+
+Cloud state and backups
+- erp_state is still read by its primary-key id filter: PASS.
+- Daily backup reuses the conditional-save preflight row; no second full-state read is made: PASS.
+- Backup writes use duplicate-safe state_id plus backup_key conflict handling: PASS.
+- Conditional multi-laptop writes remain protected by updated_at and bounded conflict retries: PASS.
+- SUPABASE-API-HEALTH-v592.sql is non-destructive to ERP business data: PASS.
+
+Regression validation
+- JavaScript syntax: PASS.
+- Production Stone Entry v591 permissions and edit lock: PASS.
+- Login access validation: PASS.
+- Concurrent login limits: PASS.
+- Large browser storage protection: PASS.

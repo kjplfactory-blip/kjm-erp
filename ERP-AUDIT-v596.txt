@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v596 AUDIT
+Date: 2026-09-23 IST
+
+VERIFIED CHANGES
+- Individual collective-wastage tiles open a full-screen IN / OUT detail ledger.
+- The ledger shows source/reference, category, GW, wastage NT, fine gold, and running NT balance.
+- Total IN minus Total OUT reconciles to the current karat-and-colour wastage tile.
+- Vinod Fitting and Fitting share one Fitting department transfer history.
+- Filing remains a separate department and the Fitting tile no longer opens Filing.
+- Pending Bill entries require the lot to be physically issued to Billing / Bill.
+- Non-Job-Card WIP Billing lists only unlinked WIP held in Billing / Bill.
+- Manual WIP non-gold components remain separated from gold and fine-stock calculations.
+
+AUTOMATED CHECKS
+- JavaScript syntax: PASS
+- Current saved-state load: PASS
+- Startup recovery: PASS
+- Wastage IN / OUT calculation: PASS (15.000 g IN - 4.000 g OUT = 11.000 g)
+- Wastage fine balance: PASS
+- Fitting + Vinod Fitting merge: PASS
+- Filing separation: PASS
+- Billing-only WIP filter: PASS
+- Manual WIP billing and assignment regression: PASS
+- Department grouping regression: PASS
+- Supabase reliability regression: PASS
+
+DATA SAFETY
+- No Supabase SQL change is required.
+- No existing ERP records are reset or deleted by this update.

@@ -1,0 +1,47 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v612 - RESTORE DELETED SETTING SPLITS
+UPDATED: 24-09-2026 14:37 IST
+
+REQUEST
+- Lot 230 was split from Lot 207 in Setting Manager.
+- Deleting the split entry must restore all previous Lot 207 entries.
+
+ROOT CAUSE
+- The old delete action removed only the selected transfer-history row.
+- It did not merge PR items, Job Card identity, GW, stone weights, or setter activity back into the original lot.
+
+IMPLEMENTED
+1. Setting split adjustments now show Restore Split instead of a normal transfer deletion.
+2. Selected PR items return to the original parent lot.
+3. Split Job Card numbers return to the original main Job Card number.
+4. Parent GW, wax stone, hand stone, and net gold are restored together.
+5. The child split lot and untouched setter issue are removed together.
+6. The matching parent and child split adjustments are removed together.
+7. The original Setting Split ledger row is cleared and a Restore audit row is added.
+8. New splits save an exact parent snapshot for reliable future restoration.
+9. Older incomplete split deletions are detected and repaired during data loading.
+10. Lot 230 / Lot 207 follows this automatic repair when the split adjustment is missing.
+
+SAFETY RULES
+- Restore the latest numbered split first when several split lots exist.
+- A received or settled setter lot is not automatically reversed.
+- A billed, completed, discarded, moved, or non-gold-linked split is protected.
+- Owner or Manager permission remains required for transfer-history restoration.
+
+VALIDATION
+- Core JavaScript syntax: PASS.
+- v611 numbered-split module syntax: PASS.
+- v612 split-restore module syntax: PASS.
+- Lot 207 / Lot 230 restoration simulation: PASS.
+- Parent PR item restoration: PASS.
+- Parent GW restoration: PASS.
+- Wax-stone and net-weight restoration: PASS.
+- Setter-entry cleanup: PASS.
+- Orphaned deleted-split auto repair: PASS.
+- Settled-lot protection: PASS.
+- No Supabase schema change required.
+
+DATA SAFETY
+- No global reset is performed.
+- Only the selected, unprocessed Setting split is reversed.
+- Existing Job Cards, bills, production, designs, images, stock, and cloud records remain preserved.

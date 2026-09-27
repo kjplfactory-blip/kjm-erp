@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v597 AUDIT
+Date: 2026-09-23 IST
+
+VERIFIED CHANGE
+- Department Balance GW is now calculated as IN Receive GW minus OUT Receive GW.
+- Final Polish example: 1744.400 g IN - 933.540 g OUT = 810.860 g Balance GW.
+- Manufacturing Reduced remains separate because it records booked production differences, not stock remaining in the department.
+- The tile, full-screen totals, and karat-wise bifurcation use the same balance formula.
+
+DATA SAFETY
+- No saved transfer, stock, department, or Supabase record is rewritten.
+- No Supabase SQL change is required.

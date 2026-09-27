@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v624 AUDIT
+Date: 2026-09-25 IST
+
+VELLA LOGO-BLUE VISUAL THEME
+- Main brand colour follows the bright blue used in the VELLA logo.
+- Pages use a light blue background with white and pale-blue working surfaces.
+- Sidebar, active navigation, primary controls, focus rings, and highlights use consistent logo blue.
+- Tiles use light blue surfaces and change to a clearer blue on hover.
+- Job item cards no longer use the older dark-green appearance.
+- Forms, tables, dialogs, dashboard cards, safe locker, design, production, bill, office, and Setting Manager share the same palette.
+- Red and amber warnings and meaningful success indicators remain visually distinct.
+
+SAFETY
+- Visual CSS change only.
+- ERP records, Supabase state, calculations, permissions, workflows, and print dimensions are unchanged.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- Application version references are aligned to v624.
+- CSS structure and local file references were checked.
+- Core application syntax checks passed.

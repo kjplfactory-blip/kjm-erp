@@ -1,0 +1,32 @@
+KHUSHALI JEWELLS MANUFACTURING - v604 BILLING TO JOB CARD ISSUE
+Updated: 24 September 2026 IST
+
+NEW BILLING ACTION
+- Open BILL and select ISSUE BILLING ITEM / WIP.
+- Select a Billing-held WIP item.
+- Choose ISSUE BILLING ITEM TO JOB CARD.
+- Select the pending Job Card item and its current / starting department.
+
+AUTOMATIC WEIGHT LOGIC
+- Issue GW remains the complete Billing holding transferred to the Job Card.
+- Wax Stone is read from the selected Job Card item.
+- Hand Stone is read from the selected Job Card item.
+- Total Non-Gold = Wax Stone + Hand Stone + any other non-gold already recorded with the Billing item.
+- Net Gold = Issue GW - Total Non-Gold.
+- Example: 100.000 g GW - 2.300 g Wax Stone - 3.400 g Hand Stone = 94.300 g Net Gold.
+
+STOCK AND HISTORY CONTROL
+- The Job Card's wax and hand-stone weight is adjusted through the existing main karat-wise non-gold stock allocation.
+- The Billing source holding closes only after the replacement Job Card lot is saved successfully.
+- Total factory GW does not increase or decrease during this internal movement.
+- Online Transfer History shows Billing to the selected Job Card department.
+- Department Transfer History records Billing OUT and destination department IN exactly once.
+
+PERMISSIONS
+- Bill Department, Order Department, Manager and Owner can issue eligible Billing WIP to a Job Card.
+- Only pending Job Card items without another production lot are available, preventing duplicate production holdings.
+
+DATA SAFETY
+- A failed validation or local save restores the previous order, lot, source holding, counters and ledger.
+- Existing Job Cards, production, stock, bills, designs and Supabase data are not reset.
+- No Supabase SQL change is required.

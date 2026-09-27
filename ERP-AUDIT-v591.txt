@@ -1,0 +1,20 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v591
+Date: 2026-09-23 IST
+Result: PASS
+
+Production Stone Entry
+- Setting Manager can edit a saved Job Card item without a live-Setting-lot restriction: PASS.
+- Setting Manager can add and remove item stone rows: PASS.
+- Unsaved edits immediately show an edited state and lock Get Stone Data: PASS.
+- Saved edits retain editor, timestamp, source, and edited status: PASS.
+- Design Master remains unchanged by Job Card stone edits: PASS.
+- Setting Manager edits do not write missing weights into Stone Master: PASS.
+- Wax, Hand, Total, Job Card, PR, Design, Sub Item, Lot, Department, and Status are clearly summarized: PASS.
+- Responsive stone rows avoid sideways page scrolling: PASS.
+
+Regression validation
+- JavaScript syntax: PASS.
+- Login access validation: PASS.
+- Concurrent login limits: PASS.
+- Large browser storage protection: PASS.
+- No Supabase schema change is required.

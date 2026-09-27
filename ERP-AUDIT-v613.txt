@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP CHANGE AUDIT - v613
+Updated: 2026-09-24 IST
+
+REQUEST
+Open Production Stone Entry in full-screen mode.
+
+IMPLEMENTED
+1. Production Stone Entry now occupies the complete browser viewport.
+2. Removed the outer inset margin and rounded dialog frame for this window only.
+3. Preserved the existing full-height workspace, internal chart scrolling, stone-row scrolling, sticky heading, and save controls.
+4. Applied the full-screen sizing to desktop, tablet, and mobile layouts.
+
+DATA SAFETY
+- No ERP records are migrated or reset.
+- No Job Card, production stone, Design Master, Stone Master, inventory, transfer, billing, or cloud-sync logic is changed.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- App version references: v613.
+- Full-screen dialog selectors are scoped to #production-stone-dialog.
+- JavaScript syntax checked.
+- Release folder and ZIP checked against the working app by file count and SHA-256 hashes.

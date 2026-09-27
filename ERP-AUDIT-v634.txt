@@ -1,0 +1,10 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v634 AUDIT
+
+CHANGE
+- Replaced the detailed 0.004 g Bill-save message with: Bill entries saved.
+
+UNCHANGED
+- Each Bill item's Final GW still receives the one-time 0.004 g allowance on its first successful final save.
+- Repeat-save protection, weight recalculation, stone synchronization, and cloud persistence remain unchanged.
+- No Supabase schema change is required.

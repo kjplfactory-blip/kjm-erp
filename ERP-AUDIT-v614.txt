@@ -1,0 +1,28 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP CHANGE AUDIT - v614
+Updated: 2026-09-24 IST
+
+REQUEST
+Do not automatically log out any active login and remove the Checking active login availability delay.
+
+IMPLEMENTED
+1. Valid credentials now log in immediately without calling the Supabase active-session limit function.
+2. All user IDs support unlimited simultaneous laptops and devices.
+3. The login-session heartbeat no longer checks, expires, replaces, or automatically logs out a user.
+4. A saved login remains active through refresh, temporary Supabase outages, and app-version updates.
+5. Manual Logout remains available and unchanged.
+6. Password verification, user roles, page permissions, read-only permissions, and login audit tracking remain active.
+7. Owner Login Details now labels login access as Unlimited devices.
+
+DATA SAFETY
+- No ERP business data, inventory, Job Card, transfer, bill, design, or stone record is changed.
+- No user password or access permission is changed.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- App version references: v614.
+- Active-login availability message removed from the login path.
+- Supabase session acquisition and heartbeat are no longer called by login or restored-session validation.
+- JavaScript syntax checked.
+- Credential success, invalid-password rejection, refresh persistence, manual logout, and multiple-browser login behavior tested.
+- Release folder and ZIP checked against the working app by file count and SHA-256 hashes.

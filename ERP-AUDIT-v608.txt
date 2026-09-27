@@ -1,0 +1,30 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP v608 CORRECTION AUDIT
+Date: 24-09-2026 IST
+
+PROTECTED DATA
+- Full cloud state v607 was saved locally before correction.
+- Protected Supabase snapshots from 23 and 24 September were compared.
+- No reset, bulk deletion, or manual replacement of live cloud data is required.
+
+CORRECTIONS
+1. Disabled the non-idempotent melting source repair that changed Safe stock during every normalization.
+2. Added a one-time, traceable stock recovery against the accepted v601 protected baseline. On the audited copy this recovers 87.052 g.
+3. Reclassified direct production non-gold as stock already included in factory GW. Audited non-gold is 356.412 g: opening 357.362 g less 0.950 g removed.
+4. Allocated cumulative Fitting non-gold to GW increases and carried it through later transfers. LOT-211 uses 12.250 g and LOT-202 uses 0.010 g.
+5. Included every department transfer balance in physical and fine stock until that balance is returned or booked as loss.
+6. Made transfer creation, editing, stone-plan synchronization, dashboard, history, and Fine Sheet use one consistent formula.
+7. Repaired 19 duplicate PR groups and one duplicate melting/casting batch name; serial generation remains independent and unique.
+
+VERIFICATION ON THE PROTECTED v607 COPY
+- Orders: 887
+- Lots: 22
+- Safe items after traceable recovery: 111
+- Negative Safe balances: 0
+- Duplicate PR groups after repair: 0
+- Duplicate melting/casting batch names after repair: 0
+- Department transfer balance held in factory: 119.346 g / 89.808 g fine
+- Fine Sheet exact calculation difference: 0.000 g
+- Fine Sheet Department / Safe / Party pattern difference: 0.000 g
+- Second full normalization changed Safe item count by 0 and Net Factory Fine by 0.000 g
+
+The live value can change with new work entered after this audit. v608 calculates the one-time recovery from the protected baseline at first load, so later valid movements are not overwritten.

@@ -1,0 +1,27 @@
+KHUSHALI JEWELLS MANUFACTURING - LOGIN LIMIT SETUP v588
+
+PURPOSE
+- Owner: maximum 2 active devices.
+- Manager: maximum 2 active devices.
+- Every other built-in or custom user: maximum 1 active device.
+
+SETUP
+1. First restore/restart the Supabase project and wait until Table Editor opens normally.
+2. Open Supabase Dashboard > SQL Editor > New query.
+3. Open ENABLE-LOGIN-LIMITS.sql from this release.
+4. Paste the SQL CONTENT into the query editor. Do not paste the Windows file path.
+5. Press Run.
+6. Confirm the result shows LOGIN LIMITS READY.
+7. Upload all v588 website files, then refresh each laptop.
+
+BEHAVIOR
+- v588 logs out old untracked browser logins once so all future sessions are counted.
+- Login reserves one device slot in Supabase before the ERP opens.
+- Closing/crashing without Logout releases the slot automatically after 2 minutes.
+- Pressing Logout releases the slot immediately.
+- A saved login stays behind the login screen until Supabase verifies it.
+- When Supabase is unavailable, a new login is blocked because the limit cannot be checked safely.
+
+NO ERP DATA RESET
+- This setup creates only the erp_user_sessions table and three session functions.
+- Job cards, production data, designs, stock, bills, and the erp_state row are not modified.

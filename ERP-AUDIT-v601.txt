@@ -1,0 +1,15 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v601
+Date: 2026-09-23 IST
+
+REQUEST
+- Apply the actual GW / Issue - Receive logic to every department.
+
+IMPLEMENTED
+- Every Dashboard department tile now uses its authoritative current GW holding for ISSUE - RECEIVE.
+- The same actual value appears in the department hover panel.
+- Direct shelf, non-gold, XRF, loss, melting, casting, opening-adjustment, and lot movements are therefore included wherever they affect current GW.
+- The calculation is not limited to Fitting or ordinary lot-transfer rows.
+
+DATA SAFETY
+- Existing ERP and Supabase records are unchanged.
+- This is a Dashboard reporting correction only.

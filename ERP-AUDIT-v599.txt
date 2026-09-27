@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v599
+Date: 2026-09-23 IST
+
+REQUEST
+- Show Issue GW minus Receive GW with the department GW and Net Weight on Dashboard.
+
+IMPLEMENTED
+- Each department Dashboard card shows ISSUE - RECEIVE.
+- The figure uses outgoing department transfer entries only:
+  OUT Issue GW total - OUT Receive GW total.
+- The department hover panel shows the two source totals and the difference.
+- Department Transfer History uses the same calculation in its summary.
+- Negative differences are retained when Receive GW is greater than Issue GW.
+
+DATA SAFETY
+- No existing job card, transfer, stock, bill, design, user, or cloud data is rewritten.
+- This is a display and reporting calculation over existing transfer records.

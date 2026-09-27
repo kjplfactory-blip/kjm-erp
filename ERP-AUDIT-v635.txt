@@ -1,0 +1,16 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v635 AUDIT
+
+DISPLAY
+- Removed the Save allowance +0.004 g applied once text from Bill item rows.
+- Removed the pending one-time allowance text from unsaved Bill item rows.
+- The final confirmation is only: Bill entries saved.
+
+PERSISTENCE RECOVERY
+- A Bill item records its GW before the one-time allowance.
+- If cloud/browser normalization keeps the applied marker but rolls Final GW back exactly to that recorded original GW, the ERP restores Final GW to original + 0.004 g.
+- Net weight and fine weight are recalculated after recovery.
+- An already adjusted value is left unchanged, preventing a second addition.
+
+DATABASE
+- No Supabase schema change is required.

@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+V629 RELEASE AUDIT - 26 SEPTEMBER 2026
+
+CHANGE
+- Added Add Pending Items to Combined Manual Bills.
+- Added a searchable multi-select view containing eligible unbilled Job Card / PR items.
+- Preserved entered Bill-row values while adding later items.
+- Added Owner/Manager Bill deletion with confirmation and audit history.
+- Bill deletion reverses linked Factory Out, Office availability, manual Billing allocations, lot status, item status, and derived non-gold adjustment.
+- Blocked deletion where repair, returned-shelf, Hallmarking, HUID, sales, tag, or discard dependencies would make rollback unsafe.
+- Updated Bill-number generation so deleted numbers are not reused.
+
+SAFETY
+- No Supabase schema or SQL change is required.
+- Existing ERP operational data is unchanged by installing this release.
+- A complete v628 backup ZIP was created before editing.
+
+VERIFICATION
+- app.js JavaScript syntax: PASS.
+- styles.css opening/closing brace count: PASS (2975 / 2975).
+- Required control IDs and event handlers: PASS.
+- Combined Bill rollback simulation: PASS.
+- Bill-number sequence after deletion: PASS.
+- Local file references: PASS.

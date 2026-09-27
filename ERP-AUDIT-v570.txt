@@ -1,0 +1,41 @@
+KHUSHALI JEWELLS MANUFACTURING ERP AUDIT
+Version: v570
+Date: 2026-09-22 IST
+
+REQUEST
+Factory Non-Gold data must update automatically when casting wax stone and hand-setting stone are updated in production.
+
+IMPLEMENTATION
+- Active production stone now uses the actual wax-stone weight carried by each lot.
+- Hand stone enters active production non-gold only after a Setting receipt records it.
+- Production stone demand reduces the corresponding Opening Non-Gold balance.
+- The movement changes the location of non-gold stock without duplicating the Total Factory Non-Gold balance.
+
+AUDITED CURRENT POSITION
+- Total Factory Non-Gold: 357.362 g.
+- Production Non-Gold before correction: 6.774 g.
+- Missing active wax stone: 5.328 g.
+- Production Non-Gold after correction: 12.102 g.
+- Opening Non-Gold before correction: 273.096 g.
+- Opening Non-Gold after correction: 267.768 g.
+- Total Factory Non-Gold change: 0.000 g.
+
+FINE STOCK RECONCILIATION
+- The missing production allocation was deducting the same 5.328 g stone in both production net gold and the opening adjustment.
+- Correct Physical GW: 6457.109 g.
+- Correct Physical Fine: 4575.686 g.
+- Correct Net Factory Fine: 4235.597 g.
+
+VERIFICATION
+- JavaScript syntax check: PASSED.
+- Casting wax stage test: +0.500 g wax produced +0.500 g tracked production stone.
+- Pending Setting test: planned hand stone remained excluded.
+- Setting receipt test: 1.436 g hand stone increased Production Non-Gold by 1.436 g and reduced Opening Non-Gold by 1.436 g.
+- Total Factory Non-Gold remained unchanged during the internal movement.
+- Daily GW Tally regression: PASSED.
+- Online Transfer count regression: PASSED.
+- Individual rod regression: PASSED.
+- Fine Sheet backup and reconciliation regressions: PASSED.
+
+DATABASE
+No Supabase SQL change is required for v570.

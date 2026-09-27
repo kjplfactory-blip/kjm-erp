@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v633 AUDIT
+
+CORRECTION
+- The 0.004 g Bill allowance is applied during the final successful Bill save.
+- It is applied once to every Bill item having a positive Final GW.
+- Net weight and fine weight are recalculated immediately from the adjusted GW.
+
+REPEAT PROTECTION
+- Each adjusted item stores its stable PR/order key in the Bill record.
+- Per-item adjustment fields and Bill-level keys survive state normalization and cloud reload.
+- Reopening, editing, QC processing, printing, or repeatedly saving the same Bill cannot apply the allowance again.
+- A later manually edited Final GW is respected and is not automatically increased again.
+
+COMPATIBILITY
+- Existing Bills already carrying v632 item adjustment markers remain protected.
+- The v632 stone auto-sync and Refresh Stone Entry behavior is retained.
+- No Supabase schema change is required.

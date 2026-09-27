@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v625 AUDIT
+Date: 2026-09-25 IST
+
+CLOUD-SKY COLOUR PATTERN
+- Dominant reference tones were sampled from the supplied image.
+- Primary action blue: #0070B0.
+- Supporting cyan blue: #2080C0.
+- Medium sky blue: #3090D0.
+- Deep cloud blue: #0060A0.
+- Light sky blue: #70B0E0.
+- Mist-blue surfaces use lighter derived shades for high readability.
+- Navigation, page backgrounds, tiles, forms, tables, dialogs, job items, and Setting Manager follow the same palette.
+- Red and amber warnings remain distinct.
+
+SAFETY
+- Presentation-only CSS change.
+- ERP data, Supabase state, calculations, permissions, workflows, and print dimensions are unchanged.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- Application version references are aligned to v625.
+- CSS braces are balanced.
+- Primary button, heading, and body-text contrast checks pass WCAG AA.
+- Local file references and JavaScript syntax checks passed.

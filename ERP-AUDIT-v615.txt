@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP CHANGE AUDIT - v615
+Updated: 2026-09-24 IST
+
+REQUEST
+Correct the department history variance and show only GW Difference, Net Wt Difference, Non-Gold Holding, and Fine Gold Holding on each department tile.
+
+IMPLEMENTED
+1. Split child lots no longer create duplicate Gold Issue entries in department history.
+2. Internal split-adjustment transfers are excluded because they do not move stock between departments.
+3. The original split-family issue is reconstructed once from the preserved first real transfer, linked shelf issue, or combined split balances.
+4. Department GW Difference is calculated from the corrected movement ledger as IN Receive GW minus OUT Receive GW.
+5. Net and non-gold figures are normalized by karat so GW equals Net plus Non-Gold and non-gold cannot display as a negative holding.
+6. Fine Gold Holding is recalculated karat-wise from corrected net weight.
+7. Dashboard and Department Transfer History tiles now display the same four figures.
+8. The old comparison-only History GW and History Variance display is removed.
+
+DATA SAFETY
+- No Job Card, transfer, inventory, bill, design, stone, user, or Supabase record is deleted or rewritten.
+- The correction is calculated while displaying history and applies to existing and future split lots.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- JavaScript syntax checked for app.js and department-holdings-v615.js.
+- Tested with the saved real ERP dataset.
+- LOT-207 split family produces one Gold Issue of GW 241.660 g and Net 234.886 g.
+- Split-adjustment movement count is zero in department history.
+- Department tiles contain three summary cells plus the main GW figure, with no History GW or variance flag.
+- Browser test completed with no page errors.

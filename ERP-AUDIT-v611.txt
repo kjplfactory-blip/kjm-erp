@@ -1,0 +1,37 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v611 - SETTING MANAGER NUMBERED SPLIT JOB CARDS
+UPDATED: 24-09-2026 14:18 IST
+
+REQUEST
+- When Setting Manager splits a Job Card, issued PR items must leave the main Job Card.
+- Split cards must use Job Card No-1, No-2, No-3, and so on.
+- The last remaining lot must stay available as the original full Job Card.
+
+IMPLEMENTED
+1. Every partial setter issue creates a separate numbered Job Card.
+2. The first split is Main Job Card-1, followed by -2, -3, and onward.
+3. Selected PR items are reassigned to that split Job Card.
+4. Selected items no longer appear in the original main Job Card.
+5. Unselected PR items stay under the original Job Card number.
+6. The last remaining PR lot can be issued through Full Job Lot.
+7. Split lots, setter entries, and ledger references show the numbered Job Card.
+8. Job Order search groups the numbered cards with their main Job Card.
+9. Existing Merge Job Cards logic recognizes the Setting split family.
+10. Earlier Setting partial splits are migrated in date order to the same numbering.
+
+VALIDATION
+- Core JavaScript syntax: PASS.
+- v611 Setting split module syntax: PASS.
+- First partial split creates JOB-100-1: PASS.
+- Second partial split creates JOB-100-2: PASS.
+- Issued PR items leave the original main card: PASS.
+- Last PR item remains in JOB-100: PASS.
+- Legacy split migration creates sequential cards: PASS.
+- Migration is idempotent: PASS.
+- Split family search label and grouping: PASS.
+- No Supabase schema change required.
+
+DATA SAFETY
+- No business data is reset or deleted.
+- The migration only relinks PR items already separated into Setting split lots.
+- Job Cards, production weights, setter balances, stone data, bills, designs, images, and cloud records are preserved.

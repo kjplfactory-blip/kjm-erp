@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v620 AUDIT
+Date: 2026-09-24 IST
+
+FITTING ACCESSORY QUANTITY
+- No. of Fitting Pcs accepts whole numbers from 1 to 500.
+- Every copied fitting stone row multiplies its stone-piece count by the fitting quantity.
+- Every copied fitting stone row multiplies its total stone weight by the same quantity.
+- Weight per stone is not changed.
+- Quantity is saved with Design Master and Job Card fitting rows and survives Production Stone Entry edits.
+- Existing fitting rows default safely to quantity 1.
+- Job Card-only fitting additions do not change Design Master.
+
+SYNC
+- Existing ERP data needs no conversion.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- JavaScript syntax checks passed for the app and quantity module.
+- Automated MS1 x 4 test passed: 18 stone pcs / 0.21312 g became 72 stone pcs / 0.85248 g.
+- The test confirmed that the source fitting row and weight per stone were unchanged.
+- Existing v618 and v619 Setting transfer regression tests also passed.

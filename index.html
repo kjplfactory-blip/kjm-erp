@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=638">
+  <link rel="stylesheet" href="styles.css?v=639">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v638</small>
+      <small class="app-version-badge">App v639</small>
           </div>
         </div>
         <label>User
@@ -112,13 +112,14 @@
           <p id="page-subtitle">Track orders, gold issued, production, wastage, and finished jewellery.</p>
         </div>
         <div class="top-actions">
-          <div class="top-action-group job-card-search-group" aria-label="Job Card search">
+          <div class="top-action-group job-card-search-group universal-search-group" aria-label="Universal ERP search">
             <label class="global-scan-label job-card-search-label" for="header-job-card-search">
-              <span>Job Card Search</span>
-              <input id="header-job-card-search" class="global-barcode-input job-card-search-input" placeholder="JOB-1667 or 1667" autocomplete="off" aria-describedby="job-card-search-status">
+              <span>Universal Search</span>
+              <input id="header-job-card-search" class="global-barcode-input job-card-search-input" placeholder="Job / PR / Design / Customer / Bill / HM" autocomplete="off" aria-describedby="job-card-search-status" aria-controls="universal-search-results" aria-expanded="false">
             </label>
-            <button id="open-header-job-card" class="job-card-search-button" type="button">Open Job Card</button>
-            <small id="job-card-search-status" class="scan-status job-card-search-status">Enter Job Card No</small>
+            <button id="open-header-job-card" class="job-card-search-button" type="button">Open</button>
+            <small id="job-card-search-status" class="scan-status job-card-search-status">Press / to search</small>
+            <div id="universal-search-results" class="universal-search-results hidden" role="listbox" aria-label="ERP search results"></div>
           </div>
           <div class="top-action-group scanner-group" aria-label="Barcode and QR scanner">
             <label class="global-scan-label">
@@ -129,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v638</span>
+          <span class="app-version-badge">App v639</span>
             <span id="sync-status" class="sync-pill offline">Sync: Checking</span>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -168,6 +169,17 @@
           <article class="metric"><span>Open Orders</span><strong id="metric-orders">0</strong><button class="metric-open" type="button" data-dashboard-view="orders" data-dashboard-page="active">Open</button></article>
           <article class="metric"><span>Customers</span><strong id="metric-customers">0</strong><button class="metric-open" type="button" data-dashboard-view="customers" data-dashboard-operation="master">Open</button></article>
         </div>
+
+        <section class="panel operations-center-panel" aria-labelledby="operations-center-title">
+          <div class="panel-heading operations-center-heading">
+            <div>
+              <h2 id="operations-center-title">My Work</h2>
+              <small id="operations-center-subtitle">Priority work for the signed-in user</small>
+            </div>
+            <span id="operations-center-role" class="operations-role-pill">User</span>
+          </div>
+          <div id="operations-center-list" class="operations-task-grid"></div>
+        </section>
 
         <section class="panel department-panel">
           <div class="panel-heading"><h2>All Departments - Current Gold Holding</h2></div>
@@ -518,6 +530,7 @@
               <div>
                 <h2>Create Job Order</h2>
                 <p class="dialog-note">Add each item first, then save the job card. Stone weight is captured from the selected design and item type.</p>
+                <p id="order-draft-status" class="order-draft-status" aria-live="polite">Draft protection ready</p>
               </div>
             </div>
             <section class="job-card-form-section">
@@ -3406,7 +3419,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=638"></script>
+    <script src="app.js?v=639"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

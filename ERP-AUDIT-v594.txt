@@ -1,0 +1,32 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V594 AUDIT
+Date: 2026-09-23 IST
+
+CHANGE VERIFIED
+- Active Job Orders include a live customer / job-details search.
+- Completed Job Orders include the same live search.
+- Search includes Job Card, PR number, customer, design, category, item, sub-item, size, colour, purity, status, current stage, due date, and remarks.
+- A match on a split-only PR or remark expands the complete main/split Job Card family.
+- Main Job Card is listed before S1, S2, and later split cards.
+- Active and completed relatives remain visible together during a family search and are clearly labelled.
+- Blank search preserves the original active/completed list separation.
+- Responsive search controls do not require sideways page scrolling.
+
+AUTOMATED CHECKS
+- JavaScript syntax: PASS
+- CSS brace balance: PASS
+- Split-only match includes Main + S1 + S2: PASS
+- Main Job Card sorted first: PASS
+- Completed split sibling included: PASS
+- Unrelated family hidden: PASS
+- Customer-name search expands complete family: PASS
+- PR-number search expands complete family: PASS
+- MAIN / SPLIT / ACTIVE / COMPLETED labels: PASS
+- No-match handling: PASS
+- Production stone-entry regression: PASS
+- Login-access regression: PASS
+- Supabase API reliability regression: PASS
+
+DATA SAFETY
+- No ERP records were changed by this update.
+- No Supabase schema or SQL change is required.
+- No permissions, production calculations, weights, transfers, bills, or stock logic were changed.

@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v584
+Date: 2026-09-23 IST
+Result: PASS
+
+Manual Production Item receipt
+- Added a dedicated Receive Manual Production Item - No Job Card action in Setting Manager.
+- Only pending no-Job-Card manual production items appear in this receive action.
+- Hand Stone is manually editable during receipt.
+- Receive Net is calculated as Receive GW minus Hand Stone.
+- Received Hand Stone increases the item's GW and Stone non-gold holding without increasing net gold.
+- Outstanding setter balance remains excluded from the available Setting holding.
+- Old manual items without an existing department source create a traceable Setting holding on receipt.
+
+Focused validation
+- Existing source: Issue 10.000 g + Hand Stone 1.000 g = GW 11.000 g / Net Gold 10.000 g.
+- Available after full receipt: 11.000 g.
+- Available with 0.200 g setter balance: 10.800 g.
+- No-source old item: Receive GW 7.500 g / Hand Stone 0.500 g / Net Gold 7.000 g created correctly.
+
+Regression validation
+- Existing Setting hand-stone receipt logic: PASS.
+- v580 manual source and setter reconciliation: PASS.
+- v583 Department Master history grouping: PASS.
+- JavaScript syntax: PASS.
+- Supabase SQL change: Not required.

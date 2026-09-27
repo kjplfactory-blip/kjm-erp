@@ -1,0 +1,34 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v577
+LOT-203 SETTER METAL BALANCE AUDIT
+Date: 2026-09-22 IST
+
+CHANGE VERIFIED
+- LOT-203 is matched after live cloud data loads.
+- Updated hand-stone weight is synchronized to its latest setter entry even after the lot moves to Filing.
+- Actual setter Receive GW is preserved.
+- Receive Net, Difference and outstanding Metal Balance are recalculated together.
+- Positive remaining metal appears against the assigned setter and in the combined setter balance.
+- Future Production Stone Entry changes use the same synchronization.
+- A second synchronization makes no additional change.
+
+FOCUSED TEST
+- Setter Issue GW: 37.620 g
+- Actual Receive GW: 38.120 g
+- Corrected hand stone: 0.675 g
+- Corrected Receive Net: 37.445 g
+- Metal balance against setter: 0.175 g
+- Idempotent second pass: PASS
+
+REGRESSION CHECKS
+- app.js syntax: PASS
+- v576 Filing transfer stone correction: PASS
+- v574 Setting balance and production stone synchronization: PASS
+- v573 Setting Job Card stone permissions: PASS
+- v572 Setting tally and loss: PASS
+- v571 casting wax trace: PASS
+- v570 factory non-gold stage: PASS
+- v569 Setting hand-stone receipt: PASS
+- v568 daily tally gross weight: PASS
+
+DATABASE
+- No Supabase SQL change required.

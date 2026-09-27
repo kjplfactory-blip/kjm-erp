@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v618 AUDIT
+Date: 2026-09-24 IST
+
+SETTING MANAGER / MANUAL NO-JOB-CARD TRANSFER
+- Every received Manual Production Item held in Setting has a Transfer To Department action.
+- The action supports full or partial GW transfer to any different registered department and process.
+- GW, wax stone, hand stone / other non-gold, net gold, purity, source reference, and remarks are preserved.
+- Full balance is prefilled. Partial GW automatically proposes proportional wax and non-gold values, which remain editable.
+- Save creates linked OUT from Setting and IN to destination movement records.
+- The destination receives an in-hand department item; the source holding is reduced by exactly the moved amount.
+- No Job Card, Safe Locker return, or duplicate factory stock is created.
+- S5/S6 and all other setter references remain visible through the source item and Setter Account History.
+- Automated tests verified partial transfer, remaining Setting balance, full transfer closure, exact destination composition, linked history IDs, setter trace, and over-limit rejection.
+
+PERMISSIONS AND SYNC
+- The action follows existing Setting production access.
+- State is saved through the standard ERP local/cloud save path.
+- No Supabase SQL or schema change is required.

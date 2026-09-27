@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT - v606
+Date: 2026-09-24 IST
+
+CHANGE
+Billing WIP can be issued fully or in multiple portions to Job Card items. A portion may start a new production movement or be added to an item that already has an active lot.
+
+ACCOUNTING CONTROL
+- Only the entered Issue GW is removed from the Billing holding.
+- The remaining Billing GW stays selectable for a later issue.
+- Source wax and saved non-gold are allocated proportionately from the source holding.
+- Job Card wax and hand stone can be checked or edited for each portion.
+- Net Gold is Issue GW less wax, hand stone and any carried non-gold.
+- The final portion closes the Billing source automatically.
+
+TRACEABILITY
+- Every part issue receives a new lot number.
+- The child lot keeps the original Job Card, PR number, source holding and active-lot reference.
+- Online Transfer History shows Billing to destination.
+- Department Transfer History shows one Billing OUT and one destination IN entry.
+- The ledger records issued GW, wax, hand, total non-gold, net gold, remaining Billing balance and active-lot reference.
+
+COMPATIBILITY
+Existing v604/v605 Billing-to-Job-Card records remain readable. No database schema or Supabase SQL change is required.

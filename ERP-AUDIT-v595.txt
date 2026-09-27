@@ -1,0 +1,41 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V595 AUDIT
+Date: 2026-09-23 IST
+
+CHANGE VERIFIED
+- Billing includes a dedicated Non-Job-Card WIP workflow.
+- Department WIP and Safe Locker Unfinished / WIP holdings are listed with location, karat, GW, gold, and non-gold breakup.
+- A complete WIP holding can be assigned to an eligible pending Job Card item without creating a duplicate production holding.
+- Assignment creates one production lot in the selected current department and preserves the original Job Card and PR number.
+- A complete WIP holding can instead open directly as a manual Bill / QC item.
+- Manual Bill rows prefill GW, Stone, Black Beads, Moti, Spring, Other, Net Weight, and karat.
+- Stone and Black Beads remain editable only for manual WIP Bill verification; normal Job Card Bill stone logic remains automatic.
+- Manual billing support records are hidden from active and completed Job Order lists.
+- Source WIP records close when their replacement lot is saved, preserving stock instead of counting both records.
+- Login session stale allowance is 15 minutes; existing per-user simultaneous-login limits are unchanged.
+
+AUTOMATED CHECKS
+- JavaScript syntax: PASS
+- CSS brace balance: PASS
+- Department WIP discovery: PASS
+- Assign WIP to existing Job Card: PASS
+- Source holding closes after assignment: PASS
+- Assignment GW / Gold / Non-Gold: PASS (10.000 / 8.000 / 2.000 g)
+- Factory gross and fine unchanged by assignment: PASS
+- Safe Locker WIP to manual Bill / QC: PASS
+- Manual Bill non-gold defaults: PASS (Stone 0.250 / BB 0.750 / Moti 0.500 g)
+- Factory gross and fine unchanged by manual Bill preparation: PASS
+- Hidden manual WIP order excluded from Job Orders: PASS
+- Login stale allowance 900000 ms: PASS
+- v594 Job Order family search regression: PASS
+- v593 Job Item readability regression: PASS
+- v591 Production Stone Entry regression: PASS
+- v590 Login access regression: PASS
+- v588 Login limits regression: PASS
+- v592 Supabase reliability regression: PASS
+- v587 large browser storage regression: PASS
+
+DATA SAFETY
+- No ERP records are reset by this update.
+- No Supabase schema or SQL change is required.
+- Existing simultaneous-login limits remain unchanged.
+- The selected source is moved, not copied, into its replacement production or Bill / QC holding.

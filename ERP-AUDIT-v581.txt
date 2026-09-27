@@ -1,0 +1,30 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v581
+Date: 2026-09-22 IST
+Result: PASS
+
+Main factory non-gold removal
+- Added an Owner / Manager controlled Remove Non-Gold From Main Stock form.
+- Karat, material, pieces, weight, and reason are recorded as a permanent movement.
+- Availability is validated by material and karat before saving.
+- A 2.500 g test removal reduced physical factory GW by 2.500 g and factory non-gold by 2.500 g.
+- The same test produced exactly 0.000 g change in fine gold.
+- The removal is excluded from department holdings and department transfer sheets.
+- Virtual Non-Gold Shelf, Factory Summary, Fine Sheet, and movement history show the removal separately.
+
+Filing / Fitting separation
+- A Department Master containing both FILING and FITTING now creates two independent transfer-history tiles.
+- FILING movements appear only in the Filing IN / OUT sheet.
+- FITTING movements appear only in the Fitting IN / OUT sheet.
+- Old combined FILING, FITTING process text resolves by its actual department name.
+
+Setter receipt regression
+- Setting-to-next-department movement still changes the linked setter entry from Issued to Received.
+- The active setter lot count becomes zero while a genuine returned-lot metal balance remains separately visible.
+- Removing the automatic departure movement reopens the setter entry correctly.
+
+Validation
+- v581 main stock and department separation test: PASS.
+- v580 S7-style setter receipt and manual production source test: PASS.
+- v579 setter history and returned balance test: PASS.
+- JavaScript syntax: PASS.
+- Supabase SQL change: Not required.

@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - v632 AUDIT
+Updated: 2026-09-26 IST
+
+SCOPE
+- Automatic synchronization of item-level Job Card stone weight into active Bill work.
+- Manual per-item stone refresh in Make Bill.
+- One-time 0.004 g Final GW allowance per entered Bill item.
+
+STONE SAFETY
+- Design Master is never modified by Bill refresh.
+- Non-job-card WIP stone fields remain manual and are excluded from Job Card stone refresh.
+- Active Bill drafts and generated Bills that have not moved to Office/Factory Out/repair are recalculated automatically when the source Job Card stone plan changes.
+- Final historical Office, Factory Out, and repair records are not silently rewritten.
+
+GW SAFETY
+- 0.004 g is applied only when an item has a positive Final GW.
+- Each item stores the pre-adjustment GW, applied amount, applied flag, and timestamp.
+- Draft auto-save and calculation previews never apply the allowance.
+- A new Bill created through print/save also receives the allowance once.
+- Re-saving an unchanged item cannot compound the allowance.
+- Deliberately editing an item's Final GW marks that item for a fresh one-time allowance on its next deliberate Save Bill.
+
+CALCULATIONS
+- Stone refresh recalculates total non-gold, Net Wt, base Fine Wt, wastage Fine Wt, total Fine Wt, and the karat-wise Bill non-gold stock adjustment.
+- Save Bill recalculates Net Wt and Fine Wt from the adjusted Final GW in the same transaction.
+
+DATABASE
+- Uses the existing ERP JSON state and Supabase synchronization path.
+- No SQL or schema update is required.

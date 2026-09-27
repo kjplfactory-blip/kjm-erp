@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v623 AUDIT
+Date: 2026-09-25 IST
+
+LIGHTER BLUE LOGO
+- Recoloured the original VELLA logo from dark navy to a brighter royal-blue shade.
+- Preserved the yellow-gold VELLA artwork, brand text, KJ emblem, jewellery outline, proportions, and texture.
+- Added the edited image as assets/vella-logo-light-blue-v623.png.
+- Updated login, floating brand, sidebar, bill print, and Fine Sheet print references.
+- Used a versioned filename and v623 asset queries to avoid stale browser caching.
+
+SAFETY
+- The original assets/vella-logo.jpeg remains available as a fallback.
+- ERP data, Supabase sync, permissions, calculations, workflows, and print dimensions are untouched.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- App version references and local asset links verified.
+- New logo file exists, opens correctly, and is used by every active logo reference.
+- JavaScript syntax, HTML ID integrity, and recent regression tests passed.

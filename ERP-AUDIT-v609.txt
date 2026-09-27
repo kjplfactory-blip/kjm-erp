@@ -1,0 +1,33 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v609 - MULTI-BILL A6 TAG PRINT
+UPDATED: 24-09-2026 13:31 IST
+
+REQUEST
+- Print tags from multiple Bills together.
+- Keep the A6 layout at 10 tags per page to avoid wasting label paper.
+
+IMPLEMENTED
+1. Added Multi-Bill Tags A6 to the Billing toolbar.
+2. Added a full-screen selector grouped by Bill.
+3. Added Bill-level and individual item checkboxes.
+4. Added search by Bill, Job Card, customer, PR, design, category, and sub-item.
+5. Added Select All Unprinted, Select All Visible, and Clear Selection.
+6. Added live counts for Bills, tags, A6 pages, and unused final-page spaces.
+7. Combined selected tags across Bill boundaries before pagination.
+8. Kept the existing two-column by five-row A6 tag geometry: 10 tags per page.
+9. Added Bill tag printed date and print-count tracking.
+10. Kept existing single-Bill A4-40 and A6-10 print commands compatible.
+
+VALIDATION
+- JavaScript syntax: PASS.
+- Required HTML IDs and controls: PASS.
+- 23 selected tags generate exactly 3 A6 pages: PASS.
+- Every selected tag renders exactly once: PASS.
+- Only selected items receive printed status: PASS.
+- A6 positions 1 through 10 remain mapped to the tuned print grid: PASS.
+- No Supabase schema change required.
+
+DATA SAFETY
+- No business record is reset, deleted, or migrated.
+- Existing Bills, Job Cards, Office items, inventory, images, and cloud state remain compatible.
+- New printed-status fields are additive metadata on the applicable Bill item only.

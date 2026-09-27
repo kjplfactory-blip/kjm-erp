@@ -1,0 +1,31 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v610 - FIXED BILL FACTORY OUT DESTINATION
+UPDATED: 24-09-2026 13:38 IST
+
+REQUEST
+- All Bill outward movements must go to KJPL Office.
+
+IMPLEMENTED
+1. KJPL Office is the fixed destination for every Bill Factory Out.
+2. Stock, KJPL customer, and external customer orders use the same destination.
+3. Original customer identity remains saved separately for traceability.
+4. Existing posted Bill ledger rows are regenerated under KJPL Office.
+5. Bill ledger edits cannot override the KJPL Office vendor.
+6. Weight, WSTG, reference, remarks, and other permitted Bill corrections remain editable.
+7. Manual metal / stock Factory Out remains vendor-selectable and unchanged.
+8. New Bills, QC OK Office transfers, summaries, alerts, print labels, and route badges show KJPL Office consistently.
+
+VALIDATION
+- JavaScript syntax: PASS.
+- KJPL-STOCK route to KJPL Office: PASS.
+- KJPL named customer route to KJPL Office: PASS.
+- External customer route to KJPL Office: PASS.
+- Blank / legacy customer route to KJPL Office: PASS.
+- Manual Bill edit cannot replace KJPL Office: PASS.
+- Allowed Bill weight and remark correction remains available: PASS.
+- No Supabase schema change required.
+
+DATA SAFETY
+- No Bill, Job Card, customer, production, stock, image, or cloud record is deleted.
+- Historical Bill customer names remain available as Original Party.
+- The corrected Bill ledger destination is applied through the normal idempotent ledger synchronization.

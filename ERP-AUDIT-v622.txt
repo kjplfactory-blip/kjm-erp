@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v622 AUDIT
+Date: 2026-09-25 IST
+
+BLUE VISUAL THEME
+- Complete screen theme changed from green to blue.
+- Sidebar: navy-to-blue gradient.
+- Active navigation and primary actions: royal blue.
+- Tiles and hover states: pale blue with blue borders.
+- Forms: blue focus rings and clear white input surfaces.
+- Tables: pale-blue headers and row hover states.
+- Panels and dialogs: blue-grey borders with neutral white surfaces.
+- Login background, top header, floating brand, Setting Manager, and Manual Transfer follow the same palette.
+- Gold VELLA accents, red warnings, pink customer print highlighting, and semantic status colours remain distinct.
+
+SAFETY
+- CSS-only visual change; ERP state and calculations are untouched.
+- Print sizing and print-specific layouts are not overridden.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- Automated blue palette and CSS cascade test passed.
+- CSS braces are balanced and all linked local assets exist.
+- Core legacy green brand codes are absent from every loaded stylesheet.
+- v621 image preview, v620 fitting quantity, and v618-v619 Setting regression tests passed.

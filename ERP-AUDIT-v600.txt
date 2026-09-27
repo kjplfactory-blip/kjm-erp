@@ -1,0 +1,16 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v600
+Date: 2026-09-23 IST
+
+CORRECTION
+- ISSUE - RECEIVE on Dashboard represents the actual department GW balance.
+- Formula: GW issued into department - GW received from department.
+- It no longer compares Issue GW and Receive GW within outgoing transfers only.
+
+DISPLAY
+- Department tile: ISSUE - RECEIVE GW.
+- Department hover: ISSUED TO DEPARTMENT, RECEIVED FROM DEPARTMENT, and ISSUE - RECEIVE.
+- Department Transfer History uses the same calculation.
+
+DATA SAFETY
+- No ERP transaction or cloud record is modified.
+- This change only corrects the displayed calculation and labels.

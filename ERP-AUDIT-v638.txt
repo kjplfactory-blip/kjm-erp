@@ -1,0 +1,35 @@
+KHUSHALI JEWELLS MANUFACTURING ERP
+VERSION v638 MULTI-LAPTOP LIVE SYNC AUDIT
+
+PROBLEMS FOUND
+- Realtime subscribed directly to the large erp_state row, so every save could send the complete ERP JSON to every connected laptop.
+- A newer local change could start another cloud save while the previous save was still running.
+- A retry after a concurrent save reused its original client timestamp, which could move the cloud revision backward when laptop clocks differed.
+- Background failure backoff could grow to five minutes, delaying another laptop from receiving recovered cloud data.
+
+LIVE SYNC FIX
+- Added erp_sync_signal, a tiny row containing only id, app version, and updated time.
+- Realtime and 15-second fallback checks now watch the small signal instead of transmitting the complete ERP state.
+- A database trigger updates the signal for new and older ERP builds whenever erp_state changes.
+- The large erp_state row is removed from the Realtime publication; older builds continue their compatible timed revision checks until they auto-update.
+- The full cloud state is downloaded only when the signal revision changes.
+
+MULTI-USER SAVE SAFETY
+- Only one cloud save can run at a time on each laptop.
+- Edits made during an active save remain in the persistent local mutation queue and upload immediately afterward.
+- The atomic Supabase function still locks and compares the cloud revision before writing.
+- Concurrent laptop changes are reloaded, merged by record, and retried without overwriting unmatched records.
+- Database and browser revisions are forced to increase monotonically, protecting updates from clock differences.
+- Failed or timed-out saves remain queued locally and retry after 5, 10, 20, 40, then at most 60 seconds.
+
+SETUP
+- Run SUPABASE-LIVE-SYNC-v638.sql once in Supabase SQL Editor.
+- The SQL is non-destructive and contains no ERP reset or live-state deletion.
+- Upload the complete v638 folder and upload app-version.json last.
+
+VERIFICATION
+- JavaScript syntax check.
+- Existing multi-laptop merge and deletion-marker tests.
+- Existing v637 lightweight preflight and atomic-save tests.
+- v638 signal, serialization, monotonic revision, and non-destructive SQL tests.
+- Browser loading and console smoke test.

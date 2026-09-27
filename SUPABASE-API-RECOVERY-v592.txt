@@ -1,0 +1,32 @@
+KHUSHALI JEWELLS ERP v592 - SUPABASE API RECOVERY
+
+WHAT v592 FIXES
+1. One shared retry timer prevents polling, focus, reconnect, and save requests from multiplying.
+2. Transient failures use exponential backoff with jitter: about 10 seconds up to 5 minutes.
+3. Realtime remains immediate; fallback revision polling is reduced to once every 45 seconds.
+4. A daily safety backup reuses the pre-save ERP read instead of downloading the large JSON twice.
+5. Backup creation ignores an already existing (state_id, backup_key) safely.
+6. An older website build stops blocked write retries and waits for the latest deployed build.
+7. Timed-out requests are cancelled so they do not keep using browser and API connections.
+
+ONE-TIME SUPABASE CHECK
+1. Wait until the Supabase project dashboard opens normally.
+2. Open SQL Editor.
+3. Run SUPABASE-API-HEALTH-v592.sql.
+4. Confirm the erp_state index list includes a PRIMARY KEY or UNIQUE btree index on id.
+5. Confirm the query plan uses an index lookup and the duplicate-backup query returns no rows.
+
+DASHBOARD HEALTH CHECK
+Open Supabase Dashboard > Reports and review the failure time range for:
+- Database CPU
+- Memory
+- Disk I/O
+- Active database connections
+- Restarts / unavailable periods
+
+If CPU, memory, disk I/O, or connections remain saturated after all laptops use v592,
+review the state JSON size from the SQL report and consider increasing Supabase compute.
+
+DEPLOYMENT
+Upload every v592 website file together, including app-version.json. Older website tabs will
+detect v592 and refresh automatically after their local pending data is safe.
