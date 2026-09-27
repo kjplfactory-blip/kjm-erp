@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v644";
+const APP_VERSION = "v645";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -16656,6 +16656,10 @@ async function mergeSelectedItemsIntoJobCard(event) {
   ].forEach((records) => (records || []).forEach((record) => {
     refreshMovedItemJobReference(record, selectedOrderIds, sourceJobNumber, targetJobNumber, sourceWillBeEmpty, movedAt);
   }));
+  const settingWeightSyncCount = syncSettingEntriesForUpdatedStoneOrders(
+    [...destinationOrders, ...selectedOrders],
+    `Job Card item merge ${sourceJobNumber} to ${targetJobNumber}`,
+  );
   state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -16672,7 +16676,8 @@ async function mergeSelectedItemsIntoJobCard(event) {
     mergeGrossWeight: appliedWeightSummary.grossWeight,
     mergeStoneWeight: appliedWeightSummary.stoneWeight,
     mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
-    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); physical production stock and transfers unchanged.`,
+    settingWeightSyncCount,
+    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; physical production stock and transfers unchanged.`,
   });
 
   if (submitButton) {
@@ -16705,7 +16710,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const cloudMessage = savedToCloud
     ? "Saved on this laptop and confirmed in Supabase cloud."
     : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\nAll PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
+  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}All PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
 }
 
 function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
@@ -24247,45 +24252,90 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card
   let updated = 0;
   (state.lots || []).forEach((lot) => {
     if (!getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))) return;
-    const handStoneWeight = plannedHandStoneWeightForLot(lot);
     const settingEntries = (state.settingManagerEntries || []).filter((entry) => entry.lotId === lot.id && entry.entryType !== "Accessory");
     const currentEntry = settingEntries.find((entry) => entry.status === "Issued")
       || settingEntries.find((entry) => entry.status === "Received");
-    if (!currentEntry) return;
+    const selectedOrders = currentEntry?.selectedOrderIds?.length
+      ? currentEntry.selectedOrderIds.map((orderId) => findById("orders", orderId)).filter(Boolean)
+      : getLotOrders(lot);
+    const handStoneWeight = Number(weight3(productionStoneTotalsForOrders(selectedOrders, "hand").weight || 0));
+    const waxStoneWeight = Number(weight3(transferWaxStoneWeight(lot)));
+    const syncedAt = new Date().toISOString();
 
-    const before = JSON.stringify({
-      handStoneWeight: currentEntry.handStoneWeight,
-      handStoneWeightSource: currentEntry.handStoneWeightSource,
-      receiveNetWeight: currentEntry.receiveNetWeight,
-      balanceWeight: currentEntry.balanceWeight,
-      difference: currentEntry.difference,
-    });
-    currentEntry.handStoneWeight = handStoneWeight;
-    currentEntry.handStoneWeightSource = "Job Card";
-    if (currentEntry.receiveGw !== undefined && currentEntry.receiveGw !== null && String(currentEntry.receiveGw) !== "") {
-      const receiveNetWeight = Number(weight3(Number(currentEntry.receiveGw || 0) - handStoneWeight));
-      const returnedMaterialWeight = settingReturnMaterialTotal(normalizeSettingReturnMaterialBreakdown(currentEntry));
-      const balanceWeight = Number(weight3(
-        Number(currentEntry.issueGw || 0)
-        - receiveNetWeight
-        - returnedMaterialWeight
-        - Number(currentEntry.setterLossWeight || 0)
-      ));
-      currentEntry.receiveNetWeight = receiveNetWeight;
-      currentEntry.balanceWeight = Number(weight3(Math.max(balanceWeight, 0)));
-      currentEntry.difference = Number(weight3(receiveNetWeight - Number(currentEntry.issueGw || 0)));
+    if (currentEntry) {
+      const before = JSON.stringify({
+        jobNumber: currentEntry.jobNumber,
+        handStoneWeight: currentEntry.handStoneWeight,
+        handStoneWeightSource: currentEntry.handStoneWeightSource,
+        waxStoneWeight: currentEntry.waxStoneWeight,
+        totalStoneWeight: currentEntry.totalStoneWeight,
+        nonGoldWeight: currentEntry.nonGoldWeight,
+        currentNetWeight: currentEntry.currentNetWeight,
+        receiveNetWeight: currentEntry.receiveNetWeight,
+        balanceWeight: currentEntry.balanceWeight,
+        difference: currentEntry.difference,
+      });
+      currentEntry.jobNumber = lot.orderNumber || currentEntry.jobNumber || "";
+      currentEntry.handStoneWeight = handStoneWeight;
+      currentEntry.handStoneWeightSource = "Job Card";
+      if (currentEntry.receiveGw !== undefined && currentEntry.receiveGw !== null && String(currentEntry.receiveGw) !== "") {
+        const receiveNetWeight = Number(weight3(Number(currentEntry.receiveGw || 0) - handStoneWeight));
+        const returnedMaterialWeight = settingReturnMaterialTotal(normalizeSettingReturnMaterialBreakdown(currentEntry));
+        const balanceWeight = Number(weight3(
+          Number(currentEntry.issueGw || 0)
+          - receiveNetWeight
+          - returnedMaterialWeight
+          - Number(currentEntry.setterLossWeight || 0)
+        ));
+        currentEntry.receiveNetWeight = receiveNetWeight;
+        currentEntry.balanceWeight = Number(weight3(Math.max(balanceWeight, 0)));
+        currentEntry.difference = Number(weight3(receiveNetWeight - Number(currentEntry.issueGw || 0)));
+      }
+      const liveTotals = departmentCurrentLotTotals(lot);
+      currentEntry.waxStoneWeight = Number(weight3(liveTotals.waxStone || waxStoneWeight));
+      currentEntry.totalStoneWeight = Number(weight3(currentEntry.waxStoneWeight + handStoneWeight));
+      currentEntry.nonGoldWeight = Number(weight3(liveTotals.nonGold || 0));
+      currentEntry.currentNetWeight = Number(weight3(liveTotals.gold || 0));
+      const after = JSON.stringify({
+        jobNumber: currentEntry.jobNumber,
+        handStoneWeight: currentEntry.handStoneWeight,
+        handStoneWeightSource: currentEntry.handStoneWeightSource,
+        waxStoneWeight: currentEntry.waxStoneWeight,
+        totalStoneWeight: currentEntry.totalStoneWeight,
+        nonGoldWeight: currentEntry.nonGoldWeight,
+        currentNetWeight: currentEntry.currentNetWeight,
+        receiveNetWeight: currentEntry.receiveNetWeight,
+        balanceWeight: currentEntry.balanceWeight,
+        difference: currentEntry.difference,
+      });
+      if (before !== after) {
+        currentEntry.stonePlanSyncedAt = syncedAt;
+        currentEntry.stonePlanSyncReason = reason;
+        currentEntry.jobCardMergeWeightSyncedAt = reason.toLowerCase().includes("merge") ? syncedAt : currentEntry.jobCardMergeWeightSyncedAt || "";
+        updated += 1;
+      }
     }
-    const after = JSON.stringify({
-      handStoneWeight: currentEntry.handStoneWeight,
-      handStoneWeightSource: currentEntry.handStoneWeightSource,
-      receiveNetWeight: currentEntry.receiveNetWeight,
-      balanceWeight: currentEntry.balanceWeight,
-      difference: currentEntry.difference,
-    });
-    if (before !== after) {
-      currentEntry.stonePlanSyncedAt = new Date().toISOString();
-      currentEntry.stonePlanSyncReason = reason;
-      updated += 1;
+
+    if (isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`) || currentEntry) {
+      const liveTotals = departmentCurrentLotTotals(lot);
+      const snapshotValues = {
+        jobNumber: lot.orderNumber || "",
+        grossWeight: Number(weight3(liveTotals.gross || currentTransferIssueWeight(lot))),
+        waxStoneWeight: Number(weight3(liveTotals.waxStone || waxStoneWeight)),
+        plannedHandStoneWeight: handStoneWeight,
+        physicalHandStoneWeight: Number(weight3(liveTotals.handStone || 0)),
+        stoneWeight: Number(weight3(Number(liveTotals.waxStone || waxStoneWeight) + handStoneWeight)),
+        nonGoldWeight: Number(weight3(liveTotals.nonGold || 0)),
+        netGoldWeight: Number(weight3(liveTotals.gold || 0)),
+      };
+      const previousSnapshot = lot.settingWeightSnapshot || {};
+      const previousValues = Object.fromEntries(Object.keys(snapshotValues).map((key) => [key, previousSnapshot[key]]));
+      if (JSON.stringify(previousValues) !== JSON.stringify(snapshotValues)) {
+        lot.settingWeightSnapshot = { ...snapshotValues, syncedAt, reason };
+        lot.settingWeightSyncedAt = syncedAt;
+        lot.settingWeightSyncReason = reason;
+        updated += 1;
+      }
     }
   });
   return updated;
@@ -28872,8 +28922,17 @@ function departmentCurrentLotTotals(lot) {
   const grossBase = Number(currentTransferIssueWeight(lot) || 0);
   const lotWaxStone = Number(transferWaxStoneWeight(lot) || 0);
   const existingHandStone = Number(currentHandStoneWeight(lot) || 0);
-  // Planned hand stones are physical stock only after Setting records the received GW.
-  const handStone = existingHandStone;
+  const settingEntry = isSettingDepartment(`${lot.currentDepartment || ""} ${lot.karigarName || ""}`)
+    ? latestSettingEntryForLot(lot.id)
+    : null;
+  const receivedSettingHandStone = settingEntry?.status === "Received"
+    && settingEntry.receiveGw !== undefined
+    && settingEntry.receiveGw !== null
+    && String(settingEntry.receiveGw) !== ""
+    ? Number(settingEntry.handStoneWeight || 0)
+    : 0;
+  // Planned hand stones become physical department stock only after the setter return is recorded.
+  const handStone = Number(weight3(Math.max(existingHandStone, receivedSettingHandStone)));
   const directNonGold = productionNonGoldTotalsForLot(lot, { includeSafeShelfIssues: false }).weight;
   const includedNonGold = Number(lot.issueOtherNonGoldWeight || 0);
   const linkedSafe = safeJobIssuePhysicalTotalsForLot(lot);
@@ -30284,6 +30343,10 @@ async function mergeSelectedJobCards(event) {
     state.settingManagerEntries,
     state.factoryLedger,
   ].forEach((records) => (records || []).forEach((record) => updateMergedJobReference(record, sourceJobNumbers, primaryJobNumber, mergedAt)));
+  const settingWeightSyncCount = syncSettingEntriesForUpdatedStoneOrders(
+    mergedOrders,
+    `Job Card merge ${sourceSummary} to ${primaryJobNumber}`,
+  );
   state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -30298,7 +30361,8 @@ async function mergeSelectedJobCards(event) {
     mergeGrossWeight: appliedWeightSummary.grossWeight,
     mergeStoneWeight: appliedWeightSummary.stoneWeight,
     mergeNonGoldWeight: appliedWeightSummary.nonGoldWeight,
-    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock unchanged.`,
+    settingWeightSyncCount,
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock unchanged.`,
   });
 
   if (submitButton) {
@@ -30327,7 +30391,7 @@ async function mergeSelectedJobCards(event) {
     submitButton.textContent = submitLabel;
   }
   const cloudMessage = savedToCloud ? "Saved on this laptop and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically.";
-  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
+  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} No production lot, PR number, weight, or transfer entry was deleted.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
@@ -32936,6 +33000,13 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     issueGw,
     handStoneWeight,
     handStoneWeightSource,
+    waxStoneWeight: Number(weight3(entry.waxStoneWeight || 0)),
+    totalStoneWeight: Number(weight3(entry.totalStoneWeight ?? (Number(entry.waxStoneWeight || 0) + handStoneWeight))),
+    nonGoldWeight: Number(weight3(entry.nonGoldWeight || 0)),
+    currentNetWeight: Number(weight3(entry.currentNetWeight || 0)),
+    stonePlanSyncedAt: entry.stonePlanSyncedAt || "",
+    stonePlanSyncReason: entry.stonePlanSyncReason || "",
+    jobCardMergeWeightSyncedAt: entry.jobCardMergeWeightSyncedAt || "",
     receiveGw,
     receiveNetWeight,
     rawaWeight,
@@ -34410,23 +34481,28 @@ function renderSettingManager() {
 
   const lotRows = settingLots.map((lot) => {
     const pendingEntry = settingPendingEntryForLot(lot.id);
+    const latestEntry = latestSettingEntryForLot(lot.id);
     const hasJobCardStonePlan = lotHasJobCardStonePlan(lot);
     const displayedHandStoneWeight = hasJobCardStonePlan ? plannedHandStoneWeightForLot(lot) : (pendingEntry?.handStoneWeight ?? productionStoneWeightForTransfer(lot));
     const displayedHandStoneSource = hasJobCardStonePlan ? "Updated Job Card" : (pendingEntry?.handStoneWeightSource || "Manual");
+    const liveTotals = departmentCurrentLotTotals(lot);
+    const handStoneState = latestEntry?.status === "Received" ? "Received" : "Planned";
     const historyButton = isSettingManagerUser() ? "" : `<button class="ghost-button" type="button" onclick="openLotHistory('${lot.id}')">History</button>`;
     return `
       <tr>
         <td>${escapeHtml(lot.number || "-")}</td>
         <td>${escapeHtml(lot.orderNumber || "-")}</td>
         <td>${settingLotCustomerItemsHtml(lot)}</td>
-        <td>${gram(currentTransferIssueWeight(lot))}</td>
-        <td>${gram(displayedHandStoneWeight)}<br><small>${escapeHtml(displayedHandStoneSource)}</small></td>
+        <td><strong>${gram(liveTotals.gross)}</strong></td>
+        <td><strong>${gram(Number(liveTotals.waxStone || 0) + Number(displayedHandStoneWeight || 0))}</strong><br><small>Wax ${gram(liveTotals.waxStone)} / Hand ${gram(displayedHandStoneWeight)} ${escapeHtml(handStoneState)} / ${escapeHtml(displayedHandStoneSource)}</small></td>
+        <td><strong>${gram(liveTotals.nonGold)}</strong><br><small>BB / Moti / Spring / Other</small></td>
+        <td><strong>${gram(liveTotals.gold)}</strong><br><small>Current physical net</small></td>
         <td>${settingStatusHtml(lot)}</td>
         <td><div class="row-actions"><button class="ghost-button" type="button" onclick="openSettingManagerJobCard('${lot.id}')">Open Job Card</button>${pendingEntry ? `<button type="button" onclick="openSettingReceive('${pendingEntry.id}')">Receive</button>` : `<button type="button" onclick="openSettingIssueForLot('${lot.id}')">Issue / Split</button>`}${historyButton}</div></td>
       </tr>
     `;
   }).join("");
-  document.getElementById("setting-manager-lot-table").innerHTML = lotRows || tableEmpty(7, "No lot is currently in Setting Department.");
+  document.getElementById("setting-manager-lot-table").innerHTML = lotRows || tableEmpty(9, "No lot is currently in Setting Department.");
 
   const manualProductionRows = manualProductionSources.map((source) => {
     const issue = safeDepartmentIssuesInHand().find((item) => item.id === source.id) || {};
