@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=647">
+      <link rel="stylesheet" href="styles.css?v=649">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v647</small>
+      <small class="app-version-badge">App v649</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v647</span>
+          <span class="app-version-badge">App v649</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -140,7 +140,7 @@
             <button id="download-data-backup" class="ghost-button owner-only" type="button">Backup Data</button>
             <button id="restore-data-backup" class="ghost-button owner-only" type="button">Restore Backup</button>
             <input id="restore-data-backup-file" type="file" accept="application/json,.json" hidden>
-            <button id="reset-demo" class="danger-button owner-only">Reset Inventory</button>
+            <button id="reset-demo" class="danger-button owner-only">Manual Reset</button>
           </div>
           <div class="top-action-group user-group" aria-label="Current user">
             <span id="active-user" class="user-pill">Not logged in</span>
@@ -1261,15 +1261,14 @@
             <span>Customer, vendor, design, stone, department, catalogue, and login details remain available.</span>
             <span>After reset, open Factory In and add your actual inventory.</span>
           </div>
-          <button id="reset-factory-inventory-zero" class="danger-button" type="button">Reset Inventory To Zero</button>
+          <button id="reset-factory-inventory-zero" class="danger-button" type="button">Open Manual Reset Selection</button>
           <div class="factory-reset-warning factory-reset-keep-jobs">
-            <strong>One-Time Reset: Keep JOB-1681 Onward</strong>
-            <span>Keeps every Job Order item whose Job Card number is greater than JOB-1680.</span>
-            <span>Retained Job Orders return to Pending so metal can be issued again. Old production, bill, stock, safe, melting, XRF, ledger, and non-gold entries are cleared.</span>
-            <span>A complete JSON data backup is downloaded before this one-time reset starts.</span>
-            <span id="one-time-job-reset-status">This special reset has not been used.</span>
+            <strong>All Reset Actions Use The Selection Window</strong>
+            <span>The earlier one-time JOB-1681 reset is retained only as historical compatibility logic.</span>
+            <span>Use the selection window above for every new reset so Job Cards, edited stone entries, bills, stock and history are handled explicitly.</span>
+            <span id="one-time-job-reset-status">Manual Reset selection is ready.</span>
           </div>
-          <button id="reset-inventory-keep-jobs-after-1680" class="danger-button one-time-reset-button" type="button">One-Time Reset - Keep JOB-1681 Onward</button>
+          <button id="reset-inventory-keep-jobs-after-1680" class="danger-button one-time-reset-button" type="button">Open Manual Reset Selection</button>
         </section>
       </section>
 
@@ -1773,6 +1772,126 @@
 
       <section id="transfer-history" class="view"></section>
     </main>
+
+    <dialog id="manual-reset-dialog" class="manual-reset-dialog">
+      <div class="dialog-card manual-reset-dialog-card">
+        <div class="dialog-header manual-reset-header">
+          <div>
+            <span class="manual-reset-eyebrow">Owner Controlled / Backup First</span>
+            <h2>Manual Reset Selection</h2>
+            <p class="dialog-note">Choose what should become zero and what must remain. Nothing changes until the final confirmation.</p>
+          </div>
+          <button id="close-manual-reset" class="ghost-button" type="button">Close</button>
+        </div>
+
+        <div id="manual-reset-current-summary" class="manual-reset-current-summary"></div>
+
+        <form id="manual-reset-form" class="manual-reset-form">
+          <section class="manual-reset-choice-card selected-reset-card" data-reset-section="gold">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">G</span>
+              <div><strong>Factory Gold Inventory</strong><small>Metal Safe, shelves, production gold, department gold, melting, casting and XRF.</small></div>
+            </div>
+            <label><input type="radio" name="goldMode" value="G1" checked> <b>G1</b> Reset all current factory gold holdings to 0.000 g</label>
+            <label><input type="radio" name="goldMode" value="G2"> <b>G2</b> Keep current factory gold holdings</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="non-gold">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">A</span>
+              <div><strong>Non-Gold Inventory</strong><small>Stone, Black Beads, Moti, Spring and Other non-gold stock.</small></div>
+            </div>
+            <label><input type="radio" name="nonGoldMode" value="A1"> <b>A1</b> Reset all current non-gold stock to zero</label>
+            <label><input type="radio" name="nonGoldMode" value="A2"> <b>A2</b> Keep current non-gold stock</label>
+            <label><input type="radio" name="nonGoldMode" value="A3" checked> <b>A3</b> Reset to zero and open Shelf entry for fresh stock</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="jobs">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">B</span>
+              <div><strong>Job Cards and Edited Stone Entries</strong><small>Design, PR, stone rows, Moti, fitting accessories and remarks are retained with the Job Card.</small></div>
+            </div>
+            <label><input type="radio" name="jobCardMode" value="B1" checked> <b>B1</b> Keep every Job Card; active cards restart at Pending Metal Issue</label>
+            <label><input type="radio" name="jobCardMode" value="B2"> <b>B2</b> Keep every Job Card and its saved status text</label>
+            <label><input type="radio" name="jobCardMode" value="B3"> <b>B3</b> Clear every Job Card and PR item</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="production">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">C</span>
+              <div><strong>Production Operations</strong><small>Lots, transfers, Setting entries, losses, melting, casting and XRF operations.</small></div>
+            </div>
+            <label><input type="radio" name="productionMode" value="C1" checked> <b>C1</b> Clear live operations; keep a reset audit summary and the downloaded backup</label>
+            <label><input type="radio" name="productionMode" value="C2"> <b>C2</b> Clear live operations and transfer correction logs</label>
+            <label><input type="radio" name="productionMode" value="C3"> <b>C3</b> Keep all live production operations</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="bills">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">F</span>
+              <div><strong>Bills, QC and Item Weight Details</strong><small>Kept bills remain viewable but are not posted again against fresh factory stock.</small></div>
+            </div>
+            <label><input type="radio" name="billMode" value="F1" checked> <b>F1</b> Keep every bill and its individual item data</label>
+            <label><input type="radio" name="billMode" value="F2"> <b>F2</b> Clear all bills, QC entries and bill deletion history</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="ledger">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">D</span>
+              <div><strong>Factory Ledger and Vendor Balances</strong><small>Factory In/Out history and party fine balances.</small></div>
+            </div>
+            <label><input type="radio" name="ledgerMode" value="D1" checked> <b>D1</b> Start a new zero ledger and zero vendor balances</label>
+            <label><input type="radio" name="ledgerMode" value="D2"> <b>D2</b> Start a new ledger but carry current vendor fine balances as opening entries</label>
+            <label><input type="radio" name="ledgerMode" value="D3"> <b>D3</b> Keep the complete Factory In/Out ledger and vendor balances</label>
+          </section>
+
+          <section class="manual-reset-choice-card" data-reset-section="reports">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">E</span>
+              <div><strong>Fine Sheet Backups and Daily Tally</strong><small>Historical comparison records do not create stock by themselves.</small></div>
+            </div>
+            <label><input type="radio" name="reportMode" value="E1" checked> <b>E1</b> Keep saved Fine Sheet snapshots and Daily Tally history</label>
+            <label><input type="radio" name="reportMode" value="E2"> <b>E2</b> Clear saved Fine Sheet snapshots and Daily Tally history</label>
+          </section>
+
+          <section class="manual-reset-choice-card manual-reset-locked-card">
+            <div class="manual-reset-choice-head">
+              <span class="manual-reset-code">LOCK</span>
+              <div><strong>Masters Are Always Protected</strong><small>Design images, Design stone/Moti entries, Stone Library, Moti Library, Catalogue, Customers, Vendors, Departments, Setters, Users, passwords and permissions are never cleared by this reset.</small></div>
+            </div>
+          </section>
+
+          <section class="manual-reset-preview-panel">
+            <div class="manual-reset-preview-head">
+              <div><strong>Selected Reset Result</strong><small>Review every line before continuing.</small></div>
+              <span id="manual-reset-selection-code" class="manual-reset-selection-code">G1 / A3 / B1 / C1 / F1 / D1 / E1</span>
+            </div>
+            <div id="manual-reset-preview" class="manual-reset-preview"></div>
+            <p id="manual-reset-validation" class="manual-reset-validation"></p>
+          </section>
+
+          <section class="manual-reset-confirm-panel">
+            <div class="factory-reset-warning">
+              <strong>A complete JSON backup downloads first</strong>
+              <span>The reset is then saved locally and sent to Supabase as one protected state update.</span>
+              <span>Older laptops are blocked from restoring data from before this reset.</span>
+            </div>
+            <label>Owner Password <input name="ownerPassword" type="password" autocomplete="current-password" required></label>
+            <label>Type RESET TO ZERO <input name="confirmation" autocomplete="off" placeholder="RESET TO ZERO" required></label>
+            <label class="manual-reset-final-check"><input name="understood" type="checkbox" required> I have reviewed the selected codes and understand the selected data will be reset.</label>
+            <div class="dialog-actions">
+              <button id="cancel-manual-reset" class="ghost-button" type="button">Cancel</button>
+              <button id="run-manual-reset" class="danger-button" type="submit">Backup And Run Selected Reset</button>
+            </div>
+          </section>
+        </form>
+
+        <section class="manual-reset-history-panel">
+          <div class="panel-heading"><div><h3>Manual Reset Audit</h3><p class="dialog-note">Latest reset selections recorded in the ERP.</p></div></div>
+          <div id="manual-reset-history" class="manual-reset-history"></div>
+        </section>
+      </div>
+    </dialog>
 
     <dialog id="daily-tally-container-dialog">
       <div class="dialog-card daily-tally-container-dialog-card">
@@ -3473,7 +3592,7 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="app.js?v=647"></script>
+    <script src="app.js?v=649"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

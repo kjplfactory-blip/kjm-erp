@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v647";
+const APP_VERSION = "v649";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -502,6 +502,7 @@ const demoState = {
   settingManagerEntries: [],
   melting: [],
   xrfTests: [],
+  manualResetHistory: [],
   oneTimeJob1680ResetAt: "",
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
@@ -1073,9 +1074,13 @@ document.getElementById("download-data-backup")?.addEventListener("click", downl
 document.getElementById("restore-data-backup")?.addEventListener("click", () => document.getElementById("restore-data-backup-file")?.click());
 document.getElementById("restore-data-backup-file")?.addEventListener("change", restoreErpDataBackup);
 
-document.getElementById("reset-demo").addEventListener("click", resetFactoryInventoryToZeroFromUi);
-document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", resetFactoryInventoryToZeroFromUi);
-document.getElementById("reset-inventory-keep-jobs-after-1680")?.addEventListener("click", resetInventoryKeepingJobsAfter1680FromUi);
+document.getElementById("reset-demo").addEventListener("click", openManualResetDialog);
+document.getElementById("reset-factory-inventory-zero")?.addEventListener("click", openManualResetDialog);
+document.getElementById("close-manual-reset")?.addEventListener("click", closeManualResetDialog);
+document.getElementById("cancel-manual-reset")?.addEventListener("click", closeManualResetDialog);
+document.getElementById("manual-reset-form")?.addEventListener("change", renderManualResetPreview);
+document.getElementById("manual-reset-form")?.addEventListener("submit", runManualResetFromUi);
+document.getElementById("reset-inventory-keep-jobs-after-1680")?.addEventListener("click", openManualResetDialog);
 
 document.getElementById("create-fitting-accessories-job")?.addEventListener("click", openFittingAccessoriesJobDialog);
 document.getElementById("close-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
@@ -6102,6 +6107,471 @@ async function resetFactoryData() {
   return cloudSaved;
 }
 
+function manualResetSelectedValue(form, name, fallback = "") {
+  return form?.querySelector(`[name="${name}"]:checked`)?.value || fallback;
+}
+
+function manualResetOptions(form = document.getElementById("manual-reset-form")) {
+  return {
+    goldMode: manualResetSelectedValue(form, "goldMode", "G1"),
+    nonGoldMode: manualResetSelectedValue(form, "nonGoldMode", "A3"),
+    jobCardMode: manualResetSelectedValue(form, "jobCardMode", "B1"),
+    productionMode: manualResetSelectedValue(form, "productionMode", "C1"),
+    billMode: manualResetSelectedValue(form, "billMode", "F1"),
+    ledgerMode: manualResetSelectedValue(form, "ledgerMode", "D1"),
+    reportMode: manualResetSelectedValue(form, "reportMode", "E1"),
+  };
+}
+
+function manualResetSelectionCode(options = manualResetOptions()) {
+  return [
+    options.goldMode,
+    options.nonGoldMode,
+    options.jobCardMode,
+    options.productionMode,
+    options.billMode,
+    options.ledgerMode,
+    options.reportMode,
+  ].join(" / ");
+}
+
+function manualResetValidationMessage(options = manualResetOptions()) {
+  if (options.goldMode === "G1" && options.productionMode === "C3") {
+    return "G1 cannot be combined with C3. Live production lots contain factory gold. Choose C1 or C2 to make factory gold zero.";
+  }
+  if (options.jobCardMode === "B1" && options.productionMode === "C3") {
+    return "B1 restarts active Job Cards, so live production operations must also be cleared with C1 or C2.";
+  }
+  if (options.jobCardMode === "B3" && options.billMode === "F1") {
+    return "Bills depend on their Job Card item details. Choose F2 before clearing every Job Card with B3.";
+  }
+  if (options.billMode === "F2" && options.productionMode === "C3") {
+    return "Live production can contain Bill/QC links. Choose C1 or C2 before clearing bills with F2.";
+  }
+  return "Selection is consistent. Masters and edited stone data inside retained Job Cards are protected.";
+}
+
+function manualResetIsValid(options = manualResetOptions()) {
+  return manualResetValidationMessage(options).startsWith("Selection is consistent");
+}
+
+function manualResetCurrentStats() {
+  const physical = factoryPhysicalStock();
+  const jobCards = new Set((state.orders || []).map((order) => order.jobNumber || order.number).filter(Boolean));
+  const editedStoneItems = (state.orders || []).filter((order) => order.productionStoneOverride === true).length;
+  return {
+    jobCards: jobCards.size,
+    jobItems: (state.orders || []).length,
+    editedStoneItems,
+    bills: (state.bills || []).length,
+    productionLots: (state.lots || []).filter((lot) => !lot.manualResetHistoricalAt).length,
+    goldWeight: Number(physical.goldWeight || 0),
+    nonGoldWeight: Number(physical.nonGoldWeight || 0),
+    grossWeight: Number(physical.grossWeight || 0),
+    factoryLedger: (state.factoryLedger || []).length,
+  };
+}
+
+function manualResetSummaryItem(label, value, note = "") {
+  return `<div class="manual-reset-summary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
+}
+
+function manualResetPreviewItem(label, value, note = "") {
+  return `<div class="manual-reset-preview-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ""}</div>`;
+}
+
+function renderManualResetHistory() {
+  const target = document.getElementById("manual-reset-history");
+  if (!target) return;
+  const rows = (state.manualResetHistory || []).slice(0, 10);
+  target.innerHTML = rows.length
+    ? rows.map((entry) => `
+      <div class="manual-reset-history-row">
+        <div><strong>${escapeHtml(new Date(entry.resetAt).toLocaleString("en-IN"))}</strong><small>${escapeHtml(entry.performedBy || "Owner")}</small></div>
+        <div><strong>${escapeHtml(entry.selectionCode || "Manual Reset")}</strong><small>${escapeHtml(entry.reason || "Selected inventory reset")}</small></div>
+        <div><strong>${escapeHtml(`Gold ${gram(entry.beforeGold || 0)} to ${gram(entry.afterGold || 0)}`)}</strong><small>${escapeHtml(`${entry.keptJobCards || 0} Job Cards / ${entry.keptBills || 0} bills kept`)}</small></div>
+      </div>
+    `).join("")
+    : `<div class="empty-state">No manual reset has been run yet.</div>`;
+}
+
+function renderManualResetPreview() {
+  const form = document.getElementById("manual-reset-form");
+  if (!form) return;
+  const options = manualResetOptions(form);
+  const stats = manualResetCurrentStats();
+  const summary = document.getElementById("manual-reset-current-summary");
+  if (summary) {
+    summary.innerHTML = [
+      manualResetSummaryItem("Current Factory GW", gram(stats.grossWeight), `Gold ${gram(stats.goldWeight)} / Non-Gold ${gram(stats.nonGoldWeight)}`),
+      manualResetSummaryItem("Job Cards", String(stats.jobCards), `${stats.jobItems} PR items / ${stats.editedStoneItems} edited stone items`),
+      manualResetSummaryItem("Bills", String(stats.bills), "Bill item data currently saved"),
+      manualResetSummaryItem("Live Operations", String(stats.productionLots), `${stats.factoryLedger} Factory Ledger entries`),
+    ].join("");
+  }
+  const code = manualResetSelectionCode(options);
+  const codeNode = document.getElementById("manual-reset-selection-code");
+  if (codeNode) codeNode.textContent = code;
+  const preview = document.getElementById("manual-reset-preview");
+  if (preview) {
+    const goldResult = options.goldMode === "G1" ? "0.000 g gold" : gram(stats.goldWeight);
+    const nonGoldResult = options.nonGoldMode === "A2" ? gram(stats.nonGoldWeight) : "0.000 g non-gold";
+    const jobsResult = options.jobCardMode === "B3"
+      ? "All cleared"
+      : `${stats.jobCards} kept`;
+    const jobNote = options.jobCardMode === "B1"
+      ? "Active cards restart at Pending; all edited stone rows remain"
+      : options.jobCardMode === "B2"
+        ? "Saved Job Card status text remains"
+        : "PR and edited production stone data will be removed";
+    preview.innerHTML = [
+      manualResetPreviewItem("Factory Gold After Reset", goldResult, options.goldMode === "G1" ? "New Factory In entries can start from zero" : "No gold reset selected"),
+      manualResetPreviewItem("Non-Gold After Reset", nonGoldResult, options.nonGoldMode === "A3" ? "Fresh stock entry opens after reset" : options.nonGoldMode === "A2" ? "Current non-gold is retained" : "Non-gold starts at zero"),
+      manualResetPreviewItem("Job Cards", jobsResult, jobNote),
+      manualResetPreviewItem("Production", options.productionMode === "C3" ? "Kept live" : "Live balances cleared", options.productionMode === "C1" ? "Audit summary plus downloaded backup retained" : options.productionMode === "C2" ? "Correction logs also cleared" : "Current lots continue to affect holdings"),
+      manualResetPreviewItem("Bills", options.billMode === "F1" ? `${stats.bills} kept` : "All cleared", options.billMode === "F1" ? "Kept bills will not post again into fresh stock" : "Bill/QC data is removed"),
+      manualResetPreviewItem("Factory Ledger", options.ledgerMode === "D1" ? "New zero ledger" : options.ledgerMode === "D2" ? "Vendor balances carried" : "Complete ledger kept", options.ledgerMode === "D2" ? "Opening entries are ledger-only and create no physical stock" : ""),
+      manualResetPreviewItem("Fine Sheet / Tally", options.reportMode === "E1" ? "History kept" : "History cleared", "Dabba/Container Master always remains"),
+      manualResetPreviewItem("Protected Masters", "Always kept", "Design, images, Stone Library, Moti Library, Catalogue and users"),
+    ].join("");
+  }
+  const validation = manualResetValidationMessage(options);
+  const validationNode = document.getElementById("manual-reset-validation");
+  if (validationNode) {
+    validationNode.textContent = validation;
+    validationNode.classList.toggle("invalid", !manualResetIsValid(options));
+  }
+  const runButton = document.getElementById("run-manual-reset");
+  if (runButton) runButton.disabled = !manualResetIsValid(options);
+  renderManualResetHistory();
+}
+
+function openManualResetDialog() {
+  if (!isOwner()) {
+    alert("Only Owner can open Manual Reset.");
+    return;
+  }
+  const dialog = document.getElementById("manual-reset-dialog");
+  const form = document.getElementById("manual-reset-form");
+  if (!dialog || !form) return;
+  form.reset();
+  if (form.ownerPassword) form.ownerPassword.value = "";
+  if (form.confirmation) form.confirmation.value = "";
+  renderManualResetPreview();
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeManualResetDialog() {
+  const dialog = document.getElementById("manual-reset-dialog");
+  if (dialog?.open) dialog.close();
+}
+
+function manualResetRetainedNonGoldSafeItems(resetAt) {
+  return (state.safeItems || [])
+    .filter((item) => item.status !== "Out")
+    .map((item) => {
+      const breakdown = safeItemFactoryNonGoldBreakdown(item);
+      const nonGoldWeight = nonGoldBreakdownTotal(breakdown);
+      if (nonGoldWeight <= 0) return null;
+      return {
+        ...structuredClone(item),
+        id: crypto.randomUUID(),
+        date: today(),
+        status: "In",
+        safeKind: "non-gold",
+        materialType: "non-gold",
+        description: `Retained non-gold after manual reset / ${item.description || item.source || "Shelf item"}`,
+        grossWeight: Number(weight3(nonGoldWeight)),
+        netWeight: 0,
+        waxStoneWeight: 0,
+        nonGoldWeight: Number(weight3(nonGoldWeight)),
+        nonGoldWeightKnown: true,
+        nonGoldBreakdown: breakdown,
+        sourceType: "manual-reset-retained-non-gold",
+        sourceId: item.id || "",
+        manualResetAt: resetAt,
+      };
+    })
+    .filter(Boolean);
+}
+
+function manualResetGoldOnlySafeItems(resetAt) {
+  return (state.safeItems || [])
+    .filter((item) => item.status !== "Out")
+    .map((item) => {
+      const goldWeight = safeItemFactoryGoldWeight(item);
+      if (goldWeight <= 0) return null;
+      return {
+        ...structuredClone(item),
+        id: crypto.randomUUID(),
+        date: today(),
+        status: "In",
+        grossWeight: Number(weight3(goldWeight)),
+        netWeight: Number(weight3(goldWeight)),
+        waxStoneWeight: 0,
+        nonGoldWeight: 0,
+        nonGoldWeightKnown: true,
+        nonGoldBreakdown: {},
+        sourceType: "manual-reset-retained-gold",
+        sourceId: item.id || "",
+        manualResetAt: resetAt,
+      };
+    })
+    .filter(Boolean);
+}
+
+function manualResetVendorOpeningEntries(rows = [], resetAt = new Date().toISOString()) {
+  return rows
+    .filter((row) => row.vendor?.id && Math.abs(Number(row.balanceFine || 0)) > 0.0005)
+    .map((row) => {
+      const balance = Number(weight3(row.balanceFine || 0));
+      const weight = Math.abs(balance);
+      return {
+        id: crypto.randomUUID(),
+        date: today(),
+        createdAt: resetAt,
+        direction: balance >= 0 ? "in" : "out",
+        type: "Vendor Opening Fine Balance",
+        vendorId: row.vendor.id,
+        vendorName: row.vendor.name || "Vendor",
+        materialType: "ledger-only",
+        purity: "100%",
+        weight,
+        wstgPercent: 0,
+        wastagePercent: 0,
+        baseFineGold: weight,
+        wstgFineGold: 0,
+        fineGold: weight,
+        stockPosting: "Vendor Balance Only / No Physical Stock",
+        reference: "Manual reset vendor opening balance",
+        remarks: `Carried from balance before ${new Date(resetAt).toLocaleString("en-IN")}`,
+        sourceType: "manual-reset-vendor-opening",
+        sourceId: row.vendor.id,
+        manualResetAt: resetAt,
+      };
+    });
+}
+
+function manualResetHistoricalBillLots(retainedBills = [], resetAt = new Date().toISOString()) {
+  const billByLot = new Map(retainedBills.filter((bill) => bill.lotId).map((bill) => [bill.lotId, bill]));
+  return (state.lots || [])
+    .filter((lot) => billByLot.has(lot.id))
+    .map((lot) => ({
+      ...structuredClone(lot),
+      bill: structuredClone(billByLot.get(lot.id) || lot.bill || {}),
+      status: "Completed",
+      currentDepartment: "Historical Bill",
+      karigarName: "Historical Bill",
+      transfers: [],
+      manualResetHistoricalAt: resetAt,
+      inventoryResetArchivedAt: resetAt,
+    }));
+}
+
+function manualResetPreparedOrders(mode, resetAt = new Date().toISOString()) {
+  if (mode === "B3") return [];
+  return (state.orders || []).map((order) => {
+    const retained = structuredClone(order);
+    if (mode !== "B1" || isCompletedOrder(order)) return retained;
+    retained.manualResetPreviousStage = orderCurrentStage(order);
+    retained.status = "Pending";
+    retained.completedDate = "";
+    retained.completionReason = "";
+    retained.inventoryRestartedAt = resetAt;
+    retained.inventoryRestartReason = "Manual selected factory reset";
+    return retained;
+  });
+}
+
+function applyManualResetSelection(options, resetAt = new Date().toISOString()) {
+  const beforeStats = manualResetCurrentStats();
+  const counters = {
+    nextOrder: Number(state.nextOrder || 1001),
+    nextJob: Number(state.nextJob || 1001),
+    nextProduction: Number(state.nextProduction || 1001),
+    nextLot: Number(state.nextLot || 201),
+  };
+  const vendorRowsBefore = vendorBalanceRows().map((row) => ({ ...row, vendor: { ...(row.vendor || {}) } }));
+  const oldFactoryLedger = structuredClone(state.factoryLedger || []);
+  const retainedBills = options.billMode === "F1"
+    ? (state.bills || []).map((bill) => ({
+      ...structuredClone(bill),
+      manualResetHistoricalAt: (options.goldMode === "G1" || options.productionMode !== "C3") ? resetAt : bill.manualResetHistoricalAt || "",
+    }))
+    : [];
+  const historicalBillLots = manualResetHistoricalBillLots(retainedBills, resetAt);
+  const retainedNonGoldSafeItems = manualResetRetainedNonGoldSafeItems(resetAt);
+  const retainedGoldOnlySafeItems = manualResetGoldOnlySafeItems(resetAt);
+  const preparedOrders = manualResetPreparedOrders(options.jobCardMode, resetAt);
+  const clearProduction = options.productionMode !== "C3" || options.goldMode === "G1";
+
+  state.factoryResetAt = resetAt;
+  state.factoryResetReason = `Manual selected reset ${manualResetSelectionCode(options)}`;
+  state.orders = preparedOrders;
+  state.bills = retainedBills;
+  if (options.billMode === "F2") state.billDeletionHistory = [];
+
+  if (clearProduction) {
+    state.lots = historicalBillLots;
+    state.safeDepartmentIssues = [];
+    state.safeDepartmentReturns = [];
+    state.departmentLosses = [];
+    state.settingManagerEntries = [];
+    state.melting = [];
+    state.xrfTests = [];
+    if (options.productionMode === "C2") {
+      state.goldIssueCorrections = [];
+      state.transferEditHistory = [];
+      state.transferUndoHistory = [];
+    }
+  }
+
+  if (options.goldMode === "G1") {
+    state.ledger = [];
+    state.metalSafeMovements = [];
+    state.metalSafeSeededFromLedger = true;
+    state.safeItems = options.nonGoldMode === "A2" ? retainedNonGoldSafeItems : [];
+  } else if (options.nonGoldMode !== "A2") {
+    state.safeItems = retainedGoldOnlySafeItems;
+  }
+
+  if (options.nonGoldMode !== "A2") {
+    state.productionNonGoldIssues = [];
+  }
+
+  if (options.ledgerMode === "D1") {
+    state.factoryLedger = [];
+  } else if (options.ledgerMode === "D2") {
+    state.factoryLedger = manualResetVendorOpeningEntries(vendorRowsBefore, resetAt);
+  } else {
+    state.factoryLedger = oldFactoryLedger.map((entry) => ({
+      ...entry,
+      manualResetHistoricalAt: entry.sourceType === "bill" ? resetAt : entry.manualResetHistoricalAt || "",
+    }));
+  }
+
+  if (options.reportMode === "E2") {
+    state.fineSheetSnapshots = [];
+    state.dailyTallies = [];
+  }
+
+  normalizeIndependentOrderSerials(state);
+  state.nextOrder = Math.max(Number(state.nextOrder || 0), counters.nextOrder);
+  state.nextJob = Math.max(Number(state.nextJob || 0), counters.nextJob);
+  state.nextProduction = Math.max(Number(state.nextProduction || 0), counters.nextProduction);
+  state.nextLot = Math.max(Number(state.nextLot || 0), counters.nextLot);
+  clearRecentJobOrderBackups();
+  backupRecentJobOrders(state.orders || []);
+
+  const afterPhysical = factoryPhysicalStock();
+  const audit = {
+    id: crypto.randomUUID(),
+    resetAt,
+    performedBy: currentUser?.name || currentUser?.id || "Owner",
+    performedById: currentUser?.id || "owner",
+    selectionCode: manualResetSelectionCode(options),
+    options: { ...options },
+    reason: state.factoryResetReason,
+    beforeGross: beforeStats.grossWeight,
+    beforeGold: beforeStats.goldWeight,
+    beforeNonGold: beforeStats.nonGoldWeight,
+    afterGross: Number(afterPhysical.grossWeight || 0),
+    afterGold: Number(afterPhysical.goldWeight || 0),
+    afterNonGold: Number(afterPhysical.nonGoldWeight || 0),
+    beforeJobCards: beforeStats.jobCards,
+    keptJobCards: new Set((state.orders || []).map((order) => order.jobNumber || order.number).filter(Boolean)).size,
+    beforeBills: beforeStats.bills,
+    keptBills: (state.bills || []).length,
+    backupDownloaded: true,
+  };
+  state.manualResetHistory = [audit, ...(state.manualResetHistory || [])].slice(0, 25);
+  return audit;
+}
+
+async function runManualResetFromUi(event) {
+  event.preventDefault();
+  if (!isOwner()) {
+    alert("Only Owner can run Manual Reset.");
+    return;
+  }
+  const form = event.currentTarget;
+  const options = manualResetOptions(form);
+  const validation = manualResetValidationMessage(options);
+  if (!manualResetIsValid(options)) {
+    alert(validation);
+    renderManualResetPreview();
+    return;
+  }
+  if (form.ownerPassword?.value !== userPassword("owner")) {
+    alert("Wrong Owner password. Nothing was reset.");
+    return;
+  }
+  if (String(form.confirmation?.value || "").trim().toUpperCase() !== "RESET TO ZERO") {
+    alert("Type RESET TO ZERO exactly. Nothing was reset.");
+    return;
+  }
+  if (!form.understood?.checked) {
+    alert("Confirm that you reviewed the selected reset codes.");
+    return;
+  }
+  const code = manualResetSelectionCode(options);
+  if (!confirm(`Run Manual Reset ${code}?\n\nA complete JSON backup downloads first.\nProtected masters will remain.\nOnly the selected groups will be changed.`)) return;
+
+  downloadErpDataBackup();
+  const button = document.getElementById("run-manual-reset");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Reset In Progress...";
+  }
+  const resetAt = new Date().toISOString();
+  setFactoryResetProtection(true, resetAt);
+  supabasePendingCloudState = null;
+  clearTimeout(supabaseSaveTimer);
+  supabaseSaveTimer = null;
+  try {
+    const audit = applyManualResetSelection(options, resetAt);
+    clearOrderDraft();
+    saveStateLocalOnly();
+    render();
+    resetOrderItemRows();
+    resetMeltingSources();
+    updateMeltingCalculation();
+    resetFactoryEntryForms();
+    setSyncStatus("saving", "Manual Reset Saved Locally", "Updating the selected reset in live sync.");
+
+    if (!supabaseClient && supabaseSettings.url && supabaseSettings.anonKey) {
+      try {
+        supabaseClient = await createSupabaseClient();
+      } catch (error) {
+        console.warn("Supabase manual reset save could not connect.", error);
+        setSyncStatus("offline", syncStatusForError(error, "Manual Reset: Local Only"), syncErrorDetail(error));
+      }
+    }
+    const cloudSaved = supabaseClient ? await syncStateToSupabase({ force: true }) : false;
+    if (cloudSaved) {
+      setFactoryResetProtection(false);
+      startSupabaseAutoRefresh();
+    } else {
+      setFactoryResetProtection(true, resetAt);
+      setSyncStatus("offline", "Manual Reset: Local Only", "Old live data is blocked. Fix sync, then upload this laptop data before another laptop is used.");
+    }
+    closeManualResetDialog();
+    if (options.nonGoldMode === "A3" || options.goldMode === "G1") {
+      switchView("factory");
+      openOperationPage("factory", "in");
+    }
+    const syncText = cloudSaved
+      ? "Live sync is updated."
+      : "Saved on this laptop. Old cloud data is blocked until this reset uploads successfully.";
+    alert(`Manual Reset completed.\n\nSelection ${code}\nGold ${gram(audit.beforeGold)} to ${gram(audit.afterGold)}\nNon-Gold ${gram(audit.beforeNonGold)} to ${gram(audit.afterNonGold)}\nJob Cards kept ${audit.keptJobCards}\nBills kept ${audit.keptBills}\n\n${syncText}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Backup And Run Selected Reset";
+    }
+  }
+}
+
 async function resetFactoryInventoryToZeroFromUi(event) {
   if (!isOwner()) {
     alert("Only Owner can reset factory inventory.");
@@ -6289,11 +6759,11 @@ function updateOneTimeJobResetControl() {
   const status = document.getElementById("one-time-job-reset-status");
   if (!button || !status) return;
   const usedAt = state.oneTimeJob1680ResetAt || "";
-  button.disabled = Boolean(usedAt);
-  button.textContent = usedAt ? "One-Time Reset Already Used" : "One-Time Reset - Keep JOB-1681 Onward";
+  button.disabled = false;
+  button.textContent = "Open Manual Reset Selection";
   status.textContent = usedAt
-    ? `Used ${new Date(usedAt).toLocaleString("en-IN")}. Kept ${Number(state.oneTimeJob1680RetainedJobs || 0)} Job Cards / ${Number(state.oneTimeJob1680RetainedItems || 0)} items.`
-    : "This special reset has not been used.";
+    ? `Historical one-time reset used ${new Date(usedAt).toLocaleString("en-IN")}. Every new reset now uses the selection window.`
+    : "Manual Reset selection is ready.";
 }
 
 function resetFactoryEntryForms() {
@@ -14797,7 +15267,7 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
 }
 
 function isBillFactoryOutPosted(bill = {}) {
-  return Boolean(bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
+  return Boolean(bill.manualResetHistoricalAt || bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
 }
 
 function completedBillFactoryOutRecords(source = state, options = {}) {
@@ -14901,9 +15371,10 @@ function syncFactoryOutLedgerForState(source) {
       manualBillEdits.set(factoryBillLedgerKey(entry.sourceId, entry.sourceLine), entry);
     }
   });
-  source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill");
+  source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill" || entry.manualResetHistoricalAt);
   (source.bills || []).forEach((bill) => {
     if (!bill?.id) return;
+    if (bill.manualResetHistoricalAt) return;
     bill.officeDestination = KJPL_OFFICE_VENDOR_NAME;
     bill.officePartyName = KJPL_OFFICE_VENDOR_NAME;
     if (!isBillFactoryOutPosted(bill)) return;
@@ -15045,6 +15516,7 @@ function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = gr
 
 function addFactoryCompletedBillStock(parts) {
   (state.lots || []).forEach((lot) => {
+    if (lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt) return;
     if (lot.status !== "Completed") return;
     if (lot.fittingItemsJobCard) return;
     const bill = lot.bill || (state.bills || []).find((item) => item.lotId === lot.id);
@@ -15149,7 +15621,9 @@ function factoryPhysicalStock() {
       addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K", null, embeddedNonGold);
     });
 
-  (state.lots || []).forEach((lot) => {
+  (state.lots || [])
+    .filter((lot) => !lot.manualResetHistoricalAt && !lot.inventoryResetArchivedAt)
+    .forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
       const balance = Number(transfer.departmentBalance || 0);
       if (Math.abs(balance) <= 0.0005) return;
@@ -16362,7 +16836,7 @@ function jobCardMergeTransferableLots(orderIds, sourceJobNumbers) {
   return jobCardMergeLinkedLots(orderIds).filter((lot) => {
     const owner = jobCardWeightOwner(lot);
     return !owner || sourceNumbers.has(owner);
-  });
+    });
 }
 
 function jobCardMergeWeightSnapshot(orders = [], sourceJobNumbers = new Set()) {
@@ -16635,7 +17109,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
     order.lastJobCardItemMoveBy = movedBy;
   });
 
-  (state.lots || []).forEach((lot) => {
+  (state.lots || []).filter((lot) => !lot.manualResetHistoricalAt && !lot.inventoryResetArchivedAt).forEach((lot) => {
     const lotOrderIds = getLotOrderIds(lot);
     const linkedToMovedItem = lotOrderIds.some((orderId) => selectedOrderIds.has(orderId));
     const sourceOnlyFallback = sourceWillBeEmpty && !lotOrderIds.length && lot.orderNumber === sourceJobNumber;
@@ -24302,7 +24776,7 @@ function isFittingItemsTransferDestination(transfer = {}) {
 }
 
 function factoryStockHoldingLot(lot = {}) {
-  if (lot.mergedIntoLotId) return false;
+  if (lot.mergedIntoLotId || lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt) return false;
   return lot.status !== "Completed" || Boolean(lot.fittingItemsJobCard && lot.fittingItemsIssuedToFitting);
 }
 
@@ -38258,6 +38732,7 @@ function billNumber(value) {
 }
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
+const BILL_STONE_WEIGHT_FACTOR = 0.96;
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
   return Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt)
@@ -38438,9 +38913,17 @@ function bbWeightFromType(bbNo = "", bbType = "") {
   return Number(weight3(pcs * weightPerPc));
 }
 
-function automaticBillStoneWeight(order = {}) {
+function billStoneWeightFromActual(actualWeight = 0) {
+  return Number(weight3(Math.max(Number(actualWeight || 0), 0) * BILL_STONE_WEIGHT_FACTOR));
+}
+
+function actualBillStoneWeight(order = {}) {
   if (!order?.id) return 0;
   return Number(weight3(productionStoneTotalsForOrders([order]).weight || 0));
+}
+
+function automaticBillStoneWeight(order = {}) {
+  return billStoneWeightFromActual(actualBillStoneWeight(order));
 }
 
 function billItemNonGoldBreakup(item = {}, order = {}) {
@@ -38475,6 +38958,7 @@ function billItemNonGoldBreakup(item = {}, order = {}) {
 
 function billItemWithLatestStoneEntry(item = {}, order = {}, source = "Job Card Stone Entry") {
   const nonGold = billItemNonGoldBreakup(item, order);
+  const actualStoneWeight = actualBillStoneWeight(order);
   const finalGwIsBlank = item.finalGw === "" || item.finalGw === null || item.finalGw === undefined;
   const finalGw = finalGwIsBlank ? 0 : billNumber(item.finalGw);
   const reducedWeight = Number(weight3(nonGold.total));
@@ -38486,6 +38970,8 @@ function billItemWithLatestStoneEntry(item = {}, order = {}, source = "Job Card 
     ...item,
     stoneWeight: nonGold.stoneWeight,
     stWeight: nonGold.stoneWeight,
+    billActualStoneWeight: actualStoneWeight,
+    billStoneWeightFactor: BILL_STONE_WEIGHT_FACTOR,
     reducedWeight,
     netWeight,
     baseFineWeight,
@@ -38907,9 +39393,12 @@ function refreshBillItemStoneEntry(orderId = "") {
     return;
   }
   const stoneItems = productionStoneItemsForOrder(order);
-  const latestStoneWeight = Number(weight3(productionStoneTotals(stoneItems).weight || 0));
+  const actualStoneWeight = actualBillStoneWeight(order);
+  const latestStoneWeight = billStoneWeightFromActual(actualStoneWeight);
   const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
   row.dataset.jobStoneWeight = weight3(latestStoneWeight);
+  row.dataset.billActualStoneWeight = weight3(actualStoneWeight);
+  row.dataset.billStoneWeightFactor = String(BILL_STONE_WEIGHT_FACTOR);
   if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
   const stoneStatus = row.querySelector("[data-bill-stone-status]");
   if (stoneStatus) {
@@ -39137,6 +39626,7 @@ function renderBillItems(lot, bill = {}) {
     } : order;
     const nonGold = billItemNonGoldBreakup(saved, calculationOrder);
     const manualWip = Boolean(lotManualWip || order.manualWipOrder);
+    const actualStoneWeight = manualWip ? nonGold.stoneWeight : actualBillStoneWeight(order);
     const finalGwValue = saved.finalGw ?? (manualWip ? lot.manualWipGrossWeight || lot.grossIssuedWeight || order.manualWipGrossWeight || "" : "");
     const finalGw = Number(finalGwValue || 0);
     const gwSaveAdjustmentApplied = billGwSaveAdjustmentIsApplied(saved);
@@ -39156,7 +39646,7 @@ function renderBillItems(lot, bill = {}) {
       && billableOrders.length > 1
       && (!generatedBill.id || !generatedOrderIds.has(order.id));
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
@@ -39275,6 +39765,8 @@ function billItemRows(existingItems = [], options = {}) {
       mmWeight: Number(weight3(motiWeight)),
       stoneWeight: Number(weight3(stoneWeight)),
       stWeight: Number(weight3(stoneWeight)),
+      billActualStoneWeight: Number(weight3(row.dataset.billActualStoneWeight || stoneWeight)),
+      billStoneWeightFactor: Number(row.dataset.billStoneWeightFactor || (manualWip ? 1 : BILL_STONE_WEIGHT_FACTOR)),
       springWeight: Number(weight3(springWeight)),
       otherNonGoldWeight: Number(weight3(otherNonGoldWeight)),
       otherWeight: Number(weight3(otherNonGoldWeight)),
@@ -44481,6 +44973,9 @@ function normalizeState(currentState) {
   migrateTransferHistoryTimestamps(currentState);
   currentState.factoryResetAt = currentState.factoryResetAt || "";
   currentState.factoryResetReason = currentState.factoryResetReason || "";
+  currentState.manualResetHistory = Array.isArray(currentState.manualResetHistory)
+    ? currentState.manualResetHistory.slice(0, 25)
+    : [];
   currentState.oneTimeJob1680ResetAt = currentState.oneTimeJob1680ResetAt || "";
   currentState.nextOrder = currentState.nextOrder || 1004;
   currentState.nextLot = currentState.nextLot || 204;
