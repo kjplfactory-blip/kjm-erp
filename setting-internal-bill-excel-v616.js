@@ -476,14 +476,18 @@
 
   function combinedBillItemRows(entries = []) {
     const rows = [
-      excelRow(["KHUSHALI JEWELLS MANUFACTURING - COMBINED BILL ITEM DETAILS"], "Title"),
+      excelRow(["KHUSHALI JEWELLS MANUFACTURING - INDIVIDUAL ITEM DETAILS"], "Title"),
       excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
-      excelRow(billExcelColumns(), "Header"),
+      excelRow(["Item Sr.", "Bill Item Sr.", ...billExcelColumns()], "Header"),
     ];
-    entries.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row) => rows.push(excelRow(row))));
+    let itemSerial = 0;
+    entries.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row, billItemIndex) => {
+      itemSerial += 1;
+      rows.push(excelRow([itemSerial, billItemIndex + 1, ...row]));
+    }));
     const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
     rows.push(excelRow([
-      "GRAND TOTAL", "", "", "", "", "", "", "", "", "", "", "",
+      "GRAND TOTAL", "", "", "", "", "", "", "", "", "", "", "", "", "",
       { value: grand.finalGw, type: "Number", style: "Total" }, "", "",
       { value: grand.bbWeight, type: "Number", style: "Total" },
       { value: grand.motiWeight, type: "Number", style: "Total" },
@@ -505,9 +509,9 @@
       alert("Select at least one generated Bill to combine into Excel.");
       return;
     }
-    downloadExcelWorkbook(`COMBINED-${entries.length}-BILLS-${isoToday()}`, [
+    downloadExcelWorkbook(`COMBINED-${entries.length}-BILLS-INDIVIDUAL-ITEMS-${isoToday()}`, [
+      excelWorksheet("Individual Item Details", combinedBillItemRows(entries)),
       excelWorksheet("Bill Summary", combinedBillSummaryRows(entries)),
-      excelWorksheet("Combined Item Details", combinedBillItemRows(entries)),
     ]);
   }
 
