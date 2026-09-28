@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v651";
+const APP_VERSION = "v652";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 640;
@@ -3233,7 +3233,8 @@ document.getElementById("multi-bill-tag-clear").addEventListener("click", () => 
   multiBillTagSelection.clear();
   renderMultiBillTagDialog();
 });
-document.getElementById("print-multi-bill-tags-a6").addEventListener("click", printSelectedMultiBillTags);
+document.getElementById("print-multi-bill-tags-a4").addEventListener("click", () => printSelectedMultiBillTags("a4"));
+document.getElementById("print-multi-bill-tags-a6").addEventListener("click", () => printSelectedMultiBillTags("a6"));
 document.getElementById("multi-bill-tag-list").addEventListener("change", handleMultiBillTagSelectionChange);
 
 function clearManualWipCombinedBillAllocations(lotId = "") {
@@ -20337,35 +20338,36 @@ function selectVisibleMultiBillTags(unprintedOnly = false) {
 function updateMultiBillTagSummary(allEntries = generatedBillTagEntries(), visibleEntries = filteredMultiBillTagEntries()) {
   const selectedEntries = allEntries.filter(({ key }) => multiBillTagSelection.has(key));
   const selectedCount = selectedEntries.length;
-  const pages = selectedCount ? Math.ceil(selectedCount / 10) : 0;
-  const lastPageCount = selectedCount ? ((selectedCount - 1) % 10) + 1 : 0;
-  const freeSlots = selectedCount ? pages * 10 - selectedCount : 0;
+  const a4Pages = selectedCount ? Math.ceil(selectedCount / 40) : 0;
+  const a6Pages = selectedCount ? Math.ceil(selectedCount / 10) : 0;
   const selectedBillCount = new Set(selectedEntries.map(({ bill }) => bill.id || bill.billNo)).size;
   document.getElementById("multi-bill-tag-summary").innerHTML = `
     <span><b>${allEntries.length}</b><small>Available Tags</small></span>
     <span><b>${visibleEntries.length}</b><small>Visible</small></span>
     <span><b>${selectedBillCount}</b><small>Bills Selected</small></span>
     <span><b>${selectedCount}</b><small>Tags Selected</small></span>
-    <span><b>${pages}</b><small>A6 Pages</small></span>
-    <span><b>${freeSlots}</b><small>Empty Slots On Last Page</small></span>
+    <span><b>${a4Pages}</b><small>A4 Pages / 40 Tags</small></span>
+    <span><b>${a6Pages}</b><small>A6 Pages / 10 Tags</small></span>
   `;
   const footer = document.getElementById("multi-bill-tag-footer");
   footer.textContent = selectedCount
-    ? `${selectedCount} tags from ${selectedBillCount} bill${selectedBillCount === 1 ? "" : "s"}. Last page uses ${lastPageCount}/10 tag spaces.`
+    ? `${selectedCount} tags from ${selectedBillCount} bill${selectedBillCount === 1 ? "" : "s"}. Choose A4 (${a4Pages} page${a4Pages === 1 ? "" : "s"}) or A6 (${a6Pages} page${a6Pages === 1 ? "" : "s"}).`
     : "No items selected.";
+  document.getElementById("print-multi-bill-tags-a4").disabled = selectedCount === 0;
   document.getElementById("print-multi-bill-tags-a6").disabled = selectedCount === 0;
 }
 
-function printSelectedMultiBillTags() {
+function printSelectedMultiBillTags(pageSize = "a6") {
   const entries = generatedBillTagEntries().filter(({ key }) => multiBillTagSelection.has(key));
   if (!entries.length) {
     alert("Select at least one Bill item to print.");
     return;
   }
+  const normalizedPageSize = pageSize === "a4" ? "a4" : "a6";
   startHallmarkTagPrint(
-    multiBillTagsPrintHtml(entries),
+    multiBillTagsPrintHtml(entries, normalizedPageSize),
     () => markBillTagEntriesPrinted(entries),
-    { pageSize: "a6" },
+    { pageSize: normalizedPageSize },
   );
 }
 
@@ -20661,10 +20663,11 @@ function billTagsPrintHtml(lot, bill, pageSize = "a4") {
   `;
 }
 
-function multiBillTagsPrintHtml(entries = []) {
-  const pages = chunkPrintItems(entries, 10);
+function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
+  const isA6 = pageSize === "a6";
+  const pages = chunkPrintItems(entries, isA6 ? 10 : 40);
   return `
-    <div class="bill-tags-document a6-tags-document multi-bill-tags-document">
+    <div class="bill-tags-document ${isA6 ? "a6-tags-document" : "a4-tags-document"} multi-bill-tags-document">
       ${pages.map((pageEntries) => `
         <section class="bill-tags-sheet">
           ${pageEntries.map(({ lot, bill, item }) => billTagHtml(lot, bill, item)).join("")}

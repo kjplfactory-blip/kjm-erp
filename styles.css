@@ -17590,6 +17590,14 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   margin: 0;
 }
 
+.multi-bill-tag-print-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .multi-bill-tag-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -18041,6 +18049,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   .multi-bill-tag-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .multi-bill-tag-print-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
