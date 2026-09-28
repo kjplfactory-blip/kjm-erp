@@ -321,6 +321,196 @@
     downloadExcelWorkbook(`ALL-BILL-DETAILS-${isoToday()}`, [excelWorksheet("All Bill Details", rows)]);
   };
 
+  const multiBillExcelSelection = new Set();
+
+  function generatedBillExcelEntries() {
+    return (state.lots || [])
+      .map((lot) => ({ lot, bill: savedBillForLot(lot) }))
+      .filter(({ bill }) => bill?.items?.length)
+      .sort((left, right) => String(right.bill.billNo || "").localeCompare(String(left.bill.billNo || ""), undefined, { numeric: true }));
+  }
+
+  function multiBillExcelEntryKey(entry = {}) {
+    return String(entry.bill?.id || entry.lot?.id || "");
+  }
+
+  function multiBillExcelCustomers(lot = {}, bill = {}) {
+    const names = [...new Set((bill.items || []).map((item) => {
+      const order = findById("orders", item.orderId) || {};
+      return order.customer || item.customer || "";
+    }).filter(Boolean))];
+    return names.join(", ") || bill.customer || lot.customer || "-";
+  }
+
+  function multiBillExcelSearchText(entry = {}) {
+    const { lot = {}, bill = {} } = entry;
+    const itemReferences = (bill.items || []).flatMap((item) => [item.productionNo, item.designNo, item.category]).filter(Boolean);
+    return [bill.billNo, bill.billDate, lot.number, lot.orderNumber, multiBillExcelCustomers(lot, bill), ...itemReferences]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function visibleMultiBillExcelEntries() {
+    const query = String(document.getElementById("multi-bill-excel-search")?.value || "").trim().toLowerCase();
+    const entries = generatedBillExcelEntries();
+    return query ? entries.filter((entry) => multiBillExcelSearchText(entry).includes(query)) : entries;
+  }
+
+  function selectedMultiBillExcelEntries() {
+    return generatedBillExcelEntries().filter((entry) => multiBillExcelSelection.has(multiBillExcelEntryKey(entry)));
+  }
+
+  function renderMultiBillExcelDialog() {
+    const list = document.getElementById("multi-bill-excel-list");
+    const summary = document.getElementById("multi-bill-excel-summary");
+    const footer = document.getElementById("multi-bill-excel-footer");
+    const exportButton = document.getElementById("export-selected-bills-excel");
+    if (!list || !summary || !footer || !exportButton) return;
+    const allEntries = generatedBillExcelEntries();
+    const validKeys = new Set(allEntries.map(multiBillExcelEntryKey));
+    [...multiBillExcelSelection].forEach((key) => {
+      if (!validKeys.has(key)) multiBillExcelSelection.delete(key);
+    });
+    const visibleEntries = visibleMultiBillExcelEntries();
+    list.innerHTML = visibleEntries.length ? visibleEntries.map(({ lot, bill }) => {
+      const key = multiBillExcelEntryKey({ lot, bill });
+      const totals = billTotals(bill.items || []);
+      const customers = multiBillExcelCustomers(lot, bill);
+      const selected = multiBillExcelSelection.has(key);
+      return `
+        <label class="multi-bill-excel-option ${selected ? "selected" : ""}">
+          <input type="checkbox" data-multi-bill-excel-key="${excelEscape(key)}" ${selected ? "checked" : ""}>
+          <span>
+            <strong>${excelEscape(bill.billNo || "Bill Not Numbered")} / ${excelEscape(lot.orderNumber || lot.number || "-")}</strong>
+            <small>${excelEscape(customers)} / ${excelEscape(bill.billDate || "-")} / Lot ${excelEscape(lot.number || "-")}</small>
+          </span>
+          <b>${totals.pieces} item${totals.pieces === 1 ? "" : "s"} / Net ${weight3(totals.netWeight)} g</b>
+        </label>
+      `;
+    }).join("") : '<div class="empty-state">No generated bills match this search.</div>';
+
+    const selectedEntries = selectedMultiBillExcelEntries();
+    const selectedItems = selectedEntries.flatMap(({ bill }) => bill.items || []);
+    const totals = billTotals(selectedItems);
+    summary.innerHTML = `
+      <span><small>AVAILABLE BILLS</small><b>${allEntries.length}</b></span>
+      <span><small>SELECTED BILLS</small><b>${selectedEntries.length}</b></span>
+      <span><small>SELECTED ITEMS</small><b>${totals.pieces}</b></span>
+      <span><small>TOTAL GW</small><b>${weight3(totals.finalGw)} g</b></span>
+      <span><small>TOTAL NET WT</small><b>${weight3(totals.netWeight)} g</b></span>
+    `;
+    footer.textContent = selectedEntries.length
+      ? `${selectedEntries.length} bill${selectedEntries.length === 1 ? "" : "s"} selected. They will be merged into one Excel file.`
+      : "No bills selected.";
+    exportButton.disabled = selectedEntries.length === 0;
+  }
+
+  function openMultiBillExcelDialog() {
+    const dialog = document.getElementById("multi-bill-excel-dialog");
+    const search = document.getElementById("multi-bill-excel-search");
+    if (!dialog) return;
+    if (search) search.value = "";
+    renderMultiBillExcelDialog();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeMultiBillExcelDialog() {
+    document.getElementById("multi-bill-excel-dialog")?.close();
+  }
+
+  function selectMultiBillExcelEntries(mode = "visible") {
+    const entries = mode === "all" ? generatedBillExcelEntries() : visibleMultiBillExcelEntries();
+    entries.forEach((entry) => multiBillExcelSelection.add(multiBillExcelEntryKey(entry)));
+    renderMultiBillExcelDialog();
+  }
+
+  function handleMultiBillExcelSelection(event) {
+    const checkbox = event.target.closest?.("[data-multi-bill-excel-key]");
+    if (!checkbox) return;
+    const key = checkbox.dataset.multiBillExcelKey || "";
+    if (checkbox.checked) multiBillExcelSelection.add(key);
+    else multiBillExcelSelection.delete(key);
+    renderMultiBillExcelDialog();
+  }
+
+  function combinedBillSummaryRows(entries = []) {
+    const rows = [
+      excelRow(["KHUSHALI JEWELLS MANUFACTURING - COMBINED BILL SUMMARY"], "Title"),
+      excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
+      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "Stone (g)", "BB (g)", "Moti (g)", "Spring (g)", "Other (g)", "Non-Gold (g)", "Net Weight (g)", "Wastage Fine (g)", "Fine Weight (g)"], "Header"),
+    ];
+    entries.forEach(({ lot, bill }, index) => {
+      const totals = billTotals(bill.items || []);
+      rows.push(excelRow([
+        index + 1, bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", multiBillExcelCustomers(lot, bill),
+        { value: totals.pieces, type: "Number" },
+        { value: totals.finalGw, type: "Number", style: "Weight" },
+        { value: totals.stoneWeight, type: "Number", style: "Weight" },
+        { value: totals.bbWeight, type: "Number", style: "Weight" },
+        { value: totals.motiWeight, type: "Number", style: "Weight" },
+        { value: totals.springWeight, type: "Number", style: "Weight" },
+        { value: totals.otherNonGoldWeight, type: "Number", style: "Weight" },
+        { value: totals.reducedWeight, type: "Number", style: "Weight" },
+        { value: totals.netWeight, type: "Number", style: "Weight" },
+        { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
+        { value: totals.fineWeight, type: "Number", style: "Weight" },
+      ]));
+    });
+    const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    rows.push(excelRow([
+      "GRAND TOTAL", "", "", "", "", "",
+      { value: grand.pieces, type: "Number", style: "Total" },
+      { value: grand.finalGw, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
+      { value: grand.bbWeight, type: "Number", style: "Total" },
+      { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.springWeight, type: "Number", style: "Total" },
+      { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
+      { value: grand.reducedWeight, type: "Number", style: "Total" },
+      { value: grand.netWeight, type: "Number", style: "Total" },
+      { value: grand.wastageFineWeight, type: "Number", style: "Total" },
+      { value: grand.fineWeight, type: "Number", style: "Total" },
+    ]));
+    return rows;
+  }
+
+  function combinedBillItemRows(entries = []) {
+    const rows = [
+      excelRow(["KHUSHALI JEWELLS MANUFACTURING - COMBINED BILL ITEM DETAILS"], "Title"),
+      excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
+      excelRow(billExcelColumns(), "Header"),
+    ];
+    entries.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row) => rows.push(excelRow(row))));
+    const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    rows.push(excelRow([
+      "GRAND TOTAL", "", "", "", "", "", "", "", "", "", "", "",
+      { value: grand.finalGw, type: "Number", style: "Total" }, "", "",
+      { value: grand.bbWeight, type: "Number", style: "Total" },
+      { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
+      { value: grand.springWeight, type: "Number", style: "Total" },
+      { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
+      { value: grand.reducedWeight, type: "Number", style: "Total" },
+      { value: grand.netWeight, type: "Number", style: "Total" }, "",
+      { value: grand.baseFineWeight, type: "Number", style: "Total" },
+      { value: grand.wastageFineWeight, type: "Number", style: "Total" },
+      { value: grand.fineWeight, type: "Number", style: "Total" }, "", "", "",
+    ]));
+    return rows;
+  }
+
+  function exportSelectedBillsExcel() {
+    const entries = selectedMultiBillExcelEntries();
+    if (!entries.length) {
+      alert("Select at least one generated Bill to combine into Excel.");
+      return;
+    }
+    downloadExcelWorkbook(`COMBINED-${entries.length}-BILLS-${isoToday()}`, [
+      excelWorksheet("Bill Summary", combinedBillSummaryRows(entries)),
+      excelWorksheet("Combined Item Details", combinedBillItemRows(entries)),
+    ]);
+  }
+
   renderBills = function renderBillsV616() {
     coreRenderBills.call(this);
     document.querySelectorAll("#bill-table tr").forEach((row) => {
@@ -336,6 +526,17 @@
 
   document.getElementById("export-bill-excel")?.addEventListener("click", () => window.exportBillExcel());
   document.getElementById("export-all-bills-excel")?.addEventListener("click", window.exportAllBillsExcel);
+  document.getElementById("open-multi-bill-excel")?.addEventListener("click", openMultiBillExcelDialog);
+  document.getElementById("close-multi-bill-excel")?.addEventListener("click", closeMultiBillExcelDialog);
+  document.getElementById("multi-bill-excel-search")?.addEventListener("input", renderMultiBillExcelDialog);
+  document.getElementById("multi-bill-excel-list")?.addEventListener("change", handleMultiBillExcelSelection);
+  document.getElementById("multi-bill-excel-select-visible")?.addEventListener("click", () => selectMultiBillExcelEntries("visible"));
+  document.getElementById("multi-bill-excel-select-all")?.addEventListener("click", () => selectMultiBillExcelEntries("all"));
+  document.getElementById("multi-bill-excel-clear")?.addEventListener("click", () => {
+    multiBillExcelSelection.clear();
+    renderMultiBillExcelDialog();
+  });
+  document.getElementById("export-selected-bills-excel")?.addEventListener("click", exportSelectedBillsExcel);
   renderBills();
 
   window.KJM_SETTING_INTERNAL_BILL_EXCEL_V616 = {
@@ -343,6 +544,9 @@
     migrateInternalSettingSplits,
     productionMovementTrace,
     billExcelRows,
+    generatedBillExcelEntries,
+    combinedBillSummaryRows,
+    combinedBillItemRows,
   };
 
   if (migrateInternalSettingSplits(state)) render();

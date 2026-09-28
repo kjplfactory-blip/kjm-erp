@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=649">
+      <link rel="stylesheet" href="styles.css?v=650">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v649</small>
+      <small class="app-version-badge">App v650</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v649</span>
+          <span class="app-version-badge">App v650</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1724,6 +1724,7 @@
             <div class="billing-heading-tools">
               <button type="button" id="open-manual-wip-billing">Issue Billing Item / WIP</button>
               <button type="button" id="open-multi-bill-tags">Multi-Bill Tags A6</button>
+              <button type="button" id="open-multi-bill-excel">Combine Selected Bills Excel</button>
               <button type="button" class="ghost-button" id="export-all-bills-excel">Export All Bills Excel</button>
               <input id="bill-search" class="search" placeholder="Search job card, lot, customer">
             </div>
@@ -2909,6 +2910,30 @@
       </section>
     </dialog>
 
+    <dialog id="multi-bill-excel-dialog" class="multi-bill-excel-dialog">
+      <section class="dialog-card multi-bill-excel-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Combine Bills Into One Excel</h2>
+            <p class="dialog-note">Select any generated bills. One Excel file will contain a Bill Summary sheet and one combined item-details sheet.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-multi-bill-excel">Close</button>
+        </div>
+        <div class="multi-bill-excel-toolbar">
+          <input id="multi-bill-excel-search" class="search" placeholder="Search bill no, job card, lot or customer">
+          <button type="button" id="multi-bill-excel-select-visible">Select All Visible</button>
+          <button class="ghost-button" type="button" id="multi-bill-excel-select-all">Select All Bills</button>
+          <button class="ghost-button" type="button" id="multi-bill-excel-clear">Clear Selection</button>
+        </div>
+        <div id="multi-bill-excel-summary" class="multi-bill-excel-summary"></div>
+        <div id="multi-bill-excel-list" class="multi-bill-excel-list"></div>
+        <div class="dialog-actions multi-bill-excel-actions">
+          <span id="multi-bill-excel-footer" class="dialog-note">No bills selected.</span>
+          <button type="button" id="export-selected-bills-excel" disabled>Export Selected Bills Excel</button>
+        </div>
+      </section>
+    </dialog>
+
     <dialog id="production-return-dialog">
       <form id="production-return-form" class="dialog-card history-dialog production-return-form">
         <div class="dialog-header">
@@ -3592,11 +3617,11 @@
   <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=649"></script>
+    <script src="app.js?v=650"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
-  <script src="setting-internal-bill-excel-v616.js?v=616"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=650"></script>
   <script src="setting-master-tiles-v617.js?v=617"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
