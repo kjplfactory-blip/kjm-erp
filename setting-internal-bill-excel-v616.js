@@ -310,7 +310,11 @@
     const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
     const anchor = document.createElement("a");
     anchor.href = URL.createObjectURL(blob);
-    anchor.download = `${String(fileName || "BILL-DETAILS").replace(/[^A-Z0-9_-]+/gi, "-")}.xls`;
+    const safeFileName = String(fileName || "BILL-DETAILS")
+      .replace(/[^A-Z0-9_.-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, "");
+    anchor.download = `${safeFileName || "BILL-DETAILS"}.xls`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -545,13 +549,30 @@
     return rows;
   }
 
+  function combinedBillExcelBillNumber(value = "") {
+    const text = String(value || "").trim();
+    return text.replace(/^BILL[\s/_-]*/i, "") || "UNNUMBERED";
+  }
+
+  function combinedBillExcelFileWeight(value = 0) {
+    return String(Number(Number(value || 0).toFixed(3)));
+  }
+
+  function combinedBillExcelFileName(entries = []) {
+    const billNumbers = entries.map(({ lot, bill }) => (
+      combinedBillExcelBillNumber(bill.billNo || lot.orderNumber || lot.number || "")
+    ));
+    const totals = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    return `BILL-${billNumbers.join("-")}-GW-${combinedBillExcelFileWeight(totals.finalGw)}-NON-GOLD-${combinedBillExcelFileWeight(totals.reducedWeight)}-NW-${combinedBillExcelFileWeight(totals.netWeight)}`;
+  }
+
   function exportSelectedBillsExcel() {
     const entries = selectedMultiBillExcelEntries();
     if (!entries.length) {
       alert("Select at least one generated Bill to combine into Excel.");
       return;
     }
-    downloadExcelWorkbook(`COMBINED-${entries.length}-BILLS-INDIVIDUAL-ITEMS-${isoToday()}`, [
+    downloadExcelWorkbook(combinedBillExcelFileName(entries), [
       excelWorksheet("Individual Item Details", combinedBillItemRows(entries)),
       excelWorksheet("Bill Summary", combinedBillSummaryRows(entries)),
     ]);
