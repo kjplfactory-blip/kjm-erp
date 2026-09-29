@@ -229,7 +229,10 @@
     return (bill.items || []).map((item) => {
       const order = findById("orders", item.orderId) || {};
       const fine = billItemFineBreakup(item);
-      const itemName = item.cmItemType || item.ringType || order.item || order.subCategory || item.category || order.category || "";
+      const linkedItemCode = order.id ? jobItemSubcategoryLabel(order) : "";
+      const itemName = linkedItemCode && linkedItemCode !== "-"
+        ? linkedItemCode
+        : (item.cmItemType || item.ringType || item.subItem || item.subCategory || item.category || order.category || "");
       return [
         bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", order.customer || bill.customer || "",
         manufacturingOrderTypeLabel(order.customer || ""), item.productionNo || order.productionNo || "", billExcelDesignName(item, order),

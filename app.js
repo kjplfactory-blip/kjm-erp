@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v656";
+const APP_VERSION = "v657";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1151,7 +1151,11 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
       status: "Pending",
       createdAt: new Date().toISOString(),
     };
-    orderRecord.itemName = normalizedJobItemName(orderRecord, findById("designs", orderRecord.designId));
+    const orderDesign = findById("designs", orderRecord.designId);
+    const itemCode = jobItemCode(orderRecord, orderDesign);
+    orderRecord.subItem = itemCode;
+    orderRecord.subCategory = itemCode;
+    orderRecord.itemName = normalizedJobItemName(orderRecord, orderDesign);
     orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
     state.orders.push(orderRecord);
     createdOrders.push(orderRecord);
@@ -16760,8 +16764,9 @@ function updateJobSplitSelectionUi() {
 }
 
 function jobItemSubcategoryLabel(order = {}) {
-  const itemKey = printBagItemKeyForOrder(order) || orderStoneItemKeys(order)[0];
-  return itemKey ? stoneItemInputValue(itemKey) : (order.item || order.category || "-");
+  const design = order.designId ? findById("designs", order.designId) : null;
+  const itemCode = jobItemCode(order, design);
+  return itemCode ? stoneItemInputValue(itemCode) : "-";
 }
 
 function closeJobItemDetail() {
@@ -17652,7 +17657,7 @@ function jobItemDetailHtml(order) {
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Job Card Narration", order.jobCardNarration || order.fittingAccessoriesNarration || order.remarks || "-") : ""}
         ${isFittingAccessoriesOrder(order) ? jobItemDetailCell("Item Narration", order.itemNarration || order.item || "-") : ""}
         ${isSetItemCategory(order.category) ? jobItemDetailCell(setItemFieldLabel(order.category), cmItemTypeLabel(order.cmItemType || defaultCmItemTypeForCategory(order.category), order.category)) : ""}
-        ${order.designSubItemType ? jobItemDetailCell("Sub Item", designSubItemTypeLabel(order.designSubItemType)) : ""}
+        ${jobItemDetailCell("Sub Item", jobItemSubcategoryLabel(order))}
         ${jobItemDetailCell("Ring Type", ringTypeLabel(order.ringType) || "-")}
         ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
         ${jobItemDetailCell("Colour", order.color || "-")}
@@ -26842,7 +26847,10 @@ function jobItemFittingAccessoryNames(order = {}) {
 }
 
 function jobItemDesignNumberOnly(value = "") {
-  const matches = String(value || "").match(/\d+/g);
+  const withoutDuplicateSuffix = String(value || "")
+    .replace(/(?:\s*\(\s*\d+\s*\))+\s*$/g, "")
+    .trim();
+  const matches = withoutDuplicateSuffix.match(/\d+/g);
   return matches?.length ? matches[matches.length - 1] : "";
 }
 
@@ -26885,12 +26893,16 @@ function jobItemHasSubItemCategory(order = {}, design = null) {
     || Boolean(order.designSubItemType);
 }
 
+function jobItemCode(order = {}, design = null) {
+  const subItem = jobItemSubItemCode(order, design).replace(/[^A-Z0-9]+/g, "");
+  const mainCategory = categoryCode(order.category || design?.category || "").replace(/[^A-Z0-9]+/g, "");
+  return subItem || mainCategory;
+}
+
 function normalizedJobItemName(order = {}, design = null) {
   const designReference = design?.number || order.designNumber || design?.name || "";
   const designNumber = jobItemDesignNumberOnly(designReference);
-  const subItem = jobItemSubItemCode(order, design).replace(/[^A-Z0-9]+/g, "");
-  const mainCategory = categoryCode(order.category || design?.category || "").replace(/[^A-Z0-9]+/g, "");
-  const itemCode = subItem || mainCategory;
+  const itemCode = jobItemCode(order, design);
   if (itemCode && designNumber) {
     return `KJ-${itemCode}-${designNumber}`;
   }
@@ -45024,7 +45036,7 @@ function normalizeManufacturingCustomers(customers = [], orders = []) {
 
 function normalizeLoadedState(currentState) {
   if (currentState && typeof currentState === "object" && stateSyncBuild(currentState) >= MIN_NORMALIZED_STATE_BUILD) {
-    if (!currentState.jobItemCategoryNamesV656) migrateJobItemNames(currentState);
+    if (!currentState.jobItemDuplicateSuffixNamesV657) migrateJobItemNames(currentState);
     return currentState;
   }
   return normalizeState(currentState);
@@ -45698,14 +45710,21 @@ function normalizeState(currentState) {
 
 function migrateJobItemNames(currentState) {
   const hadSubItemMigration = Boolean(currentState.jobItemSubItemNamesV653);
+  const hadCategoryMigration = Boolean(currentState.jobItemCategoryNamesV656);
   const orderById = new Map();
   const orderByProductionNo = new Map();
   let renamedCount = 0;
+  let migratedCount = 0;
   (currentState.orders || []).forEach((order) => {
     const design = (currentState.designs || []).find((item) => item.id === order.designId) || null;
     const normalizedName = normalizedJobItemName(order, design);
+    const itemCode = jobItemCode(order, design);
+    const itemChanged = order.itemName !== normalizedName || order.subItem !== itemCode || order.subCategory !== itemCode;
     if (order.itemName !== normalizedName) renamedCount += 1;
+    if (itemChanged) migratedCount += 1;
     order.itemName = normalizedName;
+    order.subItem = itemCode;
+    order.subCategory = itemCode;
     if (order.id) orderById.set(order.id, order);
     [order.productionNo, order.number].filter(Boolean).forEach((value) => orderByProductionNo.set(String(value), order));
   });
@@ -45721,7 +45740,11 @@ function migrateJobItemNames(currentState) {
   (currentState.bills || []).forEach((bill) => {
     (bill.items || []).forEach((item) => {
       const linkedOrder = linkedOrderFor(item);
-      if (linkedOrder) item.itemName = linkedOrder.itemName;
+      if (linkedOrder) {
+        item.itemName = linkedOrder.itemName;
+        item.subItem = linkedOrder.subItem;
+        item.subCategory = linkedOrder.subCategory;
+      }
     });
   });
   currentState.jobItemSubItemNamesV653 = true;
@@ -45729,7 +45752,11 @@ function migrateJobItemNames(currentState) {
     currentState.jobItemSubItemNameMigrationCount = Number(currentState.jobItemSubItemNameMigrationCount || 0) + renamedCount;
   }
   currentState.jobItemCategoryNamesV656 = true;
-  currentState.jobItemCategoryNameMigrationCount = Number(currentState.jobItemCategoryNameMigrationCount || 0) + renamedCount;
+  if (!hadCategoryMigration) {
+    currentState.jobItemCategoryNameMigrationCount = Number(currentState.jobItemCategoryNameMigrationCount || 0) + renamedCount;
+  }
+  currentState.jobItemDuplicateSuffixNamesV657 = true;
+  currentState.jobItemDuplicateSuffixNameMigrationCount = Number(currentState.jobItemDuplicateSuffixNameMigrationCount || 0) + migratedCount;
 }
 
 function normalizeLotIssueWeights(currentState, lot) {
