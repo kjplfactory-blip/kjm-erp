@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT V660
+Date: 2026-09-29 IST
+
+CHANGE
+- The two A6 rows inside an A4 Job Bag sheet now have an exact 15 mm visible vertical gap.
+- Each row uses 141 mm of the 297 mm A4 page height.
+- Job Bag details and full-image panels share the same geometry.
+
+UNCHANGED
+- Individual A6 Job Bag printing is unchanged.
+- A6 Transfer Bag printing is unchanged.
+- No ERP data or Supabase database structure is changed.

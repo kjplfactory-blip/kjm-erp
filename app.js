@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v660";
+const APP_VERSION = "v661";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4865,7 +4865,8 @@ function isOfficeMainUser() {
 }
 
 function isManagerUser() {
-  return currentUserConfig()?.role === "manager";
+  const config = currentUserConfig();
+  return Boolean(config?.role === "manager" || config?.operationalManager);
 }
 
 function canManageFittingAccessoriesJobCards() {
@@ -6871,7 +6872,26 @@ function allUsers() {
       canEditOfficeWeights: override.canEditOfficeWeights ?? merged[id].canEditOfficeWeights,
     };
   });
+  Object.entries(merged).forEach(([id, user]) => {
+    if (!isOperationalManagerUserRecord(id, user)) return;
+    merged[id] = {
+      ...user,
+      pages: [...loginAccessPages],
+      operationalManager: true,
+    };
+  });
   return merged;
+}
+
+function isSafiaLoginUserRecord(userId = "", user = {}) {
+  const identityTokens = [userId, user.name]
+    .flatMap((value) => String(value || "").toLowerCase().split(/[^a-z0-9]+/))
+    .filter(Boolean);
+  return identityTokens.includes("safia") || identityTokens.includes("safiya");
+}
+
+function isOperationalManagerUserRecord(userId = "", user = {}) {
+  return user.role === "manager" || isSafiaLoginUserRecord(userId, user);
 }
 
 function userAccessText(user = {}) {
@@ -25691,11 +25711,16 @@ function renderLoginUsers() {
   const rows = Object.entries(allUsers()).map(([id, user]) => {
     const isBuiltIn = Boolean(users[id]);
     const isOwnerRow = id === "owner";
+    const hasFixedOperationalAccess = Boolean(user.operationalManager);
     return `
     <tr>
       <td><strong>${escapeHtml(id)}</strong></td>
       <td><input name="userName" value="${escapeHtml(user.name)}" ${isOwnerRow ? "readonly" : ""}></td>
-      <td>${isOwnerRow ? "Full software" : renderUserAccessCheckboxes(id, user.pages)}</td>
+      <td>${isOwnerRow
+        ? "Full software"
+        : hasFixedOperationalAccess
+          ? '<strong>All ERP Operations</strong><br><small>Login Details excluded</small>'
+          : renderUserAccessCheckboxes(id, user.pages)}</td>
       <td><strong>${escapeHtml(loginSessionLimitText(id))}</strong></td>
       <td><span class="password-pill">${escapeHtml(userPassword(id))}</span></td>
       <td><input name="newPassword" type="text" placeholder="Enter new password"></td>
@@ -26052,9 +26077,14 @@ function addLoginUser(form) {
 
 function saveLoginUser(userId, row) {
   if (!row || !allUsers()[userId]) return;
-  const name = row.querySelector('[name="userName"]')?.value.trim() || allUsers()[userId].name;
+  const effectiveUser = allUsers()[userId];
+  const name = row.querySelector('[name="userName"]')?.value.trim() || effectiveUser.name;
   const password = row.querySelector('[name="newPassword"]')?.value.trim() || "";
-  const pages = userId === "owner" ? "all" : selectedAccessPages(row);
+  const pages = userId === "owner"
+    ? "all"
+    : effectiveUser.operationalManager
+      ? [...loginAccessPages]
+      : selectedAccessPages(row);
   if (userId !== "owner" && !pages.length) {
     alert("Select at least one access page.");
     return;
