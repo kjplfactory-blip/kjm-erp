@@ -199,10 +199,30 @@
 
   function billExcelColumns() {
     return [
-      "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design No", "Category / Item", "Size", "Colour", "Purity",
+      "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design Name", "Category / Item", "Size", "Colour", "Purity",
       "Final GW (g)", "BB No", "BB Type", "BB Weight (g)", "Moti Weight (g)", "Stone Weight (g)", "Spring Weight (g)", "Other Weight (g)",
       "Total Non-Gold (g)", "Net Weight (g)", "Wastage %", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)", "QC Status", "Office Status", "Remarks",
     ];
+  }
+
+  function billExcelDesignName(item = {}, order = {}) {
+    const exportOrder = {
+      ...order,
+      itemName: order.itemName || item.itemName || "",
+      designNumber: order.designNumber || item.designNo || "",
+      category: order.category || item.category || "",
+      cmItemType: order.cmItemType || item.cmItemType || "",
+      ringType: order.ringType || item.ringType || "",
+      designSubItemType: order.designSubItemType || item.designSubItemType || "",
+      item: order.item || item.item || "",
+      subItem: order.subItem || item.subItem || "",
+      subCategory: order.subCategory || item.subCategory || "",
+    };
+    const design = exportOrder.designId ? findById("designs", exportOrder.designId) : null;
+    const normalizedName = normalizedJobItemName(exportOrder, design);
+    return normalizedName && normalizedName !== "Job item"
+      ? normalizedName
+      : (item.itemName || item.designNo || billOrderDesignCode(order) || "");
   }
 
   function billExcelRows(lot = {}, bill = {}) {
@@ -212,7 +232,7 @@
       const itemName = item.cmItemType || item.ringType || order.item || order.subCategory || item.category || order.category || "";
       return [
         bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", order.customer || bill.customer || "",
-        manufacturingOrderTypeLabel(order.customer || ""), item.productionNo || order.productionNo || "", item.designNo || billOrderDesignCode(order),
+        manufacturingOrderTypeLabel(order.customer || ""), item.productionNo || order.productionNo || "", billExcelDesignName(item, order),
         itemName, billItemSizeText(item, order), item.color || order.color || "", item.purity || order.purity || "",
         { value: billNumber(item.finalGw), type: "Number", style: "Weight" }, item.bbNo || "", item.bbType || "",
         { value: billNumber(item.blackBeadsWeight || item.bbWeight), type: "Number", style: "Weight" },
