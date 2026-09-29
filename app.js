@@ -17,10 +17,10 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v652";
+const APP_VERSION = "v653";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
-const MIN_NORMALIZED_STATE_BUILD = 640;
+const MIN_NORMALIZED_STATE_BUILD = 653;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
 const APP_VERSION_CHECK_INTERVAL_MS = 20000;
 const APP_VERSION_INITIAL_CHECK_DELAY_MS = 2500;
@@ -1151,6 +1151,7 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
       status: "Pending",
       createdAt: new Date().toISOString(),
     };
+    orderRecord.itemName = normalizedJobItemName(orderRecord, findById("designs", orderRecord.designId));
     orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
     state.orders.push(orderRecord);
     createdOrders.push(orderRecord);
@@ -2295,7 +2296,7 @@ document.getElementById("safe-issue-form").addEventListener("submit", (event) =>
     orderId: linkedOrder?.id || "",
     productionNo: linkedOrder?.productionNo || linkedOrder?.number || "",
     designNumber: linkedOrder?.designNumber || designLabel(linkedOrder?.designId) || "",
-    itemName: linkedOrder?.item || linkedOrder?.category || "",
+    itemName: linkedOrder ? jobItemDisplayName(linkedOrder) : "",
     stoneAdjustmentType,
     stoneAdjustmentWeight: stoneAdjustmentType ? manuallyEnteredStoneWeight : 0,
     waxStoneAdjustmentWeight: stoneAdjustmentParts.wax,
@@ -3924,6 +3925,7 @@ document.getElementById("item-edit-form").addEventListener("submit", (event) => 
   order.purity = data.purity || "18K";
   order.remarks = data.remarks || "";
   order.item = order.designNumber || order.category || order.remarks || order.item || "Job item";
+  order.itemName = normalizedJobItemName(order, design);
   cleanItemSizeFields(order);
   saveState();
   render();
@@ -10652,7 +10654,7 @@ function phoneBarcodeProductHtml(match) {
         <div class="camera-product-identity">
           <small>Production Number</small>
           <h3>${escapeHtml(order.productionNo || billItem.productionNo || order.number || "-")}</h3>
-          <p>${escapeHtml(order.designNumber || designText(design) || "-")} / ${escapeHtml(order.category || design.category || "Uncategorised")}</p>
+          <p>${escapeHtml(jobItemDisplayName(order, design))} / ${escapeHtml(order.category || design.category || "Uncategorised")}</p>
           <span class="status ${statusClass(currentStage)}">${escapeHtml(currentStage || "-")}</span>
           <span class="camera-read-only-badge">${repairResult ? "Repair Factory In" : "Details Only"}</span>
         </div>
@@ -10664,6 +10666,7 @@ function phoneBarcodeProductHtml(match) {
           ${jobItemDetailCell("Customer", order.customer || customer.name || "-")}
           ${jobItemDetailCell("Phone", customer.phone || "-")}
           ${jobItemDetailCell("Design", order.designNumber || designText(design) || "-")}
+          ${jobItemDetailCell("Item Name", jobItemDisplayName(order, design))}
           ${jobItemDetailCell("Category", order.category || design.category || "-")}
           ${jobItemDetailCell("Item", itemType)}
           ${jobItemDetailCell("Size", soldItemSizeText(order) || "-")}
@@ -10896,7 +10899,7 @@ function universalSearchResults(query = "", limit = 16) {
         type: "PR",
         label: order.productionNo || order.number || "Production Item",
         meta: `${jobNumber} / ${order.designNumber || order.designNo || "-"} / ${order.customer || "-"} / ${orderCurrentStage(order)}`,
-        values: [order.productionNo, order.number, order.barcode, order.designNumber, order.designNo, order.customer, jobNumber],
+        values: [order.productionNo, order.number, order.barcode, order.itemName, jobItemDisplayName(order), order.designNumber, order.designNo, order.customer, jobNumber],
         orderId: order.id,
       }, query);
     });
@@ -10906,7 +10909,7 @@ function universalSearchResults(query = "", limit = 16) {
         type: "JOB",
         label: jobNumber,
         meta: `${first.customer || "-"} / ${orders.length} item${orders.length === 1 ? "" : "s"} / ${jobCurrentStage(orders)}`,
-        values: [jobNumber, first.customer, ...orders.flatMap((order) => [order.productionNo, order.designNumber, order.designNo, order.remarks])],
+        values: [jobNumber, first.customer, ...orders.flatMap((order) => [order.productionNo, order.itemName, jobItemDisplayName(order), order.designNumber, order.designNo, order.remarks])],
         orderId: first.id,
       }, query);
     });
@@ -13242,7 +13245,7 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     orderId: issue.orderId || linkedOrder?.id || "",
     productionNo: issue.productionNo || linkedOrder?.productionNo || linkedOrder?.number || "",
     designNumber: issue.designNumber || linkedOrder?.designNumber || "",
-    itemName: issue.itemName || linkedOrder?.item || linkedOrder?.category || "",
+    itemName: issue.itemName || (linkedOrder ? jobItemDisplayName(linkedOrder) : ""),
     stoneAdjustmentType,
     stoneAdjustmentWeight,
     waxStoneAdjustmentWeight: stoneAdjustmentParts.wax,
@@ -13439,8 +13442,8 @@ function renderSafeIssueOrderOptions(jobReference = "", selectedOrderId = "") {
   const orders = selection.orders;
   form.orderId.innerHTML = orders.length
     ? `<option value="">Whole Job Card / All PR Items (Trace Existing)</option>${orders.map((order) => {
-      const design = order.designNumber || designLabel(order.designId) || order.category || "Item";
-      return `<option value="${escapeHtml(order.id)}">${escapeHtml(`${order.productionNo || order.number} / ${design} / ${orderCurrentStage(order)}`)}</option>`;
+      const itemName = jobItemDisplayName(order) || order.designNumber || designLabel(order.designId) || order.category || "Item";
+      return `<option value="${escapeHtml(order.id)}">${escapeHtml(`${order.productionNo || order.number} / ${itemName} / ${orderCurrentStage(order)}`)}</option>`;
     }).join("")}`
     : '<option value="">No semi-finished product available</option>';
   form.orderId.value = orders.some((order) => order.id === selectedOrderId) ? selectedOrderId : "";
@@ -13591,7 +13594,7 @@ function safeIssueJobStageSummaryHtml(selection = {}, order = null, adjustmentTy
   const projectedWax = Number(weight3(waxWeight + (tracesExisting ? 0 : waxAdjustment)));
   const projectedHand = Number(weight3(handWeight + (tracesExisting ? 0 : handAdjustment)));
   const target = order
-    ? `${order.productionNo || order.number} / ${order.designNumber || designLabel(order.designId) || order.category || "Item"}`
+    ? `${order.productionNo || order.number} / ${jobItemDisplayName(order) || order.designNumber || designLabel(order.designId) || order.category || "Item"}`
     : `${selection.jobNumber} / Whole Job Card / ${selection.orders.length} PR item${selection.orders.length === 1 ? "" : "s"}`;
   return `
     <div class="safe-issue-stage-heading">
@@ -19533,6 +19536,7 @@ function addItemsToJobCard(baseOrder, data = {}) {
       createdAt: new Date().toISOString(),
     };
     cleanItemSizeFields(orderRecord);
+    orderRecord.itemName = normalizedJobItemName(orderRecord, design);
     orderRecord.productionStoneItems = buildProductionStoneItemsForOrder(orderRecord);
     state.orders.push(orderRecord);
     createdOrders.push(orderRecord);
@@ -20616,7 +20620,7 @@ function hallmarkedTagPrintHtml(entries = []) {
 function hallmarkedTagHtml({ lot, bill, item, order }) {
   const design = findById("designs", order.designId) || {};
   const productionNo = item.productionNo || order.productionNo || order.number || "";
-  const designName = order.designNo || designLabel(order.designId) || (design.id ? designText(design) : "") || "-";
+  const designName = jobItemDisplayName(order, design);
   const sizeText = billItemSizeText(item, order) || "-";
   const nonGold = billItemNonGoldBreakup(item, order);
   const huid = officeHuidText(item);
@@ -20680,7 +20684,7 @@ function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
 function billTagHtml(lot, bill, item = {}) {
   const order = item.order || {};
   const productionNo = item.productionNo || order.productionNo || order.number || "";
-  const designName = item.design || order.designNo || designLabel(order.designId) || "-";
+  const designName = item.itemName || jobItemDisplayName(order) || item.design || order.designNo || designLabel(order.designId) || "-";
   const itemDetail = billTagIndividualItemDetail(item, order);
   const barcodeValue = productionNo || `${lot.number || "LOT"}-${item.index + 1}`;
   return `
@@ -20917,6 +20921,7 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     order,
     index,
     productionNo: item.productionNo || order.productionNo || order.number || "",
+    itemName: item.itemName || jobItemDisplayName(order),
     customer: order.customer || "",
     orderType: manufacturingOrderTypeLabel(order.customer || ""),
     officeDestination: manufacturingOfficeDestinationLabel(order.customer || ""),
@@ -21393,7 +21398,7 @@ function transferBagLotRow(lot) {
 
 function transferBagItemRow(item, index) {
   const design = item.designNumber || designLabel(item.designId) || "-";
-  const itemLabel = printBagItemKeyForOrder(item) || item.category || item.item || "-";
+  const itemLabel = jobItemDisplayName(item) || printBagItemKeyForOrder(item) || item.category || item.item || "-";
   const size = soldItemSizeText(item) || item.size || "-";
   const stoneItems = productionStoneItemsForOrder(item);
   const waxStone = productionStoneTotals(stoneItems, "wax");
@@ -26836,8 +26841,62 @@ function jobItemFittingAccessoryNames(order = {}) {
   )];
 }
 
+function jobItemDesignNumberOnly(value = "") {
+  const matches = String(value || "").match(/\d+/g);
+  return matches?.length ? matches[matches.length - 1] : "";
+}
+
+function jobItemSubItemCode(order = {}, design = null) {
+  const category = categoryCode(order.category || design?.category || "");
+  if (category === "CBR") {
+    if (order.ringType === "CL") return "CLR";
+    if (order.ringType === "CG") return "CGR";
+  }
+  if (category === "CB" && ["CL", "CG"].includes(order.ringType)) return order.ringType;
+
+  const designKeys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
+    .map(normalizeStoneItemKey)
+    .filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  const selectedCandidates = [
+    ...String(order.designSubItemType || "").split("+"),
+    ...String(order.cmItemType || "").split("+"),
+    order.item,
+    order.subItem,
+    order.subCategory,
+  ].map(normalizeStoneItemKey).filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  const allowedKeys = designKeys.length
+    ? designKeys
+    : [
+        ...setItemFamilyKeys(category),
+        ...(category === "CBR" ? ["CLR", "CGR"] : []),
+        ...(category === "CB" ? ["CL", "CG"] : []),
+      ];
+  return selectedCandidates.find((key) => allowedKeys.includes(key)) || "";
+}
+
+function jobItemHasSubItemCategory(order = {}, design = null) {
+  const category = categoryCode(order.category || design?.category || "");
+  const designKeys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || category)
+    .map(normalizeStoneItemKey)
+    .filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  return designKeys.length > 1
+    || isCbCategory(category)
+    || isSetItemCategory(category)
+    || Boolean(order.designSubItemType);
+}
+
+function normalizedJobItemName(order = {}, design = null) {
+  const designReference = design?.number || order.designNumber || design?.name || "";
+  const designNumber = jobItemDesignNumberOnly(designReference);
+  const subItem = jobItemSubItemCode(order, design).replace(/[^A-Z0-9]+/g, "");
+  if (jobItemHasSubItemCategory(order, design) && subItem && designNumber) {
+    return `KJ-${subItem}-${designNumber}`;
+  }
+  return String(order.itemName || order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item").trim();
+}
+
 function jobItemDisplayName(order = {}, design = null) {
-  const baseName = order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item";
+  const baseName = normalizedJobItemName(order, design);
   const fittingNames = jobItemFittingAccessoryNames(order);
   return fittingNames.length ? [baseName, ...fittingNames].join(" / ") : baseName;
 }
@@ -34178,7 +34237,7 @@ function renderSettingSplitItemPicker(form, lot, force = false) {
     ? orders.map((order) => {
       const productionNo = order.productionNo || order.number || "PR";
       const designNo = order.designNo || designLabel(order.designId) || "-";
-      const itemName = order.item || order.subCategory || order.category || "Item";
+      const itemName = jobItemDisplayName(order) || order.item || order.subCategory || order.category || "Item";
       return `
         <label class="setting-split-item-option">
           <input type="checkbox" name="settingSplitOrderId" value="${escapeHtml(order.id)}">
@@ -39641,9 +39700,8 @@ function renderBillItems(lot, bill = {}) {
     const sizeEnabled = manualWip || billOrderUsesSize(order);
     const sizeValue = billItemSizeText(saved, order);
     const itemLabel = [
-      designCode || `Item ${index + 1}`,
+      manualWip ? (designCode || `Item ${index + 1}`) : jobItemDisplayName(order),
       order.productionNo || order.number || "",
-      order.ringType || "",
     ].filter(Boolean).join(" / ");
     const canRemoveFromDraft = canManageDraftItems
       && billableOrders.length > 1
@@ -39747,6 +39805,7 @@ function billItemRows(existingItems = [], options = {}) {
       ...existing,
       orderId: row.dataset.orderId || "",
       productionNo: row.dataset.productionNo || "",
+      itemName: jobItemDisplayName(findById("orders", row.dataset.orderId) || {}) || existing.itemName || "",
       designNo: row.dataset.designNo || existing.designNo || "",
       category: row.dataset.category || existing.category || "",
       ringType: row.dataset.ringType || existing.ringType || "",
@@ -45593,6 +45652,7 @@ function normalizeState(currentState) {
     }
   });
   migrateCbBothRingOrders(currentState);
+  migrateJobItemNames(currentState);
   currentState.goldIssueCorrections = (currentState.goldIssueCorrections || [])
     .filter((entry) => entry?.id)
     .sort((left, right) => String(right.createdAt || right.date || "").localeCompare(String(left.createdAt || left.date || "")))
@@ -45631,6 +45691,37 @@ function normalizeState(currentState) {
   seedMetalSafeFromLedger(currentState);
   stampCurrentAppVersion(currentState);
   return currentState;
+}
+
+function migrateJobItemNames(currentState) {
+  const orderById = new Map();
+  const orderByProductionNo = new Map();
+  let renamedCount = 0;
+  (currentState.orders || []).forEach((order) => {
+    const design = (currentState.designs || []).find((item) => item.id === order.designId) || null;
+    const normalizedName = normalizedJobItemName(order, design);
+    if (order.itemName !== normalizedName) renamedCount += 1;
+    order.itemName = normalizedName;
+    if (order.id) orderById.set(order.id, order);
+    [order.productionNo, order.number].filter(Boolean).forEach((value) => orderByProductionNo.set(String(value), order));
+  });
+
+  const linkedOrderFor = (record = {}) => orderById.get(record.orderId)
+    || orderByProductionNo.get(String(record.productionNo || record.orderNumber || ""));
+  [currentState.safeDepartmentIssues, currentState.productionNonGoldIssues].forEach((records) => {
+    (records || []).forEach((record) => {
+      const linkedOrder = linkedOrderFor(record);
+      if (linkedOrder) record.itemName = linkedOrder.itemName;
+    });
+  });
+  (currentState.bills || []).forEach((bill) => {
+    (bill.items || []).forEach((item) => {
+      const linkedOrder = linkedOrderFor(item);
+      if (linkedOrder) item.itemName = linkedOrder.itemName;
+    });
+  });
+  currentState.jobItemSubItemNamesV653 = true;
+  currentState.jobItemSubItemNameMigrationCount = Number(currentState.jobItemSubItemNameMigrationCount || 0) + renamedCount;
 }
 
 function normalizeLotIssueWeights(currentState, lot) {
