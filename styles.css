@@ -15556,6 +15556,20 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     transform: scale(0.95);
     transform-origin: center center;
   }
+
+  /* Two scaled A6 rows use the full A4 height with an exact 15 mm gap. */
+  body.printing-order:not(.printing-single-item):not(.printing-transfer-bag) .print-page {
+    grid-template-rows: repeat(2, 141mm);
+    row-gap: 15mm;
+  }
+
+  body.printing-order:not(.printing-single-item):not(.printing-transfer-bag) .print-page > .print-job-item,
+  body.printing-order:not(.printing-single-item):not(.printing-transfer-bag) .print-page > .print-job-main-image-page {
+    align-self: center;
+    justify-self: center;
+    transform: scale(0.94949495);
+    transform-origin: center center;
+  }
 }
 
 #mobile-print-dialog {
