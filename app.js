@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v661";
+const APP_VERSION = "v662";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3189,7 +3189,7 @@ window.addEventListener("beforeunload", flushBillDraftSave);
 
 document.getElementById("bill-qc-ok").addEventListener("click", () => {
   if (!canEditQcStatus()) {
-    alert("Only Order Dept, QC, Office Main, or Owner can transfer QC OK items to Office.");
+    alert("Only Order Dept, QC, Office Main, Manager, Safia, or Owner can transfer QC OK items to Office.");
     return;
   }
   transferQcOkItemsToOffice();
@@ -3197,7 +3197,7 @@ document.getElementById("bill-qc-ok").addEventListener("click", () => {
 
 document.getElementById("bill-qc-all-ok").addEventListener("click", () => {
   if (!canEditQcStatus()) {
-    alert("Only Order Dept, QC, Office Main, or Owner can apply QC OK to all items.");
+    alert("Only Order Dept, QC, Office Main, Manager, Safia, or Owner can apply QC OK to all items.");
     return;
   }
   applyQcOkToAllBillItems();
@@ -3205,7 +3205,7 @@ document.getElementById("bill-qc-all-ok").addEventListener("click", () => {
 
 document.getElementById("bill-qc-failed").addEventListener("click", () => {
   if (!canSendQcFailedItems()) {
-    alert("Only QC, Office Main, or Owner can send QC failed items back to Production.");
+    alert("Only QC, Office Main, Manager, Safia, or Owner can send QC failed items back to Production.");
     return;
   }
   returnQcFailedItemsToProduction();
@@ -5015,11 +5015,11 @@ function isGeneratedBillLockedForCurrentUser(bill = {}) {
 }
 
 function canEditQcStatus() {
-  return isOwner() || isOfficeMainUser() || isQcUser() || isOrderUser();
+  return isOwner() || isManagerUser() || isOfficeMainUser() || isQcUser() || isOrderUser();
 }
 
 function canSendQcFailedItems() {
-  return isOwner() || isOfficeMainUser() || isQcUser();
+  return isOwner() || isManagerUser() || isOfficeMainUser() || isQcUser();
 }
 
 function isBillQcOnlyMode() {
