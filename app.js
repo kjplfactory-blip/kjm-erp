@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v655";
+const APP_VERSION = "v656";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26889,8 +26889,10 @@ function normalizedJobItemName(order = {}, design = null) {
   const designReference = design?.number || order.designNumber || design?.name || "";
   const designNumber = jobItemDesignNumberOnly(designReference);
   const subItem = jobItemSubItemCode(order, design).replace(/[^A-Z0-9]+/g, "");
-  if (jobItemHasSubItemCategory(order, design) && subItem && designNumber) {
-    return `KJ-${subItem}-${designNumber}`;
+  const mainCategory = categoryCode(order.category || design?.category || "").replace(/[^A-Z0-9]+/g, "");
+  const itemCode = subItem || mainCategory;
+  if (itemCode && designNumber) {
+    return `KJ-${itemCode}-${designNumber}`;
   }
   return String(order.itemName || order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item").trim();
 }
@@ -45022,6 +45024,7 @@ function normalizeManufacturingCustomers(customers = [], orders = []) {
 
 function normalizeLoadedState(currentState) {
   if (currentState && typeof currentState === "object" && stateSyncBuild(currentState) >= MIN_NORMALIZED_STATE_BUILD) {
+    if (!currentState.jobItemCategoryNamesV656) migrateJobItemNames(currentState);
     return currentState;
   }
   return normalizeState(currentState);
@@ -45694,6 +45697,7 @@ function normalizeState(currentState) {
 }
 
 function migrateJobItemNames(currentState) {
+  const hadSubItemMigration = Boolean(currentState.jobItemSubItemNamesV653);
   const orderById = new Map();
   const orderByProductionNo = new Map();
   let renamedCount = 0;
@@ -45721,7 +45725,11 @@ function migrateJobItemNames(currentState) {
     });
   });
   currentState.jobItemSubItemNamesV653 = true;
-  currentState.jobItemSubItemNameMigrationCount = Number(currentState.jobItemSubItemNameMigrationCount || 0) + renamedCount;
+  if (!hadSubItemMigration) {
+    currentState.jobItemSubItemNameMigrationCount = Number(currentState.jobItemSubItemNameMigrationCount || 0) + renamedCount;
+  }
+  currentState.jobItemCategoryNamesV656 = true;
+  currentState.jobItemCategoryNameMigrationCount = Number(currentState.jobItemCategoryNameMigrationCount || 0) + renamedCount;
 }
 
 function normalizeLotIssueWeights(currentState, lot) {
