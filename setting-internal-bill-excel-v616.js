@@ -199,7 +199,7 @@
 
   function billExcelColumns() {
     return [
-      "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design Name", "Category / Item", "Size", "Colour", "Purity",
+      "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design Name", "Category / Item", "Size", "Item Colour", "Purity",
       "Final GW (g)", "BB No", "BB Type", "BB Weight (g)", "Moti Weight (g)", "Stone Weight (g)", "Spring Weight (g)", "Other Weight (g)",
       "Total Non-Gold (g)", "Net Weight (g)", "Wastage %", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)", "QC Status", "Office Status", "Remarks",
     ];
@@ -225,6 +225,25 @@
       : (item.itemName || item.designNo || billOrderDesignCode(order) || "");
   }
 
+  function billExcelItemColour(item = {}, order = {}, lot = {}, bill = {}) {
+    return String(
+      item.color
+      || item.colour
+      || item.jobColor
+      || order.color
+      || order.colour
+      || order.jobColor
+      || bill.itemColor
+      || bill.color
+      || bill.colour
+      || bill.jobColor
+      || lot.color
+      || lot.colour
+      || lot.jobColor
+      || ""
+    ).trim();
+  }
+
   function billExcelRows(lot = {}, bill = {}) {
     return (bill.items || []).map((item) => {
       const order = findById("orders", item.orderId) || {};
@@ -236,7 +255,7 @@
       return [
         bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", order.customer || bill.customer || "",
         manufacturingOrderTypeLabel(order.customer || ""), item.productionNo || order.productionNo || "", billExcelDesignName(item, order),
-        itemName, billItemSizeText(item, order), item.color || order.color || "", item.purity || order.purity || "",
+        itemName, billItemSizeText(item, order), billExcelItemColour(item, order, lot, bill), item.purity || order.purity || "",
         { value: billNumber(item.finalGw), type: "Number", style: "Weight" }, item.bbNo || "", item.bbType || "",
         { value: billNumber(item.blackBeadsWeight || item.bbWeight), type: "Number", style: "Weight" },
         { value: billNumber(item.motiWeight || item.mmWeight), type: "Number", style: "Weight" },
