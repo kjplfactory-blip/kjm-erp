@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v662";
+const APP_VERSION = "v663";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -528,6 +528,7 @@ const motiLibraryPageSize = 100;
 let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
 let stoneCropReturnContext = null;
+let productionStoneReturnContext = null;
 const stoneCropState = {
   files: [],
   sourceIndex: 0,
@@ -3163,6 +3164,12 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
     refreshBillItemStoneEntry(refreshStoneButton.dataset.refreshBillStone || "");
     return;
   }
+  const openStoneButton = event.target.closest?.("[data-open-bill-stone]");
+  if (openStoneButton) {
+    event.preventDefault();
+    openBillItemStoneEntry(openStoneButton.dataset.openBillStone || "");
+    return;
+  }
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button) return;
   event.preventDefault();
@@ -3945,6 +3952,8 @@ document.getElementById("close-production-stone-bottom").addEventListener("click
   document.getElementById("production-stone-dialog").close();
 });
 
+document.getElementById("production-stone-dialog").addEventListener("close", restoreBillAfterProductionStoneEntry);
+
 document.getElementById("production-stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const order = findById("orders", event.target.orderId.value);
@@ -3986,7 +3995,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
-  openJobItemDetail(order.id);
+  if (!productionStoneOpenedFromBill()) openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const savedAdditionalWeight = productionStoneTotals(additionalStoneItems).weight;
   alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed lot transfer chain${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight and department net weight.` : ""}`);
@@ -8605,7 +8614,13 @@ function rememberViewForBack(previousView, nextView) {
 
 function closeTopDialogForBack() {
   const openDialogs = Array.from(document.querySelectorAll("dialog[open]"));
-  const dialog = openDialogs[openDialogs.length - 1];
+  const billStoneDialog = productionStoneOpenedFromBill()
+    ? document.getElementById("production-stone-dialog")
+    : null;
+  const focusedDialog = document.activeElement?.closest?.("dialog[open]") || null;
+  const dialog = billStoneDialog?.open
+    ? billStoneDialog
+    : focusedDialog || openDialogs[openDialogs.length - 1];
   if (!dialog) return false;
   const dialogId = dialog.id;
   dialog.close();
@@ -18580,8 +18595,8 @@ function productionStoneDesignForOrder(order = {}, sourceState = state) {
 
 function openProductionStoneEntry(orderId) {
   const order = findById("orders", orderId);
-  if (!order) return;
-  if (!requireProductionStoneEditPermission(order, "open stone details")) return;
+  if (!order) return false;
+  if (!requireProductionStoneEditPermission(order, "open stone details")) return false;
   const form = document.getElementById("production-stone-form");
   form.orderId.value = order.id;
   form.dataset.stoneEdited = "false";
@@ -18596,6 +18611,11 @@ function openProductionStoneEntry(orderId) {
   updateProductionStoneMasterReloadState(order);
   void renderProductionStoneChart(order);
   document.getElementById("production-stone-dialog").showModal();
+  return true;
+}
+
+function productionStoneOpenedFromBill() {
+  return productionStoneReturnContext?.source === "bill";
 }
 
 function canReloadProductionStoneFromMaster(order = {}) {
@@ -19301,7 +19321,7 @@ function refreshProductionStoneFromMaster() {
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
-  openJobItemDetail(order.id);
+  if (!productionStoneOpenedFromBill()) openJobItemDetail(order.id);
   alert(`${matchedRows} stone row${matchedRows === 1 ? "" : "s"} refreshed from Stone Master.${unmatchedRows ? ` ${unmatchedRows} row${unmatchedRows === 1 ? "" : "s"} did not have a matching Stone Master weight and were kept unchanged.` : ""}`);
 }
 
@@ -19340,7 +19360,7 @@ function resetProductionStoneFromDesign() {
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
-  openJobItemDetail(order.id);
+  if (!productionStoneOpenedFromBill()) openJobItemDetail(order.id);
   alert(`${rowCount} stone row${rowCount === 1 ? "" : "s"} loaded from Design Master and matched with Stone Master.`);
 }
 
@@ -39476,6 +39496,86 @@ function removeBillDraftItem(orderId = "") {
   setBillDraftStatus(`${label} removed from this draft and returned to pending Billing. Remaining entries are saved.`, "saved");
 }
 
+function openBillItemStoneEntry(orderId = "") {
+  const billDialog = document.getElementById("bill-dialog");
+  const billForm = document.getElementById("bill-form");
+  const order = findById("orders", orderId);
+  const lot = findById("lots", billForm?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  const row = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"))
+    .find((entry) => entry.dataset.orderId === orderId);
+  if (!billDialog?.open || !lot || !order || !row) {
+    alert("The selected Bill item or its Job Card stone entry could not be found.");
+    return false;
+  }
+  if (row.dataset.manualWip === "true") {
+    alert("This non-job-card WIP item uses manually verified stone weight and does not have a Production Stone Entry.");
+    return false;
+  }
+  const billTable = billDialog.querySelector(".bill-item-table");
+  const billCard = billDialog.querySelector(".bill-dialog-card");
+  const billView = buildBillDraftRecord(lot, bill);
+  productionStoneReturnContext = {
+    source: "bill",
+    lotId: lot.id,
+    orderId: order.id,
+    billView,
+    searchValue: document.getElementById("bill-item-search")?.value || "",
+    dialogScrollTop: billCard?.scrollTop || 0,
+    tableScrollTop: billTable?.scrollTop || 0,
+    tableScrollLeft: billTable?.scrollLeft || 0,
+  };
+  if (canPersistBillDraft(lot, bill)) saveBillDraftNow({ items: billView.items });
+  if (openProductionStoneEntry(order.id)) return true;
+  productionStoneReturnContext = null;
+  return false;
+}
+
+function restoreBillAfterProductionStoneEntry() {
+  const context = productionStoneReturnContext;
+  productionStoneReturnContext = null;
+  if (context?.source !== "bill") return;
+  const lot = findById("lots", context.lotId);
+  const order = findById("orders", context.orderId);
+  if (!lot || !order) return;
+  const billDialog = document.getElementById("bill-dialog");
+  if (!billDialog?.open) openBill(lot.id);
+  const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  const snapshot = context.billView || {};
+  const items = (snapshot.items || []).map((item) =>
+    item.orderId === order.id || (item.productionNo && item.productionNo === order.productionNo)
+      ? billItemWithLatestStoneEntry(item, order, "Production Stone Entry")
+      : item
+  );
+  const displayBill = { ...storedBill, ...snapshot, items };
+  renderBillItems(lot, displayBill);
+  const search = document.getElementById("bill-item-search");
+  if (search) search.value = context.searchValue || "";
+  filterBillItems();
+  updateBillAmount();
+  applyBillAccessMode();
+  const saved = canPersistBillDraft(lot, storedBill) ? saveBillDraftNow({ items }) : false;
+  const reference = order.productionNo || order.number || billOrderDesignCode(order) || "Item";
+  setBillDraftStatus(
+    saved
+      ? `${reference} stone entry refreshed and the Bill draft remains saved.`
+      : `${reference} stone entry refreshed in this Bill view.`,
+    saved ? "saved" : ""
+  );
+  requestAnimationFrame(() => {
+    const billTable = billDialog?.querySelector(".bill-item-table");
+    const billCard = billDialog?.querySelector(".bill-dialog-card");
+    if (billCard) billCard.scrollTop = Number(context.dialogScrollTop || 0);
+    if (billTable) {
+      billTable.scrollTop = Number(context.tableScrollTop || 0);
+      billTable.scrollLeft = Number(context.tableScrollLeft || 0);
+    }
+    const returnButton = Array.from(document.querySelectorAll("[data-open-bill-stone]"))
+      .find((button) => button.dataset.openBillStone === order.id);
+    returnButton?.focus({ preventScroll: true });
+  });
+}
+
 function refreshBillItemStoneEntry(orderId = "") {
   const form = document.getElementById("bill-form");
   const lot = findById("lots", form?.lotId?.value || "");
@@ -39757,6 +39857,7 @@ function renderBillItems(lot, bill = {}) {
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
+          ${manualWip ? "" : `<button type="button" class="ghost-button bill-item-stone-open-button" data-open-bill-stone="${escapeHtml(order.id)}" aria-label="Open stone entry for ${escapeHtml(itemLabel)}">Open Stone Entry</button>`}
           ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
           ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${canRemoveFromDraft ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove From Draft</button>` : ""}
