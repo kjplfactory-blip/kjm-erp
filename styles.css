@@ -10087,6 +10087,19 @@ body.measuring-transfer-bag .global-print-area {
   overflow: hidden;
 }
 
+.bill-tag-card.customer-order-tag .bill-tag-content {
+  border-color: #be185d;
+  background: #ffe1ec;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.bill-tag-card.customer-order-tag .bill-tag-barcode {
+  background: #ffffff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
 .bill-tag-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

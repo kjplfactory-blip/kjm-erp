@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v668";
+const APP_VERSION = "v669";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -21529,12 +21529,14 @@ function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
 
 function billTagHtml(lot, bill, item = {}) {
   const order = item.order || {};
+  const customerName = String(item.customer || order.customer || "").trim();
+  const customerOrderClass = customerName && isManufacturingCustomerOrder(customerName) ? " customer-order-tag" : "";
   const productionNo = item.productionNo || order.productionNo || order.number || "";
   const designName = item.itemName || jobItemDisplayName(order) || item.design || order.designNo || designLabel(order.designId) || "-";
   const itemDetail = billTagIndividualItemDetail(item, order);
   const barcodeValue = productionNo || `${lot.number || "LOT"}-${item.index + 1}`;
   return `
-    <article class="bill-tag-card">
+    <article class="bill-tag-card${customerOrderClass}">
       <div class="bill-tag-content">
         <div class="bill-tag-head">
           <strong>KJ</strong>
