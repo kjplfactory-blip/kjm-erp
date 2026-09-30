@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT - V665
+DATE: 30-09-2026
+
+MANUAL RESET SELECTION VIEW
+- Full-screen Owner-only reset workspace retained.
+- Added a four-step progress rail: Current Data, Select, Verify and Confirm.
+- Added live KEEP, RESET and RESTART/CHANGE selection totals.
+- Added distinct safe, destructive and change visual states for quicker review.
+- Reworked spacing, hierarchy, focus states and sticky desktop review panel.
+- Improved tablet and mobile stacking with no horizontal scrolling.
+
+SAFETY
+- Reset rules and validation are unchanged.
+- Design, Stone, Moti, Catalogue, Customer, Vendor, Department, Setter and User masters remain protected.
+- Complete JSON backup still downloads before reset.
+- Local save and protected Supabase update behavior are unchanged.
+- No ERP data migration or Supabase SQL is required.

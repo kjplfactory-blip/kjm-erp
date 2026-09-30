@@ -1,0 +1,31 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT - V666
+DATE: 30-09-2026
+
+PERFORMANCE
+- Normal cloud saves now contain changed records only.
+- Normal cloud refreshes load only records changed after this laptop's confirmed revision.
+- Existing erp_state remains a compatibility copy during device rollout.
+- Older-build writes force a protected full refresh instead of being missed.
+- Realtime uses a 60-second safety poll; compatibility mode uses a 15-second check.
+- Fine Sheet snapshots are limited to one detailed refresh per 30 minutes.
+- IndexedDB saves are coalesced and Job Card drafts are debounced.
+- Active and completed Job Orders render 75 cards per page.
+- Online Transfer History renders 200 rows at a time with Load More, while search still checks the complete history.
+- Job Card detail/list calculations reuse the render cache.
+- OCR and phone scanner libraries load only when requested.
+- A new laptop can rebuild from normalized record pages instead of requiring one oversized JSON response.
+- Already-normalized v665/v666 browser and cloud copies bypass repeated full migration work during load.
+
+DATA SAFETY
+- V665 source was copied before modification.
+- The migration seeds normalized records from the existing verified cloud state.
+- Daily cloud backup insertion remains duplicate-safe.
+- Incremental operations use persistent operation IDs and database revision checks.
+- Direct anonymous writes to erp_state are revoked; protected RPC writes remain available.
+- No inventory, Job Card, design, stone, Bill, customer or production data is reset.
+
+DEPLOYMENT
+- Run SUPABASE-INCREMENTAL-SYNC-v666.sql before uploading website files.
+- Upload app-version.json last.
+- Verify Incremental record sync: Enabled from Sync Health on each device.

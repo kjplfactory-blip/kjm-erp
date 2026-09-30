@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=665">
+      <link rel="stylesheet" href="styles.css?v=666">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -313,9 +313,9 @@
               <table>
                 <thead><tr><th>Category</th><th>Designs</th><th></th></tr></thead>
                 <tbody id="designs-table"></tbody>
-              </table>
-            </div>
-          </section>
+                </table>
+              </div>
+            </section>
         </div>
       </section>
 
@@ -618,6 +618,7 @@
                 <tbody id="orders-table"></tbody>
               </table>
             </div>
+            <div id="job-order-pagination" class="pagination-controls hidden"></div>
           </section>
         </div>
         <div class="order-page" id="order-page-completed">
@@ -638,6 +639,7 @@
                 <tbody id="completed-orders-table"></tbody>
               </table>
             </div>
+            <div id="completed-job-order-pagination" class="pagination-controls hidden"></div>
           </section>
         </div>
         <div class="order-page" id="order-page-repair">
@@ -1003,6 +1005,7 @@
               <tbody id="production-transfer-table"></tbody>
               </table>
             </div>
+            <div class="pagination-controls"><span data-transfer-render-status></span><button type="button" data-load-more-transfers>Load 200 More</button></div>
           </section>
         </div>
       </section>
@@ -2040,6 +2043,7 @@
                 <tbody id="transfer-history-table"></tbody>
               </table>
             </div>
+            <div class="pagination-controls"><span data-transfer-render-status></span><button type="button" data-load-more-transfers>Load 200 More</button></div>
           </section>
         </div>
       </div>
@@ -3680,15 +3684,14 @@
 
     <script src="supabase-config.js?v=34"></script>
     <script src="stone-library-data.js?v=33"></script>
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="html5-qrcode.min.js?v=2.3.8-473"></script>
+    <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=665"></script>
+    <script src="app.js?v=666"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
-  <script src="setting-internal-bill-excel-v616.js?v=665"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=666"></script>
   <script src="setting-master-tiles-v617.js?v=617"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>

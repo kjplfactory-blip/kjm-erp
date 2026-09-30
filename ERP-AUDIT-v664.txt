@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT V664
+Date: 2026-09-30 IST
+
+MANUAL RESET WORKSPACE
+- Manual Reset Selection remains Owner-only and opens in a full-screen workspace.
+- Current factory gross, gold, non-gold, Job Card, Bill and live-operation totals are shown before any reset choice.
+- Choices are grouped into Inventory, Job and Production Operations, and Ledger and Reports.
+- Every option visibly identifies its outcome as KEEP, RESET, RESTART, FRESH START, CARRY BALANCE or AUDIT.
+- The selected result remains visible in a sticky review column on desktop and becomes a readable stacked section on smaller screens.
+
+RESET SAFETY
+- All original G, A, B, C, F, D and E radio values and their default selections remain unchanged.
+- Invalid combinations remain blocked by the existing reset dependency validation.
+- Design Master, design images, Stone Library, Moti Library, Catalogue, Customers, Vendors, Departments, Setters, Users, passwords and permissions remain protected.
+- Owner password, exact RESET TO ZERO text and final acknowledgement are still required.
+- A complete JSON backup still downloads before the selected reset is applied.
+
+DATA SAFETY
+- No existing ERP record is deleted or reset by this update.
+- The reset execution logic and Supabase protected-state save are unchanged.
+- No Supabase schema change is required.

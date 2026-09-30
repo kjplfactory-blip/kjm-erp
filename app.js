@@ -17,10 +17,11 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v665";
+const APP_VERSION = "v666";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
+const FAST_STATE_LOAD_MIN_BUILD = 665;
 const APP_VERSION_MANIFEST_FILE = "app-version.json";
 const APP_VERSION_CHECK_INTERVAL_MS = 20000;
 const APP_VERSION_INITIAL_CHECK_DELAY_MS = 2500;
@@ -71,7 +72,8 @@ const IMAGE_PREVIEW_BATCH_SIZE = 8;
 const DESIGN_IMAGE_CACHE_LIMIT = 96;
 const supabaseSettings = window.KJM_SUPABASE || {};
 const supabaseStateId = supabaseSettings.stateId || "khushali-jewells-main";
-const AUTO_SYNC_INTERVAL_MS = 5000;
+const AUTO_SYNC_INTERVAL_MS = 15000;
+const REALTIME_SAFETY_SYNC_INTERVAL_MS = 60000;
 const SUPABASE_RETRY_BASE_MS = 5000;
 const SUPABASE_RETRY_MAX_MS = 60 * 1000;
 const SUPABASE_RETRY_JITTER_RATIO = 0.2;
@@ -85,7 +87,14 @@ const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
 const SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic_v640";
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ADVANCED-SYNC-v640.sql";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-INCREMENTAL-SYNC-v666.sql";
+const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_v666";
+const SUPABASE_INCREMENTAL_META_TABLE = "erp_entity_meta";
+const SUPABASE_INCREMENTAL_RECORDS_TABLE = "erp_entity_records";
+const SUPABASE_INCREMENTAL_CHANGES_TABLE = "erp_entity_changes";
+const LOCAL_ENTITY_REVISION_STORAGE_KEY = "gold-jewellery-erp-entity-revision-v666";
+const LOCAL_ENTITY_LEGACY_REVISION_STORAGE_KEY = "gold-jewellery-erp-entity-legacy-revision-v666";
+const FINE_SHEET_AUTO_SNAPSHOT_INTERVAL_MS = 30 * 60 * 1000;
 const SYNC_BROADCAST_CHANNEL_NAME = `kjm-erp-sync-${supabaseStateId}`;
 const CLOUD_BACKUP_TABLE = "erp_state_backups";
 const CLOUD_BACKUP_SETUP_FILE = "ENABLE-CLOUD-SAFETY-BACKUPS.sql";
@@ -350,6 +359,9 @@ let pendingCloudVersionBackup = null;
 let cloudBackupUnavailable = false;
 let supabaseAtomicSaveAvailable = null;
 let supabaseAdvancedAtomicSaveAvailable = null;
+let supabaseIncrementalSyncAvailable = null;
+let supabaseEntityRevision = Number(localStorage.getItem(LOCAL_ENTITY_REVISION_STORAGE_KEY) || 0);
+let supabaseEntityLegacyRevision = Number(localStorage.getItem(LOCAL_ENTITY_LEGACY_REVISION_STORAGE_KEY) || 0);
 let supabaseSyncSignalAvailable = null;
 let supabaseSyncSignalRetryAt = 0;
 let supabaseLastSignalRevision = 0;
@@ -363,6 +375,8 @@ let loginSessionLastConfirmedAt = 0;
 let supabaseLocalDirty = localStorage.getItem(LOCAL_SYNC_DIRTY_STORAGE_KEY) === "1";
 let supabaseLocalRevision = supabaseLocalDirty ? 1 : 0;
 let supabasePendingOperationId = loadPendingSyncOperationId();
+let lastFineSheetAutoSnapshotAt = 0;
+let tesseractLoadPromise = null;
 let localSyncBroadcastChannel = null;
 let appVersionCheckTimer = null;
 let appVersionCheckInProgress = false;
@@ -374,6 +388,8 @@ let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
 let erpStateIndexedDbPendingRecord = null;
 let erpStateIndexedDbWritePromise = null;
+let erpStateIndexedDbSchedulePromise = null;
+let erpStateIndexedDbScheduleTimer = null;
 let erpStateIndexedDbFailureReported = false;
 let localStorageCompactMode = (() => {
   if (typeof indexedDB !== "undefined") return true;
@@ -525,6 +541,10 @@ let stoneLibraryPage = 1;
 const stoneLibraryPageSize = 100;
 let motiLibraryPage = 1;
 const motiLibraryPageSize = 100;
+let activeJobOrderPage = 1;
+let completedJobOrderPage = 1;
+const jobOrderPageSize = 75;
+let transferHistoryRenderLimit = 200;
 let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
 let stoneCropReturnContext = null;
@@ -830,8 +850,26 @@ function openDefaultOperationPage(view) {
 document.querySelectorAll("[data-order-page]").forEach((button) => {
   button.addEventListener("click", () => switchOrderPage(button.dataset.orderPage));
 });
-document.getElementById("job-order-search")?.addEventListener("input", debounceInput(renderOrders));
-document.getElementById("completed-job-order-search")?.addEventListener("input", debounceInput(renderOrders));
+document.getElementById("job-order-search")?.addEventListener("input", debounceInput(() => {
+  activeJobOrderPage = 1;
+  renderOrders();
+}));
+document.getElementById("completed-job-order-search")?.addEventListener("input", debounceInput(() => {
+  completedJobOrderPage = 1;
+  renderOrders();
+}));
+document.getElementById("job-order-pagination")?.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-job-order-page]");
+  if (!button) return;
+  activeJobOrderPage = Math.max(1, Number(button.dataset.jobOrderPage || 1));
+  renderOrders();
+});
+document.getElementById("completed-job-order-pagination")?.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-completed-job-order-page]");
+  if (!button) return;
+  completedJobOrderPage = Math.max(1, Number(button.dataset.completedJobOrderPage || 1));
+  renderOrders();
+});
 
 document.getElementById("merge-split-job-cards")?.addEventListener("click", () => openMergeJobCardsDialog("", "family"));
 document.getElementById("merge-child-job-cards")?.addEventListener("click", () => openMergeJobCardsDialog("", "children"));
@@ -1632,8 +1670,8 @@ document.getElementById("order-item-list").addEventListener("change", (event) =>
     renderOrderEntrySummary();
   }
   updateOrderItemStonePreview(row);
-  renderOrderEntrySummary();
-  saveOrderDraft();
+  scheduleOrderEntrySummary();
+  saveOrderDraftDebounced();
 });
 
 document.getElementById("order-item-list").addEventListener("input", (event) => {
@@ -1642,8 +1680,8 @@ document.getElementById("order-item-list").addEventListener("input", (event) => 
     updateOrderItemDesignOptions(row, row.querySelector('[name="designId"]').value, true);
     updateOrderItemStonePreview(row);
   }
-  renderOrderEntrySummary();
-  saveOrderDraft();
+  scheduleOrderEntrySummary();
+  saveOrderDraftDebounced();
 });
 
 const orderBarcodeScanInput = document.getElementById("barcode-scan");
@@ -1747,8 +1785,8 @@ document.getElementById("order-form").addEventListener("input", (event) => {
   if (["orderDate", "productionDays"].includes(event.target.name)) {
     updateOrderDueDate(event.currentTarget);
   }
-  renderOrderEntrySummary();
-  saveOrderDraft();
+  scheduleOrderEntrySummary();
+  saveOrderDraftDebounced();
 });
 
 document.getElementById("order-form").addEventListener("change", (event) => {
@@ -3264,6 +3302,15 @@ function clearManualWipCombinedBillAllocations(lotId = "") {
   state.ledger = (state.ledger || []).filter((entry) => !(entry.sourceType === "manual-combined-bill" && entry.sourceId === lotId));
 }
 
+function normalizeStateForRuntime(currentState = {}) {
+  if (stateSyncBuild(currentState) >= FAST_STATE_LOAD_MIN_BUILD) {
+    restoreRecentJobOrderBackups(currentState);
+    stampCurrentAppVersion(currentState);
+    return currentState;
+  }
+  return normalizeLoadedState(currentState);
+}
+
 function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "") {
   if (!lot.manualWipCombinedBill) return null;
   const billableItems = items.filter((item) => !isDiscardedItem(item));
@@ -4248,8 +4295,18 @@ document.getElementById("close-safe-wastage-history")?.addEventListener("click",
   document.getElementById("safe-wastage-history-dialog")?.close();
 });
 
-document.getElementById("transfer-history-search").addEventListener("input", renderOnlineTransferHistory);
-document.getElementById("production-transfer-search").addEventListener("input", renderOnlineTransferHistory);
+const renderTransferHistorySearchDebounced = debounceInput(() => {
+  transferHistoryRenderLimit = 200;
+  renderOnlineTransferHistory();
+}, 220);
+document.getElementById("transfer-history-search").addEventListener("input", renderTransferHistorySearchDebounced);
+document.getElementById("production-transfer-search").addEventListener("input", renderTransferHistorySearchDebounced);
+document.querySelectorAll("[data-load-more-transfers]").forEach((button) => {
+  button.addEventListener("click", () => {
+    transferHistoryRenderLimit += 200;
+    renderOnlineTransferHistory();
+  });
+});
 document.getElementById("department-transfer-search")?.addEventListener("input", renderDepartmentTransferHistoryBoard);
 document.getElementById("close-online-transfer-history")?.addEventListener("click", closeTransferHistoryOperationDialog);
 document.getElementById("close-department-transfer-history")?.addEventListener("click", closeTransferHistoryOperationDialog);
@@ -4328,7 +4385,7 @@ function loadState() {
       rememberFactoryResetMarker(parsed.factoryResetAt || "");
       return normalized;
     }
-    const normalized = normalizeLoadedState(parsed);
+    const normalized = normalizeStateForRuntime(parsed);
     stateLoadedFromFallback = false;
     rememberFactoryResetMarker(stateFactoryResetAt(normalized));
     if (!localStorageCompactMode) {
@@ -4427,7 +4484,10 @@ function rememberVerifiedCloudBaseline(cloudState = {}, updatedAt = "") {
   supabaseCloudBaselineVerified = Boolean(cloudState && typeof cloudState === "object");
   supabaseVerifiedCloudProfile = supabaseCloudBaselineVerified ? stateBusinessProfile(cloudState) : null;
   supabaseVerifiedCloudUpdatedAt = updatedAt || "";
-  supabaseVerifiedCloudState = supabaseCloudBaselineVerified ? structuredClone(cloudState) : null;
+  // Incremental sync no longer needs a second complete 20-30 MB cloud copy in memory.
+  supabaseVerifiedCloudState = supabaseCloudBaselineVerified && supabaseIncrementalSyncAvailable !== true
+    ? structuredClone(cloudState)
+    : null;
 }
 
 function savePreCloudRecoveryCopy(reason = "startup-conflict", source = state, cloudUpdatedAt = "") {
@@ -5205,22 +5265,31 @@ function queueFullErpStateToIndexedDb(source = state) {
     state: source,
   };
   if (erpStateIndexedDbWritePromise) return erpStateIndexedDbWritePromise;
-  erpStateIndexedDbWritePromise = (async () => {
-    while (erpStateIndexedDbPendingRecord) {
-      const record = erpStateIndexedDbPendingRecord;
-      erpStateIndexedDbPendingRecord = null;
-      await writeErpStateIndexedDbRecord(record);
-      if (localStorageCompactMode) writeErpStateIndexedDbPointer(record);
-    }
-    return true;
-  })().catch((error) => {
-    console.warn("The full ERP safety copy could not be written to large browser storage.", error);
-    return false;
-  }).finally(() => {
-    erpStateIndexedDbWritePromise = null;
-    if (erpStateIndexedDbPendingRecord) queueFullErpStateToIndexedDb(erpStateIndexedDbPendingRecord.state);
+  if (erpStateIndexedDbSchedulePromise) return erpStateIndexedDbSchedulePromise;
+  erpStateIndexedDbSchedulePromise = new Promise((resolve) => {
+    clearTimeout(erpStateIndexedDbScheduleTimer);
+    erpStateIndexedDbScheduleTimer = setTimeout(() => {
+      erpStateIndexedDbScheduleTimer = null;
+      erpStateIndexedDbSchedulePromise = null;
+      erpStateIndexedDbWritePromise = (async () => {
+        while (erpStateIndexedDbPendingRecord) {
+          const record = erpStateIndexedDbPendingRecord;
+          erpStateIndexedDbPendingRecord = null;
+          await writeErpStateIndexedDbRecord(record);
+          if (localStorageCompactMode) writeErpStateIndexedDbPointer(record);
+        }
+        return true;
+      })().catch((error) => {
+        console.warn("The full ERP safety copy could not be written to large browser storage.", error);
+        return false;
+      }).finally(() => {
+        erpStateIndexedDbWritePromise = null;
+        if (erpStateIndexedDbPendingRecord) queueFullErpStateToIndexedDb(erpStateIndexedDbPendingRecord.state);
+      });
+      erpStateIndexedDbWritePromise.then(resolve);
+    }, 500);
   });
-  return erpStateIndexedDbWritePromise;
+  return erpStateIndexedDbSchedulePromise;
 }
 
 function compactErpStateJson(source = state) {
@@ -5244,7 +5313,7 @@ async function restoreFullErpStateFromIndexedDb() {
   try {
     const record = await readLatestErpStateIndexedDb();
     if (!record?.state || typeof record.state !== "object") return false;
-    const restored = normalizeLoadedState(record.state);
+    const restored = normalizeStateForRuntime(record.state);
     if (factoryResetTimestamp(stateFactoryResetAt(state)) > factoryResetTimestamp(stateFactoryResetAt(restored))) return false;
     const currentProfile = stateBusinessProfile(state);
     const restoredProfile = stateBusinessProfile(restored);
@@ -5271,6 +5340,10 @@ async function restoreFullErpStateFromIndexedDb() {
 function persistStateToBrowser(options = {}) {
   const context = options.context ? `${options.context} ` : "ERP data ";
   state.browserSavedAt = new Date().toISOString();
+  if (!localStorageCompactMode && ((state.orders || []).length > 500 || (state.designs || []).length > 1000)) {
+    localStorageCompactMode = true;
+    try { sessionStorage.setItem(LOCAL_COMPACT_MODE_SESSION_KEY, "1"); } catch (error) { /* optional */ }
+  }
   const indexedDbWrite = queueFullErpStateToIndexedDb(state);
 
   if (localStorageCompactMode) {
@@ -5913,12 +5986,21 @@ function prunePendingSyncMutations(savedSerial) {
 function saveState(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
+  const fineSheetSnapshotsBeforeSave = state.fineSheetSnapshots;
   captureTodayFineSheetSnapshot();
+  if (state.fineSheetSnapshots === fineSheetSnapshotsBeforeSave && lastLocallyPersistedState) {
+    lastLocallyPersistedState.fineSheetSnapshots = state.fineSheetSnapshots;
+  }
+  if (supabaseIncrementalSyncAvailable === true && lastLocallyPersistedState) {
+    lastLocallyPersistedState.syncDeletionTombstones = state.syncDeletionTombstones;
+  }
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state);
-  const tombstonesChanged = captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
+  const tombstonesChanged = supabaseIncrementalSyncAvailable === true
+    ? false
+    : captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
   if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
@@ -5932,12 +6014,21 @@ function saveState(options = {}) {
 function saveStateLocalOnly(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
+  const fineSheetSnapshotsBeforeSave = state.fineSheetSnapshots;
   captureTodayFineSheetSnapshot();
+  if (state.fineSheetSnapshots === fineSheetSnapshotsBeforeSave && lastLocallyPersistedState) {
+    lastLocallyPersistedState.fineSheetSnapshots = state.fineSheetSnapshots;
+  }
+  if (supabaseIncrementalSyncAvailable === true && lastLocallyPersistedState) {
+    lastLocallyPersistedState.syncDeletionTombstones = state.syncDeletionTombstones;
+  }
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
   let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state);
-  const tombstonesChanged = captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
+  const tombstonesChanged = supabaseIncrementalSyncAvailable === true
+    ? false
+    : captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
   if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
@@ -7151,6 +7242,285 @@ async function fetchSupabaseStateRevision(timeoutMs = SUPABASE_REVISION_TIMEOUT_
   return stateResult;
 }
 
+function persistEntitySyncRevisions(revision = supabaseEntityRevision, legacyRevision = supabaseEntityLegacyRevision) {
+  supabaseEntityRevision = Math.max(0, Number(revision || 0));
+  supabaseEntityLegacyRevision = Math.max(0, Number(legacyRevision || 0));
+  try {
+    localStorage.setItem(LOCAL_ENTITY_REVISION_STORAGE_KEY, String(supabaseEntityRevision));
+    localStorage.setItem(LOCAL_ENTITY_LEGACY_REVISION_STORAGE_KEY, String(supabaseEntityLegacyRevision));
+  } catch (error) {
+    console.warn("Incremental sync position could not be stored locally; cloud data remains protected.", error);
+  }
+}
+
+function isMissingIncrementalSyncError(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return [SUPABASE_INCREMENTAL_META_TABLE, SUPABASE_INCREMENTAL_CHANGES_TABLE, SUPABASE_INCREMENTAL_SAVE_FUNCTION]
+    .some((name) => detail.includes(String(name).toLowerCase()))
+    && (detail.includes("pgrst") || detail.includes("42p01") || detail.includes("does not exist") || detail.includes("schema cache"));
+}
+
+async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS) {
+  const result = await fetchSupabaseTableRow(
+    SUPABASE_INCREMENTAL_META_TABLE,
+    supabaseStateId,
+    "revision,legacy_revision,minimum_revision,updated_at,app_version",
+    timeoutMs,
+  );
+  if (result?.error && isMissingIncrementalSyncError(result.error)) {
+    supabaseIncrementalSyncAvailable = false;
+    return { data: null, error: result.error, missing: true };
+  }
+  if (!result?.error && result?.data) supabaseIncrementalSyncAvailable = true;
+  return result;
+}
+
+async function fetchIncrementalChanges(afterRevision = 0, throughRevision = 0) {
+  const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
+  const headers = {
+    apikey: supabaseSettings.anonKey,
+    Authorization: `Bearer ${supabaseSettings.anonKey}`,
+    Accept: "application/json",
+  };
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 20000; offset += pageSize) {
+    const params = new URLSearchParams({
+      select: "revision,collection,record_id,operation,data,updated_at",
+      state_id: `eq.${supabaseStateId}`,
+      order: "revision.asc,collection.asc,record_id.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const lowerRevision = Math.max(0, Number(afterRevision || 0));
+    if (Number(throughRevision || 0) > 0) {
+      params.set("and", `(revision.gt.${lowerRevision},revision.lte.${Number(throughRevision)})`);
+    } else {
+      params.set("revision", `gt.${lowerRevision}`);
+    }
+    let response;
+    try {
+      response = await withSupabaseTimeout(
+        supabaseFetch(`${baseUrl}/rest/v1/${SUPABASE_INCREMENTAL_CHANGES_TABLE}?${params.toString()}`, { headers }),
+        "Incremental cloud changes timed out.",
+        SUPABASE_REQUEST_TIMEOUT_MS,
+      );
+    } catch (error) {
+      return { data: null, error };
+    }
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const error = new Error(payload.message || payload.error || `${response.status} ${response.statusText}`);
+      error.code = payload.code || `HTTP_${response.status}`;
+      if (isMissingIncrementalSyncError(error)) supabaseIncrementalSyncAvailable = false;
+      return { data: null, error };
+    }
+    const page = await response.json().catch(() => []);
+    rows.push(...(Array.isArray(page) ? page : []));
+    if (!Array.isArray(page) || page.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
+
+async function fetchIncrementalCurrentRecords() {
+  const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
+  const headers = {
+    apikey: supabaseSettings.anonKey,
+    Authorization: `Bearer ${supabaseSettings.anonKey}`,
+    Accept: "application/json",
+  };
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 50000; offset += pageSize) {
+    const params = new URLSearchParams({
+      select: "collection,record_id,data,revision",
+      state_id: `eq.${supabaseStateId}`,
+      deleted: "eq.false",
+      order: "collection.asc,record_id.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    let response;
+    try {
+      response = await withSupabaseTimeout(
+        supabaseFetch(`${baseUrl}/rest/v1/${SUPABASE_INCREMENTAL_RECORDS_TABLE}?${params.toString()}`, { headers }),
+        "Normalized ERP bootstrap timed out.",
+        SUPABASE_FULL_LOAD_TIMEOUT_MS,
+      );
+    } catch (error) {
+      return { data: null, error };
+    }
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const error = new Error(payload.message || payload.error || `${response.status} ${response.statusText}`);
+      error.code = payload.code || `HTTP_${response.status}`;
+      return { data: null, error };
+    }
+    const page = await response.json().catch(() => []);
+    rows.push(...(Array.isArray(page) ? page : []));
+    if (!Array.isArray(page) || page.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
+
+async function loadFullStateFromIncrementalRecords(meta = {}, options = {}) {
+  const result = await fetchIncrementalCurrentRecords();
+  if (result?.error || !result?.data?.length) return { ok: false, error: result?.error };
+  const rebuilt = {};
+  result.data.forEach((row) => {
+    if (row.collection === "@value") {
+      rebuilt[row.record_id] = row.data;
+      return;
+    }
+    if (!Array.isArray(rebuilt[row.collection])) rebuilt[row.collection] = [];
+    rebuilt[row.collection].push(row.data);
+  });
+  state = normalizeStateForRuntime(rebuilt);
+  stateLoadedFromFallback = false;
+  catalogueItems = state.catalogueItems || [];
+  lastLocallyPersistedState = structuredClone(state);
+  persistStateToBrowser({ context: "Normalized live ERP" });
+  persistEntitySyncRevisions(meta.revision, meta.legacy_revision);
+  supabaseInitialReadComplete = true;
+  supabaseCloudBaselineVerified = true;
+  supabaseVerifiedCloudProfile = stateBusinessProfile(state);
+  supabaseVerifiedCloudUpdatedAt = meta.updated_at || "";
+  supabaseVerifiedCloudState = null;
+  supabaseLastCloudUpdatedAt = meta.updated_at || supabaseLastCloudUpdatedAt;
+  supabaseStartupProtectionActive = false;
+  supabaseLastSuccessfulContactAt = Date.now();
+  render();
+  restoreOrderDraftOrReset();
+  setSyncStatus("online", options.initial ? "Live Sync: Ready" : "Live Sync: Rebuilt", `${result.data.length} normalized records loaded safely.`);
+  return { ok: true };
+}
+
+function applyIncrementalRowsToState(sourceState = {}, rows = []) {
+  const target = sourceState;
+  (rows || []).forEach((row) => {
+    const collection = String(row.collection || "");
+    const recordId = String(row.record_id || "");
+    if (!collection || !recordId) return;
+    if (collection === "@value") {
+      if (row.operation === "delete") delete target[recordId];
+      else target[recordId] = structuredClone(row.data);
+      return;
+    }
+    const records = Array.isArray(target[collection]) ? target[collection] : [];
+    const index = records.findIndex((item) => syncArrayItemKey(item) === recordId);
+    if (row.operation === "delete") {
+      if (index >= 0) records.splice(index, 1);
+    } else if (index >= 0) {
+      records[index] = structuredClone(row.data);
+    } else {
+      records.unshift(structuredClone(row.data));
+    }
+    target[collection] = records;
+  });
+  return target;
+}
+
+function pendingSyncEntityPayload(journal = pendingSyncMutations, maxSerial = Infinity) {
+  const arrays = [];
+  const values = [];
+  Object.entries(journal?.arrays || {}).forEach(([collection, entries]) => {
+    Object.entries(entries || {}).forEach(([recordId, mutation]) => {
+      if (Number(mutation?.serial || 0) > maxSerial) return;
+      arrays.push({
+        collection,
+        recordId,
+        operation: mutation.operation === "delete" ? "delete" : "upsert",
+        data: mutation.operation === "delete" ? null : mutation.value,
+      });
+    });
+  });
+  Object.entries(journal?.values || {}).forEach(([key, mutation]) => {
+    if (Number(mutation?.serial || 0) > maxSerial) return;
+    values.push({
+      key,
+      operation: mutation.currentHasKey ? "upsert" : "delete",
+      data: mutation.currentHasKey ? mutation.value : null,
+    });
+  });
+  return { arrays, values };
+}
+
+function incrementalPayloadCount(payload = {}) {
+  return (payload.arrays || []).length + (payload.values || []).length;
+}
+
+async function primeIncrementalSyncAfterFullLoad() {
+  const metaResult = await fetchIncrementalSyncMeta();
+  if (metaResult?.error || !metaResult?.data) return false;
+  persistEntitySyncRevisions(metaResult.data.revision, metaResult.data.legacy_revision);
+  return true;
+}
+
+async function loadIncrementalSupabaseState(options = {}) {
+  const metaResult = await fetchIncrementalSyncMeta();
+  if (metaResult?.missing) return { handled: false, ok: false };
+  if (metaResult?.error || !metaResult?.data) return { handled: true, ok: false, error: metaResult?.error };
+  const meta = metaResult.data;
+  const cloudRevision = Number(meta.revision || 0);
+  const cloudLegacyRevision = Number(meta.legacy_revision || 0);
+  const minimumRevision = Number(meta.minimum_revision || 0);
+  const legacyRevisionMismatch = supabaseEntityRevision
+    ? cloudLegacyRevision !== supabaseEntityLegacyRevision
+    : cloudLegacyRevision > 1;
+  if (legacyRevisionMismatch || hasUnsyncedLocalState()) {
+    return { handled: false, ok: false, requiresFullLoad: true, meta };
+  }
+  const needsNormalizedBootstrap = !supabaseEntityRevision
+    || (minimumRevision && supabaseEntityRevision < minimumRevision - 1)
+    || stateLoadedFromFallback
+    || isEmptyBusinessState(state);
+  if (needsNormalizedBootstrap) {
+    const bootstrap = await loadFullStateFromIncrementalRecords(meta, options);
+    return bootstrap.ok
+      ? { handled: true, ok: true, bootstrapped: true }
+      : { handled: false, ok: false, requiresFullLoad: true, meta, error: bootstrap.error };
+  }
+  if (cloudRevision <= supabaseEntityRevision) {
+    supabaseInitialReadComplete = true;
+    supabaseCloudBaselineVerified = true;
+    supabaseVerifiedCloudProfile = stateBusinessProfile(state);
+    supabaseVerifiedCloudUpdatedAt = meta.updated_at || supabaseVerifiedCloudUpdatedAt;
+    supabaseStartupProtectionActive = false;
+    return { handled: true, ok: true };
+  }
+  if (options.auto && isUserActivelyEditing()) {
+    setSyncStatus("connecting", "New Data Waiting", "Another laptop saved new data. It will load after the open form is closed.");
+    return { handled: true, ok: true, deferred: true };
+  }
+  const changesResult = await fetchIncrementalChanges(supabaseEntityRevision, cloudRevision);
+  if (changesResult?.error) return { handled: true, ok: false, error: changesResult.error };
+  const rows = changesResult?.data || [];
+  const highestReceived = rows.reduce((highest, row) => Math.max(highest, Number(row.revision || 0)), 0);
+  if (!rows.length || highestReceived < cloudRevision) {
+    return { handled: false, ok: false, requiresFullLoad: true, meta };
+  }
+  const incoming = applyIncrementalRowsToState(structuredClone(state), rows);
+  state = pendingSyncMutationsHasChanges()
+    ? applyPendingSyncMutationsToCloud(incoming, pendingSyncMutations)
+    : incoming;
+  stampCurrentAppVersion(state);
+  catalogueItems = state.catalogueItems || [];
+  lastLocallyPersistedState = structuredClone(state);
+  persistStateToBrowser({ context: "Incremental live ERP" });
+  persistEntitySyncRevisions(cloudRevision, cloudLegacyRevision);
+  supabaseInitialReadComplete = true;
+  supabaseCloudBaselineVerified = true;
+  supabaseVerifiedCloudProfile = stateBusinessProfile(state);
+  supabaseVerifiedCloudUpdatedAt = meta.updated_at || "";
+  supabaseVerifiedCloudState = null;
+  supabaseLastCloudUpdatedAt = meta.updated_at || supabaseLastCloudUpdatedAt;
+  supabaseStartupProtectionActive = false;
+  supabaseLastSuccessfulContactAt = Date.now();
+  render();
+  setSyncStatus("online", "Live Sync: Updated", `${rows.length} changed record${rows.length === 1 ? "" : "s"} loaded.`);
+  return { handled: true, ok: true };
+}
+
 async function supabaseFetch(input, init = {}) {
   if (!window.fetch) return Promise.reject(new Error("Browser fetch is not available."));
   const controller = new AbortController();
@@ -7407,9 +7777,9 @@ function showSyncDiagnostics() {
   const lastContact = supabaseLastSuccessfulContactAt
     ? new Date(supabaseLastSuccessfulContactAt).toLocaleString("en-IN")
     : "Not connected yet";
-  const mode = supabaseRealtimeChannel
-    ? "Realtime + 5-second safety check"
-    : (supabaseClient ? "5-second automatic safety check" : "Local safety mode");
+  const mode = supabaseIncrementalSyncAvailable === true
+    ? (supabaseRealtimeChannel ? "Incremental Realtime + 60-second safety check" : "Incremental 15-second safety check")
+    : (supabaseRealtimeChannel ? "Compatibility Realtime + 60-second safety check" : (supabaseClient ? "Compatibility safety check" : "Local safety mode"));
   const pendingCount = pendingSyncMutationCount();
   const operation = supabasePendingOperationId ? supabasePendingOperationId.slice(-8).toUpperCase() : "None";
   const exactSave = supabaseAdvancedAtomicSaveAvailable === true
@@ -7424,6 +7794,7 @@ function showSyncDiagnostics() {
     `Pending record changes: ${pendingCount}`,
     `Protected save operation: ${operation}`,
     `Exact-save confirmation: ${exactSave}`,
+    `Incremental record sync: ${supabaseIncrementalSyncAvailable === true ? "Enabled" : `Compatibility mode; run ${SUPABASE_PERFORMANCE_SETUP_FILE}`}`,
     `Cloud revision: ${supabaseLastSignalRevision || "Checking"}`,
     "",
     "Local data stays protected until Supabase confirms the save.",
@@ -7588,7 +7959,7 @@ function startSupabaseRealtime() {
           } catch (error) {
             console.warn("Supabase realtime channel cleanup failed.", error);
           }
-          setSyncStatus("connecting", "Live Sync: Reconnecting", "Realtime is reconnecting; a lightweight cloud revision check continues every 5 seconds.");
+          setSyncStatus("connecting", "Live Sync: Reconnecting", "Realtime is reconnecting; a lightweight cloud revision check continues every 15 seconds.");
         }
       });
     return true;
@@ -7726,7 +8097,7 @@ function startSupabaseAutoRefresh() {
     }
     if (!supabaseRealtimeChannel && supabaseSyncSignalAvailable !== false) startSupabaseRealtime();
     pollSupabaseStateRevision();
-  }, AUTO_SYNC_INTERVAL_MS);
+  }, realtimeStarted ? REALTIME_SAFETY_SYNC_INTERVAL_MS : AUTO_SYNC_INTERVAL_MS);
   if (!supabaseStartupProtectionActive) {
     setSyncStatus("online", realtimeStarted ? "Live Sync: Realtime" : "Live Sync: Auto");
   }
@@ -8004,6 +8375,114 @@ async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow =
   );
 }
 
+async function syncStateToSupabaseIncremental(options = {}) {
+  const savingMutationSerial = Number(pendingSyncMutations.serial || 0);
+  const payload = pendingSyncEntityPayload(pendingSyncMutations, savingMutationSerial);
+  if (!incrementalPayloadCount(payload)) return { handled: false, saved: false };
+
+  const metaResult = await fetchIncrementalSyncMeta();
+  if (metaResult?.missing) return { handled: false, saved: false };
+  if (metaResult?.error || !metaResult?.data) {
+    return { handled: true, saved: false, error: metaResult?.error || new Error("Incremental sync metadata is unavailable.") };
+  }
+  if (!supabaseEntityRevision) persistEntitySyncRevisions(metaResult.data.revision, metaResult.data.legacy_revision);
+  if (Number(metaResult.data.legacy_revision || 0) !== supabaseEntityLegacyRevision) {
+    return { handled: false, saved: false, requiresFullLoad: true };
+  }
+
+  supabaseIncrementalSyncAvailable = true;
+  supabaseIsSaving = true;
+  supabaseSaveRequested = false;
+  const savingLocalRevision = supabaseLocalRevision;
+  const operationId = ensurePendingSyncOperationId();
+  const backupKey = pendingCloudVersionBackup?.backupKey || `daily-${cloudSafetySnapshotBucket()}`;
+  let response = null;
+  let error = null;
+  setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving Changes");
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const rpcResult = await withSupabaseTimeout(
+        supabaseClient.rpc(SUPABASE_INCREMENTAL_SAVE_FUNCTION, {
+          p_state_id: supabaseStateId,
+          p_expected_revision: supabaseEntityRevision,
+          p_operation_id: operationId,
+          p_device_id: loginDeviceId(),
+          p_user_name: currentUser?.name || currentUser?.id || "ERP User",
+          p_app_version: APP_VERSION,
+          p_changes: payload,
+          p_backup_key: backupKey,
+        }),
+        "Incremental Supabase save timeout.",
+        SUPABASE_REQUEST_TIMEOUT_MS,
+      );
+      if (rpcResult?.error) {
+        if (isMissingIncrementalSyncError(rpcResult.error)) {
+          supabaseIncrementalSyncAvailable = false;
+          return { handled: false, saved: false };
+        }
+        error = rpcResult.error;
+        break;
+      }
+      response = Array.isArray(rpcResult?.data) ? rpcResult.data[0] : rpcResult?.data;
+      if (response?.saved || response?.duplicate_operation) break;
+
+      const previousRevision = supabaseEntityRevision;
+      const refreshed = await loadIncrementalSupabaseState({ conflict: true });
+      if (!refreshed.handled || refreshed.error) {
+        return { handled: false, saved: false, requiresFullLoad: true };
+      }
+      if (supabaseEntityRevision <= previousRevision) {
+        error = new Error("Another laptop changed live ERP data, but its changed records could not be loaded yet.");
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 180 + Math.round(Math.random() * 180)));
+    }
+  } catch (caughtError) {
+    error = caughtError;
+  } finally {
+    supabaseIsSaving = false;
+  }
+
+  if (error || (!response?.saved && !response?.duplicate_operation)) {
+    const saveError = error || new Error("Supabase did not confirm the incremental ERP save.");
+    console.warn("Incremental Supabase save failed", saveError);
+    scheduleSupabaseReconnect(saveError);
+    setSyncStatus("connecting", "Live Sync: Save Queued", "Changed records remain protected on this laptop and will retry automatically.");
+    return { handled: true, saved: false, error: saveError };
+  }
+
+  clearSupabaseRetryBackoff();
+  supabaseLastSuccessfulContactAt = Date.now();
+  supabaseLastCloudUpdatedAt = response.current_updated_at || new Date().toISOString();
+  supabaseVerifiedCloudUpdatedAt = supabaseLastCloudUpdatedAt;
+  supabaseCloudBaselineVerified = true;
+  supabaseInitialReadComplete = true;
+  supabaseStartupProtectionActive = false;
+  supabaseVerifiedCloudProfile = stateBusinessProfile(state);
+  supabaseVerifiedCloudState = null;
+  persistEntitySyncRevisions(response.current_revision, response.legacy_revision);
+  if (Number(response.signal_revision || 0)) {
+    supabaseLastSignalRevision = Math.max(supabaseLastSignalRevision, Number(response.signal_revision));
+  }
+  prunePendingSyncMutations(savingMutationSerial);
+  pendingCloudVersionBackup = null;
+  clearPendingSyncOperationId(operationId);
+  announceLocalCloudSave(supabaseLastCloudUpdatedAt, operationId, Number(response.signal_revision || 0));
+
+  const newerLocalWorkPending = supabaseLocalRevision !== savingLocalRevision
+    || pendingSyncMutationsHasChanges()
+    || supabaseSaveRequested;
+  if (newerLocalWorkPending) {
+    setSyncStatus("saving", "Live Sync: Saving Next Change", "A newer local update is queued behind the completed save.");
+    queueSupabaseSave({ delayMs: 120 });
+  } else {
+    clearLocalSyncDirty();
+    setSyncStatus("online", "Live Sync: Changes Saved", `${incrementalPayloadCount(payload)} changed record${incrementalPayloadCount(payload) === 1 ? "" : "s"} synchronized.`);
+  }
+  runPostCloudMigrations();
+  return { handled: true, saved: true };
+}
+
 function nextSupabaseUpdatedAt(...candidates) {
   const latestKnown = candidates.reduce((latest, value) => {
     const parsed = Date.parse(value || "");
@@ -8060,6 +8539,10 @@ async function syncStateToSupabase(options = {}) {
       setSyncStatus("offline", "Cloud Data Protected", "This laptop contains much less ERP data than the verified cloud copy, so automatic overwrite was blocked. Refresh Live Data or verify and use Owner Upload Data.");
       return false;
     }
+  }
+  if (!options.force && pendingSyncMutationsHasChanges() && supabaseIncrementalSyncAvailable !== false) {
+    const incrementalResult = await syncStateToSupabaseIncremental(options);
+    if (incrementalResult.handled) return Boolean(incrementalResult.saved);
   }
   attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
@@ -8169,7 +8652,7 @@ async function syncStateToSupabase(options = {}) {
   clearPendingSyncOperationId(savingOperationId);
   announceLocalCloudSave(savedUpdatedAt, savingOperationId, savedSignalRevision);
   if (supabaseLocalRevision === savingRevision && mergedConcurrentData) {
-    state = normalizeLoadedState(stateToSave);
+    state = normalizeStateForRuntime(stateToSave);
     lastLocallyPersistedState = structuredClone(state);
     persistStateToBrowser({ context: "Merged live ERP" });
     render();
@@ -8310,6 +8793,23 @@ async function loadSupabaseState(options = {}) {
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
   if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
+  if (!options.forceFull && supabaseIncrementalSyncAvailable !== false) {
+    supabaseIsLoading = true;
+    let incrementalResult;
+    try {
+      incrementalResult = await loadIncrementalSupabaseState(options);
+    } finally {
+      supabaseIsLoading = false;
+    }
+    if (incrementalResult?.handled) {
+      if (incrementalResult.error) {
+        console.warn("Incremental Supabase load failed", incrementalResult.error);
+        scheduleSupabaseReconnect(incrementalResult.error);
+        setSyncStatus("connecting", "Live Sync: Reconnecting", "Changed records could not be loaded yet. Local data was not replaced.");
+      }
+      return Boolean(incrementalResult.ok);
+    }
+  }
   const loadStartRevision = supabaseLocalRevision;
   const loadStartCloudUpdatedAt = supabaseLastCloudUpdatedAt;
   supabaseIsLoading = true;
@@ -8374,6 +8874,7 @@ async function loadSupabaseState(options = {}) {
   let handledCloudState = false;
   if (data?.data) {
     handledCloudState = applyCloudStateFromRow(data, options);
+    await primeIncrementalSyncAfterFullLoad();
   } else {
     supabaseInitialReadComplete = true;
     supabaseCloudBaselineVerified = false;
@@ -8545,7 +9046,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
     };
   }
   restoredRecentJobOrderCount = 0;
-  state = normalizeLoadedState(reconciledCloudState);
+  state = normalizeStateForRuntime(reconciledCloudState);
   stateLoadedFromFallback = false;
   if (!options.recoveryFallback && !options.newerCloudReadOnly && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
@@ -9812,6 +10313,16 @@ function saveOrderDraft() {
       setOrderDraftStatus("Draft protection unavailable - keep this form open", "error");
     }
   }
+}
+
+const saveOrderDraftDebounced = debounceInput(saveOrderDraft, 600);
+let orderEntrySummaryFrame = 0;
+function scheduleOrderEntrySummary() {
+  if (orderEntrySummaryFrame) return;
+  orderEntrySummaryFrame = requestAnimationFrame(() => {
+    orderEntrySummaryFrame = 0;
+    renderOrderEntrySummary();
+  });
 }
 
 function loadOrderDraft() {
@@ -16593,6 +17104,10 @@ function closeOpenDialogs() {
 }
 
 function openOrderDetail(orderId, editMode = false, bucket = "all", preferredLotId = "") {
+  return withRenderCache(() => openOrderDetailCached(orderId, editMode, bucket, preferredLotId));
+}
+
+function openOrderDetailCached(orderId, editMode = false, bucket = "all", preferredLotId = "") {
   const order = findById("orders", orderId);
   if (!order) return;
   const form = document.getElementById("update-order-form");
@@ -28852,6 +29367,29 @@ function resetDesignMotiEntryFields() {
   updateDesignMotiEntryCodePreview();
 }
 
+function ensureTesseractLibrary() {
+  if (window.Tesseract) return Promise.resolve(true);
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    const timeout = setTimeout(() => resolve(false), 20000);
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.onload = () => {
+      clearTimeout(timeout);
+      resolve(Boolean(window.Tesseract));
+    };
+    script.onerror = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+    document.head.appendChild(script);
+  }).finally(() => {
+    if (!window.Tesseract) tesseractLoadPromise = null;
+  });
+  return tesseractLoadPromise;
+}
+
 async function readStoneChartImage() {
   if (!requirePageEditPermission("designs", "read and save stone chart rows")) return;
   const form = document.getElementById("stone-entry-form");
@@ -28862,7 +29400,7 @@ async function readStoneChartImage() {
     alert("Select design first.");
     return;
   }
-  if (!window.Tesseract) {
+  if (!(await ensureTesseractLibrary())) {
     alert("OCR library is not loaded. Connect internet and refresh once, then try again.");
     return;
   }
@@ -28893,7 +29431,7 @@ async function readStoneChartImageDataForDesign(design, imageData, itemKey = DEF
   const summary = document.getElementById("stone-entry-summary");
   const requestedItemKey = normalizeStoneItemKey(itemKey);
   const targetItemKey = requestedItemKey === DEFAULT_STONE_ITEM_KEY ? defaultStoneItemKeyForDesign(design) : requestedItemKey;
-  if (!window.Tesseract) {
+  if (!(await ensureTesseractLibrary())) {
     alert("OCR library is not loaded. Connect internet and refresh once, then try again.");
     return;
   }
@@ -30799,6 +31337,10 @@ function switchDailyTallyHistoryTab(tab = "history") {
 }
 
 function renderOrders() {
+  return withRenderCache(renderOrdersCached);
+}
+
+function renderOrdersCached() {
   const activeQuery = jobOrderSearchQuery("job-order-search");
   const completedQuery = jobOrderSearchQuery("completed-job-order-search");
   const activeJobs = activeQuery
@@ -30807,17 +31349,40 @@ function renderOrders() {
   const completedJobs = completedQuery
     ? searchedJobOrderFamilies(completedQuery)
     : groupedJobOrders(isCompletedOrder, "completed");
+  const activePageCount = Math.max(1, Math.ceil(activeJobs.length / jobOrderPageSize));
+  const completedPageCount = Math.max(1, Math.ceil(completedJobs.length / jobOrderPageSize));
+  activeJobOrderPage = Math.min(activeJobOrderPage, activePageCount);
+  completedJobOrderPage = Math.min(completedJobOrderPage, completedPageCount);
+  const visibleActiveJobs = activeQuery
+    ? activeJobs
+    : activeJobs.slice((activeJobOrderPage - 1) * jobOrderPageSize, activeJobOrderPage * jobOrderPageSize);
+  const visibleCompletedJobs = completedQuery
+    ? completedJobs
+    : completedJobs.slice((completedJobOrderPage - 1) * jobOrderPageSize, completedJobOrderPage * jobOrderPageSize);
   const activeRows = activeQuery
-    ? jobOrderFamilySearchRows(activeJobs)
-    : activeJobs.map(orderTableRow).join("");
+    ? jobOrderFamilySearchRows(visibleActiveJobs)
+    : visibleActiveJobs.map(orderTableRow).join("");
   const completedRows = completedQuery
-    ? jobOrderFamilySearchRows(completedJobs)
-    : completedJobs.map(orderTableRow).join("");
+    ? jobOrderFamilySearchRows(visibleCompletedJobs)
+    : visibleCompletedJobs.map(orderTableRow).join("");
   document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, activeQuery ? "No Job Order matches this search." : "No active job orders recorded.");
   document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, completedQuery ? "No Job Order matches this search." : "No completed job orders recorded.");
   renderJobOrderSearchSummary("job-order-search-summary", activeJobs, activeQuery, "active");
   renderJobOrderSearchSummary("completed-job-order-search-summary", completedJobs, completedQuery, "completed");
+  renderJobOrderPagination("job-order-pagination", activeJobOrderPage, activePageCount, activeJobs.length, "job-order-page", Boolean(activeQuery));
+  renderJobOrderPagination("completed-job-order-pagination", completedJobOrderPage, completedPageCount, completedJobs.length, "completed-job-order-page", Boolean(completedQuery));
   renderRepairJobOrders();
+}
+
+function renderJobOrderPagination(elementId, page, pageCount, total, dataKey, hidden = false) {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  node.classList.toggle("hidden", hidden || pageCount <= 1);
+  node.innerHTML = hidden || pageCount <= 1 ? "" : `
+    <button type="button" data-${dataKey}="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button>
+    <span>Page ${page} of ${pageCount} / ${total} Job Cards</span>
+    <button type="button" data-${dataKey}="${page + 1}" ${page >= pageCount ? "disabled" : ""}>Next</button>
+  `;
 }
 
 function jobOrderSearchQuery(inputId) {
@@ -41774,9 +42339,19 @@ function buildFineSheetSnapshot(dateKey = fineSheetLocalDateKey()) {
   });
 }
 
-function captureTodayFineSheetSnapshot() {
+function captureTodayFineSheetSnapshot(options = {}) {
   try {
+    const dateKey = fineSheetLocalDateKey();
+    const existing = (state.fineSheetSnapshots || []).find((entry) => entry.dateKey === dateKey);
+    const existingSavedAt = Date.parse(existing?.savedAt || 0);
+    const recentlyCaptured = Number.isFinite(existingSavedAt)
+      && Date.now() - existingSavedAt < FINE_SHEET_AUTO_SNAPSHOT_INTERVAL_MS;
+    if (!options.force && recentlyCaptured) {
+      lastFineSheetAutoSnapshotAt = existingSavedAt;
+      return existing;
+    }
     const snapshot = buildFineSheetSnapshot();
+    lastFineSheetAutoSnapshotAt = Date.now();
     state.fineSheetSnapshots = normalizeFineSheetSnapshots([
       snapshot,
       ...(state.fineSheetSnapshots || []).filter((entry) => entry.dateKey !== snapshot.dateKey),
@@ -43537,7 +44112,8 @@ function renderOnlineTransferHistory() {
     : document.getElementById("transfer-history-search")?.value || "").toLowerCase();
   const entries = onlineTransferHistoryEntries();
   const visibleEntries = entries.filter((entry) => transferHistorySearchText(entry).includes(query));
-  const rows = visibleEntries
+  const renderedEntries = visibleEntries.slice(0, transferHistoryRenderLimit);
+  const rows = renderedEntries
     .map(renderTransferHistoryRow)
     .join("");
   const content = rows || tableEmpty(14, "No transfer history recorded.");
@@ -43545,7 +44121,13 @@ function renderOnlineTransferHistory() {
   const productionTable = document.getElementById("production-transfer-table");
   if (historyTable) historyTable.innerHTML = content;
   if (productionTable) productionTable.innerHTML = content;
-  renderOnlineTransferTodaySummary(entries, visibleEntries.length);
+  renderOnlineTransferTodaySummary(entries, renderedEntries.length);
+  document.querySelectorAll("[data-transfer-render-status]").forEach((node) => {
+    node.textContent = `Showing ${renderedEntries.length} of ${visibleEntries.length} matching entries`;
+  });
+  document.querySelectorAll("[data-load-more-transfers]").forEach((button) => {
+    button.classList.toggle("hidden", renderedEntries.length >= visibleEntries.length);
+  });
 }
 
 function onlineTransferHistoryEntries() {

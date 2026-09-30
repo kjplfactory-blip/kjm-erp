@@ -1,4 +1,262 @@
 KHUSHALI JEWELLS MANUFACTURING
+App version: v666
+Updated: 2026-09-30 IST
+Normal multi-device synchronization now sends only changed records instead of uploading and downloading the complete ERP for every action.
+Supabase keeps normalized current records and an incremental change stream while preserving the existing erp_state row as a compatibility copy.
+Writes from an older ERP build are detected automatically; v666 performs one protected full refresh so older-device work is not missed.
+Realtime is primary and the background safety check is reduced to 60 seconds while connected, cutting repeated API traffic.
+Fine Sheet detailed backups refresh at most once every 30 minutes instead of being recalculated during every small save.
+Large browser backups are coalesced, Job Card draft writes are debounced, and Job Order lists are paginated at 75 cards per page.
+Job Card detail and list rendering now reuse one calculation cache, and OCR/camera libraries load only when opened.
+Run SUPABASE-INCREMENTAL-SYNC-v666.sql once before uploading the v666 website files.
+Existing ERP business data is not reset or deleted by this upgrade.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v665
+Updated: 2026-09-30 IST
+Manual Reset Selection now uses a cleaner four-step decision workspace with a live KEEP, RESET and RESTART/CHANGE count.
+KEEP selections are green, destructive RESET selections are red, and restart/carry actions remain blue for quick verification.
+The current ERP totals, protected master data, selected outcome, backup process and Owner confirmation are visually separated and easier to read.
+Tablet and mobile layouts stack cleanly without sideways scrolling, while the desktop result and confirmation panel remains visible during selection.
+The reset rules, protected data, downloaded backup, local save and Supabase update behavior are unchanged.
+No ERP records are changed during the upgrade and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v664
+Updated: 2026-09-30 IST
+Manual Reset Selection now opens as a clear full-screen workspace with current ERP totals shown first.
+Reset choices are grouped into Inventory, Job and Production Operations, and Ledger and Reports.
+Every choice clearly displays whether it will KEEP, RESET, RESTART, or carry data before selection is confirmed.
+A sticky review panel shows the exact reset result, protected masters, validation message, backup warning, and Owner confirmation together.
+The reset logic, protected master data, validation rules, backup-first process, and Supabase save behavior are unchanged.
+No ERP records are changed during the upgrade and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v663
+Updated: 2026-09-30 IST
+Every Job Card item in Bill now has an Open Stone Entry button that opens the exact PR item in the full-screen Production Stone Entry editor.
+The current Bill draft, item search and scroll position are preserved before opening the stone editor.
+Pressing Esc or Close returns directly to the same Bill and refreshes that item's latest stone weight and Bill totals.
+Non-job-card manual WIP rows continue to use manually verified stone weight and do not show the Production Stone Entry action.
+No ERP records are changed during the upgrade and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v662
+Updated: 2026-09-29 IST
+Manager can now complete the full Bill QC workflow: mark individual items or all items QC OK, transfer QC OK items to Office, and return QC Failed items to Production.
+Safia/Safiya receives the same QC authority through the existing Manager-level operational access.
+Existing Owner-only Login Details, reset and protected master controls remain unchanged.
+No ERP records are changed and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v661
+Updated: 2026-09-29 IST
+Manager and Safia/Safiya logins now receive every operational ERP page automatically.
+Safia receives the same existing operational authority as Manager, even when the account is a custom login.
+Login Details, user passwords and access management remain Owner-only; existing Owner-only reset and master controls remain protected.
+No ERP records are changed and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v660
+Updated: 2026-09-29 IST
+A4 Job Bag printing now keeps an exact 15 mm vertical space between its two A6 rows.
+Both Job Bag detail panels and their full-image panels follow the same spacing.
+Individual A6 Job Bag and Transfer Bag print layouts are unchanged.
+No ERP records are changed and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v659
+Updated: 2026-09-29 IST
+Combined Bill Excel filenames now contain all selected Bill numbers followed by final GW, total Non-Gold weight and Net Weight.
+Filename weights retain useful decimal values while unsupported filename characters are replaced safely.
+Example: BILL-15-16-GW-204.56-NON-GOLD-6.78-NW-197.78.xls.
+No ERP records or Bill calculations are changed and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v658
+Updated: 2026-09-29 IST
+Every individual Bill Excel row now includes a clearly labelled Item Colour column.
+Colour is resolved from the saved Bill item first, then the linked Job Card, followed by compatible older colour/jobColor fields.
+Single Bill Excel, Export All Bills Excel and Combined Bills Individual Item Details use the same colour logic.
+No ERP records are changed and no new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v657
+Updated: 2026-09-29 IST
+Duplicate image suffixes in brackets are ignored when creating the Job Card item name; STUD-945 (1) now becomes KJ-STUD-945 instead of KJ-STUD-1.
+Normal categories are saved explicitly as the item Sub Item and Sub Category, so STUD shows STUD and LR shows LR.
+Job Card tiles, item details and Bill Excel now use the same saved item code.
+Existing incorrect names and linked Bill records are repaired automatically once while PR numbers and all operational data remain unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v656
+Updated: 2026-09-29 IST
+Every Job Card item now receives a clean KJ-[ITEM CODE]-[NUMBER] name when the card is created.
+Items with a selected sub-item continue to use that sub-item code; items without a sub-item use their main category code, for example LR becomes KJ-LR-[NUMBER].
+Existing Job Card items are migrated once and their linked Bill, Safe Locker and production issue references are synchronized.
+PR numbers, barcodes, QR values, weights, production history and Design Master names remain unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v655
+Updated: 2026-09-29 IST
+Every individual Bill Excel row now exports its clean item Design Name as KJ-[SUB ITEM]-[NUMBER].
+The normalized name is used in Single Bill Excel, Export All Bills Excel, and Combined Bills Individual Item Details.
+PR number, category/item, size, colour, purity and all weight columns remain separate and unchanged.
+Original Design Master records and existing ERP data remain unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v654
+Updated: 2026-09-29 IST
+A4 Bill Tag Print keeps 40 tags per page in the exact 4-column by 10-row A4 stock layout.
+Each A4 tag now uses the same centered 25 mm printable body as the calibrated A6 tag layout.
+Every tag remains inside its 52.5 x 29.7 mm A4 slot, preventing vertical drift while preserving readable details and barcode placement.
+A6 tag printing and all Bill data remain unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v653
+Updated: 2026-09-29 IST
+Job items belonging to designs with sub-item categories now receive a clean KJ-[SUB-ITEM]-[NUMBER] name.
+Only the numeric design number is retained; suffixes such as A, B, C, D, ER or COPY are excluded.
+Existing Job Card items are migrated automatically, including their Bill and Safe/Production issue references.
+The corrected item name is used in Job Card details, search, Billing, tags, scanner details and production selectors while the original Design Master name remains unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v652
+Updated: 2026-09-28 IST
+Multi-Bill Tag Print now supports both A4 and A6 output from the same selected Bill items.
+A4 prints 40 tags per page and A6 prints 10 tags per page, continuing automatically onto further pages.
+The selector shows the required A4 and A6 page counts before printing.
+Printed status tracking remains active for both page sizes.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v651
+Updated: 2026-09-28 IST
+Combined Bills Excel now opens directly on the Individual Item Details worksheet.
+Every selected Bill item is exported on its own row with overall Item Sr., Bill Item Sr., Bill No, Job Card, Lot, customer, PR, design, category/item, size, colour, purity and complete weight details.
+Bill Summary remains available as the second worksheet with per-Bill totals and a grand total.
+Existing single-Bill Excel and Export All Bills Excel remain unchanged.
+No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v650
+Updated: 2026-09-28 IST
+Added Combine Selected Bills Excel in the Bill page.
+The full-screen selector supports bill search, individual selection, Select All Visible, Select All Bills and Clear Selection.
+Selected bill count, item count, total GW and total net weight remain visible before export.
+One Excel-compatible file contains a Bill Summary worksheet and a Combined Item Details worksheet with Bill No, Job Card, Lot, customer, PR, design and all weight fields.
+Both worksheets include grand totals; single-bill Excel and Export All Bills Excel remain available.
+No new Supabase SQL is required.
+
+App version: v649
+Updated: 2026-09-28 IST
+Bill stone weight is now calculated silently as 96% of the actual stone weight recorded against each Job Card item.
+The actual Job Card, Design Master, production and transfer stone weights remain unchanged.
+The adjusted Bill stone weight is used consistently for item rows, totals, non-gold deduction, net weight, prints, tags and Factory Out.
+The actual source weight and billing factor are retained internally for audit without displaying an adjustment message.
+No new Supabase SQL is required.
+
+App version: v648
+Updated: 2026-09-28 IST
+Reset Inventory now opens an Owner-only full-screen selection window with G/A/B/C/F/D/E choices for every reset.
+The user can independently choose factory gold, non-gold, Job Card, production, bill, Factory Ledger/vendor, Fine Sheet and Daily Tally treatment.
+The recommended G1/A3/B1/C1/F1/D1/E1 pattern starts factory inventory from zero while retaining every Job Card, edited stone row and bill item record.
+Design Master, images, Stone Library, Moti Library, Catalogue, Customers, Vendors, Departments, Setters and login details are permanently protected from this reset.
+Unsafe combinations are blocked, a complete JSON backup downloads first, Owner authentication and typed confirmation are required, and the audit records before/after weights.
+Retained historical bills cannot be posted again into the fresh factory stock or Fine Sheet.
+No new Supabase SQL is required.
+
+App version: v647
+Updated: 2026-09-27 IST
+Merged Job Cards now rejoin eligible free Setting split sub-lots into their original active lot when Add GW, Stone & Non-Gold is selected.
+The original lot keeps the merged PR items, current Setting stage, combined GW, wax/hand stone and non-gold tracking; source lot records remain archived for audit and no longer appear as active Setting stock.
+Lots still physically pending with a setter, in another department, billed, completed, or at a different purity remain separate until they can be safely handled.
+All linked Setting issue and receipt rows refresh their stone data from the current Job Card PR items, including previously merged records repaired after cloud load.
+No new Supabase SQL is required.
+
+App version: v646
+Updated: 2026-09-27 IST
+Added Delete / Previous Stage for the current Job Card lot in Setting Master, Job Card lot details, and every department transfer-history screen.
+The action removes only the latest department movement and returns the full lot plus all linked PR items to the exact previous department.
+GW, wax stone, hand stone, other non-gold, net gold, and department balances are recalculated from the restored transfer chain.
+Initial department issues can be returned to Safe Locker and the Job Card returns to Gold Pending when the existing safe-undo checks allow it.
+Only Owner and Manager can perform this deletion; all reversals remain recorded in the ERP audit ledger.
+The action is safely disabled when a Bill, child lot, setter transaction, non-gold issue, or later dependent movement must be corrected first.
+No new Supabase SQL is required.
+
+App version: v645
+Updated: 2026-09-27 IST
+Job Card merges now synchronize stone, other non-gold, and net-gold totals into every linked lot currently in the Setting Department.
+The active setter issue/receipt record is recalculated after the merge, including updated hand-stone receive net weight and setter balance where a receive GW already exists.
+The Setting lot screen now clearly shows GW, Wax + Hand Stone, Other Non-Gold, and current physical Net Gold for each lot.
+Hand stone remains marked Planned until the setter return is received, so it is not deducted prematurely from physical factory stock.
+Separate production lots remain separate physical holdings; the merge updates references and calculations without duplicating stock.
+No new Supabase SQL is required.
+
+App version: v644
+Updated: 2026-09-27 IST
+Added a mandatory Yes / No weight choice to both full Job Card merge and selected-item merge.
+Yes adds the source Job Card's current GW, stone weight, and non-gold weight into the destination Job Card total without duplicating factory stock.
+No merges the PR items only; source weight records remain outside the destination Job Card total while their production lot and transfer history stay visible.
+Merged Job Cards now show combined Current GW, Stone Weight, and Non-Gold Weight together with the number of included and excluded production lots.
+Each linked production lot clearly shows whether its merge weight was added or not added and which Job Card owns that weight total.
+If selected items share an unsplit production lot with items staying behind, Add Weight is blocked until the exact lot GW is split; Merge Items Only remains available.
+Every decision is stored in the Job Card item/card history and ERP ledger with its GW, stone, and non-gold snapshot.
+All physical production stock, department holdings, PR numbers, transfers, bills, and item status remain unchanged. No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v643
+Updated: 2026-09-27 IST
+Added Merge Selected Items inside an opened Job Card.
+Select one or more PR items, choose the main card or any sibling child card from the same split family, and merge only those items into that destination.
+The selected items keep their existing PR numbers, production lots, weights, departments, transfers, bills, stone details, and completion status.
+Shared physical production lots remain intact and show every related Job Card number instead of duplicating or splitting production weight.
+Moving every item closes the empty source Job Card automatically; moving only some items leaves the remaining items on the source card.
+Owner, Manager, and Order Dept can use the protected item merge action. A failed local save restores the full pre-merge state, and cloud sync retries automatically when required.
+All existing ERP data remains unchanged until an authorised user selects items and confirms the move. No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v642
+Updated: 2026-09-27 IST
+Added a dedicated Merge Two Child Job Cards tile in Job Order.
+The child merge shows only sibling child cards from the same original parent and requires exactly two child cards.
+The selected first child Job Card number is retained while every item and PR from the second child moves into it.
+The original parent Job Card remains unchanged and cannot be selected in the child-only workflow.
+Production numbers, physical lots, weights, departments, transfers, bills, item status, and history are preserved and relinked to the retained child card.
+Owner, Manager, and Order Dept retain permission to use the protected merge action.
+All existing ERP records remain unchanged until an authorised user deliberately confirms a merge. No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v641
+Updated: 2026-09-27 IST
+Moved the complete ERP browser copy directly to large IndexedDB storage, avoiding repeated localStorage quota checks and full JSON conversion during normal work.
+Removed one complete JavaScript clone before every IndexedDB save; IndexedDB now performs the protected native snapshot while rapid saves remain safely coalesced.
+State comparison now analyses changed top-level records once and reuses that result for deletion protection, pending multi-device changes, and the local comparison baseline.
+Confirmed cloud saves no longer normalize, clone, persist, and re-render the full ERP a second time when no concurrent laptop data was merged.
+Clean cloud refreshes now use the verified cloud copy directly after richer-data and reset protection checks; record-by-record conflict reconciliation remains active whenever local work is pending.
+Already-normalized v640/v641 data skips the legacy migration pass during startup and cloud refresh, while older data still receives the complete migration automatically.
+Dynamic dropdowns are prepared only for the currently open ERP module instead of rebuilding hidden Production, Safe, Melting, Design, and Job Order controls together.
+Automatic incoming cloud refresh waits briefly during active typing and clicking, then applies the pending update when the screen is idle.
+All stock, Job Card, transfer, Bill, Office, image, user, and cloud records remain unchanged. No new Supabase SQL is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v640
+Updated: 2026-09-27 IST
+Added exact operation IDs for cloud saves so a retry after a timeout can be confirmed without writing the same operation twice.
+Added the non-destructive SUPABASE-ADVANCED-SYNC-v640.sql upgrade with database revision numbers, writer metadata, and a 90-day operation confirmation ledger.
+Cloud saves continue using the verified v638 atomic method automatically until the v640 SQL upgrade is installed.
+Reduced the lightweight visible-page fallback check from 15 seconds to 5 seconds while retaining Supabase Realtime notifications and bounded retry.
+Added instant same-device tab notifications through BroadcastChannel without copying the full ERP state between tabs.
+The sync badge now opens a readable health summary showing connection mode, last cloud contact, queued changes, exact-save status, and cloud revision.
+Existing conflict merging, deletion tombstones, daily backups, IndexedDB protection, and richer-data safeguards remain active.
+No stock, Job Card, transfer, Bill, Office, image, user, or cloud record is reset by this upgrade.
+
+KHUSHALI JEWELLS MANUFACTURING
 App version: v639
 Updated: 2026-09-27 IST
 Added a role-based My Work dashboard showing the priority Jobs, Bills, QC, Setting, Hallmarking, sales holding, transfers, and cloud queue relevant to each login.
@@ -2086,3 +2344,5 @@ Transfer ledger weights and references are refreshed for each affected movement,
 LOT-203 receives the correction automatically after live cloud data loads.
 Repeated refreshes are idempotent and cannot apply the stone correction twice.
 No Supabase SQL change is required.
+
+

@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT V663
+Date: 2026-09-30 IST
+
+BILL ITEM STONE ENTRY
+- Every Job Card Bill row provides an Open Stone Entry action for its exact order ID and PR item.
+- The existing full-screen Production Stone Entry editor is reused, including its cropped chart and current stone rows.
+- Manual non-job-card WIP rows remain excluded because they use manually verified Bill stone weight.
+
+RETURN TO BILL
+- The current Bill values are captured and its protected draft is saved before opening the stone editor.
+- Esc closes only the Production Stone Entry dialog and returns to the same open Bill.
+- Close buttons use the same return flow.
+- The Bill item search, table position and Bill page position are restored.
+- The edited item's latest stone weight and totals are refreshed without opening an unrelated Job Item detail popup.
+
+DATA SAFETY
+- No existing ERP record is deleted or reset by this update.
+- No Supabase SQL change is required.

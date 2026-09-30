@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING ERP V666
+
+SAFE DEPLOYMENT ORDER
+1. Do not reset or clear ERP data.
+2. Open Supabase Dashboard > SQL Editor.
+3. Run SUPABASE-INCREMENTAL-SYNC-v666.sql once.
+4. Confirm the result contains khushali-jewells-main and revision 1 or higher.
+5. Upload the complete v666 LIVE folder contents to the existing GitHub repository.
+6. Upload app-version.json last.
+7. Refresh one laptop and open Sync Health.
+8. Confirm App v666 and Incremental record sync: Enabled.
+9. Refresh the remaining laptops.
+
+ROLLBACK
+- Keep KHUSHALI-JEWELLS-ERP-v665-PRE-OPTIMIZATION on this laptop.
+- The SQL migration does not delete or replace public.erp_state.
+- The v665 website can still read the compatibility copy if an application rollback is required.
+
+EXPECTED FIRST START
+- The first v666 load seeds or reads the normalized position.
+- Later saves and refreshes transfer changed records only.
+- Work from an older device is detected and causes one protected full refresh.

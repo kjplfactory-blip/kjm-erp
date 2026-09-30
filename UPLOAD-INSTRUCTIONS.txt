@@ -1,4 +1,263 @@
+VERSION v666 - PERFORMANCE AND INCREMENTAL SYNC
+1. Keep the v665 pre-optimization backup folder on this laptop.
+2. In Supabase Dashboard > SQL Editor, run SUPABASE-INCREMENTAL-SYNC-v666.sql once.
+3. Confirm the final result shows khushali-jewells-main with revision 1 or higher.
+4. Upload every file and folder from the v666 LIVE folder to the existing GitHub repository.
+5. Upload app-version.json last so all devices refresh only after every application file is present.
+6. Open the ERP on each laptop and confirm App v666 and Incremental record sync: Enabled in Sync Health.
+7. Older devices remain detectable, but update all working laptops promptly for the full speed improvement.
+8. Do not upload the v665 backup folder or ZIP to GitHub.
+
+VERSION v665
+- Manual Reset Selection now has a cleaner four-step full-screen decision layout.
+- A live counter shows how many selected groups will KEEP, RESET, or RESTART/CHANGE data.
+- KEEP, destructive RESET, and restart/carry choices use distinct green, red, and blue states.
+- Current totals, protected masters, selected result, backup safety and Owner confirmation are easier to review on desktop, tablet and mobile.
+- Reset logic and protected data are unchanged.
+- Upload every file and folder from the v665 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v665.
+- No new SQL is required for V665. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v664 pre-v665 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v664
+- Manual Reset Selection now uses a full-screen, grouped owner workspace with live current-data totals.
+- Inventory, Job/Production, and Ledger/Report selections are separated and each option visibly states KEEP, RESET, RESTART, or CARRY BALANCE.
+- The selected result, protected masters, validation, backup warning, Owner password and final confirmation remain together in a sticky review panel.
+- The underlying reset choices, safety validation, backup-first operation and Supabase update are unchanged.
+- Upload every file and folder from the v664 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v664.
+- No new SQL is required for V664. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v663 pre-v664 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v663
+- Every Job Card Bill item now includes Open Stone Entry for its exact PR item.
+- The Production Stone Entry editor opens full-screen while the same Bill remains available underneath.
+- Esc or Close returns to the same Bill, preserves its draft/search/scroll position and refreshes the edited item's stone weight and totals.
+- Manual non-job-card WIP Bill rows remain manual and do not show this action.
+- Upload every file and folder from the v663 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v663.
+- No new SQL is required for V663. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v662 pre-v663 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v662
+- Manager can mark individual Bill items or all Bill items QC OK.
+- Manager can transfer QC OK items to Office and return QC Failed items to Production.
+- Safia/Safiya receives the same QC authority through the existing Manager-level access.
+- Existing Owner-only Login Details, reset and protected master controls remain unchanged.
+- Upload every file and folder from the v662 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v662.
+- No new SQL is required for V662. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v661 pre-v662 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v661
+- Manager and Safia/Safiya automatically receive all operational ERP pages.
+- Safia has the same existing operational authority as Manager.
+- Login Details, passwords and user access management remain Owner-only.
+- Existing Owner-only reset and protected master controls remain unchanged.
+- Upload every file and folder from the v661 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v661.
+- No new SQL is required for V661. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v660 pre-v661 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v660
+- A4 Job Bag printing now has an exact 15 mm vertical gap between the two A6 rows.
+- Job Bag details and full-image panels use the same A4 spacing.
+- Individual A6 Job Bag and Transfer Bag printing remain unchanged.
+- Upload every file and folder from the v660 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v660.
+- No new SQL is required for V660. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v659 pre-v660 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v659
+- Combined Bill Excel filenames now show all selected Bill numbers, final GW, total Non-Gold and Net Weight.
+- Example: BILL-15-16-GW-204.56-NON-GOLD-6.78-NW-197.78.xls.
+- Upload every file and folder from the v659 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v659.
+- No new SQL is required for V659. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v658 pre-v659 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v658
+- Every Bill Excel item row now contains Item Colour.
+- The saved Bill item colour is preferred, with Job Card and older colour/jobColor fields used as safe fallbacks.
+- Single Bill, All Bills and Combined Bills Excel exports use the same Item Colour logic.
+- Upload every file and folder from the v658 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v658.
+- No new SQL is required for V658. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v657 pre-v658 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v657
+- STUD-945 (1) now creates KJ-STUD-945; the duplicate (1) suffix is ignored.
+- LR-458 creates KJ-LR-458.
+- Normal categories are saved as their own Sub Item / Sub Category, such as STUD and LR.
+- Existing incorrect item names and linked Bill records are repaired automatically once.
+- Upload every file and folder from the v657 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v657.
+- No new SQL is required for V657. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v656 pre-v657 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v656
+- Every new Job Card item is named KJ-[ITEM CODE]-[NUMBER].
+- Selected sub-items use their own code; designs without sub-items use the main category code, such as LR becoming KJ-LR-[NUMBER].
+- Existing Job Card, Bill, Safe Locker and production issue item names are synchronized automatically once.
+- PR numbers, barcodes, weights, history and Design Master names remain unchanged.
+- Upload every file and folder from the v656 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v656.
+- No new SQL is required for V656. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v655 pre-v656 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v655
+- Every Bill Excel item row now shows Design Name as KJ-[SUB ITEM]-[NUMBER].
+- The corrected name is used by Single Bill Excel, Export All Bills Excel, and Combined Bills Excel.
+- PR, category/item, size, colour, purity and weights remain in their existing separate columns.
+- Upload every file and folder from the v655 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v655.
+- No new SQL is required for V655. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v654 pre-v655 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v654
+- A4 Bill Tag Print remains 40 tags per page in a 4-column by 10-row layout.
+- Each A4 tag is centered in its exact 52.5 x 29.7 mm sheet position with the same 25 mm printable body used by A6.
+- A6 tag printing and all Bill records remain unchanged.
+- Upload every file and folder from the v654 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v654.
+- No new SQL is required for V654. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v653 pre-v654 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
 KHUSHALI JEWELLS MANUFACTURING ERP - LIVE UPLOAD
+
+VERSION v653
+- Every design with sub-item categories now creates item names as KJ-[SUB-ITEM]-[NUMBER].
+- Letters or words after the design number, including A, B, C, D, ER and COPY, are not included.
+- Existing Job Card items are corrected automatically without changing PR numbers or Design Master names.
+- The normalized name is synchronized into current Bill, Safe Locker and production issue references.
+- Upload every file and folder from the v653 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v653.
+- No new SQL is required for V653. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v652 pre-v653 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v652
+- Multi-Bill Tag Print now provides separate A4 and A6 print buttons.
+- A4 prints 40 tags per page; A6 prints 10 tags per page.
+- Selected items continue automatically across bills and additional pages.
+- Printed status and print count are updated for either page size.
+- Upload every file and folder from the v652 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v652.
+- No new SQL is required for V652. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v651 pre-v652 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v651
+- Combined Bills Excel now opens on Individual Item Details instead of the summary.
+- Every selected item has a separate row with Item Sr., Bill Item Sr., Bill, Job Card, Lot, customer, PR, design, item and all weight details.
+- Bill Summary remains the second worksheet with per-Bill and grand totals.
+- Existing single-Bill Excel and Export All Bills Excel remain unchanged.
+- Upload every file and folder from the v651 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v651.
+- No new SQL is required for V651. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v650 pre-v651 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+VERSION v650
+- Added a full-screen Combine Selected Bills Excel option in the Bill page.
+- Search and select any bills, select all visible bills, select every bill, or clear the selection.
+- The downloaded workbook contains Bill Summary and Combined Item Details sheets with grand totals.
+- Existing single-bill Excel and Export All Bills Excel remain unchanged.
+- Upload every file and folder from the v650 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v650.
+- No new SQL is required for V650. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v649 pre-v650 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v649
+- Bill stone weight is calculated silently as actual Job Card item stone weight x 0.96.
+- Design Master, Job Card, production and transfer stone weights remain at their original actual values.
+- The adjusted value is used throughout the Bill, totals, net weight, prints, tags and Factory Out.
+- Upload every file and folder from the v649 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v649.
+- No new SQL is required for V649. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v648 pre-v649 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v648
+- V648 replaces the direct Reset Inventory action with an Owner-only full-screen selection window.
+- Choose G/A/B/C/F/D/E codes during every reset; the screen previews exactly what becomes zero and what remains.
+- Recommended fresh opening: G1 / A3 / B1 / C1 / F1 / D1 / E1.
+- This pattern resets factory gold and non-gold to zero, restarts active Job Cards at Pending Metal Issue, and keeps complete Job Cards, edited stone rows and bill item data.
+- Design Master, images, Stone Library, Moti Library, Catalogue, Customers, Vendors, Departments, Setters, users, passwords and permissions are never cleared.
+- A complete JSON backup downloads before reset. Owner password, RESET TO ZERO, final acknowledgement and confirmation are mandatory.
+- Upload every file and folder from the v648 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v648.
+- No new SQL is required for V648. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v647 pre-v648 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v647
+- V647 stops eligible merged Setting split lots from returning as separate active lots.
+- When Add GW, Stone & Non-Gold is selected, free sub-lots already back in the same Setting Department and purity are rejoined into their original active lot.
+- The surviving lot keeps every merged PR item and refreshes wax stone, hand stone, other non-gold, net gold, setter rows, and the Job Card reference.
+- A sub-lot still with a setter or connected to a different department, purity, completed lot, or Bill is protected and remains separate.
+- Previously merged eligible records are repaired automatically after the latest cloud state is loaded.
+- Upload every file and folder from the v647 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v647.
+- No new SQL is required for V647. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v646 pre-v647 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v646
+- V646 adds Delete / Previous Stage to Setting Master, Job Card lot details, and every department transfer history.
+- It reverses only the current latest movement and restores the full lot with all linked PR items to its exact previous stage.
+- GW, stone, non-gold, net gold, and department balances are recalculated automatically from the remaining history.
+- Only Owner and Manager can use the action; blocked dependencies are explained and every successful reversal remains in audit history.
+- Upload every file and folder from the v646 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v646.
+- No new SQL is required for V646. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v645 pre-v646 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v645
+- V645 synchronizes merged Job Card stone and non-gold totals with linked lots currently in the Setting Department.
+- Setting setter entries recalculate their Job Card reference, hand-stone weight, receive net weight, setter balance, other non-gold, and current net gold.
+- Lots In Setting now shows GW, Wax + Hand Stone, Other Non-Gold, and Net Gold in separate readable columns.
+- Planned hand stone is not counted as physical stock until the setter return is recorded.
+- Upload every file and folder from the v645 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v645.
+- No new SQL is required for V645. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v644 pre-v645 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v644
+- V644 asks whether GW, stone weight, and non-gold weight should be added whenever full Job Cards or selected PR items are merged.
+- Choose Yes to include the source weights in the destination Job Card total, or No to merge items without adding their weights.
+- The merged Job Card and each linked production lot clearly show the selected weight treatment.
+- Shared unsplit production lots cannot transfer weight inaccurately; split the exact GW first or choose Merge Items Only.
+- No physical stock is duplicated and no existing production, transfer, Bill, or PR history is deleted.
+- Upload every file and folder from the v644 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, then refresh each device and confirm App v644.
+- No new SQL is required for V644. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v643 pre-v644 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v643
+- V643 adds Merge Selected Items inside every normal Job Card.
+- Tick the required PR items, press Merge Selected Items, and choose the main or sibling child Job Card from the same family.
+- PR numbers, production lots, weights, transfers, bills, stone details, and item status are preserved.
+- A shared physical production lot is not split or duplicated; it shows both related Job Card numbers when required.
+- Upload every file and folder from the v643 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, after all other files have finished uploading.
+- Refresh each device once and confirm App v643 before normal work continues.
+- No new SQL is required for V643. Keep using SUPABASE-ADVANCED-SYNC-v640.sql.
+- Keep the v642 pre-v643 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v642
+- V642 adds a dedicated Merge Two Child Job Cards option under Job Order.
+- Choose the first child Job Card to keep, then select exactly one sibling child from the same original parent.
+- The parent Job Card remains unchanged; PR numbers, production lots, weights, transfers, bills, item status, and history are preserved.
+- No new SQL is required for V642. Keep using SUPABASE-ADVANCED-SYNC-v640.sql for the advanced cloud operation ledger.
+- Run SUPABASE-ADVANCED-SYNC-v640.sql once in Supabase Dashboard > SQL Editor after the existing v638 live-sync setup.
+- The SQL is non-destructive and does not reset, delete, or replace ERP data.
+- Upload every file and folder from the v642 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, after all other files have finished uploading.
+- Refresh each device once and confirm App v642 before normal work continues.
+- Exact operation IDs prevent duplicate cloud writes after a timeout; the 5-second revision check and Realtime signal automatically update other devices.
+- If the v640 SQL is not run yet, the app remains operational in compatibility mode using the existing protected v638 sync.
+- Keep the v641 pre-v642 backup ZIP on this laptop; do not upload backup ZIP files to GitHub.
+
+VERSION v641
+- V641 is a performance-only safety upgrade: large ERP data now uses IndexedDB directly, confirmed cloud saves avoid a second full-state rebuild, record comparisons are reused, and incoming refreshes wait while the user is actively clicking or typing.
+- No new SQL is required for V641. Keep using SUPABASE-ADVANCED-SYNC-v640.sql for the advanced cloud operation ledger.
+- Upload every file and folder from the v641 LIVE folder to the existing GitHub repository.
+- Upload app-version.json last, after all other files have finished uploading.
+- Refresh each device once and confirm App v641 before normal work continues.
 
 VERSION v639
 - Upload every file and folder from the v639 LIVE folder to the existing GitHub repository.
@@ -262,3 +521,5 @@ If Design Master shows design names but not their images:
 6. Open Design Master on the other laptop and confirm the images are visible.
 
 Important: design details and image files are stored separately. The repair action uploads the existing browser-held image files without changing design numbers, categories, stone details, or job cards.
+
+
