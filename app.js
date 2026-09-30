@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v663";
+const APP_VERSION = "v665";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -6217,6 +6217,19 @@ function renderManualResetPreview() {
   if (!form) return;
   const options = manualResetOptions(form);
   const stats = manualResetCurrentStats();
+  const selectionTotals = Array.from(form.querySelectorAll('input[type="radio"]:checked')).reduce((totals, input) => {
+    const stateName = String(input.closest("label")?.dataset.choiceState || "").toUpperCase();
+    if (stateName === "KEEP") totals.keep += 1;
+    else if (stateName === "RESET" || stateName === "FULL RESET") totals.reset += 1;
+    else totals.change += 1;
+    return totals;
+  }, { keep: 0, reset: 0, change: 0 });
+  const keepCount = document.getElementById("manual-reset-keep-count");
+  const resetCount = document.getElementById("manual-reset-reset-count");
+  const changeCount = document.getElementById("manual-reset-change-count");
+  if (keepCount) keepCount.textContent = String(selectionTotals.keep);
+  if (resetCount) resetCount.textContent = String(selectionTotals.reset);
+  if (changeCount) changeCount.textContent = String(selectionTotals.change);
   const summary = document.getElementById("manual-reset-current-summary");
   if (summary) {
     summary.innerHTML = [
@@ -6276,6 +6289,8 @@ function openManualResetDialog() {
   if (form.confirmation) form.confirmation.value = "";
   renderManualResetPreview();
   if (!dialog.open) dialog.showModal();
+  const workspace = dialog.querySelector(".manual-reset-dialog-card");
+  if (workspace) workspace.scrollTop = 0;
 }
 
 function closeManualResetDialog() {
