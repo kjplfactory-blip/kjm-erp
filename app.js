@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v666";
+const APP_VERSION = "v668";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -420,6 +420,11 @@ let jobCardSearchStatusTimer = null;
 let universalSearchInputTimer = null;
 let universalSearchBlurTimer = null;
 let universalSearchResultsCache = [];
+let universalSearchIndex = null;
+let universalSearchIndexRevision = 1;
+let universalSearchIndexBuildTimer = null;
+let universalSearchIndexBuildTimerType = "";
+let universalSearchInputRequest = 0;
 let phoneBarcodeScanner = null;
 let phoneBarcodeScannerActive = false;
 let phoneBarcodeScanSession = 0;
@@ -3302,13 +3307,81 @@ function clearManualWipCombinedBillAllocations(lotId = "") {
   state.ledger = (state.ledger || []).filter((entry) => !(entry.sourceType === "manual-combined-bill" && entry.sourceId === lotId));
 }
 
+function billRecordModifiedTime(bill = {}) {
+  return new Date(bill.updatedAt || bill.savedAt || bill.createdAt || bill.billDate || 0).getTime() || 0;
+}
+
+function resolveLotForBillRecord(bill = {}, sourceState = state) {
+  const lots = Array.isArray(sourceState?.lots) ? sourceState.lots : [];
+  if (!bill || typeof bill !== "object" || !lots.length) return null;
+  const exactLotId = String(bill.lotId || "");
+  if (exactLotId) {
+    const exact = lots.find((lot) => String(lot.id || "") === exactLotId);
+    if (exact) return exact;
+  }
+  const billId = String(bill.id || "");
+  if (billId) {
+    const embedded = lots.find((lot) => String(lot.bill?.id || "") === billId);
+    if (embedded) return embedded;
+  }
+  const billNo = String(bill.billNo || "").trim().toLowerCase();
+  if (billNo) {
+    const billNoMatches = lots.filter((lot) => String(lot.bill?.billNo || "").trim().toLowerCase() === billNo);
+    if (billNoMatches.length === 1) return billNoMatches[0];
+  }
+  const billOrderIds = new Set((bill.items || []).map((item) => String(item.orderId || "")).filter(Boolean));
+  if (billOrderIds.size) {
+    const orderMatches = lots.filter((lot) => getLotOrderIds(lot).some((orderId) => billOrderIds.has(String(orderId || ""))));
+    if (orderMatches.length === 1) return orderMatches[0];
+  }
+  const jobNumber = String(bill.jobNumber || "").trim().toLowerCase();
+  if (jobNumber) {
+    const jobMatches = lots.filter((lot) => String(lot.orderNumber || "").trim().toLowerCase() === jobNumber);
+    if (jobMatches.length === 1) return jobMatches[0];
+  }
+  return null;
+}
+
+function reconcileBillLotLinks(currentState = {}) {
+  const bills = Array.isArray(currentState?.bills) ? currentState.bills : [];
+  const lots = Array.isArray(currentState?.lots) ? currentState.lots : [];
+  if (!bills.length || !lots.length) return currentState;
+  const billsByLotId = new Map();
+  const billsById = new Map();
+  bills.forEach((bill) => {
+    const billId = String(bill?.id || "");
+    const lotId = String(bill?.lotId || "");
+    if (billId) billsById.set(billId, bill);
+    if (!lotId) return;
+    const saved = billsByLotId.get(lotId);
+    if (!saved || billRecordModifiedTime(bill) >= billRecordModifiedTime(saved)) billsByLotId.set(lotId, bill);
+  });
+  lots.forEach((lot) => {
+    const exact = billsByLotId.get(String(lot.id || ""));
+    const embeddedMatch = lot.bill?.id ? billsById.get(String(lot.bill.id)) : null;
+    const canonical = exact || embeddedMatch;
+    if (canonical) lot.bill = canonical;
+  });
+  bills.forEach((bill) => {
+    const lot = resolveLotForBillRecord(bill, currentState);
+    if (!lot) return;
+    const currentBillId = String(lot.bill?.id || "");
+    const exactLink = String(bill.lotId || "") === String(lot.id || "");
+    if (!lot.bill || currentBillId === String(bill.id || "") || exactLink) lot.bill = bill;
+  });
+  return currentState;
+}
+
 function normalizeStateForRuntime(currentState = {}) {
+  let normalized;
   if (stateSyncBuild(currentState) >= FAST_STATE_LOAD_MIN_BUILD) {
     restoreRecentJobOrderBackups(currentState);
     stampCurrentAppVersion(currentState);
-    return currentState;
+    normalized = currentState;
+  } else {
+    normalized = normalizeLoadedState(currentState);
   }
-  return normalizeLoadedState(currentState);
+  return reconcileBillLotLinks(normalized);
 }
 
 function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "") {
@@ -6005,6 +6078,7 @@ function saveState(options = {}) {
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
   lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
+  invalidateUniversalSearchIndexForChanges(changeAnalysis);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   queueSupabaseSave();
@@ -6033,6 +6107,7 @@ function saveStateLocalOnly(options = {}) {
   if (!persistStateToBrowser(options)) return false;
   capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
   lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
+  invalidateUniversalSearchIndexForChanges(changeAnalysis);
   markLocalSyncDirty();
   supabaseLastLocalChangeAt = Date.now();
   return true;
@@ -7376,6 +7451,7 @@ async function loadFullStateFromIncrementalRecords(meta = {}, options = {}) {
     rebuilt[row.collection].push(row.data);
   });
   state = normalizeStateForRuntime(rebuilt);
+  invalidateUniversalSearchIndex();
   stateLoadedFromFallback = false;
   catalogueItems = state.catalogueItems || [];
   lastLocallyPersistedState = structuredClone(state);
@@ -7503,6 +7579,8 @@ async function loadIncrementalSupabaseState(options = {}) {
   state = pendingSyncMutationsHasChanges()
     ? applyPendingSyncMutationsToCloud(incoming, pendingSyncMutations)
     : incoming;
+  reconcileBillLotLinks(state);
+  invalidateUniversalSearchIndex();
   stampCurrentAppVersion(state);
   catalogueItems = state.catalogueItems || [];
   lastLocallyPersistedState = structuredClone(state);
@@ -8653,6 +8731,7 @@ async function syncStateToSupabase(options = {}) {
   announceLocalCloudSave(savedUpdatedAt, savingOperationId, savedSignalRevision);
   if (supabaseLocalRevision === savingRevision && mergedConcurrentData) {
     state = normalizeStateForRuntime(stateToSave);
+    invalidateUniversalSearchIndex();
     lastLocallyPersistedState = structuredClone(state);
     persistStateToBrowser({ context: "Merged live ERP" });
     render();
@@ -9047,6 +9126,7 @@ function applyCloudState(cloudState, cloudUpdatedAt = "", options = {}) {
   }
   restoredRecentJobOrderCount = 0;
   state = normalizeStateForRuntime(reconciledCloudState);
+  invalidateUniversalSearchIndex();
   stateLoadedFromFallback = false;
   if (!options.recoveryFallback && !options.newerCloudReadOnly && !isEmptyBusinessState(cloudState)) supabaseStartupProtectionActive = false;
   const restoredJobOrders = restoredRecentJobOrderCount;
@@ -11366,6 +11446,11 @@ function openHeaderJobCardSearch() {
     setJobCardSearchStatus("Login before searching the ERP.", "error");
     return false;
   }
+  const exact = universalSearchExactResults(query, 16);
+  if (exact.length === 1) {
+    universalSearchResultsCache = exact;
+    return openUniversalSearchResult("0");
+  }
   const results = universalSearchResults(query, 16);
   universalSearchResultsCache = results;
   if (!results.length) {
@@ -11374,13 +11459,12 @@ function openHeaderJobCardSearch() {
     input?.focus();
     return false;
   }
-  const exact = results.filter((result) => result.score >= 1000);
-  if (results.length > 1 && exact.length !== 1) {
+  if (results.length > 1) {
     renderUniversalSearchResults(query, results);
     setJobCardSearchStatus(`${results.length} matches. Select one.`, "success");
     return true;
   }
-  return openUniversalSearchResult(String(results.indexOf(exact[0] || results[0])));
+  return openUniversalSearchResult("0");
 }
 
 function setJobCardSearchStatus(message, mode = "") {
@@ -11400,15 +11484,18 @@ function setJobCardSearchStatus(message, mode = "") {
 function handleUniversalSearchInput(event) {
   clearTimeout(universalSearchInputTimer);
   const query = String(event?.target?.value || "").trim();
+  const request = ++universalSearchInputRequest;
+  if (universalSearchText(query).length < 2) {
+    closeUniversalSearchResults();
+    return;
+  }
   universalSearchInputTimer = setTimeout(() => {
-    if (!query) {
-      closeUniversalSearchResults();
-      return;
-    }
+    if (request !== universalSearchInputRequest) return;
     const results = universalSearchResults(query, 16);
+    if (request !== universalSearchInputRequest) return;
     universalSearchResultsCache = results;
     renderUniversalSearchResults(query, results);
-  }, 110);
+  }, 250);
 }
 
 function closeUniversalSearchResults() {
@@ -11426,130 +11513,315 @@ function universalSearchText(value = "") {
     .trim();
 }
 
-function universalSearchScore(query = "", values = []) {
-  const normalizedQuery = universalSearchText(query);
-  if (!normalizedQuery) return 0;
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  const normalizedValues = values.map(universalSearchText).filter(Boolean);
-  const joined = normalizedValues.join(" ");
-  if (!tokens.every((token) => joined.includes(token))) return 0;
-  if (normalizedValues.some((value) => value === normalizedQuery)) return 1000;
-  if (normalizedValues.some((value) => value.startsWith(normalizedQuery))) return 700;
-  if (joined.includes(normalizedQuery)) return 500;
-  return 250 + tokens.length;
+const UNIVERSAL_SEARCH_RELEVANT_STATE_KEYS = new Set(["orders", "designs", "customers", "lots", "bills"]);
+const UNIVERSAL_SEARCH_TYPE_ORDER = { JOB: 0, PR: 1, BILL: 2, "HM BATCH": 3, LOT: 4, DESIGN: 5, CUSTOMER: 6 };
+
+function invalidateUniversalSearchIndexForChanges(changeAnalysis = null) {
+  if (!changeAnalysis?.changedKeys) return invalidateUniversalSearchIndex();
+  if ([...changeAnalysis.changedKeys].some((key) => UNIVERSAL_SEARCH_RELEVANT_STATE_KEYS.has(key))) {
+    invalidateUniversalSearchIndex();
+  }
 }
 
-function addUniversalSearchResult(results, result, query) {
-  const score = universalSearchScore(query, result.values || [result.label, result.meta]);
-  if (score) results.push({ ...result, score });
+function invalidateUniversalSearchIndex() {
+  universalSearchIndexRevision += 1;
+  universalSearchIndex = null;
+  scheduleUniversalSearchIndexBuild();
 }
 
-function universalSearchResults(query = "", limit = 16) {
-  const results = [];
-  const canOrders = canAccessPage("orders");
-  const canDesigns = canAccessPage("designs");
-  const canCustomers = canAccessPage("customers");
-  const canBilling = canAccessPage("billing");
-  const canOffice = canAccessPage("office");
-  const canProduction = canAccessPage("production") || canAccessPage("transfer-history");
+function scheduleUniversalSearchIndexBuild(delayMs = 180) {
+  const revision = universalSearchIndexRevision;
+  if (universalSearchIndexBuildTimer !== null) {
+    if (universalSearchIndexBuildTimerType === "idle" && typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(universalSearchIndexBuildTimer);
+    } else {
+      clearTimeout(universalSearchIndexBuildTimer);
+    }
+  }
+  const build = () => {
+    universalSearchIndexBuildTimer = null;
+    universalSearchIndexBuildTimerType = "";
+    if (revision !== universalSearchIndexRevision || universalSearchIndex?.revision === revision) return;
+    try {
+      buildUniversalSearchIndex(revision);
+    } catch (error) {
+      console.warn("Universal Search index could not be prepared in the background.", error);
+    }
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    universalSearchIndexBuildTimerType = "idle";
+    universalSearchIndexBuildTimer = window.requestIdleCallback(build, { timeout: Math.max(800, delayMs + 500) });
+  } else {
+    universalSearchIndexBuildTimerType = "timeout";
+    universalSearchIndexBuildTimer = setTimeout(build, delayMs);
+  }
+}
 
-  if (canOrders) {
-    const jobs = new Map();
-    (state.orders || []).filter((order) => !order.hiddenFromJobOrders).forEach((order) => {
-      const jobNumber = order.jobNumber || order.number || order.productionNo;
-      if (!jobNumber) return;
-      if (!jobs.has(jobNumber)) jobs.set(jobNumber, []);
-      jobs.get(jobNumber).push(order);
-      addUniversalSearchResult(results, {
-        type: "PR",
-        label: order.productionNo || order.number || "Production Item",
-        meta: `${jobNumber} / ${order.designNumber || order.designNo || "-"} / ${order.customer || "-"} / ${orderCurrentStage(order)}`,
-        values: [order.productionNo, order.number, order.barcode, order.itemName, jobItemDisplayName(order), order.designNumber, order.designNo, order.customer, jobNumber],
-        orderId: order.id,
-      }, query);
+function universalSearchFlattenValues(values = []) {
+  const flattened = [];
+  const add = (value) => {
+    if (Array.isArray(value)) {
+      value.forEach(add);
+      return;
+    }
+    const normalized = universalSearchText(value);
+    if (normalized) flattened.push(normalized);
+  };
+  add(values);
+  return [...new Set(flattened)];
+}
+
+function universalSearchRawJobValues(order = {}) {
+  const fittingNames = (order.productionStoneItems || [])
+    .flatMap((item) => [item.fittingAccessoryName, item.jobFittingAccessoryName])
+    .filter(Boolean);
+  return [
+    order.productionNo,
+    order.number,
+    order.barcode,
+    order.itemName,
+    order.item,
+    order.designNumber,
+    order.designNo,
+    order.customer,
+    order.jobNumber,
+    order.category,
+    order.designSubItemType,
+    order.ringType,
+    order.cmItemType,
+    order.remarks,
+    fittingNames,
+  ];
+}
+
+function universalSearchOrderStage(order = {}, context = {}) {
+  const officeEntry = context.officeByOrder?.get(order.id);
+  if (officeEntry) return officeItemLocation(officeEntry.item);
+  const billEntry = context.billItemByOrder?.get(order.id);
+  if (billEntry?.item && isRepairItem(billEntry.item)) {
+    const reworkLot = billEntry.item.reworkLotId ? context.lotsById?.get(billEntry.item.reworkLotId) : null;
+    if (reworkLot && reworkLot.status !== "Completed") return reworkLot.currentDepartment || "Repair Production";
+    return officeItemLocation(billEntry.item);
+  }
+  const lot = context.lotsByOrder?.get(order.id)?.[0];
+  if (lot?.bill) return lot.billingStage || "Bill / QC";
+  if (lot) return lot.currentDepartment || lot.karigarName || "Production";
+  return order.status || "Pending";
+}
+
+function buildUniversalSearchIndex(revision = universalSearchIndexRevision) {
+  const startedAt = Date.now();
+  const records = [];
+  const exactLookup = new Map();
+  const allOrders = state.orders || [];
+  const orders = allOrders.filter((order) => !order.hiddenFromJobOrders);
+  const lots = state.lots || [];
+  const ordersById = new Map(allOrders.map((order) => [order.id, order]));
+  const ordersByProduction = new Map();
+  allOrders.forEach((order) => {
+    [order.productionNo, order.number, order.barcode].filter(Boolean).forEach((value) => ordersByProduction.set(String(value), order));
+  });
+  const lotsById = new Map(lots.map((lot) => [lot.id, lot]));
+  const lotsByOrder = new Map();
+  const billsByLot = new Map((state.bills || []).map((bill) => [bill.lotId, bill]));
+  const officeByOrder = new Map();
+  const billItemByOrder = new Map();
+  const hallmarkBatches = new Map();
+
+  const addRecord = (record, values = []) => {
+    const normalizedValues = universalSearchFlattenValues([record.label, ...values]);
+    if (!normalizedValues.length) return;
+    const indexed = {
+      ...record,
+      normalizedValues,
+      searchText: normalizedValues.join(" "),
+      typeRank: UNIVERSAL_SEARCH_TYPE_ORDER[record.type] ?? 20,
+    };
+    records.push(indexed);
+    normalizedValues.forEach((value) => {
+      if (!exactLookup.has(value)) exactLookup.set(value, []);
+      exactLookup.get(value).push(indexed);
     });
-    jobs.forEach((orders, jobNumber) => {
-      const first = orders[0];
-      addUniversalSearchResult(results, {
-        type: "JOB",
-        label: jobNumber,
-        meta: `${first.customer || "-"} / ${orders.length} item${orders.length === 1 ? "" : "s"} / ${jobCurrentStage(orders)}`,
-        values: [jobNumber, first.customer, ...orders.flatMap((order) => [order.productionNo, order.itemName, jobItemDisplayName(order), order.designNumber, order.designNo, order.remarks])],
-        orderId: first.id,
-      }, query);
+  };
+
+  lots.forEach((lot) => {
+    getLotOrderIds(lot).forEach((orderId) => {
+      if (!lotsByOrder.has(orderId)) lotsByOrder.set(orderId, []);
+      lotsByOrder.get(orderId).push(lot);
     });
-  }
+    const bill = lot.bill || billsByLot.get(lot.id);
+    (bill?.items || []).forEach((item) => {
+      const order = ordersById.get(item.orderId)
+        || ordersByProduction.get(String(item.productionNo || ""))
+        || null;
+      if (order && !billItemByOrder.has(order.id)) billItemByOrder.set(order.id, { lot, bill, item, order });
+      if (order && !officeByOrder.has(order.id) && !isDiscardedItem(item) && item.qcStatus === "QC OK" && item.officeStatus === "Office") {
+        officeByOrder.set(order.id, { lot, bill, item, order });
+      }
+      const batch = hallmarkLotLabel(item);
+      if (batch) {
+        if (!hallmarkBatches.has(batch)) hallmarkBatches.set(batch, []);
+        hallmarkBatches.get(batch).push({ lot, bill, item, order: order || {} });
+      }
+    });
+  });
 
-  if (canDesigns) {
-    (state.designs || []).forEach((design) => addUniversalSearchResult(results, {
-      type: "DESIGN",
-      label: design.number || design.name || "Design",
-      meta: `${design.category || "Uncategorised"} / ${design.name || design.number || "-"}`,
-      values: [design.number, design.name, design.category, ...normalizeDesignItemKeys(design.itemKeys || [], design.category || "")],
-      designId: design.id,
-    }, query));
-  }
+  const stageContext = { lotsById, lotsByOrder, officeByOrder, billItemByOrder };
+  const jobs = new Map();
+  orders.forEach((order) => {
+    const jobNumber = order.jobNumber || order.number || order.productionNo;
+    if (!jobNumber) return;
+    const stage = universalSearchOrderStage(order, stageContext);
+    if (!jobs.has(jobNumber)) jobs.set(jobNumber, []);
+    jobs.get(jobNumber).push({ order, stage });
+    addRecord({
+      type: "PR",
+      label: order.productionNo || order.number || "Production Item",
+      meta: `${jobNumber} / ${order.designNumber || order.designNo || "-"} / ${order.customer || "-"} / ${stage}`,
+      orderId: order.id,
+    }, universalSearchRawJobValues(order));
+  });
+  jobs.forEach((entries, jobNumber) => {
+    const first = entries[0]?.order || {};
+    const stages = [...new Set(entries.map((entry) => entry.stage).filter(Boolean))];
+    const stage = stages.length > 1 ? `Mixed: ${stages.join(", ")}` : stages[0] || "Pending";
+    addRecord({
+      type: "JOB",
+      label: jobNumber,
+      meta: `${first.customer || "-"} / ${entries.length} item${entries.length === 1 ? "" : "s"} / ${stage}`,
+      orderId: first.id,
+    }, [jobNumber, first.customer, entries.map(({ order }) => universalSearchRawJobValues(order))]);
+  });
 
-  if (canCustomers) {
-    (state.customers || []).forEach((customer) => addUniversalSearchResult(results, {
-      type: "CUSTOMER",
-      label: customer.name || "Customer",
-      meta: [customer.phone, customer.city, customer.gst].filter(Boolean).join(" / ") || "Customer Master",
-      values: [customer.name, customer.phone, customer.city, customer.gst, customer.address],
-      customerId: customer.id,
-    }, query));
-  }
+  (state.designs || []).forEach((design) => addRecord({
+    type: "DESIGN",
+    label: design.number || design.name || "Design",
+    meta: `${design.category || "Uncategorised"} / ${design.name || design.number || "-"}`,
+    designId: design.id,
+  }, [design.number, design.name, design.category, normalizeDesignItemKeys(design.itemKeys || [], design.category || "")]));
 
-  if (canBilling || canOffice) {
-    (state.lots || []).forEach((lot) => {
-      const bill = billForLotRecord(lot);
-      if (!bill?.billNo) return;
-      const orders = billableOrdersForLot(lot, bill);
-      addUniversalSearchResult(results, {
+  (state.customers || []).forEach((customer) => addRecord({
+    type: "CUSTOMER",
+    label: customer.name || "Customer",
+    meta: [customer.phone, customer.city, customer.gst].filter(Boolean).join(" / ") || "Customer Master",
+    customerId: customer.id,
+  }, [customer.name, customer.phone, customer.city, customer.gst, customer.address]));
+
+  lots.forEach((lot) => {
+    const bill = lot.bill || billsByLot.get(lot.id);
+    if (bill?.billNo) {
+      const orderIds = billableOrderIdsForLot(lot, bill);
+      const billOrders = orderIds.map((id) => ordersById.get(id)).filter(Boolean);
+      addRecord({
         type: "BILL",
         label: bill.billNo,
-        meta: `${lot.orderNumber || lot.number || "-"} / ${orders[0]?.customer || "-"} / ${bill.items?.length || orders.length || 0} item(s)`,
-        values: [bill.billNo, lot.number, lot.orderNumber, ...orders.flatMap((order) => [order.customer, order.productionNo, order.designNumber])],
+        meta: `${lot.orderNumber || lot.number || "-"} / ${billOrders[0]?.customer || "-"} / ${bill.items?.length || billOrders.length || 0} item(s)`,
         lotId: lot.id,
-      }, query);
-    });
-  }
-
-  if (canOffice) {
-    const hallmarkBatches = new Map();
-    allOfficeBillItemEntries().forEach((entry) => {
-      const batch = hallmarkLotLabel(entry.item);
-      if (!batch) return;
-      if (!hallmarkBatches.has(batch)) hallmarkBatches.set(batch, []);
-      hallmarkBatches.get(batch).push(entry);
-    });
-    hallmarkBatches.forEach((entries, batch) => {
-      const page = entries.some(({ item }) => officeDepartment(item) === "hallmarking") ? "hallmarking" : "hallmarked";
-      addUniversalSearchResult(results, {
-        type: "HM BATCH",
-        label: batch,
-        meta: `${entries.length} item${entries.length === 1 ? "" : "s"} / ${page === "hallmarking" ? "Pending Return" : "Hallmarked"}`,
-        values: [batch, ...entries.flatMap(({ lot, bill, item, order }) => [lot.orderNumber, bill.billNo, item.productionNo, item.huid1, item.huid2, order.designNumber])],
-        hallmarkBatch: batch,
-        officePage: page,
-      }, query);
-    });
-  }
-
-  if (canProduction) {
-    (state.lots || []).forEach((lot) => addUniversalSearchResult(results, {
+      }, [bill.billNo, lot.number, lot.orderNumber, billOrders.map((order) => [order.customer, order.productionNo, order.designNumber])]);
+    }
+    addRecord({
       type: "LOT",
       label: lot.number || "Production Lot",
       meta: `${lot.orderNumber || "No Job Card"} / ${lot.currentDepartment || lot.karigarName || lot.status || "Production"}`,
-      values: [lot.number, lot.orderNumber, lot.currentDepartment, lot.karigarName, lot.status],
       lotId: lot.id,
-    }, query));
-  }
+    }, [lot.number, lot.orderNumber, lot.currentDepartment, lot.karigarName, lot.status]);
+  });
 
-  const typeOrder = { JOB: 0, PR: 1, BILL: 2, "HM BATCH": 3, LOT: 4, DESIGN: 5, CUSTOMER: 6 };
-  return results
-    .sort((a, b) => b.score - a.score || (typeOrder[a.type] ?? 20) - (typeOrder[b.type] ?? 20) || a.label.localeCompare(b.label, undefined, { numeric: true }))
-    .slice(0, limit);
+  hallmarkBatches.forEach((entries, batch) => {
+    const page = entries.some(({ item }) => officeDepartment(item) === "hallmarking") ? "hallmarking" : "hallmarked";
+    addRecord({
+      type: "HM BATCH",
+      label: batch,
+      meta: `${entries.length} item${entries.length === 1 ? "" : "s"} / ${page === "hallmarking" ? "Pending Return" : "Hallmarked"}`,
+      hallmarkBatch: batch,
+      officePage: page,
+    }, [batch, entries.map(({ lot, bill, item, order }) => [lot.orderNumber, bill.billNo, item.productionNo, item.huid1, item.huid2, order.designNumber])]);
+  });
+
+  const nextIndex = {
+    revision,
+    records,
+    exactLookup,
+    builtAt: Date.now(),
+    buildMs: Date.now() - startedAt,
+  };
+  if (revision === universalSearchIndexRevision) universalSearchIndex = nextIndex;
+  return nextIndex;
+}
+
+function ensureUniversalSearchIndex() {
+  if (universalSearchIndex?.revision === universalSearchIndexRevision) return universalSearchIndex;
+  return buildUniversalSearchIndex(universalSearchIndexRevision);
+}
+
+function universalSearchAllowedTypes() {
+  const pages = new Set(allowedPages());
+  const types = new Set();
+  if (pages.has("orders")) ["JOB", "PR"].forEach((type) => types.add(type));
+  if (pages.has("designs")) types.add("DESIGN");
+  if (pages.has("customers")) types.add("CUSTOMER");
+  if (pages.has("billing") || pages.has("office")) types.add("BILL");
+  if (pages.has("office")) types.add("HM BATCH");
+  if (pages.has("production") || pages.has("transfer-history")) types.add("LOT");
+  return types;
+}
+
+function universalSearchIndexedScore(normalizedQuery, tokens, record) {
+  if (!tokens.every((token) => record.searchText.includes(token))) return 0;
+  if (record.normalizedValues.includes(normalizedQuery)) return 1000;
+  if (record.normalizedValues.some((value) => value.startsWith(normalizedQuery))) return 700;
+  if (record.searchText.includes(normalizedQuery)) return 500;
+  return 250 + tokens.length;
+}
+
+function universalSearchResultComparator(a, b) {
+  return b.score - a.score
+    || a.record.typeRank - b.record.typeRank
+    || a.record.label.localeCompare(b.record.label, undefined, { numeric: true });
+}
+
+function universalSearchPublicResult(entry) {
+  const { normalizedValues, searchText, typeRank, ...result } = entry.record;
+  return { ...result, score: entry.score };
+}
+
+function universalSearchResults(query = "", limit = 16) {
+  const normalizedQuery = universalSearchText(query);
+  if (normalizedQuery.length < 2) return [];
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const allowedTypes = universalSearchAllowedTypes();
+  const index = ensureUniversalSearchIndex();
+  const best = [];
+  index.records.forEach((record) => {
+    if (!allowedTypes.has(record.type)) return;
+    const score = universalSearchIndexedScore(normalizedQuery, tokens, record);
+    if (!score) return;
+    const candidate = { record, score };
+    if (best.length < limit) {
+      best.push(candidate);
+      return;
+    }
+    let worstIndex = 0;
+    for (let indexPosition = 1; indexPosition < best.length; indexPosition += 1) {
+      if (universalSearchResultComparator(best[indexPosition], best[worstIndex]) > 0) worstIndex = indexPosition;
+    }
+    if (universalSearchResultComparator(candidate, best[worstIndex]) < 0) best[worstIndex] = candidate;
+  });
+  return best.sort(universalSearchResultComparator).map(universalSearchPublicResult);
+}
+
+function universalSearchExactResults(query = "", limit = 16) {
+  const normalizedQuery = universalSearchText(query);
+  if (!normalizedQuery) return [];
+  const allowedTypes = universalSearchAllowedTypes();
+  const records = ensureUniversalSearchIndex().exactLookup.get(normalizedQuery) || [];
+  const exactLabels = records.filter((record) => universalSearchText(record.label) === normalizedQuery);
+  return (exactLabels.length ? exactLabels : records)
+    .filter((record) => allowedTypes.has(record.type))
+    .map((record) => ({ record, score: 1000 }))
+    .sort(universalSearchResultComparator)
+    .slice(0, limit)
+    .map(universalSearchPublicResult);
 }
 
 function renderUniversalSearchResults(query = "", results = []) {
@@ -12067,10 +12339,9 @@ function getLotOrders(lot, sourceState = null) {
 }
 
 function billForLotRecord(lot = {}) {
-  if (lot.bill) return lot.bill;
-  if (!activeRenderCache) return state.bills?.find((item) => item.lotId === lot.id);
+  if (!activeRenderCache) return state.bills?.find((item) => item.lotId === lot.id) || lot.bill;
   const billsByLot = renderCachedValue("billsByLot", () => new Map((state.bills || []).map((bill) => [bill.lotId, bill])));
-  return billsByLot.get(lot.id);
+  return billsByLot.get(lot.id) || lot.bill;
 }
 
 function billableOrderIdsForLot(lot = {}, bill = {}) {
@@ -37124,24 +37395,70 @@ function lotIsAtBillingDepartment(lot = {}) {
   );
 }
 
+function billScreenEntries() {
+  reconcileBillLotLinks(state);
+  const entries = [];
+  const representedLotIds = new Set();
+  const representedBillIds = new Set();
+  (state.lots || []).forEach((lot) => {
+    const bill = billForLotRecord(lot) || null;
+    const hasBill = Boolean(bill);
+    if ((lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) && !hasBill) return;
+    if (isBillQcOnlyMode() ? !hasBill : !(hasBill || (lot.status === "Completed" && lotIsAtBillingDepartment(lot)))) return;
+    entries.push({ lot, bill, detached: false });
+    representedLotIds.add(String(lot.id || ""));
+    if (bill?.id) representedBillIds.add(String(bill.id));
+  });
+  (state.bills || []).forEach((bill) => {
+    if (bill?.id && representedBillIds.has(String(bill.id))) return;
+    const lot = resolveLotForBillRecord(bill, state);
+    if (lot && representedLotIds.has(String(lot.id || ""))) return;
+    entries.push({ lot, bill, detached: !lot });
+    if (lot?.id) representedLotIds.add(String(lot.id));
+    if (bill?.id) representedBillIds.add(String(bill.id));
+  });
+  return entries;
+}
+
+function openSavedBillFromList(billId) {
+  const bill = (state.bills || []).find((entry) => String(entry.id || "") === String(billId || ""));
+  if (!bill) {
+    alert("The saved Bill record is not available on this device yet. Refresh Live Sync and try again.");
+    return;
+  }
+  const lot = resolveLotForBillRecord(bill, state);
+  if (lot) {
+    lot.bill = bill;
+    openBill(lot.id);
+    return;
+  }
+  const itemReferences = (bill.items || [])
+    .map((item) => item.productionNo || item.designNo || item.itemName || "Item")
+    .filter(Boolean);
+  alert([
+    `${bill.billNo || "Saved Bill"} is safely stored.`,
+    bill.jobNumber ? `Job Card: ${bill.jobNumber}` : "",
+    bill.billDate ? `Bill Date: ${bill.billDate}` : "",
+    `Items: ${(bill.items || []).length}`,
+    itemReferences.length ? `PR / Design: ${itemReferences.slice(0, 20).join(", ")}${itemReferences.length > 20 ? ` +${itemReferences.length - 20} more` : ""}` : "",
+    "Its production lot link is not available on this device yet. Refresh Live Sync; the saved Bill itself has not been deleted.",
+  ].filter(Boolean).join("\n"));
+}
+
 function renderBills() {
   const query = (document.getElementById("bill-search")?.value || "").toLowerCase();
-  const rows = state.lots
-    .filter((lot) => {
-      const hasBill = Boolean(lot.bill || state.bills?.some((item) => item.lotId === lot.id));
-      if ((lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) && !hasBill) return false;
-      if (isBillQcOnlyMode()) return hasBill;
-      return hasBill || (lot.status === "Completed" && lotIsAtBillingDepartment(lot));
-    })
-    .filter((lot) => {
-      const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
-      const orders = billableOrdersForLot(lot, bill);
-      const text = `${lot.number} ${lot.orderNumber} ${orders.map((order) => order.customer).join(" ")} ${bill.billNo || ""}`.toLowerCase();
+  const rows = billScreenEntries()
+    .filter(({ lot, bill }) => {
+      const orders = lot
+        ? billableOrdersForLot(lot, bill || {})
+        : (bill?.items || []).map((item) => findById("orders", item.orderId)).filter(Boolean);
+      const text = `${lot?.number || bill?.lotNumber || ""} ${lot?.orderNumber || bill?.jobNumber || ""} ${orders.map((order) => order.customer).join(" ")} ${bill?.billNo || ""}`.toLowerCase();
       return text.includes(query);
     })
-    .map((lot) => {
-      const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
-      const orders = billableOrdersForLot(lot, bill || {});
+    .map(({ lot, bill, detached }) => {
+      const orders = lot
+        ? billableOrdersForLot(lot, bill || {})
+        : (bill?.items || []).map((item) => findById("orders", item.orderId)).filter(Boolean);
       const customer = orders[0]?.customer || "-";
       const billWeight = bill ? gram(Number(bill.netWeight || 0)) : "-";
       const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
@@ -37152,19 +37469,19 @@ function renderBills() {
           : "Make Bill";
       return `
         <tr>
-          <td>${escapeHtml(lot.number)}</td>
-          <td>${escapeHtml(lot.orderNumber || "-")}${lot.manualWipLot ? "<br><small>Non-Job-Card WIP</small>" : ""}${lot.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
+          <td>${escapeHtml(lot?.number || bill?.lotNumber || "Saved Bill")}</td>
+          <td>${escapeHtml(lot?.orderNumber || bill?.jobNumber || "-")}${lot?.manualWipLot ? "<br><small>Non-Job-Card WIP</small>" : ""}${lot?.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
           <td>${customerOrderDisplayHtml(customer)}</td>
-          <td><strong>${gram(currentTransferIssueWeight(lot))}</strong></td>
-          <td>${gram(lot.finishedWeight)}</td>
-          <td>${wastageDetailHtml(lot)}</td>
+          <td><strong>${gram(lot ? currentTransferIssueWeight(lot) : Number(bill?.grossWeight || 0))}</strong></td>
+          <td>${gram(lot?.finishedWeight ?? bill?.grossWeight ?? 0)}</td>
+          <td>${lot ? wastageDetailHtml(lot) : "-"}</td>
           <td>${escapeHtml(bill?.billNo || "-")}</td>
           <td>${billWeight}</td>
-          <td><span class="status ${bill ? "completed" : "pending"}">${bill ? escapeHtml(lot.billingStage || "Sales Office QC") : "Pending Bill"}</span></td>
+          <td><span class="status ${bill ? "completed" : "pending"}">${detached ? "Saved / Link Refresh Pending" : bill ? escapeHtml(lot?.billingStage || "Sales Office QC") : "Pending Bill"}</span></td>
           <td>
             <div class="row-actions">
-              <button type="button" onclick="openBill('${lot.id}')">${actionLabel}</button>
-              ${bill ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a4')">Tags A4-40</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a6')">Tags A6-10</button>` : ""}
+              <button type="button" onclick="${lot ? `openBill('${lot.id}')` : `openSavedBillFromList('${bill?.id || ""}')`}">${detached ? "View Saved Details" : actionLabel}</button>
+              ${bill && lot ? `<button type="button" class="ghost-button" onclick="printBill('${lot.id}')">Bill</button><button type="button" class="ghost-button" onclick="printPackingList('${lot.id}')">Packing List</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a4')">Tags A4-40</button><button type="button" class="ghost-button" onclick="printBillTags('${lot.id}', null, 'a6')">Tags A6-10</button>` : ""}
             </div>
           </td>
         </tr>
@@ -46927,6 +47244,7 @@ document.addEventListener("input", noteUserInteraction, { passive: true });
 initializeOperationTiles();
 applyLoginState();
 render();
+scheduleUniversalSearchIndexBuild(60);
 restoreOrderDraftOrReset();
 resetMeltingSources();
 updateMeltingCalculation();
