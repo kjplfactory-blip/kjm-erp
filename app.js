@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v669";
+const APP_VERSION = "v670";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -524,6 +524,7 @@ const demoState = {
   melting: [],
   xrfTests: [],
   manualResetHistory: [],
+  dayCloseHistory: [],
   oneTimeJob1680ResetAt: "",
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
@@ -2592,6 +2593,7 @@ document.getElementById("fine-sheet-holding-search")?.addEventListener("input", 
 document.getElementById("fine-sheet-ledger-search")?.addEventListener("input", renderFineSheetLedger);
 document.getElementById("print-fine-sheet")?.addEventListener("click", printDetailedFineSheet);
 document.getElementById("save-fine-sheet-backup")?.addEventListener("click", saveTodayFineSheetBackup);
+document.getElementById("close-manager-day")?.addEventListener("click", closeManagerDayAndDownloadBackup);
 document.getElementById("print-yesterday-fine-sheet")?.addEventListener("click", printYesterdayFineSheetBackup);
 document.getElementById("print-selected-fine-sheet")?.addEventListener("click", printSelectedFineSheetBackup);
 document.getElementById("fine-sheet-backup-select")?.addEventListener("change", renderFineSheetBackupControls);
@@ -4245,6 +4247,9 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     id: data.transferId || crypto.randomUUID(),
     date: editingTransfer ? (editingTransfer.date || today()) : today(),
     createdAt: editingTransfer ? (editingTransfer.createdAt || "") : new Date().toISOString(),
+    lotId: lot.id,
+    lotNumber: lot.number || "",
+    jobNumber: lot.orderNumber || "",
     fromKarigarId: lot.karigarId,
     fromKarigarName: lot.karigarName,
     toKarigarId: newKarigar.id,
@@ -4628,10 +4633,11 @@ function protectRicherLocalStateFromCloud(cloudState = {}, options = {}) {
   return true;
 }
 
-function downloadErpDataBackup() {
-  if (!isOwner()) {
+function downloadErpDataBackup(options = {}) {
+  const settings = options?.currentTarget ? {} : options;
+  if (!isOwner() && !(settings.allowManager && isManagerUser())) {
     alert("Only Owner can download an ERP data backup.");
-    return;
+    return false;
   }
   const exportedAt = new Date().toISOString();
   const payload = {
@@ -4644,11 +4650,13 @@ function downloadErpDataBackup() {
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const anchor = document.createElement("a");
   anchor.href = URL.createObjectURL(blob);
-  anchor.download = `KJM-ERP-DATA-${exportedAt.slice(0, 19).replaceAll(":", "-")}.json`;
+  const filePrefix = String(settings.filePrefix || "KJM-ERP-DATA").trim().replace(/[^A-Za-z0-9_-]+/g, "-");
+  anchor.download = `${filePrefix}-${exportedAt.slice(0, 19).replaceAll(":", "-")}.json`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+  return true;
 }
 
 async function restoreErpDataBackup(event) {
@@ -5189,6 +5197,9 @@ function applyAccessControl() {
   });
   document.querySelectorAll(".setting-setter-master-only").forEach((element) => {
     element.classList.toggle("hidden", currentUser && !canManageSettingSetters());
+  });
+  document.querySelectorAll(".manager-owner-only").forEach((element) => {
+    element.classList.toggle("hidden", currentUser && !(isOwner() || isManagerUser()));
   });
   document.getElementById("create-fitting-accessories-job")?.classList.toggle("hidden", !canManageFittingAccessoriesJobCards());
   document.getElementById("merge-split-job-cards")?.classList.toggle("hidden", !canMergeSplitJobCards());
@@ -21134,7 +21145,7 @@ function multiBillTagGroupHtml(entries = []) {
           <strong>${escapeHtml(bill.billNo || "Bill")}</strong>
           <small>${escapeHtml(lot.orderNumber || lot.number || "-")} / ${escapeHtml(customerNames.join(", ") || "-")}</small>
         </span>
-        <b>${entries.length} Tags</b>
+        <b>${entries.length} Items / ${entries.length * 2} Tags</b>
         <em>${printedCount} Printed</em>
       </label>
       <div class="multi-bill-tag-item-grid">
@@ -21188,20 +21199,21 @@ function selectVisibleMultiBillTags(unprintedOnly = false) {
 function updateMultiBillTagSummary(allEntries = generatedBillTagEntries(), visibleEntries = filteredMultiBillTagEntries()) {
   const selectedEntries = allEntries.filter(({ key }) => multiBillTagSelection.has(key));
   const selectedCount = selectedEntries.length;
-  const a4Pages = selectedCount ? Math.ceil(selectedCount / 40) : 0;
-  const a6Pages = selectedCount ? Math.ceil(selectedCount / 10) : 0;
+  const selectedTagCount = selectedCount * 2;
+  const a4Pages = selectedTagCount ? Math.ceil(selectedTagCount / 40) : 0;
+  const a6Pages = selectedTagCount ? Math.ceil(selectedTagCount / 10) : 0;
   const selectedBillCount = new Set(selectedEntries.map(({ bill }) => bill.id || bill.billNo)).size;
   document.getElementById("multi-bill-tag-summary").innerHTML = `
-    <span><b>${allEntries.length}</b><small>Available Tags</small></span>
-    <span><b>${visibleEntries.length}</b><small>Visible</small></span>
+    <span><b>${allEntries.length * 2}</b><small>Available Tags / 2 Copies</small></span>
+    <span><b>${visibleEntries.length}</b><small>Visible Items</small></span>
     <span><b>${selectedBillCount}</b><small>Bills Selected</small></span>
-    <span><b>${selectedCount}</b><small>Tags Selected</small></span>
+    <span><b>${selectedTagCount}</b><small>Tags To Print</small></span>
     <span><b>${a4Pages}</b><small>A4 Pages / 40 Tags</small></span>
     <span><b>${a6Pages}</b><small>A6 Pages / 10 Tags</small></span>
   `;
   const footer = document.getElementById("multi-bill-tag-footer");
   footer.textContent = selectedCount
-    ? `${selectedCount} tags from ${selectedBillCount} bill${selectedBillCount === 1 ? "" : "s"}. Choose A4 (${a4Pages} page${a4Pages === 1 ? "" : "s"}) or A6 (${a6Pages} page${a6Pages === 1 ? "" : "s"}).`
+    ? `${selectedCount} items / ${selectedTagCount} tags from ${selectedBillCount} bill${selectedBillCount === 1 ? "" : "s"}. Every item prints twice. Choose A4 (${a4Pages} page${a4Pages === 1 ? "" : "s"}) or A6 (${a6Pages} page${a6Pages === 1 ? "" : "s"}).`
     : "No items selected.";
   document.getElementById("print-multi-bill-tags-a4").disabled = selectedCount === 0;
   document.getElementById("print-multi-bill-tags-a6").disabled = selectedCount === 0;
@@ -21499,7 +21511,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
 
 function billTagsPrintHtml(lot, bill, pageSize = "a4") {
   const orders = billPrintOrders(lot, bill);
-  const items = billPrintItems(lot, bill, orders);
+  const items = duplicateBillTagCopies(billPrintItems(lot, bill, orders));
   const isA6 = pageSize === "a6";
   const pages = chunkPrintItems(items, isA6 ? 10 : 40);
   return `
@@ -21515,7 +21527,7 @@ function billTagsPrintHtml(lot, bill, pageSize = "a4") {
 
 function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
   const isA6 = pageSize === "a6";
-  const pages = chunkPrintItems(entries, isA6 ? 10 : 40);
+  const pages = chunkPrintItems(duplicateBillTagCopies(entries), isA6 ? 10 : 40);
   return `
     <div class="bill-tags-document ${isA6 ? "a6-tags-document" : "a4-tags-document"} multi-bill-tags-document">
       ${pages.map((pageEntries) => `
@@ -21525,6 +21537,10 @@ function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
       `).join("")}
     </div>
   `;
+}
+
+function duplicateBillTagCopies(items = []) {
+  return (items || []).flatMap((item) => [item, item]);
 }
 
 function billTagHtml(lot, bill, item = {}) {
@@ -22573,6 +22589,8 @@ function printJobItemHtml(job, entry) {
   const { design, currentImageData } = entry;
   const designName = printJobBagDesignName(order, design, bagItems);
   const jobNumber = job.jobNumber || job.productionNo || job.number;
+  const lotNumbers = [...new Set(lotsForJobOrders(bagItems).map((lot) => lot.number).filter(Boolean))];
+  const lotNumberText = lotNumbers.join(", ") || "Gold Not Issued";
   const customerName = order.customer || job.customer || "";
   const isCustomerOrder = isManufacturingCustomerOrder(customerName);
   const productionLabel = order.productionNo || order.number;
@@ -22585,7 +22603,7 @@ function printJobItemHtml(job, entry) {
       <div class="print-card-head">
         <div>
           <strong>KHUSHALI JEWELLS</strong>
-          <span>Job: ${escapeHtml(jobNumber || "-")}</span>
+          <span>Job: ${escapeHtml(jobNumber || "-")} / Lot: ${escapeHtml(lotNumberText)}</span>
         </div>
         <div>
           <strong>${escapeHtml(productionLabel || "-")}</strong>
@@ -22599,6 +22617,8 @@ function printJobItemHtml(job, entry) {
         <div class="print-job-details">
           <div class="print-detail-grid">
             <span class="print-wide print-customer-box"><b>Customer</b>${escapeHtml(customerName || "-")}<small>${escapeHtml(manufacturingOrderTypeLabel(customerName))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(customerName))}</small></span>
+            <span><b>Job Card</b>${escapeHtml(jobNumber || "-")}</span>
+            <span><b>Lot No</b>${escapeHtml(lotNumberText)}</span>
             <span class="print-wide"><b>Design</b>${escapeHtml(designName)}</span>
             ${printBagItemsSummaryHtml(bagItems)}
             <span><b>Category</b>${escapeHtml(order.category || "-")}</span>
@@ -25636,9 +25656,17 @@ function factoryStockHoldingLot(lot = {}) {
   return lot.status !== "Completed" || Boolean(lot.fittingItemsJobCard && lot.fittingItemsIssuedToFitting);
 }
 
-function plannedHandStoneWeightForLot(lot, sourceState = state) {
+function jobCardHandStoneWeightForLot(lot, sourceState = state) {
   if (!lot) return 0;
   return Number(weight3(productionStoneTotalsForOrderList(sourceState, getLotOrders(lot, sourceState), "hand").weight || 0));
+}
+
+function plannedHandStoneWeightForLot(lot, sourceState = state) {
+  if (!lot) return 0;
+  if (Object.prototype.hasOwnProperty.call(lot, "settingHandStoneWeightOverride")) {
+    return Number(weight3(Math.max(Number(lot.settingHandStoneWeightOverride || 0), 0)));
+  }
+  return jobCardHandStoneWeightForLot(lot, sourceState);
 }
 
 function lotHasJobCardStonePlan(lot = {}, sourceState = state) {
@@ -35512,10 +35540,14 @@ function updateSettingIssueSummary(event) {
   const selectedOrderIds = isPartial ? settingSplitSelectedOrderIds(form) : [];
   const selectedIdSet = new Set(selectedOrderIds);
   const selectedOrders = lot ? getLotOrders(lot).filter((order) => selectedIdSet.has(order.id)) : [];
-  const plannedHandStoneWeight = lot
-    ? Number(weight3(isPartial ? productionStoneTotalsForOrders(selectedOrders, "hand").weight : plannedHandStoneWeightForLot(lot)))
+  const jobCardHandStoneWeight = lot
+    ? Number(weight3(isPartial ? productionStoneTotalsForOrders(selectedOrders, "hand").weight : jobCardHandStoneWeightForLot(lot)))
     : 0;
-  const hasJobCardStone = plannedHandStoneWeight > 0;
+  const hasOwnerOverride = Boolean(lot && Object.prototype.hasOwnProperty.call(lot, "settingHandStoneWeightOverride"));
+  const plannedHandStoneWeight = hasOwnerOverride && !isPartial
+    ? Number(weight3(lot.settingHandStoneWeightOverride || 0))
+    : jobCardHandStoneWeight;
+  const hasJobCardStone = lot ? lotHasJobCardStonePlan(lot) : false;
   if (isPartial) {
     form.issueGw.readOnly = false;
     form.issueGw.min = "0.001";
@@ -35527,19 +35559,20 @@ function updateSettingIssueSummary(event) {
     form.issueGw.removeAttribute("min");
     form.issueGw.removeAttribute("max");
   }
-  form.handStoneWeight.readOnly = !lot || hasJobCardStone;
+  form.handStoneWeight.readOnly = !lot || !isOwner();
   if (selectedLotChanged || selectedScopeChanged || event?.target?.name === "settingSplitOrderId") {
-    const manualWeight = Number(weight3(lot?.manualHandStoneWeight || 0));
-    form.handStoneWeight.value = lot
-      ? (hasJobCardStone ? weight3(plannedHandStoneWeight) : (!isPartial && manualWeight > 0 ? weight3(manualWeight) : ""))
-      : "";
+    form.handStoneWeight.value = lot ? weight3(plannedHandStoneWeight) : "";
   }
   form.dataset.selectedLotId = lot?.id || "";
   form.dataset.selectedIssueScope = form.issueScope?.value || "full";
   form.dataset.selectedManualSourceId = "";
   form.dataset.selectedAccessoryIssueId = "";
   const label = document.getElementById("setting-issue-hand-stone-label");
-  if (label) label.textContent = hasJobCardStone ? "Hand Stone From Job Card (g)" : "Manual Hand Stone Weight (g)";
+  if (label) label.textContent = hasOwnerOverride && !isPartial
+    ? "Owner-Corrected Hand Stone (g)"
+    : hasJobCardStone
+      ? "Hand Stone From Job Card (g)"
+      : "Hand Stone From Job Card (g) - Not Entered";
   const summary = document.getElementById("setting-issue-summary");
   if (!summary) return;
   if (!lot) {
@@ -35555,7 +35588,7 @@ function updateSettingIssueSummary(event) {
   }
   summary.textContent = hasJobCardStone
     ? `${lot.number} is currently in ${lot.currentDepartment || lot.karigarName || "Setting"} with GW ${gram(issueGw)}. ${isRepair ? "Repair work" : "Hand-set stone"} is assigned to the selected setter. Hand-set stone from job card: ${gram(plannedHandStoneWeight)}.`
-    : `${lot.number} has no hand-stone weight in its job card. Enter the hand-set stone weight manually; it can also be confirmed when receiving from the setter.`;
+    : `${lot.number} has no hand-stone weight in its job card. It remains 0.000 g unless Owner enters a correction.`;
 }
 
 function updateSettingReceiveSummary(event) {
@@ -35605,7 +35638,8 @@ function updateSettingReceiveSummary(event) {
         ? "Receive Manual Production Item"
         : "Receive Lot & Keep Balance";
   if (entry) {
-    const isManualStone = !isReturnableAccessory && entry.handStoneWeightSource !== "Job Card";
+    const isManualStone = !isReturnableAccessory
+      && !["Job Card", "Owner Override"].includes(entry.handStoneWeightSource);
     const entryChanged = form.dataset.selectedEntryId !== entry.id;
     if (entryChanged) {
       const savedWeight = Number(weight3(entry.handStoneWeight || 0));
@@ -35613,8 +35647,10 @@ function updateSettingReceiveSummary(event) {
       form.rawaWeight.value = "0.000";
       form.setterLossWeight.value = "0.000";
     }
-    form.handStoneWeight.readOnly = !isManualStone;
-    const handStoneWeight = isReturnableAccessory ? 0 : Number(weight3(isManualStone ? form.handStoneWeight.value || 0 : entry.handStoneWeight || 0));
+    form.handStoneWeight.readOnly = isReturnableAccessory || (!isManualStone && !isOwner());
+    const handStoneWeight = isReturnableAccessory
+      ? 0
+      : Number(weight3(isOwner() || isManualStone ? form.handStoneWeight.value || entry.handStoneWeight || 0 : entry.handStoneWeight || 0));
     const previouslyAccounted = Number(weight3(Number(entry.rawaWeight || 0) + Number(entry.setterLossWeight || 0)));
     const defaultReceiveGw = Number(weight3(Math.max(Number(entry.issueGw || 0) - previouslyAccounted, 0) + handStoneWeight));
     const previousDefaultReceiveGw = form.dataset.defaultReceiveGw || "";
@@ -35635,7 +35671,13 @@ function updateSettingReceiveSummary(event) {
     form.dataset.selectedEntryId = entry.id;
     form.dataset.defaultReceiveGw = weight3(defaultReceiveGw);
     const label = document.getElementById("setting-receive-hand-stone-label");
-    if (label) label.textContent = isReturnableAccessory ? "Not Applicable" : isManualStone ? "Manual Hand Stone Weight (g)" : "Hand Stone From Job Card (g)";
+    if (label) label.textContent = isReturnableAccessory
+      ? "Not Applicable"
+      : isManualStone
+        ? "Manual Hand Stone Weight (g)"
+      : isOwner()
+        ? `${entry.handStoneWeightSource === "Owner Override" ? "Owner-Corrected" : "Job Card"} Hand Stone (g) - Owner Can Edit`
+        : "Hand Stone From Job Card (g)";
   } else {
     form.issueGw.value = "";
     if (form.handStoneWeight) form.handStoneWeight.value = "";
@@ -35841,10 +35883,11 @@ function issueSettingLotToSetter(event) {
   }
   const selectedIdSet = new Set(selectedOrderIds);
   const selectedOrders = getLotOrders(lot).filter((order) => selectedIdSet.has(order.id));
-  const plannedHandStoneWeight = Number(weight3(isPartial
+  const jobCardHandStoneWeight = Number(weight3(isPartial
     ? productionStoneTotalsForOrders(selectedOrders, "hand").weight
-    : plannedHandStoneWeightForLot(lot)));
-  const handStoneWeight = Number(weight3(plannedHandStoneWeight > 0 ? plannedHandStoneWeight : data.handStoneWeight || 0));
+    : jobCardHandStoneWeightForLot(lot)));
+  const plannedHandStoneWeight = Number(weight3(isPartial ? jobCardHandStoneWeight : plannedHandStoneWeightForLot(lot)));
+  const handStoneWeight = Number(weight3(isOwner() ? data.handStoneWeight || 0 : plannedHandStoneWeight));
   if (!Number.isFinite(handStoneWeight) || handStoneWeight < 0) {
     alert("Enter a valid hand stone weight.");
     return;
@@ -35856,6 +35899,12 @@ function issueSettingLotToSetter(event) {
       return;
     }
     lot = splitLot;
+  }
+  const ownerHandStoneOverride = isOwner() && Math.abs(handStoneWeight - jobCardHandStoneWeight) > 0.0005;
+  if (ownerHandStoneOverride) {
+    lot.settingHandStoneWeightOverride = handStoneWeight;
+    lot.settingHandStoneWeightOverrideAt = new Date().toISOString();
+    lot.settingHandStoneWeightOverrideBy = currentUser?.name || currentUserConfig()?.name || "Owner";
   }
   state.settingManagerEntries = state.settingManagerEntries || [];
   state.settingManagerEntries.unshift(normalizeSettingManagerEntry({
@@ -35871,7 +35920,9 @@ function issueSettingLotToSetter(event) {
     splitFromLotId: lot.settingSplitFromLotId || "",
     splitFromLotNumber: lot.settingSplitFromLotNumber || "",
     handStoneWeight,
-    handStoneWeightSource: plannedHandStoneWeight > 0 ? "Job Card" : "Manual",
+    handStoneWeightSource: ownerHandStoneOverride || Object.prototype.hasOwnProperty.call(lot, "settingHandStoneWeightOverride")
+      ? "Owner Override"
+      : "Job Card",
     status: "Issued",
     remarks: data.remarks || "",
     currentDepartment: lot.currentDepartment || lot.karigarName || "Setting",
@@ -36032,8 +36083,15 @@ function receiveSettingLotFromSetter(event) {
     return;
   }
   const isReturnableAccessory = entry.entryType === "Accessory" && entry.returnExpected;
-  const isManualStone = !isReturnableAccessory && entry.handStoneWeightSource !== "Job Card";
-  const handStoneWeight = isReturnableAccessory ? 0 : Number(weight3(isManualStone ? data.handStoneWeight || 0 : entry.handStoneWeight || 0));
+  const isManualStone = !isReturnableAccessory
+    && !["Job Card", "Owner Override"].includes(entry.handStoneWeightSource);
+  const savedHandStoneWeight = Number(weight3(entry.handStoneWeight || 0));
+  const handStoneWeight = isReturnableAccessory
+    ? 0
+    : Number(weight3(isOwner() || isManualStone ? data.handStoneWeight || 0 : savedHandStoneWeight));
+  const ownerHandStoneOverride = !isReturnableAccessory
+    && isOwner()
+    && Math.abs(handStoneWeight - savedHandStoneWeight) > 0.0005;
   if (!Number.isFinite(handStoneWeight) || handStoneWeight < 0) {
     alert("Enter a valid hand stone weight.");
     return;
@@ -36060,7 +36118,11 @@ function receiveSettingLotFromSetter(event) {
   entry.closeDate = today();
   entry.receiveGw = Number(weight3(receiveGw));
   entry.handStoneWeight = handStoneWeight;
-  entry.handStoneWeightSource = isReturnableAccessory ? "Not Applicable" : isManualStone ? "Manual" : "Job Card";
+  entry.handStoneWeightSource = isReturnableAccessory
+    ? "Not Applicable"
+    : ownerHandStoneOverride
+      ? "Owner Override"
+      : entry.handStoneWeightSource || (isManualStone ? "Manual" : "Job Card");
   entry.receiveNetWeight = receiveNetWeight;
   entry.rawaWeight = totalRawaWeight;
   entry.returnedMaterialWeight = totalRawaWeight;
@@ -36088,7 +36150,13 @@ function receiveSettingLotFromSetter(event) {
   });
   const manualSourceUpdate = applySettingManualHandStoneToSource(entry, handStoneWeight);
   const lot = findById("lots", entry.lotId);
-  if (lot && !isReturnableAccessory && isManualStone) lot.manualHandStoneWeight = handStoneWeight;
+  if (lot && !isReturnableAccessory && ownerHandStoneOverride) {
+    lot.settingHandStoneWeightOverride = handStoneWeight;
+    lot.settingHandStoneWeightOverrideAt = new Date().toISOString();
+    lot.settingHandStoneWeightOverrideBy = currentUser?.name || currentUserConfig()?.name || "Owner";
+  } else if (lot && !isReturnableAccessory && isManualStone) {
+    lot.manualHandStoneWeight = handStoneWeight;
+  }
   form.reset();
   saveState();
   render();
@@ -44449,6 +44517,49 @@ function renderOnlineTransferHistory() {
   });
 }
 
+function closeManagerDayAndDownloadBackup() {
+  if (!(isOwner() || isManagerUser())) {
+    alert("Only Owner or Manager can close the day and download the daily backup.");
+    return;
+  }
+  if (isReadOnlyUser()) {
+    alert(readOnlyNotice());
+    return;
+  }
+  const dateKey = fineSheetLocalDateKey();
+  const existing = (state.dayCloseHistory || []).find((entry) => entry.dateKey === dateKey);
+  const confirmation = existing
+    ? `The day was already closed at ${new Date(existing.closedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}. Download a refreshed closing backup?`
+    : `Close ${fineSheetBackupDateLabel(dateKey)} and download the complete ERP backup now?`;
+  if (!confirm(confirmation)) return;
+  const snapshot = captureTodayFineSheetSnapshot({ force: true });
+  const record = {
+    id: existing?.id || `day-close-${dateKey}`,
+    dateKey,
+    closedAt: new Date().toISOString(),
+    closedBy: currentUser?.name || currentUserConfig()?.name || currentUser?.username || "Manager",
+    appVersion: APP_VERSION,
+    netFine: Number(weight3(snapshot?.netFine || 0)),
+  };
+  state.dayCloseHistory = [
+    record,
+    ...(state.dayCloseHistory || []).filter((entry) => entry.dateKey !== dateKey),
+  ].slice(0, 90);
+  const saved = saveState({ alertOnFailure: true, context: "Manager Day Close" });
+  if (!saved) {
+    alert("Day close could not be saved. The backup was not downloaded so an incomplete closing copy is not created.");
+    return;
+  }
+  const downloaded = downloadErpDataBackup({
+    allowManager: true,
+    filePrefix: `KJM-ERP-DAY-CLOSE-${dateKey}`,
+  });
+  renderFineSheetBackupControls();
+  if (downloaded) {
+    alert(`Day closed successfully for ${fineSheetBackupDateLabel(dateKey)}.\nComplete ERP backup downloaded.\nNet Factory Fine: ${gram(record.netFine)}.`);
+  }
+}
+
 function onlineTransferHistoryEntries() {
   const lotEntries = (state.lots || []).flatMap((lot) => [
     ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
@@ -45401,7 +45512,7 @@ function renderLotHistoryTable(lot) {
   return `
     <div class="table-wrap lot-history-table">
       <table>
-        <thead><tr><th>Step</th><th>Date</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th><th>Action</th></tr></thead>
+        <thead><tr><th>Step</th><th>Date</th><th>Lot / Job Card</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Wax Stone</th><th>Hand Stone</th><th>Reduced</th><th>Net Wt</th><th>Difference</th><th>Purity</th><th>Fine Gold</th><th>Remarks</th><th>Action</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -45421,6 +45532,7 @@ function renderGoldIssueHistoryRow(lot) {
     <tr class="lot-transfer-history-row">
       <td>1</td>
       <td>${escapeHtml(transferHistoryDateTime(lot.issueDate, lot.createdAt))}</td>
+      <td><strong>${escapeHtml(lot.number || "-")}</strong><small>${escapeHtml(lot.orderNumber || "-")}</small></td>
       <td class="department-oneline-cell">${transferDirectionCell(sourceName, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(destination, "to")}</td>
       <td>${gram(issueGw)}</td>
@@ -45446,6 +45558,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
     <tr class="lot-transfer-history-row">
       <td>${step}</td>
       <td>${escapeHtml(transferHistoryDateTime(transfer.date, transfer.createdAt))}</td>
+      <td><strong>${escapeHtml(transfer.lotNumber || lot?.number || "-")}</strong><small>${escapeHtml(transfer.jobNumber || lot?.orderNumber || "-")}</small></td>
       <td class="department-oneline-cell">${transferDirectionCell(fromDepartment, "from")}</td>
       <td class="department-oneline-cell">${transferDirectionCell(toDepartment, "to")}</td>
       <td>${gram(transfer.transferWeight)}</td>
@@ -46099,6 +46212,9 @@ function normalizeState(currentState) {
   currentState.factoryResetReason = currentState.factoryResetReason || "";
   currentState.manualResetHistory = Array.isArray(currentState.manualResetHistory)
     ? currentState.manualResetHistory.slice(0, 25)
+    : [];
+  currentState.dayCloseHistory = Array.isArray(currentState.dayCloseHistory)
+    ? currentState.dayCloseHistory.slice(0, 90)
     : [];
   currentState.oneTimeJob1680ResetAt = currentState.oneTimeJob1680ResetAt || "";
   currentState.nextOrder = currentState.nextOrder || 1004;

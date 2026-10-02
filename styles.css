@@ -10088,8 +10088,8 @@ body.measuring-transfer-bag .global-print-area {
 }
 
 .bill-tag-card.customer-order-tag .bill-tag-content {
-  border-color: #be185d;
-  background: #ffe1ec;
+  border-color: #b91c1c;
+  background: #fecaca;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }

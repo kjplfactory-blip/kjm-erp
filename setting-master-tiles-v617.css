@@ -51,6 +51,33 @@
   gap: 14px;
 }
 
+#production-page-setting .setting-manager-transactions.setting-manager-detail-open {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 18px;
+}
+
+#production-page-setting .setting-manager-transactions > .setting-page-toolbar {
+  grid-column: 1 / -1;
+}
+
+#production-page-setting .setting-manager-transactions > .form-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+#production-page-setting .setting-manager-transactions > .form-panel > h2,
+#production-page-setting .setting-manager-transactions > .form-panel > .full-row,
+#production-page-setting .setting-manager-transactions > .form-panel > .dialog-note,
+#production-page-setting .setting-manager-transactions > .form-panel > button[type="submit"] {
+  grid-column: 1 / -1;
+}
+
 #production-page-setting .setting-manager-detail-open > h2,
 #production-page-setting .setting-manager-detail-open > .dialog-note,
 #production-page-setting .setting-manager-detail-open > button[type="submit"],
@@ -110,6 +137,11 @@ body.setting-manager-detail-active {
 @media (max-width: 900px) {
   #production-page-setting form.setting-manager-detail.setting-manager-detail-open {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #production-page-setting .setting-manager-transactions.setting-manager-detail-open,
+  #production-page-setting .setting-manager-transactions > .form-panel {
+    grid-template-columns: 1fr;
   }
 }
 

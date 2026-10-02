@@ -4,8 +4,7 @@
   const pageTitles = {
     lots: "Lots Currently In Setting",
     pending: "Pending With Setters",
-    receive: "Receive From Setter / Direct Transfer",
-    issue: "Issue To Setter",
+    transactions: "Setter Issue / Receive Account",
     manual: "Manual Production Items - No Job Card",
     setters: "Setter Master",
     history: "Setter Issue / Account History",
@@ -67,6 +66,7 @@
     const pendingGw = Number(weight3(pending.reduce((total, entry) => total + Number(entry.issueGw || 0), 0)));
     setSettingTileCount("setting-tile-lots-count", `${lots.length} lot${lots.length === 1 ? "" : "s"} currently in Setting`);
     setSettingTileCount("setting-tile-pending-count", `${pending.length} lot${pending.length === 1 ? "" : "s"} / ${gram(pendingGw)} with setters`);
+    setSettingTileCount("setting-tile-transactions-count", `${pending.length} pending receipt${pending.length === 1 ? "" : "s"} / ${setters.length} setter${setters.length === 1 ? "" : "s"}`);
     setSettingTileCount("setting-tile-manual-count", `${manual.length} no-Job-Card item${manual.length === 1 ? "" : "s"} available`);
     setSettingTileCount("setting-tile-setters-count", `${setters.length} registered setter${setters.length === 1 ? "" : "s"}`);
     setSettingTileCount("setting-tile-history-count", `${history.length} issue / receive entr${history.length === 1 ? "y" : "ies"}`);
@@ -239,19 +239,19 @@
   const coreOpenSettingIssueForLot = openSettingIssueForLot;
   openSettingIssueForLot = function openSettingIssueForLotTileV617(lotId) {
     coreOpenSettingIssueForLot.call(this, lotId);
-    openSettingManagerPage("issue");
+    openSettingManagerPage("transactions");
   };
 
   const coreOpenSettingManualProductionSource = openSettingManualProductionSource;
   openSettingManualProductionSource = function openSettingManualProductionSourceTileV617(sourceId) {
     coreOpenSettingManualProductionSource.call(this, sourceId);
-    openSettingManagerPage("issue");
+    openSettingManagerPage("transactions");
   };
 
   const coreOpenSettingReceive = openSettingReceive;
   openSettingReceive = function openSettingReceiveTileV617(entryId) {
     coreOpenSettingReceive.call(this, entryId);
-    openSettingManagerPage("receive");
+    openSettingManagerPage("transactions");
     syncSettingDirectTransferFields();
   };
 

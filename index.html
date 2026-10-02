@@ -7,9 +7,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=669">
+      <link rel="stylesheet" href="styles.css?v=670">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
-  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=629">
+  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=670">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
   </head>
   <body>
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v669</small>
+      <small class="app-version-badge">App v670</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v669</span>
+          <span class="app-version-badge">App v670</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -834,11 +834,8 @@
             <button class="action-tile" type="button" data-setting-manager-page="pending">
               <strong>Pending With Setters</strong><span id="setting-tile-pending-count">0 lots currently with setters</span>
             </button>
-            <button class="action-tile" type="button" data-setting-manager-page="receive">
-              <strong>Receive &amp; Transfer</strong><span>Receive from setter and optionally transfer directly to the next department</span>
-            </button>
-            <button class="action-tile" type="button" data-setting-manager-page="issue">
-              <strong>Issue To Setter</strong><span>Issue full lots, split lots, repair items, or accessories</span>
+            <button class="action-tile" type="button" data-setting-manager-page="transactions">
+              <strong>Setter Issue &amp; Receive</strong><span id="setting-tile-transactions-count">Issue to and receive from each setter in one workspace</span>
             </button>
             <button class="action-tile" type="button" data-setting-manager-page="manual">
               <strong>Manual Production Items</strong><span id="setting-tile-manual-count">0 no-Job-Card items available</span>
@@ -863,8 +860,9 @@
               <button id="cancel-setting-setter-edit" class="ghost-button hidden" type="button">Cancel Edit</button>
             </form>
 
-            <form id="setting-issue-form" class="form-panel setting-manager-detail" data-setting-manager-detail="issue">
-              <h2>Issue To Setter</h2>
+            <section id="setting-transactions-panel" class="setting-manager-detail setting-manager-transactions" data-setting-manager-detail="transactions">
+            <form id="setting-issue-form" class="form-panel">
+              <h2>Issue To Selected Setter</h2>
               <label>Issue Type <select name="issueType">
                 <option value="lot">Job Lot</option>
                 <option value="repair">Repair Job Item</option>
@@ -902,8 +900,8 @@
               <button type="submit">Issue To Setter</button>
             </form>
 
-            <form id="setting-receive-form" class="form-panel setting-manager-detail" data-setting-manager-detail="receive">
-              <h2>Setter Account Entry</h2>
+            <form id="setting-receive-form" class="form-panel">
+              <h2>Receive From Selected Setter</h2>
               <label>Account Action <select name="settlementType">
                 <option value="close">Receive Lot / Accessory / Repair</option>
                 <option value="manual-close">Receive Manual Production Item - No Job Card</option>
@@ -935,6 +933,7 @@
               <p id="setting-receive-summary" class="dialog-note">Select a setter, pending lot or returnable item, and account action.</p>
               <button type="submit" id="setting-receive-submit">Receive Lot &amp; Keep Balance</button>
             </form>
+            </section>
           </div>
 
           <section id="setting-manager-lots-panel" class="panel table-panel setting-manager-panel setting-manager-detail" data-setting-manager-detail="lots">
@@ -1290,6 +1289,7 @@
             <button id="print-fine-sheet" type="button">Print Detailed Fine Sheet</button>
             <div class="fine-sheet-backup-actions">
               <button id="save-fine-sheet-backup" type="button" class="secondary">Save Today Backup</button>
+              <button id="close-manager-day" type="button" class="secondary manager-owner-only">Close Day &amp; Download Backup</button>
               <button id="print-yesterday-fine-sheet" type="button" class="secondary">Print Yesterday</button>
             </div>
             <div class="fine-sheet-saved-backup-row">
@@ -3687,12 +3687,12 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=669"></script>
+    <script src="app.js?v=670"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
   <script src="setting-internal-bill-excel-v616.js?v=666"></script>
-  <script src="setting-master-tiles-v617.js?v=617"></script>
+  <script src="setting-master-tiles-v617.js?v=670"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
 </body>
