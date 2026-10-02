@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v671";
+const APP_VERSION = "v672";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -53,8 +53,11 @@ const PRE_CLOUD_RECOVERY_STORAGE_KEY = "gold-jewellery-erp-pre-cloud-recovery";
 const RECENT_JOB_ORDER_BACKUP_KEY = "gold-jewellery-erp-recent-job-order-backup";
 const RECENT_JOB_ORDER_PROTECTION_MS = 48 * 60 * 60 * 1000;
 const RECENT_JOB_ORDER_BACKUP_LIMIT = 500;
-const LOGIN_SESSION_POLICY_VERSION = 2;
+const LOGIN_SESSION_POLICY_VERSION = 3;
 const LOGIN_DEVICE_STORAGE_KEY = "gold-jewellery-erp-device-id";
+const LOGIN_REAUTH_NOTICE_SESSION_KEY = "gold-jewellery-erp-operator-name-reauth";
+const PRODUCTION_STONE_EDIT_HISTORY_LIMIT = 100;
+const PRODUCTION_STONE_HISTORY_ROW_LIMIT = 120;
 const LOGIN_SESSION_HEARTBEAT_MS = 30 * 1000;
 const LOGIN_SESSION_STALE_MS = 15 * 60 * 1000;
 const LOGIN_SESSION_REQUEST_TIMEOUT_MS = 20 * 1000;
@@ -1105,6 +1108,8 @@ document.getElementById("login-form").addEventListener("submit", handleLoginSubm
 
 document.getElementById("logout").addEventListener("click", () => {
   const session = currentUser ? { ...currentUser } : null;
+  saveOrderDraft();
+  persistStateToBrowser({ context: "logout" });
   stopLoginSessionHeartbeat();
   currentUser = null;
   localStorage.removeItem("gold-jewellery-erp-user");
@@ -4766,6 +4771,21 @@ function loginSessionErrorText(error) {
   return detail || "Login availability could not be checked.";
 }
 
+function normalizedOperatorName(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+function currentOperatorName() {
+  return normalizedOperatorName(currentUser?.operatorName || currentUser?.name || "")
+    || currentUserConfig()?.name
+    || currentUser?.id
+    || "ERP User";
+}
+
+function currentLoginAccountName() {
+  return currentUser?.accountName || currentUserConfig()?.name || currentUser?.id || "ERP Login";
+}
+
 async function acquireUserLoginSession(userId, user = {}, existingSession = {}) {
   const sessionId = existingSession.sessionId || crypto.randomUUID();
   const deviceId = existingSession.deviceId || loginDeviceId();
@@ -4797,6 +4817,12 @@ async function handleLoginSubmit(event) {
   const errorNode = document.getElementById("login-error");
   const data = getFormData(form);
   const user = allUsers()[data.user];
+  const operatorName = normalizedOperatorName(data.operatorName);
+  if (operatorName.length < 2) {
+    errorNode.textContent = "Enter the name of the person using this login.";
+    form.operatorName?.focus();
+    return;
+  }
   if (!user || userPassword(data.user) !== data.password) {
     errorNode.textContent = "Wrong user or password.";
     return;
@@ -4804,7 +4830,9 @@ async function handleLoginSubmit(event) {
 
   currentUser = {
     id: data.user,
-    name: user.name,
+    name: operatorName,
+    operatorName,
+    accountName: user.name,
     role: user.role,
     salesTeam: user.salesTeam || "",
     deviceId: loginDeviceId(),
@@ -4818,7 +4846,7 @@ async function handleLoginSubmit(event) {
   form.reset();
   stopLoginSessionHeartbeat();
   applyLoginState();
-  recordLoginAudit(data.user, user);
+  recordLoginAudit(data.user, { ...user, operatorName, accountName: user.name, name: operatorName });
 }
 
 function stopLoginSessionHeartbeat() {
@@ -4828,6 +4856,8 @@ function stopLoginSessionHeartbeat() {
 }
 
 function forceLoginSessionLogout(message = "This login is no longer active.") {
+  saveOrderDraft();
+  persistStateToBrowser({ context: "forced logout" });
   stopLoginSessionHeartbeat();
   loginSessionValidated = false;
   currentUser = null;
@@ -4872,9 +4902,15 @@ async function validateRestoredLoginSession() {
     forceLoginSessionLogout("This login user no longer exists.");
     return false;
   }
+  if (Number(currentUser.sessionPolicyVersion || 0) !== LOGIN_SESSION_POLICY_VERSION || !normalizedOperatorName(currentUser.operatorName)) {
+    forceLoginSessionLogout("The ERP was updated. Previous work was saved; enter your personal name and log in again.");
+    return false;
+  }
   currentUser = {
     ...currentUser,
-    name: user.name,
+    name: normalizedOperatorName(currentUser.operatorName),
+    operatorName: normalizedOperatorName(currentUser.operatorName),
+    accountName: user.name,
     role: user.role,
     salesTeam: user.salesTeam || "",
     deviceId: currentUser.deviceId || loginDeviceId(),
@@ -4897,6 +4933,11 @@ function loadCurrentUser() {
       localStorage.removeItem("gold-jewellery-erp-user");
       return null;
     }
+    if (user && (Number(user.sessionPolicyVersion || 0) !== LOGIN_SESSION_POLICY_VERSION || !normalizedOperatorName(user.operatorName))) {
+      sessionStorage.setItem(LOGIN_REAUTH_NOTICE_SESSION_KEY, "1");
+      localStorage.removeItem("gold-jewellery-erp-user");
+      return null;
+    }
     return user;
   } catch (error) {
     localStorage.removeItem("gold-jewellery-erp-user");
@@ -4908,7 +4949,14 @@ function applyLoginState() {
   const isLoggedIn = Boolean(currentUser && loginSessionValidated);
   document.body.classList.toggle("logged-out", !isLoggedIn);
   document.body.classList.toggle("is-owner", isOwner());
-  document.getElementById("active-user").textContent = isLoggedIn ? `${currentUser.name}${isReadOnlyUser() ? " / Read Only" : ""}` : "Not logged in";
+  document.getElementById("active-user").textContent = isLoggedIn
+    ? `${currentOperatorName()} / ${currentLoginAccountName()}${isReadOnlyUser() ? " / Read Only" : ""}`
+    : "Not logged in";
+  const errorNode = document.getElementById("login-error");
+  if (!isLoggedIn && errorNode && sessionStorage.getItem(LOGIN_REAUTH_NOTICE_SESSION_KEY) === "1") {
+    errorNode.textContent = "Previous work was saved. Enter your personal name and log in again.";
+    sessionStorage.removeItem(LOGIN_REAUTH_NOTICE_SESSION_KEY);
+  }
   renderLoginUserOptions();
   applyAccessControl();
   renderLoginUsers();
@@ -17552,7 +17600,7 @@ function renderJobItemsDetail(orders) {
               <span class="job-item-subcategory"><b>Sub Item</b>${escapeHtml(subcategory)}</span>
               <small class="job-item-stage">${escapeHtml(stage)}</small>
               ${deliveryText ? `<em class="job-item-delivery">${escapeHtml(deliveryText)}</em>` : ""}
-              ${stoneEntryEdited ? `<span class="job-item-stone-edited-badge" title="${escapeHtml(stoneEntryTitle)}" aria-label="Stone entry edited"><b>STONE</b><i>EDITED</i></span>` : ""}
+              ${stoneEntryEdited ? `<span class="job-item-stone-edited-badge" title="${escapeHtml(stoneEntryTitle)}" aria-label="Stone entry edited by ${escapeHtml(order.productionStoneEditedBy || "ERP User")}"><b>STONE</b><i>EDITED</i><em>${escapeHtml(order.productionStoneEditedBy || "UNSAVED")}</em></span>` : ""}
               ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
             </button>
           </article>
@@ -19443,13 +19491,111 @@ function productionStoneEntryEdited(order = {}) {
   return order.productionStoneOverride === true || productionStoneDialogHasUnsavedEdits(order);
 }
 
+function productionStoneAuditRows(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, PRODUCTION_STONE_HISTORY_ROW_LIMIT)
+    .map((item) => ({
+      itemKey: normalizeStoneItemKey(item.itemKey || ""),
+      code: String(item.code || ""),
+      stoneType: String(item.stoneType || ""),
+      shape: normalizeOcrShape(item.shape || ""),
+      size: String(item.size || ""),
+      pcs: Number(item.pcs || 0),
+      weightPerPc: formatStoneWeight(item.weightPerPc || ""),
+      totalWeight: formatStoneWeight(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || ""),
+      settingType: item.settingType === "hand" || item.isAdditionalStone ? "hand" : "wax",
+      manufacturingStage: String(item.manufacturingStage || ""),
+      isAdditionalStone: Boolean(item.isAdditionalStone),
+    }));
+}
+
+function normalizedProductionStoneEditHistoryEntry(entry = {}) {
+  if (!entry || typeof entry !== "object") return null;
+  const rows = productionStoneAuditRows(entry.rows || entry.items || []);
+  const total = productionStoneTotals(rows);
+  const wax = productionStoneTotals(rows, "wax");
+  const hand = productionStoneTotals(rows, "hand");
+  const numberOr = (value, fallback) => {
+    if (value === "" || value === null || value === undefined) return fallback;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  return {
+    id: entry.id || crypto.randomUUID(),
+    editedAt: entry.editedAt || entry.createdAt || entry.date || "",
+    editorName: normalizedOperatorName(entry.editorName || entry.operatorName || entry.editedBy || "") || "ERP User",
+    loginId: String(entry.loginId || entry.userId || ""),
+    accountName: String(entry.accountName || entry.loginName || ""),
+    source: String(entry.source || entry.action || "Manual Stone Entry"),
+    rowCount: Math.max(rows.length, numberOr(entry.rowCount, rows.length)),
+    totalPcs: numberOr(entry.totalPcs, total.pcs),
+    totalWeight: numberOr(entry.totalWeight, total.weight),
+    waxWeight: numberOr(entry.waxWeight, wax.weight),
+    handWeight: numberOr(entry.handWeight, hand.weight),
+    rows,
+  };
+}
+
+function productionStoneEditHistoryEntry(order = {}, source = "Manual Stone Entry", metadata = {}) {
+  const rows = productionStoneAuditRows(order.productionStoneItems || []);
+  const total = productionStoneTotals(rows);
+  const wax = productionStoneTotals(rows, "wax");
+  const hand = productionStoneTotals(rows, "hand");
+  return {
+    id: metadata.id || crypto.randomUUID(),
+    editedAt: metadata.editedAt || new Date().toISOString(),
+    editorName: normalizedOperatorName(metadata.editorName) || currentOperatorName(),
+    loginId: String(metadata.loginId ?? currentUser?.id ?? ""),
+    accountName: String(metadata.accountName ?? currentLoginAccountName()),
+    source: String(source || "Manual Stone Entry"),
+    rowCount: (order.productionStoneItems || []).length,
+    totalPcs: total.pcs,
+    totalWeight: total.weight,
+    waxWeight: wax.weight,
+    handWeight: hand.weight,
+    rows,
+  };
+}
+
+function normalizedProductionStoneEditHistory(order = {}) {
+  const history = (Array.isArray(order.productionStoneEditHistory) ? order.productionStoneEditHistory : [])
+    .map(normalizedProductionStoneEditHistoryEntry)
+    .filter(Boolean);
+  if (!history.length && order.productionStoneOverride && (order.productionStoneEditedAt || order.productionStoneEditedBy || order.productionStoneEditSource)) {
+    history.push(productionStoneEditHistoryEntry(order, order.productionStoneEditSource || "Previous Stone Edit", {
+      editedAt: order.productionStoneEditedAt || order.productionStoneUpdatedAt || "",
+      editorName: order.productionStoneEditedBy || "ERP User",
+      loginId: order.productionStoneEditedLoginId || "",
+      accountName: order.productionStoneEditedAccount || "",
+    }));
+  }
+  return history
+    .sort((left, right) => String(right.editedAt || "").localeCompare(String(left.editedAt || "")))
+    .slice(0, PRODUCTION_STONE_EDIT_HISTORY_LIMIT);
+}
+
+function appendProductionStoneEditHistory(order = {}, source = "Manual Stone Entry", existingHistory = null) {
+  const history = Array.isArray(existingHistory) ? existingHistory : normalizedProductionStoneEditHistory(order);
+  history.unshift(productionStoneEditHistoryEntry(order, source, {
+    editedAt: order.productionStoneEditedAt,
+    editorName: order.productionStoneEditedBy,
+    loginId: order.productionStoneEditedLoginId,
+    accountName: order.productionStoneEditedAccount,
+  }));
+  order.productionStoneEditHistory = history.slice(0, PRODUCTION_STONE_EDIT_HISTORY_LIMIT);
+}
+
 function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry") {
   if (!order?.id) return order;
+  const existingHistory = normalizedProductionStoneEditHistory(order);
   order.productionStoneOverride = true;
   order.productionStoneUpdatedAt = today();
   order.productionStoneEditedAt = new Date().toISOString();
-  order.productionStoneEditedBy = currentUser?.name || currentUserConfig()?.name || currentUser?.id || "ERP User";
+  order.productionStoneEditedBy = currentOperatorName();
+  order.productionStoneEditedLoginId = currentUser?.id || "";
+  order.productionStoneEditedAccount = currentLoginAccountName();
   order.productionStoneEditSource = source;
+  appendProductionStoneEditHistory(order, source, existingHistory);
   syncBillStoneEntriesForUpdatedOrders([order], source);
   return order;
 }
@@ -19504,6 +19650,61 @@ function renderProductionStoneMeta(order = {}, items = null) {
       <strong>${escapeHtml(value)}</strong>
     </article>
   `).join("");
+}
+
+function productionStoneHistoryRowsHtml(rows = []) {
+  if (!rows.length) return '<span class="production-stone-history-empty">No stone rows were saved in this edit.</span>';
+  return rows.map((row) => {
+    const item = stoneItemInputValue(row.itemKey) || "GENERAL";
+    const identity = [row.stoneType, row.shape, row.size].filter(Boolean).join(" / ") || "Additional stone";
+    const setting = row.settingType === "hand" ? "HAND" : "WAX";
+    return `
+      <div class="production-stone-history-row">
+        <strong>${escapeHtml(item)}${row.code ? ` / ${escapeHtml(row.code)}` : ""}</strong>
+        <span>${escapeHtml(identity)}</span>
+        <b>${Number(row.pcs || 0)} PCS / ${weight3(row.totalWeight)} G / ${setting}</b>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderProductionStoneEditHistory(order = {}) {
+  const panel = document.getElementById("production-stone-history-panel");
+  const container = document.getElementById("production-stone-history");
+  const count = document.getElementById("production-stone-history-count");
+  if (!panel || !container || !count) return;
+  const history = normalizedProductionStoneEditHistory(order);
+  count.textContent = `${history.length} ${history.length === 1 ? "entry" : "entries"}`;
+  panel.classList.toggle("empty", !history.length);
+  if (!history.length) {
+    container.innerHTML = '<p class="production-stone-history-empty">No item-level stone edit has been saved yet.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="production-stone-history-table-wrap">
+      <table>
+        <thead><tr><th>Date & Time</th><th>Person</th><th>Login</th><th>Action</th><th>Stone State After Edit</th><th>Rows</th></tr></thead>
+        <tbody>${history.map((entry) => `
+          <tr>
+            <td>${escapeHtml(productionStoneEditedTimeText(entry.editedAt) || "-")}</td>
+            <td><strong>${escapeHtml(entry.editorName || "ERP User")}</strong></td>
+            <td>${escapeHtml(entry.accountName || entry.loginId || "-")}</td>
+            <td>${escapeHtml(entry.source || "Stone Edit")}</td>
+            <td>
+              <b>${Number(entry.totalPcs || 0)} PCS / ${weight3(entry.totalWeight)} G</b>
+              <small>WAX ${weight3(entry.waxWeight)} G / HAND ${weight3(entry.handWeight)} G</small>
+            </td>
+            <td>
+              <details>
+                <summary>VIEW ${Number(entry.rowCount || entry.rows?.length || 0)} ROWS</summary>
+                <div class="production-stone-history-rows">${productionStoneHistoryRowsHtml(entry.rows || [])}</div>
+              </details>
+            </td>
+          </tr>
+        `).join("")}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function markProductionStoneDialogEdited(order = {}) {
@@ -19672,6 +19873,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
   const items = Array.isArray(forcedItems) ? forcedItems : productionStoneItemsForOrder(order);
   const regularItems = items.filter((item) => !item.isAdditionalStone);
   renderProductionStoneMeta(order, items);
+  renderProductionStoneEditHistory(order);
   container.dataset.orderId = order.id;
   container.classList.toggle("empty", !items.length);
   if (!regularItems.length) {
@@ -26595,6 +26797,8 @@ function normalizeLoginAuditEntry(entry = {}) {
     localTime: entry.localTime || "",
     userId: entry.userId || "",
     userName: entry.userName || entry.name || entry.userId || "User",
+    operatorName: entry.operatorName || entry.userName || entry.name || "",
+    accountName: entry.accountName || entry.loginName || entry.userId || "",
     role: entry.role || "",
     salesTeam: entry.salesTeam || "",
     accessText: entry.accessText || "",
@@ -26633,6 +26837,8 @@ function recordLoginAudit(userId, user = {}) {
     localTime: new Date().toLocaleString("en-IN"),
     userId,
     userName: user.name || userId,
+    operatorName: user.operatorName || user.name || userId,
+    accountName: user.accountName || userId,
     role: user.role || "",
     salesTeam: user.salesTeam || "",
     accessText: userAccessText(user),
@@ -26815,6 +27021,8 @@ function loginAuditSearchText(entry = {}) {
   return [
     entry.userId,
     entry.userName,
+    entry.operatorName,
+    entry.accountName,
     entry.role,
     entry.salesTeam,
     entry.ip,
@@ -26834,7 +27042,7 @@ function renderLoginHistoryRow(entry) {
   return `
     <tr>
       <td><strong>${escapeHtml(loginDateTimeText(entry.loginAt))}</strong><br><small>${escapeHtml(entry.timezone || "-")}</small></td>
-      <td><strong>${escapeHtml(entry.userName || "-")}</strong><br><small>${escapeHtml(entry.userId || "-")}</small></td>
+      <td><strong>${escapeHtml(entry.operatorName || entry.userName || "-")}</strong><br><small>${escapeHtml(entry.accountName || entry.userId || "-")} / ${escapeHtml(entry.userId || "-")}</small></td>
       <td>${escapeHtml(loginRoleText(entry))}</td>
       <td><strong>${escapeHtml(entry.ip || "Checking")}</strong><br><small>${escapeHtml(entry.isp || entry.networkSource || "-")}</small></td>
       <td>${loginIpLocationHtml(entry)}</td>
@@ -46968,7 +47176,10 @@ function normalizeState(currentState) {
     order.productionStoneUpdatedAt = order.productionStoneUpdatedAt || "";
     order.productionStoneEditedAt = order.productionStoneEditedAt || "";
     order.productionStoneEditedBy = order.productionStoneEditedBy || "";
+    order.productionStoneEditedLoginId = order.productionStoneEditedLoginId || "";
+    order.productionStoneEditedAccount = order.productionStoneEditedAccount || "";
     order.productionStoneEditSource = order.productionStoneEditSource || "";
+    order.productionStoneEditHistory = normalizedProductionStoneEditHistory(order);
     if (!order.customerId && order.customer) {
       let customer = currentState.customers.find((item) => item.name.toLowerCase() === order.customer.toLowerCase());
       if (!customer) {

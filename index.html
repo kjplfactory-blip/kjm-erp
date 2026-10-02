@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=671">
+      <link rel="stylesheet" href="styles.css?v=672">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v671</small>
+      <small class="app-version-badge">App v672</small>
           </div>
         </div>
         <label>User
@@ -40,6 +40,7 @@
             <option value="sales4">Sales Team 4</option>
           </select>
         </label>
+        <label>Person Name <input name="operatorName" type="text" maxlength="60" autocomplete="name" placeholder="Enter your own name" required></label>
         <label>Password <input name="password" type="password" required></label>
         <button type="submit">Login</button>
         <p class="login-session-note">Owner, Manager, and Setting Manager: maximum 2 active devices. Every other user: maximum 1 active device. A disconnected login remains reserved for 15 minutes.</p>
@@ -130,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v671</span>
+          <span class="app-version-badge">App v672</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2606,6 +2607,10 @@
         </div>
         <input type="hidden" name="orderId">
         <section id="production-stone-meta" class="production-stone-meta" aria-live="polite"></section>
+        <details id="production-stone-history-panel" class="production-stone-history-panel">
+          <summary><span>Stone Edit History</span><strong id="production-stone-history-count">0 entries</strong></summary>
+          <div id="production-stone-history" class="production-stone-history"></div>
+        </details>
         <div id="production-stone-source-lock" class="production-stone-source-lock"></div>
         <p class="dialog-note production-stone-guidance">Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only and never changes Design Master or Stone Master.</p>
         <section id="production-stone-target-panel" class="production-stone-target-panel hidden">
@@ -3700,7 +3705,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=671"></script>
+    <script src="app.js?v=672"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

@@ -20413,3 +20413,189 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     text-align: left;
   }
 }
+
+/* V672: named operator audit trail for every saved item-level stone edit. */
+.production-stone-history-panel {
+  flex: 0 0 auto;
+  border: 1px solid #b9d7ed;
+  border-radius: 7px;
+  background: #f5fbff;
+  overflow: hidden;
+}
+
+.production-stone-history-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 7px 11px;
+  color: #0d4f7e;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.production-stone-history-panel > summary strong {
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #dceffc;
+  color: #0a426a;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.production-stone-history-panel[open] > summary {
+  border-bottom: 1px solid #cce1f0;
+  background: #eaf6ff;
+}
+
+.production-stone-history-panel.empty > summary strong {
+  background: #edf2f5;
+  color: #657780;
+}
+
+.production-stone-history {
+  max-height: 250px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.production-stone-history-table-wrap {
+  min-width: 760px;
+}
+
+#production-stone-dialog .production-stone-history table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 9px;
+}
+
+#production-stone-dialog .production-stone-history th,
+#production-stone-dialog .production-stone-history td {
+  padding: 6px 7px;
+  border: 1px solid #d8e6ef;
+  background: #ffffff;
+  color: #1e3f54;
+  vertical-align: top;
+}
+
+#production-stone-dialog .production-stone-history th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #17689d;
+  color: #ffffff;
+  font-size: 8px;
+}
+
+#production-stone-dialog .production-stone-history th:nth-child(1) { width: 15%; }
+#production-stone-dialog .production-stone-history th:nth-child(2) { width: 13%; }
+#production-stone-dialog .production-stone-history th:nth-child(3) { width: 12%; }
+#production-stone-dialog .production-stone-history th:nth-child(4) { width: 18%; }
+#production-stone-dialog .production-stone-history th:nth-child(5) { width: 24%; }
+#production-stone-dialog .production-stone-history th:nth-child(6) { width: 18%; }
+
+.production-stone-history td small {
+  display: block;
+  margin-top: 2px;
+  color: #5e7482;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.production-stone-history td details summary {
+  color: #0f6397;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.production-stone-history-rows {
+  display: grid;
+  gap: 5px;
+  min-width: 310px;
+  margin-top: 6px;
+}
+
+.production-stone-history-row {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #cfe2ef;
+  border-radius: 5px;
+  background: #f6fbff;
+}
+
+.production-stone-history-row span {
+  color: #536f80;
+}
+
+.production-stone-history-empty {
+  display: block;
+  margin: 0;
+  padding: 8px;
+  color: #667b87;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stone-edited-badge {
+  width: 70px;
+  height: 60px;
+  border-color: #2884bd;
+  background: #e8f5fd;
+  color: #0b527e !important;
+  box-shadow: 0 3px 10px rgba(20, 105, 158, 0.16);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge em {
+  display: -webkit-box;
+  max-width: 60px;
+  overflow: hidden;
+  color: inherit;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@media (max-width: 900px) {
+  #production-stone-dialog .production-stone-history table {
+    display: table;
+  }
+
+  #production-stone-dialog .production-stone-history thead {
+    display: table-header-group;
+  }
+
+  #production-stone-dialog .production-stone-history tbody {
+    display: table-row-group;
+  }
+
+  #production-stone-dialog .production-stone-history tbody tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  #production-stone-dialog .production-stone-history tbody td,
+  #production-stone-dialog .production-stone-history tbody tr:nth-child(even) td,
+  #production-stone-dialog .production-stone-history tbody tr:hover td {
+    display: table-cell;
+    padding: 6px 7px;
+    border: 1px solid #d8e6ef;
+    background: #ffffff;
+  }
+
+  #production-stone-dialog .production-stone-history tbody td::before {
+    content: none;
+  }
+}
