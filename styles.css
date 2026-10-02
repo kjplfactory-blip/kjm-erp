@@ -6752,6 +6752,26 @@ dialog::backdrop {
   color: #123b78;
 }
 
+#bill-dialog .bill-item-fitting-accessory-button {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-color: #8b9fe8;
+  background: #f0f4ff;
+  color: #293f9b;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#bill-dialog .bill-item-fitting-accessory-button:hover,
+#bill-dialog .bill-item-fitting-accessory-button:focus-visible {
+  border-color: #4f67c8;
+  background: #e0e7ff;
+  color: #203276;
+}
+
 #bill-dialog .bill-item-stone-refresh-button {
   min-height: 24px;
   margin-top: 4px;
@@ -6776,6 +6796,14 @@ dialog::backdrop {
   display: block;
   color: #17678f;
   font-weight: 900;
+}
+
+#bill-dialog .bill-item-fitting-accessory-status {
+  display: block;
+  margin-top: 3px;
+  color: #3949ab;
+  font-weight: 900;
+  line-height: 1.25;
 }
 
 #bill-dialog .bill-item-remove-button {

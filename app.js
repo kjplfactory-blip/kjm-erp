@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v672";
+const APP_VERSION = "v674";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -558,6 +558,7 @@ let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
 let stoneCropReturnContext = null;
 let productionStoneReturnContext = null;
+let billFittingAccessoryReturnContext = null;
 const stoneCropState = {
   files: [],
   sourceIndex: 0,
@@ -1949,8 +1950,12 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     waxStoneWeight,
   });
   event.target.reset();
-  saveState();
-  render();
+  saveState({
+    context: `Issue Gold ${lotNumber}`,
+    changedStateKeys: ["orders", "lots", "ledger", "safeItems", "nextLot"],
+  });
+  refreshProductionPage("issue");
+  alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
 });
 
 document.getElementById("opening-non-gold-adjustment-form")?.addEventListener("input", updateOpeningNonGoldAdjustmentSummary);
@@ -3220,6 +3225,12 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
     openBillItemStoneEntry(openStoneButton.dataset.openBillStone || "");
     return;
   }
+  const addFittingButton = event.target.closest?.("[data-add-bill-fitting]");
+  if (addFittingButton) {
+    event.preventDefault();
+    openBillItemFittingAccessoryDialog(addFittingButton.dataset.addBillFitting || "");
+    return;
+  }
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button) return;
   event.preventDefault();
@@ -3872,6 +3883,7 @@ document.getElementById("design-fitting-accessory-pending")?.addEventListener("c
   if (removeButton) removePendingFittingAccessory(removeButton.dataset.removePendingFitting);
 });
 document.getElementById("design-fitting-accessory-form")?.addEventListener("submit", addDesignFittingAccessory);
+document.getElementById("design-fitting-accessory-dialog")?.addEventListener("close", restoreBillAfterFittingAccessory);
 document.getElementById("design-detail-stone-list")?.addEventListener("click", (event) => {
   const addButton = event.target.closest("[data-add-design-fitting-accessory]");
   if (addButton) {
@@ -4170,7 +4182,6 @@ document.getElementById("issue-from-order").addEventListener("click", () => {
   document.getElementById("order-dialog").close();
   switchView("production");
   switchProductionPage("issue");
-  renderSelects();
   const jobSelect = document.querySelector('#production-form select[name="jobNumber"]');
   if (order && jobSelect) jobSelect.value = order.jobNumber || order.productionNo || order.number;
   applyIssuePurityFromJob();
@@ -5619,10 +5630,12 @@ const SYNC_IGNORED_STATE_KEYS = new Set([
   "appVersion", "appBuild", "syncSchemaVersion", "lastSavedAt", "browserSavedAt", "cloudRecoveryRequired", "syncMeta",
 ]);
 
-function analyzeSyncStateChanges(previousState = {}, currentState = {}) {
+function analyzeSyncStateChanges(previousState = {}, currentState = {}, requestedKeys = null) {
   const changedKeys = new Set();
   const arrayChanges = new Map();
-  const keys = new Set([...Object.keys(previousState || {}), ...Object.keys(currentState || {})]);
+  const keys = requestedKeys
+    ? new Set([...requestedKeys].filter((key) => !SYNC_IGNORED_STATE_KEYS.has(key)))
+    : new Set([...Object.keys(previousState || {}), ...Object.keys(currentState || {})]);
   keys.forEach((key) => {
     if (SYNC_IGNORED_STATE_KEYS.has(key)) return;
     const previousValue = previousState?.[key];
@@ -6120,6 +6133,12 @@ function saveState(options = {}) {
   delete state.cloudRecoveryRequired;
   const fineSheetSnapshotsBeforeSave = state.fineSheetSnapshots;
   captureTodayFineSheetSnapshot();
+  const requestedKeys = Array.isArray(options.changedStateKeys)
+    ? new Set(options.changedStateKeys)
+    : null;
+  if (requestedKeys && state.fineSheetSnapshots !== fineSheetSnapshotsBeforeSave) {
+    requestedKeys.add("fineSheetSnapshots");
+  }
   if (state.fineSheetSnapshots === fineSheetSnapshotsBeforeSave && lastLocallyPersistedState) {
     lastLocallyPersistedState.fineSheetSnapshots = state.fineSheetSnapshots;
   }
@@ -6129,7 +6148,7 @@ function saveState(options = {}) {
   attachLocalFactoryResetMarkerToState();
   stampCurrentAppVersion(state);
   rememberFactoryResetMarker(stateFactoryResetAt(state));
-  let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state);
+  let changeAnalysis = analyzeSyncStateChanges(lastLocallyPersistedState, state, requestedKeys);
   const tombstonesChanged = supabaseIncrementalSyncAvailable === true
     ? false
     : captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
@@ -9629,6 +9648,7 @@ function switchProductionPage(page) {
   document.querySelectorAll(".production-page").forEach((section) => {
     section.classList.toggle("active-production-page", section.id === `production-page-${page}`);
   });
+  if (page) refreshProductionPage(page);
 }
 
 function switchOfficePage(page) {
@@ -23959,7 +23979,20 @@ function renderOrderLotCard(lot) {
 }
 
 function productionStoneTotalsForOrders(orders = [], settingType = "") {
-  return productionStoneTotals(orders.flatMap(productionStoneItemsForOrder), settingType);
+  return orders.reduce((total, order) => {
+    const savedItems = Array.isArray(order.productionStoneItems) && order.productionStoneItems.length
+      ? order.productionStoneItems
+      : null;
+    const items = savedItems || productionStoneItemsForOrder(order);
+    items.forEach((item) => {
+      if (settingType && item.settingType !== settingType && !(settingType === "hand" && item.isAdditionalStone)) return;
+      const savedWeight = Number(item.totalWeight || 0);
+      const resolvedItem = savedWeight || !savedItems ? item : productionStoneItemWithMasterData(item);
+      total.pcs += Number(resolvedItem.pcs || 0);
+      total.weight += Number(resolvedItem.totalWeight || 0);
+    });
+    return total;
+  }, { pcs: 0, weight: 0 });
 }
 
 function issueMetalWaxStoneWeight(selection = null, plannedWaxStoneWeight = 0, grossIssueWeight = 0) {
@@ -27743,6 +27776,10 @@ function formatStoneWeight(value) {
 function renderSelects(view = activeViewId() || "dashboard") {
   const viewsWithLiveSelects = ["designs", "stone-library", "moti-library", "orders", "production", "safe", "factory", "daily-tally", "melting", "billing", "office"];
   if (!viewsWithLiveSelects.includes(view)) return;
+  const productionPage = view === "production"
+    ? document.querySelector("[data-production-page].active")?.dataset.productionPage || ""
+    : "";
+  if (view === "production" && !productionPage) return;
   const needsDesignCategories = ["designs", "orders", "catalogue"].includes(view);
   if (needsDesignCategories) renderDesignCategoryDatalist();
 
@@ -27767,29 +27804,27 @@ function renderSelects(view = activeViewId() || "dashboard") {
   }
 
   if (["orders", "production"].includes(view)) {
-    const karigarOptions = state.karigars
-      .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
-      .join("");
-    document.querySelectorAll('select[name="karigarId"]').forEach((select) => {
-      const selected = select.value;
-      select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
-      if (selected && state.karigars.some((karigar) => karigar.id === selected)) select.value = selected;
-    });
+    const needsKarigarOptions = view === "orders" || ["issue", "non-gold"].includes(productionPage);
+    const karigarOptions = needsKarigarOptions
+      ? state.karigars
+        .map((karigar) => `<option value="${karigar.id}">${escapeHtml(karigar.name)} - ${escapeHtml(departmentProcessText(karigar))}</option>`)
+        .join("")
+      : "";
+    if (needsKarigarOptions) {
+      const selector = view === "production" ? '#production-form select[name="karigarId"]' : 'select[name="karigarId"]';
+      document.querySelectorAll(selector).forEach((select) => {
+        const selected = select.value;
+        select.innerHTML = karigarOptions || '<option value="">Add a department first</option>';
+        if (selected && state.karigars.some((karigar) => karigar.id === selected)) select.value = selected;
+      });
+    }
 
-    if (view === "production") {
+    if (view === "production" && productionPage === "issue") {
       const pendingJobs = groupedJobOrders().filter((job) => job.status === "Pending");
       const orderOptions = pendingJobs.map((job) => {
         const details = `${job.jobNumber} - ${job.customer || "-"} - ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} - ${job.categories}`;
         return `<option value="${escapeHtml(job.jobNumber)}">${escapeHtml(details)}</option>`;
       }).join("");
-      const activeLotOptions = (state.lots || [])
-        .filter((lot) => lot.status !== "Completed")
-        .map((lot) => {
-          const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
-          const details = `${lot.number} - ${lot.orderNumber || "-"} - ${lot.currentDepartment || lot.karigarName || "-"} - ${purity}`;
-          return `<option value="${escapeHtml(lot.id)}">${escapeHtml(details)}</option>`;
-        })
-        .join("");
       document.querySelectorAll('#production-form select[name="jobNumber"]').forEach((select) => {
         const selected = select.value;
         select.innerHTML = orderOptions ? `<option value="">Select job card</option>${orderOptions}` : '<option value="">No open job cards</option>';
@@ -27798,6 +27833,17 @@ function renderSelects(view = activeViewId() || "dashboard") {
       applyIssuePurityFromJob();
       updateProductionCastingItemOptions();
       updateIssueMetalSummary();
+    }
+
+    if (view === "production" && productionPage === "non-gold") {
+      const activeLotOptions = (state.lots || [])
+        .filter((lot) => lot.status !== "Completed")
+        .map((lot) => {
+          const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+          const details = `${lot.number} - ${lot.orderNumber || "-"} - ${lot.currentDepartment || lot.karigarName || "-"} - ${purity}`;
+          return `<option value="${escapeHtml(lot.id)}">${escapeHtml(details)}</option>`;
+        })
+        .join("");
       document.querySelectorAll('#production-non-gold-form select[name="lotId"], #production-non-gold-remove-form select[name="lotId"]').forEach((select) => {
         const selected = select.value;
         select.innerHTML = activeLotOptions ? `<option value="">Direct department issue</option>${activeLotOptions}` : '<option value="">Direct department issue</option>';
@@ -27812,6 +27858,9 @@ function renderSelects(view = activeViewId() || "dashboard") {
       applyProductionNonGoldLotDefaults(document.getElementById("production-non-gold-remove-form"));
       updateProductionNonGoldSummary();
       updateProductionNonGoldRemoveSummary();
+    }
+
+    if (view === "production" && productionPage === "setting") {
       renderSettingManagerSelects();
     }
   }
@@ -33129,7 +33178,7 @@ function fittingAccessoryDesignOptionHtml(design = {}) {
 function closeDesignFittingAccessoryDialog() {
   const dialog = document.getElementById("design-fitting-accessory-dialog");
   dialog?.close();
-  dialog?.classList.remove("job-item-mode");
+  dialog?.classList.remove("job-item-mode", "bill-item-mode");
   const previewImage = document.getElementById("design-fitting-accessory-preview-image");
   if (previewImage) {
     previewImage.removeAttribute("src");
@@ -33179,14 +33228,15 @@ function openDesignFittingAccessoryDialog(designId = "", itemKey = "") {
   dialog.showModal();
 }
 
-function openJobItemFittingAccessoryDialog(orderId = "") {
-  if (!requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return;
+function openJobItemFittingAccessoryDialog(orderId = "", options = {}) {
+  const source = options.source === "bill" ? "bill" : "orders";
+  if (source !== "bill" && !requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return false;
   const order = findById("orders", orderId);
-  if (!order) return;
+  if (!order) return false;
   const candidates = fittingAccessorySourceDesigns(order.designId || "");
   if (!candidates.length) {
     alert("No Design Master records were found under the Fitting / Fittings category. Check the Category field of the fitting designs and try again.");
-    return;
+    return false;
   }
   const targetItemKey = normalizeStoneItemKey(orderStoneItemKeys(order)[0] || defaultStoneItemKeyForDesign(findById("designs", order.designId)) || "ITEM");
   const form = document.getElementById("design-fitting-accessory-form");
@@ -33196,13 +33246,20 @@ function openJobItemFittingAccessoryDialog(orderId = "") {
   form.targetItemKey.value = targetItemKey;
   pendingFittingAccessoryRows = [];
   renderFittingAccessorySourceDesignOptions(form, candidates);
-  document.getElementById("design-fitting-accessory-title").textContent = "Add Fitting Accessory To Job Item";
+  document.getElementById("design-fitting-accessory-title").textContent = source === "bill"
+    ? "Add Fitting Accessory From Bill"
+    : "Add Fitting Accessory To Job Item";
   document.getElementById("design-fitting-accessory-target").textContent = `${order.productionNo || order.number} / ${jobItemDisplayName(order)} / Item ${stoneItemInputValue(targetItemKey)}`;
-  document.getElementById("design-fitting-accessory-note").textContent = "Enter how many fitting pieces are used in this PR. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and Design Master remain unchanged.";
+  document.getElementById("design-fitting-accessory-note").textContent = source === "bill"
+    ? "The fitting is added only to this PR item. Its stone weight will refresh in this Bill automatically; Design Master remains unchanged."
+    : "Enter how many fitting pieces are used in this PR. Stone pieces and total stone weight are multiplied by that quantity. Weight per stone and Design Master remain unchanged.";
   renderDesignFittingAccessoryItemOptions();
   const dialog = document.getElementById("design-fitting-accessory-dialog");
   dialog.classList.add("job-item-mode");
+  dialog.classList.toggle("bill-item-mode", source === "bill");
+  dialog.dataset.returnContext = source;
   dialog.showModal();
+  return true;
 }
 
 function renderDesignFittingAccessoryItemOptions() {
@@ -33442,13 +33499,28 @@ function addDesignFittingAccessory(event) {
 }
 
 function addJobItemFittingAccessories(form, selections = []) {
-  if (!requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return;
+  const billContext = billFittingAccessoryReturnContext?.source === "bill"
+    && billFittingAccessoryReturnContext.orderId === form.targetOrderId.value
+    ? billFittingAccessoryReturnContext
+    : null;
+  if (billContext) {
+    const billLot = findById("lots", billContext.lotId);
+    const generatedBill = billLot?.bill || (state.bills || []).find((entry) => entry.lotId === billLot?.id) || {};
+    const canEditFitting = !isReadOnlyUser() && (generatedBill.id ? canEditGeneratedBill() : canCreateBill());
+    if (!billLot || !canEditFitting) {
+      alert(generatedBill.id
+        ? "Only Owner or Manager can add a fitting accessory after the Bill is generated."
+        : "This login cannot add a fitting accessory to the pending Bill.");
+      return;
+    }
+  } else if (!requirePageEditPermission("orders", "add fitting accessories to this Job Card item")) return;
   const order = findById("orders", form.targetOrderId.value);
   const targetItemKey = normalizeStoneItemKey(form.targetItemKey.value || orderStoneItemKeys(order || {})[0] || "ITEM");
   if (!order || !targetItemKey || !selections.length) {
     alert("The target Job Card item or fitting list is no longer available.");
     return;
   }
+  const orderBeforeBillFitting = billContext && order ? structuredClone(order) : null;
   const currentItems = productionStoneItemsForOrder(order).map((item) => ({
     ...item,
     id: item.id || crypto.randomUUID(),
@@ -33498,6 +33570,25 @@ function addJobItemFittingAccessories(form, selections = []) {
   stampProductionStoneEdit(order, "Fitting Accessory Added");
   order.productionStoneCopiedFrom = sourceLabels.join(" / ");
   const totals = designStoneTotals(copiedRows);
+  if (billContext) {
+    billContext.saved = true;
+    billContext.fittingNames = fittingNames;
+    billContext.addedStoneWeight = totals.weight;
+    const saved = saveState({
+      alertOnFailure: true,
+      context: `${order.productionNo || order.number || "Bill item"} fitting accessory`,
+      changedStateKeys: ["orders"],
+    });
+    if (!saved) {
+      Object.keys(order).forEach((key) => delete order[key]);
+      Object.assign(order, orderBeforeBillFitting);
+      billContext.saved = false;
+      return;
+    }
+    backupRecentJobOrders([order]);
+    closeDesignFittingAccessoryDialog();
+    return;
+  }
   backupRecentJobOrders([order]);
   closeDesignFittingAccessoryDialog();
   saveState();
@@ -34684,7 +34775,7 @@ function setTransferCurrentNote(html) {
   note.innerHTML = html;
 }
 
-function renderProduction() {
+function renderProductionLotsTable() {
   const rows = state.lots.map((lot) => `
     <tr>
       <td>${lot.number}</td>
@@ -34701,9 +34792,29 @@ function renderProduction() {
     </tr>
   `).join("");
   document.getElementById("production-table").innerHTML = rows || tableEmpty(11, "No production lots recorded.");
-  renderProductionNonGoldTable();
-  renderProductionNonGoldReconciliation();
-  renderSettingManager();
+}
+
+function renderProductionPageContent(page = "") {
+  if (page === "lots") renderProductionLotsTable();
+  else if (page === "non-gold") {
+    renderProductionNonGoldTable();
+    renderProductionNonGoldReconciliation();
+  } else if (page === "setting") renderSettingManager();
+  else if (page === "history") renderOnlineTransferHistory();
+}
+
+function refreshProductionPage(page = "") {
+  if (!page) return;
+  return withRenderCache(() => {
+    renderSelects("production");
+    renderProductionPageContent(page);
+    applyAccessControl();
+  });
+}
+
+function renderProduction() {
+  const page = document.querySelector("[data-production-page].active")?.dataset.productionPage || "";
+  if (page) renderProductionPageContent(page);
 }
 
 function issueWeightDetailHtml(lot) {
@@ -40820,6 +40931,100 @@ function removeBillDraftItem(orderId = "") {
   setBillDraftStatus(`${label} removed from this draft and returned to pending Billing. Remaining entries are saved.`, "saved");
 }
 
+function openBillItemFittingAccessoryDialog(orderId = "") {
+  const billDialog = document.getElementById("bill-dialog");
+  const billForm = document.getElementById("bill-form");
+  const order = findById("orders", orderId);
+  const lot = findById("lots", billForm?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  const row = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"))
+    .find((entry) => entry.dataset.orderId === orderId);
+  if (!billDialog?.open || !lot || !order || !row) {
+    alert("The selected Bill item or its Job Card fitting details could not be found.");
+    return false;
+  }
+  if (row.dataset.manualWip === "true") {
+    alert("A fitting accessory can be linked only after this manual WIP item is assigned to a Job Card PR item.");
+    return false;
+  }
+  const canEditFitting = !isReadOnlyUser() && (bill.id ? canEditGeneratedBill() : canCreateBill());
+  if (!canEditFitting) {
+    alert(bill.id
+      ? "Only Owner or Manager can add a fitting accessory after the Bill is generated."
+      : "This login cannot add a fitting accessory to the pending Bill.");
+    return false;
+  }
+  const billTable = billDialog.querySelector(".bill-item-table");
+  const billCard = billDialog.querySelector(".bill-dialog-card");
+  const billView = buildBillDraftRecord(lot, bill);
+  billFittingAccessoryReturnContext = {
+    source: "bill",
+    lotId: lot.id,
+    orderId: order.id,
+    billView,
+    saved: false,
+    fittingNames: [],
+    addedStoneWeight: 0,
+    searchValue: document.getElementById("bill-item-search")?.value || "",
+    dialogScrollTop: billCard?.scrollTop || 0,
+    tableScrollTop: billTable?.scrollTop || 0,
+    tableScrollLeft: billTable?.scrollLeft || 0,
+  };
+  if (canPersistBillDraft(lot, bill)) saveBillDraftNow({ items: billView.items });
+  if (openJobItemFittingAccessoryDialog(order.id, { source: "bill" })) return true;
+  billFittingAccessoryReturnContext = null;
+  return false;
+}
+
+function restoreBillAfterFittingAccessory() {
+  const context = billFittingAccessoryReturnContext;
+  billFittingAccessoryReturnContext = null;
+  const dialog = document.getElementById("design-fitting-accessory-dialog");
+  if (dialog) {
+    dialog.classList.remove("bill-item-mode");
+    delete dialog.dataset.returnContext;
+  }
+  if (context?.source !== "bill" || !context.saved) return;
+  const lot = findById("lots", context.lotId);
+  const order = findById("orders", context.orderId);
+  if (!lot || !order) return;
+  const billDialog = document.getElementById("bill-dialog");
+  if (!billDialog?.open) openBill(lot.id);
+  const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  const snapshot = context.billView || {};
+  const items = (snapshot.items || []).map((item) =>
+    item.orderId === order.id || (item.productionNo && item.productionNo === order.productionNo)
+      ? billItemWithLatestStoneEntry(item, order, "Fitting Accessory Added In Bill")
+      : item
+  );
+  const displayBill = { ...storedBill, ...snapshot, items };
+  renderBillItems(lot, displayBill);
+  const search = document.getElementById("bill-item-search");
+  if (search) search.value = context.searchValue || "";
+  filterBillItems();
+  updateBillAmount();
+  applyBillAccessMode();
+  const saved = canPersistBillDraft(lot, storedBill) ? saveBillDraftNow({ items }) : false;
+  const reference = order.productionNo || order.number || billOrderDesignCode(order) || "Item";
+  const fittingText = (context.fittingNames || []).join(" / ") || "Fitting accessory";
+  setBillDraftStatus(
+    `${reference}: ${fittingText} added. Stone deduction and Net Weight refreshed${saved ? " and draft saved" : ""}.`,
+    saved ? "saved" : ""
+  );
+  requestAnimationFrame(() => {
+    const billTable = billDialog?.querySelector(".bill-item-table");
+    const billCard = billDialog?.querySelector(".bill-dialog-card");
+    if (billCard) billCard.scrollTop = Number(context.dialogScrollTop || 0);
+    if (billTable) {
+      billTable.scrollTop = Number(context.tableScrollTop || 0);
+      billTable.scrollLeft = Number(context.tableScrollLeft || 0);
+    }
+    const returnButton = Array.from(document.querySelectorAll("[data-add-bill-fitting]"))
+      .find((button) => button.dataset.addBillFitting === order.id);
+    returnButton?.focus({ preventScroll: true });
+  });
+}
+
 function openBillItemStoneEntry(orderId = "") {
   const billDialog = document.getElementById("bill-dialog");
   const billForm = document.getElementById("bill-form");
@@ -41174,6 +41379,8 @@ function renderBillItems(lot, bill = {}) {
     const canRemoveFromDraft = canManageDraftItems
       && billableOrders.length > 1
       && (!generatedBill.id || !generatedOrderIds.has(order.id));
+    const fittingAccessories = manualWip ? [] : jobItemFittingAccessoryLinks(order);
+    const fittingAccessoryPcs = fittingAccessories.reduce((total, accessory) => total + Number(accessory.quantity || 0), 0);
     return `
       <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
@@ -41182,8 +41389,10 @@ function renderBillItems(lot, bill = {}) {
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-item-stone-open-button" data-open-bill-stone="${escapeHtml(order.id)}" aria-label="Open stone entry for ${escapeHtml(itemLabel)}">Open Stone Entry</button>`}
+          ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-fitting-accessory-button" data-add-bill-fitting="${escapeHtml(order.id)}" aria-label="Add fitting accessory to ${escapeHtml(itemLabel)}">Add Fitting Accessory</button>` : ""}
           ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
           ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
+          ${fittingAccessories.length ? `<small class="bill-item-fitting-accessory-status">Fitting included: ${escapeHtml(fittingAccessories.map((accessory) => accessory.name).join(" / "))} / ${escapeHtml(fittingAccessoryPcs)} fitting pcs</small>` : ""}
           ${canRemoveFromDraft ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove From Draft</button>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
