@@ -7,9 +7,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=670">
+      <link rel="stylesheet" href="styles.css?v=671">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
-  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=670">
+  <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
   </head>
   <body>
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v670</small>
+      <small class="app-version-badge">App v671</small>
           </div>
         </div>
         <label>User
@@ -130,7 +130,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v670</span>
+          <span class="app-version-badge">App v671</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -835,7 +835,7 @@
               <strong>Pending With Setters</strong><span id="setting-tile-pending-count">0 lots currently with setters</span>
             </button>
             <button class="action-tile" type="button" data-setting-manager-page="transactions">
-              <strong>Setter Issue &amp; Receive</strong><span id="setting-tile-transactions-count">Issue to and receive from each setter in one workspace</span>
+              <strong>Complete Setter Job</strong><span id="setting-tile-transactions-count">Save setter issue and receive together in one operation</span>
             </button>
             <button class="action-tile" type="button" data-setting-manager-page="manual">
               <strong>Manual Production Items</strong><span id="setting-tile-manual-count">0 no-Job-Card items available</span>
@@ -862,7 +862,7 @@
 
             <section id="setting-transactions-panel" class="setting-manager-detail setting-manager-transactions" data-setting-manager-detail="transactions">
             <form id="setting-issue-form" class="form-panel">
-              <h2>Issue To Selected Setter</h2>
+              <h2>Setter Issue &amp; Receive - Single Operation</h2>
               <label>Issue Type <select name="issueType">
                 <option value="lot">Job Lot</option>
                 <option value="repair">Repair Job Item</option>
@@ -887,7 +887,17 @@
               </select></label>
               <label>Setter <select name="setterId" required></select></label>
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
+              <label id="setting-issue-receive-gw-field">Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
               <label id="setting-issue-hand-stone-field"><span id="setting-issue-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <label id="setting-issue-receive-net-field">Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
+              <label id="setting-issue-return-material-type-field">Returned Material <select name="returnMaterialType">
+                <option value="rawa">Rawa</option>
+                <option value="laser-wire">Laser Wire</option>
+                <option value="wastage">WSTG / Wastage</option>
+              </select></label>
+              <label id="setting-issue-return-material-weight-field">Returned Material (g) <input name="rawaWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label id="setting-issue-loss-field">Loss (g) <input name="setterLossWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label id="setting-issue-balance-field">Final Metal Balance At Setter (g) <input name="balanceWeight" type="number" step="0.001" readonly></label>
               <div id="setting-split-item-picker" class="setting-split-item-picker full-row hidden">
                 <div class="setting-split-picker-heading">
                   <strong>Select PR Items For This Setter</strong>
@@ -896,12 +906,14 @@
                 <div id="setting-split-item-list" class="setting-split-item-list"></div>
               </div>
               <label class="full-row">Remarks <input name="remarks" placeholder="Optional"></label>
-              <p id="setting-issue-summary" class="dialog-note">Select a job lot, manual old-production item, accessory, or repair item currently in Setting Department.</p>
-              <button type="submit">Issue To Setter</button>
+              <p id="setting-issue-summary" class="dialog-note">Select a lot and setter, then enter the issue and receive weights. The lot remains with Setting Master while both entries are saved together.</p>
+              <button id="setting-issue-submit" type="submit">Save Issue &amp; Receive Together</button>
             </form>
 
+            <details class="setting-legacy-account full-row">
+              <summary>Previous Pending Entries / Monthly Setter Balance</summary>
             <form id="setting-receive-form" class="form-panel">
-              <h2>Receive From Selected Setter</h2>
+              <h2>Close Previous Pending Entry Or Setter Balance</h2>
               <label>Account Action <select name="settlementType">
                 <option value="close">Receive Lot / Accessory / Repair</option>
                 <option value="manual-close">Receive Manual Production Item - No Job Card</option>
@@ -933,6 +945,7 @@
               <p id="setting-receive-summary" class="dialog-note">Select a setter, pending lot or returnable item, and account action.</p>
               <button type="submit" id="setting-receive-submit">Receive Lot &amp; Keep Balance</button>
             </form>
+            </details>
             </section>
           </div>
 
@@ -3687,12 +3700,12 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=670"></script>
+    <script src="app.js?v=671"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
   <script src="setting-internal-bill-excel-v616.js?v=666"></script>
-  <script src="setting-master-tiles-v617.js?v=670"></script>
+  <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
 </body>

@@ -4,7 +4,7 @@
   const pageTitles = {
     lots: "Lots Currently In Setting",
     pending: "Pending With Setters",
-    transactions: "Setter Issue / Receive Account",
+    transactions: "Complete Setter Job - One Operation",
     manual: "Manual Production Items - No Job Card",
     setters: "Setter Master",
     history: "Setter Issue / Account History",
@@ -47,6 +47,7 @@
     ensureSettingPageToolbar(detail, pageId);
     document.body.classList.add("setting-manager-detail-active");
     activeSettingPage = pageId;
+    if (pageId === "transactions") document.querySelector(".setting-legacy-account")?.removeAttribute("open");
     detail.scrollTop = 0;
     detail.querySelector("select:not([disabled]), input:not([type='hidden']):not([readonly]), button:not([data-setting-manager-back])")?.focus();
     return true;
@@ -66,7 +67,8 @@
     const pendingGw = Number(weight3(pending.reduce((total, entry) => total + Number(entry.issueGw || 0), 0)));
     setSettingTileCount("setting-tile-lots-count", `${lots.length} lot${lots.length === 1 ? "" : "s"} currently in Setting`);
     setSettingTileCount("setting-tile-pending-count", `${pending.length} lot${pending.length === 1 ? "" : "s"} / ${gram(pendingGw)} with setters`);
-    setSettingTileCount("setting-tile-transactions-count", `${pending.length} pending receipt${pending.length === 1 ? "" : "s"} / ${setters.length} setter${setters.length === 1 ? "" : "s"}`);
+    const readyLots = settingLotsAvailableForIssue();
+    setSettingTileCount("setting-tile-transactions-count", `${readyLots.length} setting lot${readyLots.length === 1 ? "" : "s"} ready / issue and receive saved together`);
     setSettingTileCount("setting-tile-manual-count", `${manual.length} no-Job-Card item${manual.length === 1 ? "" : "s"} available`);
     setSettingTileCount("setting-tile-setters-count", `${setters.length} registered setter${setters.length === 1 ? "" : "s"}`);
     setSettingTileCount("setting-tile-history-count", `${history.length} issue / receive entr${history.length === 1 ? "y" : "ies"}`);
@@ -252,6 +254,7 @@
   openSettingReceive = function openSettingReceiveTileV617(entryId) {
     coreOpenSettingReceive.call(this, entryId);
     openSettingManagerPage("transactions");
+    document.querySelector(".setting-legacy-account")?.setAttribute("open", "");
     syncSettingDirectTransferFields();
   };
 

@@ -53,7 +53,7 @@
 
 #production-page-setting .setting-manager-transactions.setting-manager-detail-open {
   display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 18px;
 }
@@ -64,11 +64,43 @@
 
 #production-page-setting .setting-manager-transactions > .form-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-content: start;
   gap: 12px;
   min-width: 0;
   margin: 0;
+}
+
+#production-page-setting .setting-legacy-account {
+  padding: 0;
+  border: 1px solid #b9daec;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+#production-page-setting .setting-legacy-account > summary {
+  padding: 12px 16px;
+  color: #07557f;
+  font-weight: 850;
+  cursor: pointer;
+  background: #eef8fd;
+}
+
+#production-page-setting .setting-legacy-account > .form-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+#production-page-setting .setting-legacy-account > .form-panel > h2,
+#production-page-setting .setting-legacy-account > .form-panel > .full-row,
+#production-page-setting .setting-legacy-account > .form-panel > .dialog-note,
+#production-page-setting .setting-legacy-account > .form-panel > button[type="submit"] {
+  grid-column: 1 / -1;
 }
 
 #production-page-setting .setting-manager-transactions > .form-panel > h2,
@@ -140,7 +172,8 @@ body.setting-manager-detail-active {
   }
 
   #production-page-setting .setting-manager-transactions.setting-manager-detail-open,
-  #production-page-setting .setting-manager-transactions > .form-panel {
+  #production-page-setting .setting-manager-transactions > .form-panel,
+  #production-page-setting .setting-legacy-account > .form-panel {
     grid-template-columns: 1fr;
   }
 }
