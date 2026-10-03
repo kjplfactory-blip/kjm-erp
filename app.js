@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v675";
+const APP_VERSION = "v676";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -41046,7 +41046,9 @@ function openBillItemRemoveDialog(orderId = "") {
   }
   const currentIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
   if (currentIds.length <= 1) {
-    alert("The Bill must keep at least one item. Delete the complete pending or generated Bill if this final item must be removed.");
+    alert(bill.id
+      ? "This is the only item in the Bill. Use Delete Bill at the bottom of the Bill window to reverse the complete Bill and keep the Job Card available."
+      : "This is the only item in this pending Bill, so removing it would leave an empty Bill. Close this Bill without generating it, or add another item before using Remove Item.");
     return;
   }
   if (billItemHasAdvancedMovement(billItem) || (bill.id && isBillFactoryOutPosted(bill))) {
@@ -41652,12 +41654,15 @@ function renderBillItems(lot, bill = {}) {
       manualWip ? (designCode || `Item ${index + 1}`) : jobItemDisplayName(order),
       order.productionNo || order.number || "",
     ].filter(Boolean).join(" / ");
-    const canRemoveFromBill = canManageBillItems
-      && billableOrders.length > 1
-      && !billItemHasAdvancedMovement(saved)
-      && !isBillFactoryOutPosted(generatedBill);
     const fittingAccessories = manualWip ? [] : jobItemFittingAccessoryLinks(order);
     const fittingAccessoryPcs = fittingAccessories.reduce((total, accessory) => total + Number(accessory.quantity || 0), 0);
+    const removeBlockedReason = !canManageBillItems
+      ? (generatedBill.id ? "Only Owner or Manager can change a generated Bill." : "This login cannot change Bill items.")
+      : billableOrders.length <= 1
+        ? "A Bill must keep at least one item. Use Delete Bill to reverse the complete Bill."
+        : billItemHasAdvancedMovement(saved) || (generatedBill.id && isBillFactoryOutPosted(generatedBill))
+          ? "Reverse the later Office, Factory Out, Hallmarking, Sales, repair or discard movement first."
+          : "";
     return `
       <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
@@ -41670,7 +41675,6 @@ function renderBillItems(lot, bill = {}) {
           ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
           ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${fittingAccessories.length ? `<small class="bill-item-fitting-accessory-status">Fitting included: ${escapeHtml(fittingAccessories.map((accessory) => accessory.name).join(" / "))} / ${escapeHtml(fittingAccessoryPcs)} fitting pcs</small>` : ""}
-          ${canRemoveFromBill ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove Item</button>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td class="bill-final-gw-cell"><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
@@ -41696,10 +41700,14 @@ function renderBillItems(lot, bill = {}) {
           </select>
           <small>${escapeHtml(qcNote)}</small>
         </td>
+        <td class="bill-item-actions">
+          <button type="button" class="danger-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}"${removeBlockedReason ? " disabled" : ""} title="${escapeHtml(removeBlockedReason || `Remove ${itemLabel} from this Bill`)}">Remove Item</button>
+          <small>${escapeHtml(removeBlockedReason || "Choose whether to keep or delete the Job Card item.")}</small>
+        </td>
       </tr>
     `;
   }).join("");
-  body.innerHTML = rows || tableEmpty(8, "No item details found for this job card.");
+  body.innerHTML = rows || tableEmpty(9, "No item details found for this job card.");
 }
 
 function billItemRows(existingItems = [], options = {}) {

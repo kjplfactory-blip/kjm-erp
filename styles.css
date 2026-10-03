@@ -6305,12 +6305,12 @@ dialog::backdrop {
 
 .bill-item-table th:first-child,
 .bill-item-table td:first-child {
-  width: 15%;
+  width: 13%;
 }
 
 .bill-item-table th:nth-child(2),
 .bill-item-table td:nth-child(2) {
-  width: 6%;
+  width: 5%;
 }
 
 .bill-item-table th:nth-child(3),
@@ -6320,18 +6320,29 @@ dialog::backdrop {
 
 .bill-item-table th:nth-child(4),
 .bill-item-table td:nth-child(4) {
-  width: 33%;
+  width: 31%;
 }
 
 .bill-item-table th:nth-child(5),
 .bill-item-table td:nth-child(5),
 .bill-item-table th:nth-child(6),
-.bill-item-table td:nth-child(6),
+.bill-item-table td:nth-child(6) {
+  width: 8%;
+}
+
 .bill-item-table th:nth-child(7),
-.bill-item-table td:nth-child(7),
+.bill-item-table td:nth-child(7) {
+  width: 7%;
+}
+
 .bill-item-table th:nth-child(8),
 .bill-item-table td:nth-child(8) {
-  width: 9.75%;
+  width: 9%;
+}
+
+.bill-item-table th:nth-child(9),
+.bill-item-table td:nth-child(9) {
+  width: 12%;
 }
 
 .transfer-entry-table th,
@@ -6807,22 +6818,46 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-item-remove-button {
-  min-height: 24px;
-  margin-top: 4px;
-  padding: 3px 8px;
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 7px 8px;
   border-color: #e2a0a0;
-  background: #fff4f4;
-  color: #a51d2d;
-  font-size: 9px;
+  background: #c92f42;
+  color: #fff;
+  font-size: 11px;
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 
 #bill-dialog .bill-item-remove-button:hover,
 #bill-dialog .bill-item-remove-button:focus-visible {
   border-color: #c92f42;
-  background: #ffe2e5;
-  color: #7c1020;
+  background: #a51d2d;
+  color: #fff;
+}
+
+#bill-dialog .bill-item-actions {
+  min-width: 112px;
+  text-align: center;
+}
+
+#bill-dialog .bill-item-actions small {
+  display: block;
+  margin-top: 5px;
+  color: #7a2731;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+#bill-dialog .bill-item-remove-button:disabled {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .bill-item-remove-card {
