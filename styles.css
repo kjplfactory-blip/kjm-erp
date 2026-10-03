@@ -6825,6 +6825,50 @@ dialog::backdrop {
   color: #7c1020;
 }
 
+.bill-item-remove-card {
+  width: min(680px, calc(100vw - 24px));
+}
+
+.bill-item-remove-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 8px;
+}
+
+.bill-item-remove-choice {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px;
+  text-align: left;
+}
+
+.bill-item-remove-choice strong,
+.bill-item-remove-choice span {
+  display: block;
+}
+
+.bill-item-remove-choice strong {
+  font-size: 15px;
+}
+
+.bill-item-remove-choice span {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bill-item-remove-choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 640px) {
+  .bill-item-remove-options {
+    grid-template-columns: 1fr;
+  }
+}
+
 .bill-design-hover-preview {
   position: fixed;
   z-index: 120;

@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v674";
+const APP_VERSION = "v675";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3210,7 +3210,7 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
   const removeButton = event.target.closest?.("[data-remove-bill-item]");
   if (removeButton) {
     event.preventDefault();
-    removeBillDraftItem(removeButton.dataset.removeBillItem || "");
+    openBillItemRemoveDialog(removeButton.dataset.removeBillItem || "");
     return;
   }
   const refreshStoneButton = event.target.closest?.("[data-refresh-bill-stone]");
@@ -3251,6 +3251,14 @@ document.getElementById("bill-dialog").addEventListener("close", () => {
     return;
   }
   flushBillDraftSave();
+});
+
+document.getElementById("close-bill-item-remove")?.addEventListener("click", closeBillItemRemoveDialog);
+document.getElementById("cancel-bill-item-remove")?.addEventListener("click", closeBillItemRemoveDialog);
+document.getElementById("remove-bill-item-keep-job")?.addEventListener("click", () => commitBillItemRemoval(false));
+document.getElementById("remove-bill-item-delete-job")?.addEventListener("click", () => commitBillItemRemoval(true));
+document.getElementById("bill-item-remove-dialog")?.addEventListener("close", () => {
+  pendingBillItemRemoval = null;
 });
 
 window.addEventListener("beforeunload", flushBillDraftSave);
@@ -20567,6 +20575,105 @@ function itemEditDataToOrderItem(data = {}) {
   return item;
 }
 
+function lotAcceptsAddedJobCardBillItem(lot = {}) {
+  if (!lot?.id || lot.mergedIntoLotId) return false;
+  const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  if (bill.id && isBillFactoryOutPosted(bill)) return false;
+  const location = [
+    lot.billingStage,
+    lot.currentDepartment,
+    lot.karigarName,
+    lot.issueDepartment,
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (/office|hallmark|sales|sold|discard/.test(location)) return false;
+  return Boolean(bill.id || /bill|qc/.test(location));
+}
+
+function billingLotForAddedJobCardItem(baseOrder = {}) {
+  const directLots = lotsForOrder(baseOrder).filter(lotAcceptsAddedJobCardBillItem);
+  const jobNumber = baseOrder.jobNumber || baseOrder.number || baseOrder.productionNo || "";
+  const relatedLots = directLots.length
+    ? directLots
+    : (state.lots || []).filter((lot) =>
+      lotAcceptsAddedJobCardBillItem(lot)
+      && String(lot.orderNumber || "") === String(jobNumber)
+    );
+  return [...relatedLots].sort((a, b) =>
+    (new Date(b.updatedAt || b.createdAt || b.issueDate || 0).getTime() || 0)
+      - (new Date(a.updatedAt || a.createdAt || a.issueDate || 0).getTime() || 0)
+  )[0] || null;
+}
+
+function blankBillItemForAddedJobOrder(order = {}) {
+  return billItemWithLatestStoneEntry({
+    orderId: order.id || "",
+    productionNo: order.productionNo || order.number || "",
+    itemName: jobItemDisplayName(order),
+    designNo: billOrderDesignCode(order),
+    category: order.category || "",
+    ringType: order.ringType || "",
+    cmItemType: order.cmItemType || "",
+    color: order.color || "",
+    size: billItemSizeText({}, order),
+    purity: order.purity || "18K",
+    finalGw: "",
+    qcStatus: "Pending QC",
+    officeStatus: "",
+  }, order, "Added To Existing Bill Lot");
+}
+
+function attachAddedJobOrdersToBillingLot(baseOrder = {}, createdOrders = []) {
+  if (!createdOrders.length) return null;
+  const lot = billingLotForAddedJobCardItem(baseOrder);
+  if (!lot) return null;
+  const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
+  const addedIds = createdOrders.map((order) => order.id).filter(Boolean);
+  const currentBillIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
+  lot.orderIds = [...new Set([...getLotOrderIds(lot), ...addedIds])];
+  lot.orderId = lot.orderId || lot.orderIds[0] || "";
+  lot.billOrderIds = [...new Set([...currentBillIds, ...addedIds])];
+  lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => !addedIds.includes(id));
+  const updatedAt = new Date().toISOString();
+  createdOrders.forEach((order) => {
+    order.status = "Completed";
+    order.addedToBillLotId = lot.id;
+    order.addedToBillLotNumber = lot.number || "";
+    order.addedToBillLotAt = updatedAt;
+    order.addedToBillLotBy = currentUser?.name || currentUser?.id || "User";
+  });
+  const previousDraft = billDraftForLot(lot, bill) || {};
+  const existingItems = previousDraft.items || bill.items || [];
+  const existingOrderIds = new Set(existingItems.map((item) => item.orderId).filter(Boolean));
+  const addedItems = createdOrders
+    .filter((order) => !existingOrderIds.has(order.id))
+    .map(blankBillItemForAddedJobOrder);
+  lot.billDraft = {
+    ...previousDraft,
+    billId: bill.id || previousDraft.billId || "",
+    billNo: previousDraft.billNo ?? bill.billNo ?? "",
+    billDate: previousDraft.billDate ?? bill.billDate ?? isoToday(),
+    billWastagePercent: factoryWstgPercent(previousDraft.billWastagePercent ?? bill.billWastagePercent ?? 0),
+    remarks: previousDraft.remarks ?? bill.remarks ?? "",
+    items: [...existingItems, ...addedItems],
+    updatedAt,
+    updatedBy: currentUser?.name || currentUser?.id || "User",
+    finalizedBillId: "",
+  };
+  lot.billDraftUpdatedAt = updatedAt;
+  lot.billItemInclusionHistory = [
+    {
+      id: crypto.randomUUID(),
+      createdAt: updatedAt,
+      orderIds: addedIds,
+      productionNumbers: createdOrders.map((order) => order.productionNo || order.number).filter(Boolean),
+      action: "Job Card Item Added To Existing Bill Lot",
+      addedBy: currentUser?.name || currentUser?.id || "User",
+    },
+    ...(lot.billItemInclusionHistory || []),
+  ];
+  return lot;
+}
+
 function addItemsToJobCard(baseOrder, data = {}) {
   const baseItem = itemEditDataToOrderItem(data);
   if (!hasOrderItemDetails(baseItem)) {
@@ -20620,6 +20727,7 @@ function addItemsToJobCard(baseOrder, data = {}) {
     state.orders.push(orderRecord);
     createdOrders.push(orderRecord);
   });
+  attachAddedJobOrdersToBillingLot(baseOrder, createdOrders);
   backupRecentJobOrders(createdOrders);
   return newItems.length;
 }
@@ -40887,48 +40995,218 @@ function flushBillDraftSave() {
   return saveBillDraftNow();
 }
 
-function removeBillDraftItem(orderId = "") {
+let pendingBillItemRemoval = null;
+
+function billItemHasAdvancedMovement(item = {}) {
+  return Boolean(
+    item.officeStatus
+    || item.factoryStatus === "Factory Out"
+    || item.hallmarkStatus
+    || item.huid1
+    || item.huid2
+    || item.hallmarkLotNo
+    || item.hallmarkLotNumber
+    || item.salesTeam
+    || item.saleStatus
+    || item.tagPrinted
+    || item.discardStatus
+    || item.discardMeltingId
+    || item.reworkLotId
+    || item.repairStatus
+  );
+}
+
+function billItemRemovalContext(orderId = "") {
   const form = document.getElementById("bill-form");
   const lot = findById("lots", form?.lotId?.value || "");
   const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
-  if (!lot?.manualWipCombinedBill || !orderId) {
-    alert("Items can be removed here only from a Combined Bill that is still being prepared.");
+  const order = findById("orders", orderId);
+  const billItem = (bill.items || []).find((item) =>
+    item.orderId === orderId || (order?.productionNo && item.productionNo === order.productionNo)
+  ) || {};
+  return { form, lot, bill, order, billItem };
+}
+
+function closeBillItemRemoveDialog() {
+  pendingBillItemRemoval = null;
+  document.getElementById("bill-item-remove-dialog")?.close();
+}
+
+function openBillItemRemoveDialog(orderId = "") {
+  const { lot, bill, order, billItem } = billItemRemovalContext(orderId);
+  if (!lot || !order || !orderId) {
+    alert("The selected Bill item could not be found.");
     return;
   }
-  const generatedItem = (bill.items || []).some((item) => item.orderId === orderId);
-  if (bill.id && generatedItem) {
-    alert("This item is already part of the generated Bill. Delete and reverse the Bill first if the completed Bill itself must be rebuilt.");
-    return;
-  }
-  if ((bill.id && !canEditGeneratedBill()) || (!bill.id && !canCreateBill()) || isReadOnlyUser()) {
-    alert("This login cannot remove an item from this Bill draft.");
+  if (isReadOnlyUser() || (bill.id ? !canEditGeneratedBill() : !canCreateBill())) {
+    alert(bill.id
+      ? "Only Owner or Manager can remove an item after the Bill is generated."
+      : "This login cannot remove an item from this pending Bill.");
     return;
   }
   const currentIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
   if (currentIds.length <= 1) {
-    alert("A Combined Bill must keep at least one item. Use Delete Pending Bill to cancel the complete pending Bill.");
+    alert("The Bill must keep at least one item. Delete the complete pending or generated Bill if this final item must be removed.");
     return;
   }
-  const order = findById("orders", orderId) || {};
-  const label = [order.productionNo || order.number, billOrderDesignCode(order)].filter(Boolean).join(" / ") || "this item";
-  if (!confirm(`Remove ${label} from this Bill draft?\n\nThe Job Card item will return to the pending Billing list and will not be deleted.`)) return;
-  const snapshot = structuredClone(lot);
-  const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
-  const remainingItems = billDraftItemsFromForm(existingItems).filter((item) => item.orderId !== orderId);
-  lot.billExcludedOrderIds = [...new Set([...(lot.billExcludedOrderIds || []), orderId])];
-  lot.billOrderIds = currentIds.filter((id) => id !== orderId);
-  lot.billDraft = buildBillDraftRecord(lot, bill, remainingItems);
-  lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
-  if (!saveState({ alertOnFailure: true, context: `${lot.number} remove pending Bill item` })) {
-    Object.keys(lot).forEach((key) => delete lot[key]);
-    Object.assign(lot, snapshot);
+  if (billItemHasAdvancedMovement(billItem) || (bill.id && isBillFactoryOutPosted(bill))) {
+    alert("This item has already moved to Office, Hallmarking, Sales, repair, discard, or Factory Out. Reverse that later movement before removing it from the Bill.");
     return;
   }
+  const otherLots = lotsForOrder(order).filter((entry) => entry.id !== lot.id && !entry.mergedIntoLotId);
+  const canDeleteJobItem = canDeleteErpData() && !isReadOnlyUser() && otherLots.length === 0;
+  const label = [order.productionNo || order.number, billOrderDesignCode(order)].filter(Boolean).join(" / ") || "Selected item";
+  pendingBillItemRemoval = { lotId: lot.id, orderId, label };
+  const summary = document.getElementById("bill-item-remove-summary");
+  if (summary) summary.textContent = `${label} / ${lot.number || "Bill Lot"} / ${order.jobNumber || lot.orderNumber || "Job Card"}`;
+  const deleteButton = document.getElementById("remove-bill-item-delete-job");
+  if (deleteButton) deleteButton.disabled = !canDeleteJobItem;
+  const permission = document.getElementById("bill-item-remove-permission");
+  if (permission) {
+    permission.textContent = canDeleteJobItem
+      ? "Choose whether to keep this PR in the Job Card or permanently delete the PR item as well."
+      : otherLots.length
+        ? `Delete From Job Card is blocked because this PR is linked to ${otherLots.length} other production lot${otherLots.length === 1 ? "" : "s"}. You can still remove it from this Bill only.`
+        : "Delete From Job Card is available only to Owner or Manager. You can still remove it from this Bill only.";
+  }
+  document.getElementById("bill-item-remove-dialog")?.showModal();
+}
+
+function billItemRemovalStateSnapshot() {
+  return structuredClone({
+    orders: state.orders || [],
+    lots: state.lots || [],
+    bills: state.bills || [],
+    safeDepartmentIssues: state.safeDepartmentIssues || [],
+    factoryLedger: state.factoryLedger || [],
+    ledger: state.ledger || [],
+    vendors: state.vendors || [],
+  });
+}
+
+function restoreBillItemRemovalState(snapshot = {}) {
+  Object.entries(snapshot).forEach(([key, value]) => {
+    state[key] = value;
+  });
+}
+
+function restoreBillItemRemovalView(lotId = "", message = "") {
+  const lot = findById("lots", lotId);
+  if (!lot) return;
+  const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
   renderBillItems(lot, workingBillRecord(lot, bill));
   filterBillItems();
   updateBillAmount();
   applyBillAccessMode();
-  setBillDraftStatus(`${label} removed from this draft and returned to pending Billing. Remaining entries are saved.`, "saved");
+  if (message) setBillDraftStatus(message, "saved");
+}
+
+function commitBillItemRemoval(deleteFromJobCard = false) {
+  const request = pendingBillItemRemoval;
+  if (!request) return;
+  const { lot, bill, order, billItem } = billItemRemovalContext(request.orderId);
+  if (!lot || lot.id !== request.lotId || !order) {
+    closeBillItemRemoveDialog();
+    alert("The Bill changed before this item could be removed. Reopen the Bill and try again.");
+    return;
+  }
+  if (isReadOnlyUser() || (bill.id ? !canEditGeneratedBill() : !canCreateBill())) {
+    closeBillItemRemoveDialog();
+    alert("This login no longer has permission to remove this Bill item.");
+    return;
+  }
+  if (billItemHasAdvancedMovement(billItem) || (bill.id && isBillFactoryOutPosted(bill))) {
+    closeBillItemRemoveDialog();
+    alert("This item has already moved beyond Bill / QC. Reverse that later movement first.");
+    return;
+  }
+  const currentIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
+  if (currentIds.length <= 1) {
+    closeBillItemRemoveDialog();
+    alert("The Bill must keep at least one item.");
+    return;
+  }
+  const otherLots = lotsForOrder(order).filter((entry) => entry.id !== lot.id && !entry.mergedIntoLotId);
+  if (deleteFromJobCard && (!canDeleteErpData() || isReadOnlyUser() || otherLots.length)) {
+    alert(otherLots.length
+      ? "This PR is linked to another production lot and cannot be deleted from the Job Card."
+      : "Only Owner or Manager can delete an item from the Job Card.");
+    return;
+  }
+  const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
+  const remainingItems = billDraftItemsFromForm(existingItems).filter((item) =>
+    item.orderId !== order.id && (!order.productionNo || item.productionNo !== order.productionNo)
+  );
+  const snapshot = billItemRemovalStateSnapshot();
+  const searchValue = document.getElementById("bill-item-search")?.value || "";
+  const billTable = document.querySelector("#bill-dialog .bill-item-table");
+  const scrollTop = billTable?.scrollTop || 0;
+  const scrollLeft = billTable?.scrollLeft || 0;
+  try {
+    lot.billItemRemovalHistory = [
+      {
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        orderId: order.id,
+        productionNo: order.productionNo || order.number || "",
+        designNo: billOrderDesignCode(order),
+        action: deleteFromJobCard ? "Removed From Bill And Job Card" : "Removed From Bill Only",
+        removedBy: currentUser?.name || currentUser?.id || "User",
+      },
+      ...(lot.billItemRemovalHistory || []),
+    ];
+    lot.billExcludedOrderIds = [...new Set([...(lot.billExcludedOrderIds || []), order.id])];
+    lot.billOrderIds = currentIds.filter((id) => id !== order.id);
+    if (deleteFromJobCard) {
+      const remainingLotOrderIds = getLotOrderIds(lot).filter((id) => id !== order.id);
+      lot.orderIds = remainingLotOrderIds;
+      lot.orderId = remainingLotOrderIds[0] || "";
+      lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => id !== order.id);
+      if (!lot.manualWipCombinedBill) lot.orderNumber = lotOrderNumberFromIds(remainingLotOrderIds, lot.orderNumber);
+      forgetRecentJobOrderBackups([order.id]);
+      state.orders = (state.orders || []).filter((entry) => entry.id !== order.id);
+    } else {
+      order.billRemovedAt = new Date().toISOString();
+      order.billRemovedFromLotId = lot.id;
+      order.billRemovedFromLotNumber = lot.number || "";
+      order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
+    }
+    closeBillItemRemoveDialog();
+    renderBillItems(lot, { ...workingBillRecord(lot, bill), items: remainingItems });
+    filterBillItems();
+    updateBillAmount();
+    applyBillAccessMode();
+    let saved = false;
+    if (bill.id) {
+      saved = Boolean(saveBillFromForm(false));
+    } else {
+      lot.billDraft = buildBillDraftRecord(lot, bill, remainingItems);
+      lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
+      saved = saveState({
+        alertOnFailure: true,
+        context: `${lot.number || "Bill"} remove item`,
+        changedStateKeys: ["orders", "lots"],
+      });
+    }
+    if (!saved) throw new Error("The Bill item removal could not be saved.");
+    const message = deleteFromJobCard
+      ? `${request.label} removed from the Bill and deleted from the Job Card.`
+      : `${request.label} removed from this Bill and kept in the Job Card.`;
+    restoreBillItemRemovalView(lot.id, message);
+    const search = document.getElementById("bill-item-search");
+    if (search) search.value = searchValue;
+    filterBillItems();
+    const refreshedTable = document.querySelector("#bill-dialog .bill-item-table");
+    if (refreshedTable) {
+      refreshedTable.scrollTop = scrollTop;
+      refreshedTable.scrollLeft = scrollLeft;
+    }
+  } catch (error) {
+    restoreBillItemRemovalState(snapshot);
+    render();
+    restoreBillItemRemovalView(request.lotId);
+    alert(error?.message || "The Bill item was not removed.");
+  }
 }
 
 function openBillItemFittingAccessoryDialog(orderId = "") {
@@ -41339,10 +41617,8 @@ function renderBillItems(lot, bill = {}) {
   const savedItems = Array.isArray(bill.items) ? bill.items : [];
   const billableOrders = billableOrdersForLot(lot, bill);
   const generatedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
-  const generatedOrderIds = new Set((generatedBill.items || []).map((item) => item.orderId).filter(Boolean));
-  const canManageDraftItems = Boolean(
-    lot.manualWipCombinedBill
-    && !isReadOnlyUser()
+  const canManageBillItems = Boolean(
+    !isReadOnlyUser()
     && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
   );
   const canRefreshStoneEntries = Boolean(
@@ -41376,9 +41652,10 @@ function renderBillItems(lot, bill = {}) {
       manualWip ? (designCode || `Item ${index + 1}`) : jobItemDisplayName(order),
       order.productionNo || order.number || "",
     ].filter(Boolean).join(" / ");
-    const canRemoveFromDraft = canManageDraftItems
+    const canRemoveFromBill = canManageBillItems
       && billableOrders.length > 1
-      && (!generatedBill.id || !generatedOrderIds.has(order.id));
+      && !billItemHasAdvancedMovement(saved)
+      && !isBillFactoryOutPosted(generatedBill);
     const fittingAccessories = manualWip ? [] : jobItemFittingAccessoryLinks(order);
     const fittingAccessoryPcs = fittingAccessories.reduce((total, accessory) => total + Number(accessory.quantity || 0), 0);
     return `
@@ -41393,7 +41670,7 @@ function renderBillItems(lot, bill = {}) {
           ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
           ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${fittingAccessories.length ? `<small class="bill-item-fitting-accessory-status">Fitting included: ${escapeHtml(fittingAccessories.map((accessory) => accessory.name).join(" / "))} / ${escapeHtml(fittingAccessoryPcs)} fitting pcs</small>` : ""}
-          ${canRemoveFromDraft ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove From Draft</button>` : ""}
+          ${canRemoveFromBill ? `<button type="button" class="ghost-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}">Remove Item</button>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td class="bill-final-gw-cell"><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
