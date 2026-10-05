@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v677";
+const APP_VERSION = "v678";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -410,6 +410,7 @@ let mergeSelectedJobNumbers = new Set();
 let mergeJobMode = "family";
 let moveSelectedOrderIds = new Set();
 let moveItemsSourceJobNumber = "";
+let moveItemDestinationJobs = [];
 let catalogueItems = [];
 let catalogueSelection = new Set();
 let catalogueSelectionQuantities = new Map();
@@ -603,6 +604,7 @@ const operationTileConfigs = {
   ],
   safe: [
     { id: "items", title: "Item Safe Lockers", description: "View 9K, 14K, 18K, 22K item lockers", selector: ".safe-locker-panel" },
+    { id: "non-gold", title: "Non-Gold Shelf", description: "Add, issue, reconcile, and trace every non-gold gram", selector: ".safe-non-gold-panel" },
     { id: "metal", title: "Metal Safe / Office In", description: "Receive raw metal and view metal safe ledger", selector: ".metal-safe-panel" },
   ],
   factory: [
@@ -903,6 +905,7 @@ document.getElementById("merge-job-cards-form")?.addEventListener("submit", merg
 document.getElementById("move-job-items-form")?.addEventListener("submit", mergeSelectedItemsIntoJobCard);
 document.getElementById("close-move-job-items")?.addEventListener("click", closeMoveSelectedJobItemsDialog);
 document.getElementById("cancel-move-job-items")?.addEventListener("click", closeMoveSelectedJobItemsDialog);
+document.getElementById("move-job-items-target-search")?.addEventListener("input", renderMoveItemDestinationOptions);
 
 document.querySelectorAll("[data-design-page]").forEach((button) => {
   button.addEventListener("click", () => switchDesignPage(button.dataset.designPage));
@@ -2105,7 +2108,7 @@ document.getElementById("safe-item-form").addEventListener("submit", (event) => 
     alert("Wax stone plus non-gold weight cannot be more than Safe Locker GW.");
     return;
   }
-  addSafeItem({
+  const savedSafeItem = addSafeItem({
     date: today(),
     locker: data.locker,
     purity: data.locker,
@@ -2115,6 +2118,9 @@ document.getElementById("safe-item-form").addEventListener("submit", (event) => 
     nonGoldCategory,
     nonGoldBreakdown,
     nonGoldWeight,
+    receivedNonGoldBreakdown: safeKind === "non-gold" ? nonGoldBreakdown : {},
+    receivedNonGoldWeight: safeKind === "non-gold" ? nonGoldWeight : 0,
+    nonGoldShelfEntry: safeKind === "non-gold",
     nonGoldWeightKnown,
     colour: data.colour,
     grossWeight,
@@ -2123,11 +2129,44 @@ document.getElementById("safe-item-form").addEventListener("submit", (event) => 
     status: "In Safe",
     sourceType: "manual",
   });
+  if (safeKind === "non-gold" && savedSafeItem && nonGoldWeight > 0.0005) {
+    const auditEvents = Object.entries(normalizeNonGoldControlBreakdown(nonGoldBreakdown)).map(([materialType, weight]) => recordNonGoldAuditEvent({
+      action: "Stock In",
+      materialType,
+      weight,
+      purity: data.locker,
+      fromLocation: data.source || "Manual Safe Entry",
+      toLocation: `${data.locker} Non-Gold Shelf`,
+      status: "Available",
+      reference: data.description,
+      sourceType: "non-gold-shelf-entry",
+      sourceId: savedSafeItem.id,
+    }));
+    savedSafeItem.nonGoldAuditEventId = auditEvents[0]?.id || "";
+  }
   form.reset();
   updateSafeItemEntryMode(form);
   syncSafeEntryLockerWithFilter(document.getElementById("safe-locker-filter")?.value || "");
   saveState();
   render();
+});
+
+document.getElementById("non-gold-shelf-form")?.addEventListener("submit", saveNonGoldShelfEntry);
+document.getElementById("safe-non-gold-search")?.addEventListener("input", debounceInput(renderSafeNonGoldSummary, 120));
+document.getElementById("safe-non-gold-purity")?.addEventListener("change", renderSafeNonGoldSummary);
+document.getElementById("safe-non-gold-material")?.addEventListener("change", renderSafeNonGoldSummary);
+document.getElementById("safe-non-gold-refresh")?.addEventListener("click", renderSafeNonGoldSummary);
+document.getElementById("safe-non-gold-add-focus")?.addEventListener("click", () => {
+  const form = document.getElementById("non-gold-shelf-form");
+  form?.scrollIntoView({ behavior: "smooth", block: "start" });
+  form?.querySelector('[name="weight"]')?.focus();
+});
+document.getElementById("safe-non-gold-summary")?.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-safe-non-gold-material]");
+  if (!card) return;
+  const filter = document.getElementById("safe-non-gold-material");
+  if (filter) filter.value = filter.value === card.dataset.safeNonGoldMaterial ? "" : card.dataset.safeNonGoldMaterial;
+  renderSafeNonGoldSummary();
 });
 
 document.getElementById("metal-safe-form").addEventListener("submit", (event) => {
@@ -5107,7 +5146,7 @@ function canMergeSplitJobCards() {
 
 function requireMergeSplitJobCardsPermission() {
   if (canMergeSplitJobCards()) return true;
-  alert("Only Owner, Manager, or Order Dept can merge split Job Cards.");
+  alert("Only Owner, Manager, or Order Dept can split, merge, or transfer Job Card items.");
   return false;
 }
 
@@ -13396,7 +13435,7 @@ function addSafeItem(item) {
   const waxStoneWeight = Number(weight3(item.waxStoneWeight ?? Math.max(grossWeight - nonGoldWeight - Number(item.netWeight ?? grossWeight - nonGoldWeight), 0)));
   const netWeight = Number(weight3(item.netWeight ?? safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight)));
   const createdAt = item.createdAt || new Date().toISOString();
-  state.safeItems.unshift({
+  const safeItem = {
     id: item.id || crypto.randomUUID(),
     date: item.date || today(),
     createdAt,
@@ -13405,6 +13444,7 @@ function addSafeItem(item) {
     purity: item.purity || item.locker || "",
     description: item.description || "",
     source: item.source || "",
+    reference: item.reference || "",
     sourceType: item.sourceType || "",
     sourceId: item.sourceId || "",
     sourceSafeItemId: item.sourceSafeItemId || "",
@@ -13418,6 +13458,11 @@ function addSafeItem(item) {
     nonGoldBreakdown,
     nonGoldWeight,
     nonGoldWeightKnown,
+    receivedNonGoldBreakdown: normalizeNonGoldBreakdown(item.receivedNonGoldBreakdown, nonGoldCategory, item.receivedNonGoldWeight ?? nonGoldWeight),
+    receivedNonGoldWeight: Number(weight3(item.receivedNonGoldWeight ?? nonGoldWeight)),
+    nonGoldShelfEntry: Boolean(item.nonGoldShelfEntry),
+    nonGoldAuditEventId: item.nonGoldAuditEventId || "",
+    pieces: Math.max(0, Number(item.pieces || 0)),
     grossWeight,
     initialGrossWeight: Number(weight3(item.initialGrossWeight ?? grossWeight)),
     waxStoneWeight,
@@ -13426,7 +13471,9 @@ function addSafeItem(item) {
     status: item.status || "In Safe",
     outDate: item.outDate || "",
     remarks: item.remarks || "",
-  });
+  };
+  state.safeItems.unshift(safeItem);
+  return safeItem;
 }
 
 function safeWastageTransferEligibleItem(item = {}) {
@@ -17275,6 +17322,9 @@ function syncMeltingIssueRecords(melting) {
 
 function syncMeltingReceiveRecords(melting) {
   state.ledger = state.ledger || [];
+  state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) =>
+    !(entry.sourceType === "casting-wax-recognition" && entry.sourceId === melting.id)
+  );
   const receiveBreakup = melting.receiveBreakup || {};
   const grossReceivedWeight = melting.grossReceivedWeight ?? meltingReceiveGrossWeight(receiveBreakup, melting);
   const waxStoneWeight = meltingReceiveWaxStoneWeight(receiveBreakup);
@@ -17301,6 +17351,22 @@ function syncMeltingReceiveRecords(melting) {
     });
   }
   syncMeltingReceiveSafeItems(melting);
+  if (!isMeltingDepartmentReceive(melting) && waxStoneWeight > 0.0005) {
+    const purity = safeLockerForPurity(melting.targetPurity || meltingBatchPurityLabel(melting) || "18K");
+    recordNonGoldAuditEvent({
+      action: "Casting Recognition",
+      materialType: "stone",
+      weight: waxStoneWeight,
+      purity,
+      fromLocation: "Casting Wax Setting",
+      toLocation: `${purity} Casting / Embedded Shelf`,
+      department: melting.departmentName || "Casting Department",
+      status: "Embedded",
+      reference: `${batchName} / Wax stone automatically recognized from Casting Receive`,
+      sourceType: "casting-wax-recognition",
+      sourceId: melting.id,
+    });
+  }
 }
 
 function deleteMeltingEntry(meltingId) {
@@ -17317,6 +17383,9 @@ function deleteMeltingEntry(meltingId) {
   restoreMeltingRodIssues(cloneMeltingSourceMetals(melting.sourceMetals), melting.id, "Melting entry deleted");
   removeMeltingIssueRecords(melting.id);
   state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== melting.id);
+  state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) =>
+    !(entry.sourceType === "casting-wax-recognition" && entry.sourceId === melting.id)
+  );
   state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "melting-receive" && item.sourceId === melting.id));
   removeCastingFittingItemsJobCards(melting);
   state.melting = (state.melting || []).filter((item) => item.id !== melting.id);
@@ -17877,19 +17946,56 @@ function applyJobCardMergeWeightPolicy({
 }
 
 function moveJobItemDestinationJobs(sourceJobNumber = "") {
-  const family = mergeJobFamily(sourceJobNumber);
-  return (family?.jobs || [])
-    .filter((job) => job.jobNumber !== sourceJobNumber)
-    .sort(compareJobOrderFamilyMembers);
+  return groupedJobOrders()
+    .filter((job) => job.jobNumber && job.jobNumber !== sourceJobNumber)
+    .sort((left, right) => {
+      const leftCompleted = left.orders?.every(isCompletedOrder) ? 1 : 0;
+      const rightCompleted = right.orders?.every(isCompletedOrder) ? 1 : 0;
+      if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+      return String(right.jobNumber).localeCompare(String(left.jobNumber), undefined, { numeric: true });
+    });
+}
+
+function moveItemDestinationSearchText(job = {}) {
+  return normalizeSearchText([
+    job.jobNumber,
+    job.customer,
+    job.categories,
+    job.status,
+    ...(job.orders || []).flatMap((order) => [
+      order.productionNo,
+      order.designNumber,
+      order.designNo,
+      order.item,
+      order.category,
+    ]),
+  ].filter(Boolean).join(" "));
+}
+
+function renderMoveItemDestinationOptions() {
+  const targetSelect = document.getElementById("move-job-items-target");
+  if (!targetSelect) return;
+  const query = normalizeSearchText(document.getElementById("move-job-items-target-search")?.value || "");
+  const previousValue = targetSelect.value;
+  const matches = moveItemDestinationJobs
+    .filter((job) => !query || moveItemDestinationSearchText(job).includes(query))
+    .slice(0, 250);
+  targetSelect.innerHTML = matches.length
+    ? matches.map((job) => `
+      <option value="${escapeHtml(job.jobNumber)}">${escapeHtml(mergeJobLabel(job))}</option>
+    `).join("")
+    : '<option value="">No matching Job Card</option>';
+  if (matches.some((job) => job.jobNumber === previousValue)) targetSelect.value = previousValue;
 }
 
 function closeMoveSelectedJobItemsDialog() {
   document.getElementById("move-job-items-dialog")?.close();
   moveSelectedOrderIds.clear();
   moveItemsSourceJobNumber = "";
+  moveItemDestinationJobs = [];
 }
 
-function openMoveSelectedJobItemsDialog() {
+function openMoveSelectedJobItemsDialog(requestedOrderIds = []) {
   if (!requireMergeSplitJobCardsPermission()) return;
   const currentOrderId = document.getElementById("update-order-form")?.orderId?.value || "";
   const currentOrder = findById("orders", currentOrderId);
@@ -17899,36 +18005,35 @@ function openMoveSelectedJobItemsDialog() {
   }
   const sourceJobNumber = mergeJobNumber(currentOrder);
   const sourceOrderIds = new Set(getJobOrders(currentOrder).map((order) => order.id));
-  const selectedIds = selectedJobSplitIds().filter((orderId) => sourceOrderIds.has(orderId));
+  const requestedIds = Array.isArray(requestedOrderIds) ? requestedOrderIds : [];
+  const selectedIds = (requestedIds.length ? requestedIds : selectedJobSplitIds())
+    .filter((orderId) => sourceOrderIds.has(orderId));
   if (!selectedIds.length) {
     alert("Select one or more PR items first.");
     return;
   }
   const destinations = moveJobItemDestinationJobs(sourceJobNumber);
   if (!destinations.length) {
-    alert(`No related main or child Job Card is available for ${sourceJobNumber}. Create a split child Job Card first.`);
+    alert(`No other Job Card is available for ${sourceJobNumber}. Create the destination Job Card first.`);
     return;
   }
   moveItemsSourceJobNumber = sourceJobNumber;
   moveSelectedOrderIds = new Set(selectedIds);
+  moveItemDestinationJobs = destinations;
   const sourceInput = document.getElementById("move-job-items-source");
   const targetSelect = document.getElementById("move-job-items-target");
-  const weightModeSelect = document.getElementById("move-job-items-weight-mode");
+  const targetSearch = document.getElementById("move-job-items-target-search");
   const summary = document.getElementById("move-job-items-summary");
   const holder = document.getElementById("move-job-items-selected-list");
   const weightSummary = document.getElementById("move-job-items-weight-summary");
   if (sourceInput) sourceInput.value = sourceJobNumber;
-  if (targetSelect) {
-    targetSelect.innerHTML = destinations.map((job) => `
-      <option value="${escapeHtml(job.jobNumber)}">${escapeHtml(jobOrderFamilyRole(job))} / ${escapeHtml(mergeJobLabel(job))}</option>
-    `).join("");
-  }
-  if (weightModeSelect) weightModeSelect.value = "";
+  if (targetSearch) targetSearch.value = "";
+  renderMoveItemDestinationOptions();
   const selectedOrders = selectedIds.map((orderId) => findById("orders", orderId)).filter(Boolean);
   const sourceNumbers = new Set([sourceJobNumber]);
   const selectedWeightSummary = jobCardMergeWeightSnapshot(selectedOrders, sourceNumbers);
   if (summary) summary.textContent = `${selectedOrders.length} item${selectedOrders.length === 1 ? "" : "s"} selected from ${sourceJobNumber}`;
-  if (weightSummary) weightSummary.textContent = `Available to add: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}. Choose Yes or No before merging.`;
+  if (weightSummary) weightSummary.textContent = `Linked physical values remain unchanged: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}.`;
   if (holder) {
     holder.innerHTML = selectedOrders.map((order) => `
       <span class="selected-design-chip job-split-selected-chip"><b>${escapeHtml(jobSplitItemLabel(order))}</b></span>
@@ -17936,6 +18041,15 @@ function openMoveSelectedJobItemsDialog() {
   }
   const dialog = document.getElementById("move-job-items-dialog");
   if (dialog && !dialog.open) dialog.showModal();
+}
+
+function openSingleJobItemTransfer(orderId = "") {
+  const order = findById("orders", orderId);
+  if (!order) {
+    alert("This PR item is no longer available.");
+    return;
+  }
+  openMoveSelectedJobItemsDialog([order.id]);
 }
 
 function explicitOrderIdsForJobReference(record = {}) {
@@ -17983,28 +18097,22 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const submitButton = document.getElementById("confirm-move-job-items");
   const sourceJobNumber = moveItemsSourceJobNumber;
   const targetJobNumber = form.targetJobNumber.value;
-  const weightMode = normalizedJobCardMergeWeightMode(form.weightMode.value);
+  const weightMode = "items-only";
   const sourceOrders = state.orders.filter((order) => mergeJobNumber(order) === sourceJobNumber);
   const sourceOrderIds = new Set(sourceOrders.map((order) => order.id));
   const selectedOrderIds = new Set([...moveSelectedOrderIds].filter((orderId) => sourceOrderIds.has(orderId)));
   const selectedOrders = sourceOrders.filter((order) => selectedOrderIds.has(order.id));
   const destinationOrders = state.orders.filter((order) => mergeJobNumber(order) === targetJobNumber);
-  const destinationFamily = mergeJobFamily(sourceJobNumber);
-  const familyJobNumbers = new Set((destinationFamily?.jobs || []).map((job) => job.jobNumber));
   if (!sourceJobNumber || !targetJobNumber || sourceJobNumber === targetJobNumber) {
-    alert("Choose another related Job Card as the destination.");
-    return;
-  }
-  if (!weightMode) {
-    alert("Choose whether GW, stone and non-gold weights should be added to the destination Job Card.");
+    alert("Choose another Job Card as the destination.");
     return;
   }
   if (!selectedOrders.length) {
     alert("The selected PR items are no longer available in this Job Card. Reopen it and select the items again.");
     return;
   }
-  if (!destinationOrders.length || !familyJobNumbers.has(targetJobNumber)) {
-    alert("The destination must be the main Job Card or a child Job Card from the same split family.");
+  if (!destinationOrders.length || !moveItemDestinationJobs.some((job) => job.jobNumber === targetJobNumber)) {
+    alert("The destination Job Card is no longer available. Search and select it again.");
     return;
   }
   const sourceNumbers = new Set([sourceJobNumber]);
@@ -18019,16 +18127,15 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const sourceResult = sourceWillBeEmpty
     ? `${sourceJobNumber} will close because all of its items are moving.`
     : `${sourceJobNumber} will keep ${sourceOrders.length - selectedOrders.length} item(s).`;
-  const weightDecision = weightMode === "add"
-    ? `ADD TO ${targetJobNumber}: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}`
-    : `DO NOT ADD WEIGHTS: ${jobCardMergeWeightSummaryText(selectedWeightSummary)}`;
-  if (!confirm(`Merge ${selectedOrders.length} selected item(s) into ${targetJobNumber}?\n\nPR: ${selectedLabels}\n${sourceResult}\n\n${weightDecision}\n\nProduction stock will not be duplicated. PR numbers, departments, transfers, bills, and item status remain unchanged.`)) return;
+  if (!confirm(`Transfer ${selectedOrders.length} selected item(s) from ${sourceJobNumber} to ${targetJobNumber}?\n\nPR: ${selectedLabels}\n${sourceResult}\n\nOnly the Job Card number will change. PR numbers, weights, departments, transfers, bills, and item status remain unchanged.`)) return;
 
   const rollback = {
     orders: structuredClone(state.orders || []),
     lots: structuredClone(state.lots || []),
     bills: structuredClone(state.bills || []),
     safeItems: structuredClone(state.safeItems || []),
+    safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+    safeDepartmentReturns: structuredClone(state.safeDepartmentReturns || []),
     productionNonGoldIssues: structuredClone(state.productionNonGoldIssues || []),
     settingManagerEntries: structuredClone(state.settingManagerEntries || []),
     factoryLedger: structuredClone(state.factoryLedger || []),
@@ -18036,7 +18143,6 @@ async function mergeSelectedItemsIntoJobCard(event) {
   };
   const movedAt = new Date().toISOString();
   const movedBy = currentUser?.name || currentUser?.id || "ERP User";
-  const familyRoot = destinationFamily?.root || splitJobRootNumber(sourceJobNumber);
   const appliedWeightSummary = applyJobCardMergeWeightPolicy({
     sourceJobNumbers: sourceNumbers,
     targetJobNumber,
@@ -18045,12 +18151,22 @@ async function mergeSelectedItemsIntoJobCard(event) {
     weightMode,
     movedAt,
   });
+  jobCardMergeLinkedLots(selectedOrderIds).forEach((lot) => {
+    const linkedOrderIds = getLotOrderIds(lot);
+    const stillSharedWithSource = linkedOrderIds.some((orderId) => sourceOrderIds.has(orderId) && !selectedOrderIds.has(orderId));
+    if (!stillSharedWithSource) lot.jobCardWeightOwner = targetJobNumber;
+    lot.jobCardWeightMergeMode = "transfer";
+    lot.jobCardWeightMergeUpdatedAt = movedAt;
+  });
   selectedOrders.forEach((order) => {
     order.movedFromJobNumbers = [...new Set([...(order.movedFromJobNumbers || []), sourceJobNumber])];
     order.jobNumber = targetJobNumber;
-    if (targetJobNumber !== familyRoot && !order.splitFromJobNumber) order.splitFromJobNumber = familyRoot;
     order.lastJobCardItemMoveAt = movedAt;
     order.lastJobCardItemMoveBy = movedBy;
+    order.lastJobCardItemMoveFrom = sourceJobNumber;
+    order.lastJobCardItemMoveTo = targetJobNumber;
+    order.jobCardWeightOwner = targetJobNumber;
+    order.jobCardMergeWeightMode = "transfer";
   });
 
   (state.lots || []).filter((lot) => !lot.manualResetHistoricalAt && !lot.inventoryResetArchivedAt).forEach((lot) => {
@@ -18081,9 +18197,19 @@ async function mergeSelectedItemsIntoJobCard(event) {
     bill.jobCardItemsMovedAt = movedAt;
     bill.jobCardItemsMovedFrom = sourceJobNumber;
     bill.jobCardItemsMovedTo = targetJobNumber;
+    (bill.items || []).forEach((item) => {
+      if (!selectedOrderIds.has(item.orderId)) return;
+      item.jobNumber = targetJobNumber;
+      item.orderNumber = targetJobNumber;
+      item.jobCardItemsMovedAt = movedAt;
+      item.jobCardItemsMovedFrom = sourceJobNumber;
+      item.jobCardItemsMovedTo = targetJobNumber;
+    });
   });
   [
     state.safeItems,
+    state.safeDepartmentIssues,
+    state.safeDepartmentReturns,
     state.productionNonGoldIssues,
     state.settingManagerEntries,
     state.factoryLedger,
@@ -18095,14 +18221,14 @@ async function mergeSelectedItemsIntoJobCard(event) {
     : { count: 0, skipped: 0, sourceLotNumbers: [], targetLotNumbers: [], reasons: [] };
   const settingWeightSyncCount = syncSettingEntriesForUpdatedStoneOrders(
     [...destinationOrders, ...selectedOrders],
-    `Job Card item merge ${sourceJobNumber} to ${targetJobNumber}`,
+    `Job Card item transfer ${sourceJobNumber} to ${targetJobNumber}`,
   );
   state.ledger = state.ledger || [];
   state.ledger.unshift({
     id: crypto.randomUUID(),
     date: today(),
     createdAt: movedAt,
-    type: "Job Card Item Merge",
+    type: "Job Card Item Transfer",
     purity: "-",
     weight: 0,
     jobNumber: targetJobNumber,
@@ -18117,7 +18243,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
     settingLotsRejoinedFrom: settingLotRejoinResult.sourceLotNumbers,
     settingLotsRejoinedInto: settingLotRejoinResult.targetLotNumbers,
     settingWeightSyncCount,
-    reference: `${selectedOrders.length} selected item(s) moved from ${sourceJobNumber} to ${targetJobNumber}; ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingLotRejoinResult.count} eligible Setting sub-lot(s) rejoined; ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; physical production stock preserved.`,
+    reference: `${selectedOrders.length} selected item(s) transferred from ${sourceJobNumber} to ${targetJobNumber}; PR identity and physical production stock preserved (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized.`,
   });
 
   if (submitButton) {
@@ -18129,7 +18255,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
     Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
     if (submitButton) {
       submitButton.disabled = false;
-      submitButton.textContent = "Merge Selected Items";
+      submitButton.textContent = "Transfer Selected Item";
     }
     return;
   }
@@ -18145,7 +18271,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
   openJobOrder(targetJobNumber, "all");
   if (submitButton) {
     submitButton.disabled = false;
-    submitButton.textContent = "Merge Selected Items";
+    submitButton.textContent = "Transfer Selected Item";
   }
   const cloudMessage = savedToCloud
     ? "Saved on this laptop and confirmed in Supabase cloud."
@@ -18156,7 +18282,7 @@ async function mergeSelectedItemsIntoJobCard(event) {
   const settingPendingMessage = settingLotRejoinResult.skipped
     ? `${settingLotRejoinResult.skipped} Setting sub-lot(s) remain separate because they are still with a setter or cannot be safely combined.\n`
     : "";
-  alert(`${selectedOrders.length} item(s) merged into ${targetJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingRejoinMessage}${settingPendingMessage}${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}All PR numbers and production history were preserved. ${sourceResult}\n\n${cloudMessage}`);
+  alert(`${selectedOrders.length} item(s) transferred to ${targetJobNumber}.\n\nPR numbers, weights, production status, and full history were preserved.\n${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were synchronized.\n` : ""}${sourceResult}\n\n${cloudMessage}`);
 }
 
 function splitLotNetWeight(grossWeight, waxStoneWeight = 0, handStoneWeight = 0) {
@@ -18580,6 +18706,9 @@ function jobItemDetailHtml(order) {
         ${jobItemDetailCell("Order Status", order.status || "-")}
         ${order.splitFromJobNumber ? jobItemDetailCell("Split From", order.splitFromJobNumber) : ""}
         ${order.splitDate ? jobItemDetailCell("Split Date", order.splitDate) : ""}
+        ${order.lastJobCardItemMoveFrom ? jobItemDetailCell("Transferred From Job Card", order.lastJobCardItemMoveFrom) : ""}
+        ${order.lastJobCardItemMoveAt ? jobItemDetailCell("Job Card Transfer Time", transferHistoryDateTime(order.lastJobCardItemMoveAt, order.lastJobCardItemMoveAt)) : ""}
+        ${order.lastJobCardItemMoveBy ? jobItemDetailCell("Job Card Transfer By", order.lastJobCardItemMoveBy) : ""}
         ${jobItemDetailCell("Urgent", order.urgent ? "Yes" : "No")}
         ${jobItemDetailCell("Customer", order.customer || "-")}
         ${jobItemDetailCell("Order Type", manufacturingOrderTypeLabel(order.customer || "-"))}
@@ -18642,6 +18771,7 @@ function jobItemDetailActionsHtml(order = {}) {
       <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
       <button type="button" onclick="openJobItemFittingAccessoryDialog('${escapeHtml(order.id)}')">Add Fitting Accessory</button>
       <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
+      ${canMergeSplitJobCards() ? `<button type="button" onclick="openSingleJobItemTransfer('${escapeHtml(order.id)}')">Transfer To Another Job Card</button>` : ""}
       <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
     </div>
   `;
@@ -33520,6 +33650,8 @@ function nonGoldControlBalanceRows() {
       rows.set(key, {
         materialType: material,
         purity: purityLabel,
+        safeLoose: 0,
+        safeEmbedded: 0,
         safe: 0,
         departmentLoose: 0,
         wipUnallocated: 0,
@@ -33539,7 +33671,11 @@ function nonGoldControlBalanceRows() {
 
   (state.safeItems || [])
     .filter((item) => item.status !== "Out")
-    .forEach((item) => addBreakdown("safe", safeItemDesiredPurity(item) || item.locker || item.purity, safeItemFactoryNonGoldBreakdown(item)));
+    .forEach((item) => addBreakdown(
+      safeItemKind(item) === "non-gold" ? "safeLoose" : "safeEmbedded",
+      safeItemDesiredPurity(item) || item.locker || item.purity,
+      safeItemFactoryNonGoldBreakdown(item),
+    ));
 
   const allocation = trackedNonGoldStockAllocation();
   (allocation.pools || []).forEach((pool) => {
@@ -33570,7 +33706,8 @@ function nonGoldControlBalanceRows() {
 
   return [...rows.values()].map((row) => ({
     ...row,
-    totalFactory: Number(weight3(row.safe + row.departmentLoose + row.wipUnallocated + row.itemAllocated + row.billPending)),
+    safe: Number(weight3(row.safeLoose + row.safeEmbedded)),
+    totalFactory: Number(weight3(row.safeLoose + row.safeEmbedded + row.departmentLoose + row.wipUnallocated + row.itemAllocated + row.billPending)),
   })).filter((row) => row.totalFactory > 0.0005 || row.unmatched > 0.0005)
     .sort((left, right) => NON_GOLD_CONTROL_MATERIALS.indexOf(left.materialType) - NON_GOLD_CONTROL_MATERIALS.indexOf(right.materialType)
       || puritySortValue(right.purity) - puritySortValue(left.purity));
@@ -33579,6 +33716,7 @@ function nonGoldControlBalanceRows() {
 function nonGoldControlLedgerEntries() {
   const entries = [...(state.nonGoldAuditEvents || []).map(normalizeNonGoldAuditEvent)];
   const auditedSourceKeys = new Set(entries.map((entry) => `${entry.sourceType}|${entry.sourceId}|${entry.materialType}`));
+  const auditedSourceIds = new Set(entries.map((entry) => entry.sourceId).filter(Boolean));
   const push = (entry) => {
     const normalized = normalizeNonGoldAuditEvent(entry);
     const key = `${normalized.sourceType}|${normalized.sourceId}|${normalized.materialType}`;
@@ -33586,6 +33724,30 @@ function nonGoldControlLedgerEntries() {
     auditedSourceKeys.add(key);
     entries.push(normalized);
   };
+
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemFactoryNonGoldWeight(item) > 0.0005)
+    .filter((item) => !item.nonGoldAuditEventId && !auditedSourceIds.has(item.id) && !auditedSourceIds.has(item.sourceId))
+    .forEach((item) => {
+      const looseStock = safeItemKind(item) === "non-gold";
+      Object.entries(normalizeNonGoldControlBreakdown(safeItemFactoryNonGoldBreakdown(item))).forEach(([materialType, weight]) => push({
+        id: `legacy-safe-balance-${item.id}-${materialType}`,
+        date: item.date,
+        createdAt: item.createdAt,
+        action: "Existing Shelf Balance",
+        materialType,
+        weight,
+        purity: safeItemDesiredPurity(item) || item.locker || item.purity,
+        fromLocation: item.source || "Existing ERP Stock",
+        toLocation: looseStock
+          ? `${safeLockerForPurity(item.locker || item.purity)} Non-Gold Shelf`
+          : `${safeLockerForPurity(item.locker || item.purity)} Casting / Embedded Shelf`,
+        status: looseStock ? "Available" : "Embedded",
+        reference: item.description || item.reference || item.remarks,
+        sourceType: "legacy-safe-balance",
+        sourceId: item.id,
+      }));
+    });
 
   (state.safeDepartmentIssues || [])
     .map((issue) => normalizeSafeDepartmentIssue(issue, issue.safeItemId ? findById("safeItems", issue.safeItemId) || {} : {}))
@@ -42961,29 +43123,211 @@ function openWastagePoolInMelting(encodedGroupId = "") {
   updateMeltingCalculation();
 }
 
-function renderSafeNonGoldSummary(lockerFilter = "") {
+function safeNonGoldShelfFilters() {
+  return {
+    query: normalizeSearchText(document.getElementById("safe-non-gold-search")?.value || ""),
+    purity: document.getElementById("safe-non-gold-purity")?.value || "",
+    materialType: document.getElementById("safe-non-gold-material")?.value || "",
+  };
+}
+
+function saveNonGoldShelfEntry(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = getFormData(form);
+  const materialType = normalizeNonGoldControlMaterial(data.materialType);
+  const weight = Number(weight3(Math.max(Number(data.weight || 0), 0)));
+  if (weight <= 0) {
+    alert("Enter a non-gold weight greater than zero.");
+    form.weight.focus();
+    return;
+  }
+  const karat = safeLockerForPurity(data.karat || "18K");
+  const itemId = crypto.randomUUID();
+  const breakdown = { [materialType]: weight };
+  const item = addSafeItem({
+    id: itemId,
+    date: today(),
+    locker: karat,
+    purity: karat,
+    desiredPurity: karatLogicPurity(karat),
+    description: data.description,
+    source: data.source,
+    reference: data.reference,
+    remarks: data.remarks,
+    pieces: Number(data.pieces || 0),
+    safeKind: "non-gold",
+    nonGoldCategory: materialType,
+    nonGoldBreakdown: breakdown,
+    nonGoldWeight: weight,
+    receivedNonGoldBreakdown: breakdown,
+    receivedNonGoldWeight: weight,
+    nonGoldWeightKnown: true,
+    grossWeight: weight,
+    waxStoneWeight: 0,
+    netWeight: 0,
+    status: "In Safe",
+    sourceType: "non-gold-shelf-entry",
+    nonGoldShelfEntry: true,
+  });
+  const audit = recordNonGoldAuditEvent({
+    action: "Stock In",
+    materialType,
+    weight,
+    purity: karat,
+    fromLocation: data.source || "Outside / Opening Stock",
+    toLocation: `${karat} Non-Gold Shelf`,
+    status: "Available",
+    reference: [data.description, data.reference, data.remarks].filter(Boolean).join(" / "),
+    sourceType: "non-gold-shelf-entry",
+    sourceId: itemId,
+  });
+  if (item) item.nonGoldAuditEventId = audit.id;
+  form.reset();
+  form.karat.value = karat;
+  saveState({
+    context: `Non-Gold Shelf Stock In ${productionNonGoldMaterialLabel(materialType)} ${gram(weight)}`,
+    changedStateKeys: ["safeItems", "nonGoldAuditEvents"],
+  });
+  renderSafe();
+  alert(`${productionNonGoldMaterialLabel(materialType)} ${gram(weight)} added to the ${karat} Non-Gold Shelf.`);
+}
+
+function renderSafeNonGoldSummary() {
   const container = document.getElementById("safe-non-gold-summary");
   if (!container) return;
-  const categories = PRODUCTION_NON_GOLD_TYPES.map((type) => {
-    const items = (state.safeItems || []).filter((item) =>
-      item.status !== "Out"
-      && Number(safeItemNonGoldBreakdown(item)[type.value] || 0) > 0
-      && (!lockerFilter || safeLockerForPurity(item.locker || item.purity) === lockerFilter)
-    );
-    return {
-      ...type,
-      items,
-      nonGoldWeight: Number(weight3(items.reduce((total, item) => total + Number(safeItemNonGoldBreakdown(item)[type.value] || 0), 0))),
-    };
+  const filters = safeNonGoldShelfFilters();
+  const rows = nonGoldControlBalanceRows();
+  const categories = NON_GOLD_CONTROL_MATERIALS.map((materialType) => {
+    const materialRows = rows.filter((row) => row.materialType === materialType);
+    return materialRows.reduce((summary, row) => ({
+      ...summary,
+      safeLoose: Number(weight3(summary.safeLoose + Number(row.safeLoose || 0))),
+      safeEmbedded: Number(weight3(summary.safeEmbedded + Number(row.safeEmbedded || 0))),
+      departmentLoose: Number(weight3(summary.departmentLoose + Number(row.departmentLoose || 0))),
+      wip: Number(weight3(summary.wip + Number(row.wipUnallocated || 0) + Number(row.itemAllocated || 0))),
+      billPending: Number(weight3(summary.billPending + Number(row.billPending || 0))),
+      totalFactory: Number(weight3(summary.totalFactory + Number(row.totalFactory || 0))),
+      unmatched: Number(weight3(summary.unmatched + Number(row.unmatched || 0))),
+    }), {
+      materialType,
+      safeLoose: 0,
+      safeEmbedded: 0,
+      departmentLoose: 0,
+      wip: 0,
+      billPending: 0,
+      totalFactory: 0,
+      unmatched: 0,
+    });
   });
+  const totalFactory = Number(weight3(categories.reduce((total, category) => total + category.totalFactory, 0)));
+  const totalUnmatched = Number(weight3(categories.reduce((total, category) => total + category.unmatched, 0)));
+  const totalElement = document.getElementById("safe-non-gold-total");
+  if (totalElement) totalElement.textContent = gram(totalFactory);
+  const totalNote = document.getElementById("safe-non-gold-total-note");
+  if (totalNote) totalNote.textContent = totalUnmatched > 0.0005
+    ? `${gram(totalUnmatched)} requires a matching shelf source or material correction.`
+    : "All current non-gold demand has a matching category-and-karat source.";
+  const alertBox = document.getElementById("safe-non-gold-alert");
+  if (alertBox) {
+    alertBox.hidden = totalUnmatched <= 0.0005;
+    alertBox.textContent = totalUnmatched > 0.0005
+      ? `ACTION REQUIRED: ${gram(totalUnmatched)} is unmatched. Add the correct opening shelf stock or correct its material/karat source.`
+      : "";
+  }
   container.innerHTML = categories.map((category) => `
-    <article class="safe-non-gold-summary-card">
-      <span>${escapeHtml(category.label)}</span>
-      <strong>${gram(category.nonGoldWeight)}</strong>
-      <small>Available component weight</small>
-      <small>${category.items.length} shelf entr${category.items.length === 1 ? "y" : "ies"}</small>
-    </article>
+    <button class="safe-non-gold-summary-card ${filters.materialType === category.materialType ? "active" : ""}" type="button" data-safe-non-gold-material="${escapeHtml(category.materialType)}">
+      <span>${escapeHtml(productionNonGoldMaterialLabel(category.materialType))}</span>
+      <strong>${gram(category.totalFactory)}</strong>
+      <small>Loose ${gram(category.safeLoose)} / Casting Shelf ${gram(category.safeEmbedded)}</small>
+      <small>Dept ${gram(category.departmentLoose)} / WIP ${gram(category.wip)} / Bill ${gram(category.billPending)}</small>
+      ${category.unmatched > 0.0005 ? `<em>Unmatched ${gram(category.unmatched)}</em>` : ""}
+    </button>
   `).join("");
+
+  const filteredRows = rows.filter((row) => {
+    if (filters.materialType && row.materialType !== filters.materialType) return false;
+    if (filters.purity && karatPurityKey(row.purity) !== karatPurityKey(filters.purity)) return false;
+    if (!filters.query) return true;
+    return normalizeSearchText([productionNonGoldMaterialLabel(row.materialType), row.purity].join(" ")).includes(filters.query);
+  });
+  const balanceTable = document.getElementById("safe-non-gold-balance-table");
+  if (balanceTable) balanceTable.innerHTML = filteredRows.length ? filteredRows.map((row) => `
+    <tr class="${row.unmatched > 0.0005 ? "non-gold-unmatched-row" : ""}">
+      <td><strong>${escapeHtml(productionNonGoldMaterialLabel(row.materialType))}</strong></td>
+      <td>${escapeHtml(transferPurityLabel(row.purity))}</td>
+      <td>${gram(row.safeLoose)}</td>
+      <td>${gram(row.safeEmbedded)}</td>
+      <td>${gram(row.departmentLoose)}</td>
+      <td>${gram(row.wipUnallocated)}</td>
+      <td>${gram(row.itemAllocated)}</td>
+      <td>${gram(row.billPending)}</td>
+      <td><strong>${gram(row.totalFactory)}</strong></td>
+      <td>${row.unmatched > 0.0005 ? `<span class="status cancelled">${gram(row.unmatched)}</span>` : gram(0)}</td>
+    </tr>
+  `).join("") : tableEmpty(10, "No non-gold balance matches the selected filters.");
+
+  const shelfItems = (state.safeItems || []).filter((item) => {
+    if (item.status === "Out" || safeItemKind(item) !== "non-gold" || safeItemFactoryNonGoldWeight(item) <= 0.0005) return false;
+    const breakdown = normalizeNonGoldControlBreakdown(safeItemFactoryNonGoldBreakdown(item));
+    if (filters.materialType && Number(breakdown[filters.materialType] || 0) <= 0.0005) return false;
+    if (filters.purity && safeLockerForPurity(item.locker || item.purity) !== safeLockerForPurity(filters.purity)) return false;
+    if (!filters.query) return true;
+    return normalizeSearchText([
+      item.description,
+      item.source,
+      item.reference,
+      item.remarks,
+      nonGoldBreakdownText(breakdown),
+      item.locker,
+    ].join(" ")).includes(filters.query);
+  }).sort((left, right) => transferHistoryTime(right.createdAt, right.date) - transferHistoryTime(left.createdAt, left.date));
+  const stockTable = document.getElementById("safe-non-gold-stock-table");
+  if (stockTable) stockTable.innerHTML = shelfItems.length ? shelfItems.map((item) => {
+    const issueCount = (state.safeDepartmentIssues || []).filter((issue) => issue.safeItemId === item.id).length;
+    return `
+      <tr>
+        <td>${escapeHtml(transferHistoryDateTime(item.date, item.createdAt))}</td>
+        <td>${escapeHtml(safeLockerForPurity(item.locker || item.purity))}</td>
+        <td>${escapeHtml(nonGoldBreakdownText(safeItemFactoryNonGoldBreakdown(item)) || "-")}</td>
+        <td><strong>${escapeHtml(item.description || "Non-Gold Stock")}</strong><br><small>${escapeHtml(item.reference || item.remarks || "-")}</small></td>
+        <td>${escapeHtml(item.source || "-")}</td>
+        <td><strong>${gram(safeItemFactoryNonGoldWeight(item))}</strong>${Number(item.pieces || 0) ? `<br><small>${Number(item.pieces)} pcs</small>` : ""}</td>
+        <td><div class="row-actions"><button type="button" onclick="openSafeIssueToDepartment('${item.id}')">Issue</button>${issueCount ? `<button class="ghost-button" type="button" onclick="openSafeItemIssueHistory('${item.id}')">History (${issueCount})</button>` : ""}</div></td>
+      </tr>
+    `;
+  }).join("") : tableEmpty(7, "No loose non-gold shelf entry matches the selected filters.");
+
+  const ledgerEntries = nonGoldControlLedgerEntries().filter((entry) => {
+    if (filters.materialType && entry.materialType !== filters.materialType) return false;
+    if (filters.purity && karatPurityKey(entry.purity) !== karatPurityKey(filters.purity)) return false;
+    if (!filters.query) return true;
+    return normalizeSearchText([
+      entry.materialType,
+      entry.fromLocation,
+      entry.toLocation,
+      entry.department,
+      entry.jobNumber,
+      entry.lotNumber,
+      entry.productionNo,
+      entry.reference,
+      entry.status,
+    ].join(" ")).includes(filters.query);
+  }).slice(0, 100);
+  const ledgerTable = document.getElementById("safe-non-gold-ledger-table");
+  if (ledgerTable) ledgerTable.innerHTML = ledgerEntries.length ? ledgerEntries.map((entry) => `
+    <tr>
+      <td>${escapeHtml(transferHistoryDateTime(entry.date, entry.createdAt))}</td>
+      <td><strong>${escapeHtml(productionNonGoldMaterialLabel(entry.materialType))}</strong></td>
+      <td>${escapeHtml(transferPurityLabel(entry.purity))}</td>
+      <td>${gram(entry.weight)}</td>
+      <td>${escapeHtml(entry.fromLocation || "-")}</td>
+      <td>${escapeHtml(entry.toLocation || "-")}</td>
+      <td>${escapeHtml([entry.jobNumber || entry.lotNumber, entry.productionNo].filter(Boolean).join(" / ") || "-")}</td>
+      <td><span class="status ${statusClass(entry.status)}">${escapeHtml(entry.status || "Posted")}</span></td>
+      <td>${escapeHtml(entry.reference || "-")}</td>
+    </tr>
+  `).join("") : tableEmpty(9, "No non-gold movement matches the selected filters.");
 }
 
 function renderSafeLockers() {
@@ -43016,7 +43360,8 @@ function renderSafeLockers() {
       </button>
     `).join("");
   }
-  renderSafeNonGoldSummary(filter);
+  const nonGoldShelfOpen = document.querySelector("#safe .safe-non-gold-panel.active-operation-page");
+  if (nonGoldShelfOpen) renderSafeNonGoldSummary();
   renderSafeWastageCollective(filter);
   const shelfContainer = document.getElementById("safe-casting-shelves");
   if (shelfContainer) {
@@ -47812,6 +48157,7 @@ function normalizeState(currentState) {
       purity,
       description: item.description || "",
       source: item.source || "",
+      reference: item.reference || "",
       sourceType: item.sourceType || "",
       sourceId: item.sourceId || "",
       sourceSafeItemId: item.sourceSafeItemId || "",
@@ -47825,6 +48171,15 @@ function normalizeState(currentState) {
       nonGoldBreakdown,
       nonGoldWeight,
       nonGoldWeightKnown,
+      receivedNonGoldBreakdown: normalizeNonGoldBreakdown(
+        item.receivedNonGoldBreakdown,
+        nonGoldCategory,
+        item.receivedNonGoldWeight ?? nonGoldWeight,
+      ),
+      receivedNonGoldWeight: Number(weight3(item.receivedNonGoldWeight ?? nonGoldWeight)),
+      nonGoldShelfEntry: Boolean(item.nonGoldShelfEntry),
+      nonGoldAuditEventId: item.nonGoldAuditEventId || "",
+      pieces: Math.max(0, Number(item.pieces || 0)),
       grossWeight,
       initialGrossWeight: item.initialGrossWeight === undefined || item.initialGrossWeight === null
         ? null

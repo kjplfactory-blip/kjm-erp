@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=676">
+      <link rel="stylesheet" href="styles.css?v=678">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v677</small>
+      <small class="app-version-badge">App v678</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v677</span>
+          <span class="app-version-badge">App v678</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -163,7 +163,7 @@
           <article class="metric"><span>Metal Safe</span><strong id="metric-raw">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="metal">Open</button></article>
           <article class="metric"><span>Gold In Production</span><strong id="metric-wip">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="lots">Open</button></article>
           <article class="metric xrf-dashboard-metric"><span>XRF Pending GW</span><strong id="metric-xrf-pending">0 g</strong><button class="metric-open" type="button" data-dashboard-view="melting" data-dashboard-operation="xrf">Open</button></article>
-          <article class="metric"><span>Non-Gold In Factory</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="production" data-dashboard-page="non-gold">Open Details</button></article>
+          <article class="metric"><span>Non-Gold In Factory</span><strong id="metric-production-non-gold">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="non-gold">Open Shelf</button></article>
           <article class="metric"><span>Safe Locker Items</span><strong id="metric-safe-items">0 g</strong><button class="metric-open" type="button" data-dashboard-view="safe" data-dashboard-operation="items">Open</button></article>
           <article class="metric"><span>Production Completed Stock</span><strong id="metric-production-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="billing" data-dashboard-operation="bill">Open</button></article>
           <article class="metric"><span>Office Item Stock</span><strong id="metric-office-stock">0 g</strong><button class="metric-open" type="button" data-dashboard-view="office" data-dashboard-page="all">Open</button></article>
@@ -1076,16 +1076,6 @@
               </div>
             </div>
             <div id="safe-locker-tiles" class="safe-locker-grid"></div>
-            <section class="safe-non-gold-panel">
-              <div class="safe-subsection-heading">
-                <div>
-                  <span>Physical Stock Without Fine Gold</span>
-                  <h3>Non-Gold Shelf Stock By Category</h3>
-                  <small>Included in shelf GW and excluded from gold and fine-weight calculations.</small>
-                </div>
-              </div>
-              <div id="safe-non-gold-summary" class="safe-non-gold-summary-grid"></div>
-            </section>
             <section class="safe-wastage-collective-panel">
               <div class="safe-subsection-heading">
                 <div>
@@ -1165,6 +1155,119 @@
               <table>
                 <thead><tr><th>Date</th><th>Locker</th><th>Colour</th><th>Kind</th><th>Non-Gold Components</th><th>Item / Ref</th><th>Source</th><th>Full GW</th><th>Wax Stone</th><th>Non-Gold</th><th>Gold / NT</th><th>Status</th><th></th></tr></thead>
                 <tbody id="safe-item-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel safe-non-gold-panel">
+            <div class="panel-heading non-gold-shelf-heading">
+              <div>
+                <span>Permanent Physical Inventory</span>
+                <h2>Non-Gold Shelf</h2>
+                <p>Every gram remains visible as loose shelf stock, embedded casting stock, department stock, production WIP, or Bill pending until Factory Out.</p>
+              </div>
+              <div class="row-actions">
+                <button id="safe-non-gold-add-focus" type="button">Add Stock</button>
+                <button id="safe-non-gold-refresh" class="ghost-button" type="button">Refresh &amp; Reconcile</button>
+              </div>
+            </div>
+            <div id="safe-non-gold-alert" class="non-gold-control-alert" hidden></div>
+            <div class="non-gold-shelf-total-strip">
+              <span>Total ERP Non-Gold</span>
+              <strong id="safe-non-gold-total">0.000 g</strong>
+              <small id="safe-non-gold-total-note">Stone, Black Beads, Moti, Spring, and Other across the complete factory.</small>
+            </div>
+            <div id="safe-non-gold-summary" class="safe-non-gold-summary-grid"></div>
+
+            <form id="non-gold-shelf-form" class="non-gold-shelf-form">
+              <div class="safe-subsection-heading full-row">
+                <div>
+                  <span>Factory Stock In</span>
+                  <h3>Add Non-Gold To Shelf</h3>
+                  <small>All manually received non-gold must enter here before it is issued to a department or Job Card.</small>
+                </div>
+              </div>
+              <label>Karat
+                <select name="karat" required>
+                  <option value="9K">9K</option>
+                  <option value="14K">14K</option>
+                  <option value="18K" selected>18K</option>
+                  <option value="22K">22K</option>
+                </select>
+              </label>
+              <label>Material
+                <select name="materialType" required>
+                  <option value="stone">Stone</option>
+                  <option value="black-beads">Black Beads</option>
+                  <option value="moti">Moti</option>
+                  <option value="spring">Spring</option>
+                  <option value="other">Other / Accessory</option>
+                </select>
+              </label>
+              <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+              <label>Pieces (Optional) <input name="pieces" type="number" min="0" step="1"></label>
+              <label>Item / Description <input name="description" placeholder="Black beads, moti, spring, loose stone" required></label>
+              <label>Source <input name="source" placeholder="Opening stock, purchase, office issue" required></label>
+              <label>Reference <input name="reference" placeholder="Invoice, voucher, person, or stock count"></label>
+              <label>Remarks <input name="remarks" placeholder="Optional note"></label>
+              <button type="submit">Add To Non-Gold Shelf</button>
+            </form>
+
+            <div class="non-gold-shelf-filters">
+              <label>Search <input id="safe-non-gold-search" class="search" placeholder="Material, reference, department, Job Card or PR"></label>
+              <label>Karat
+                <select id="safe-non-gold-purity">
+                  <option value="">All Karats</option>
+                  <option value="9K">9K</option>
+                  <option value="14K">14K</option>
+                  <option value="18K">18K</option>
+                  <option value="22K">22K</option>
+                </select>
+              </label>
+              <label>Material
+                <select id="safe-non-gold-material">
+                  <option value="">All Materials</option>
+                  <option value="stone">Stone</option>
+                  <option value="black-beads">Black Beads</option>
+                  <option value="moti">Moti</option>
+                  <option value="spring">Spring</option>
+                  <option value="other">Other / Accessory</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="table-wrap non-gold-shelf-balance-wrap">
+              <table class="non-gold-shelf-balance-table">
+                <thead><tr><th>Material</th><th>Karat</th><th>Loose Shelf</th><th>Casting / Embedded Shelf</th><th>Department Loose</th><th>WIP Unallocated</th><th>PR / Item</th><th>Bill Pending</th><th>Total ERP</th><th>Unmatched</th></tr></thead>
+                <tbody id="safe-non-gold-balance-table"></tbody>
+              </table>
+            </div>
+
+            <div class="safe-subsection-heading non-gold-shelf-section-heading">
+              <div>
+                <span>Available Physical Stock</span>
+                <h3>Loose Non-Gold Shelf Entries</h3>
+                <small>Issue these entries to a department or Job Card. Casting-embedded stone is protected from loose issue.</small>
+              </div>
+            </div>
+            <div class="table-wrap non-gold-shelf-stock-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Karat</th><th>Material</th><th>Item / Reference</th><th>Source</th><th>Available</th><th></th></tr></thead>
+                <tbody id="safe-non-gold-stock-table"></tbody>
+              </table>
+            </div>
+
+            <div class="safe-subsection-heading non-gold-shelf-section-heading">
+              <div>
+                <span>Permanent Audit Trail</span>
+                <h3>Non-Gold Movement Ledger</h3>
+                <small>Stock In, issue, production allocation, casting recognition, Bill pending, Factory Out, return, and loss.</small>
+              </div>
+            </div>
+            <div class="table-wrap non-gold-shelf-ledger-wrap">
+              <table>
+                <thead><tr><th>Date / Time</th><th>Material</th><th>Karat</th><th>Weight</th><th>From</th><th>To</th><th>Job / PR</th><th>Status</th><th>Reference</th></tr></thead>
+                <tbody id="safe-non-gold-ledger-table"></tbody>
               </table>
             </div>
           </section>
@@ -2374,8 +2477,8 @@
       <form id="move-job-items-form" class="dialog-card merge-job-cards-card">
         <div class="dialog-header">
           <div>
-            <h2>Merge Selected Items Into Job Card</h2>
-            <p class="dialog-note">Move only the selected PR items into the main Job Card or another child Job Card from the same family. PR numbers, physical production lots, weights, transfers, bills, and item status remain unchanged.</p>
+            <h2>Transfer Item To Another Job Card</h2>
+            <p class="dialog-note">Change only the parent Job Card of the selected PR item. Its PR number, design, weights, production department, transfers, bill links, and status remain unchanged.</p>
           </div>
           <button class="ghost-button" type="button" id="close-move-job-items">Close</button>
         </div>
@@ -2383,15 +2486,11 @@
           <label>Current Job Card
             <input id="move-job-items-source" type="text" readonly>
           </label>
-          <label>Move Selected Items To
-            <select id="move-job-items-target" name="targetJobNumber" required></select>
+          <label>Search Destination Job Card
+            <input id="move-job-items-target-search" type="search" placeholder="Job no, customer, category or status" autocomplete="off">
           </label>
-          <label>Add Selected Items' Weights To Destination?
-            <select id="move-job-items-weight-mode" name="weightMode" required>
-              <option value="">Choose Yes or No</option>
-              <option value="add">Yes - Add GW, Stone &amp; Non-Gold</option>
-              <option value="items-only">No - Merge Items Only</option>
-            </select>
+          <label>Transfer Selected Item To
+            <select id="move-job-items-target" name="targetJobNumber" required></select>
           </label>
         </section>
         <section class="merge-job-selected-panel">
@@ -2404,9 +2503,9 @@
           <div id="move-job-items-selected-list" class="selected-design-chips"></div>
           <p id="move-job-items-weight-summary" class="dialog-note"></p>
         </section>
-        <p class="dialog-note">A production lot shared with items left behind will continue as one physical lot and will show both Job Card numbers. No production weight is split by this action.</p>
+        <p class="dialog-note">This is an item ownership correction only. No GW, stone, non-gold, or production stock is added or deducted. A shared physical lot will show both relevant Job Card numbers.</p>
         <div class="dialog-actions">
-          <button type="submit" id="confirm-move-job-items">Merge Selected Items</button>
+          <button type="submit" id="confirm-move-job-items">Transfer Selected Item</button>
           <button class="ghost-button" type="button" id="cancel-move-job-items">Cancel</button>
         </div>
       </form>
@@ -2471,7 +2570,7 @@
               <button class="ghost-button" type="button" id="add-job-card-item">Add Item</button>
               <label id="standard-split-job-gw">Split GW <input id="split-job-gw" type="number" min="0" step="0.001" placeholder="Only if in production"></label>
               <button class="ghost-button" type="button" id="split-job-items">Split Selected</button>
-              <button class="ghost-button" type="button" id="move-job-items">Merge Selected Items</button>
+              <button class="ghost-button" type="button" id="move-job-items">Transfer Selected Item</button>
               <button class="ghost-button hidden" type="button" id="split-fitting-items-card">Split GW / Wax Stone</button>
             </div>
           </div>
@@ -3766,7 +3865,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=677"></script>
+    <script src="app.js?v=678"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
