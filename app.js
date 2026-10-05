@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v680";
+const APP_VERSION = "v681";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3432,6 +3432,10 @@ function activeOperationalBills(sourceState = state) {
   return (sourceState.bills || []).filter((bill) => !isReferenceOnlyBill(bill));
 }
 
+function activeOperationalLots(sourceState = state) {
+  return (sourceState.lots || []).filter((lot) => !isReferenceOnlyBillLot(lot));
+}
+
 function resolveLotForBillRecord(bill = {}, sourceState = state) {
   const lots = Array.isArray(sourceState?.lots) ? sourceState.lots : [];
   if (!bill || typeof bill !== "object" || !lots.length) return null;
@@ -6615,6 +6619,7 @@ function renderManualResetPreview() {
       manualResetPreviewItem("Non-Gold After Reset", nonGoldResult, options.nonGoldMode === "A3" ? "Fresh stock entry opens after reset" : options.nonGoldMode === "A2" ? "Current non-gold is retained" : "Non-gold starts at zero"),
       manualResetPreviewItem("Job Cards", jobsResult, jobNote),
       manualResetPreviewItem("Production", options.productionMode === "C3" ? "Kept live" : "Live balances cleared", options.productionMode === "C1" ? "Audit summary plus downloaded backup retained" : options.productionMode === "C2" ? "Correction logs also cleared" : "Current lots continue to affect holdings"),
+      manualResetPreviewItem("Department Holdings", options.productionMode === "C3" ? "Kept with live production" : "All 0.000 g", options.productionMode === "C3" ? "GW, net, non-gold and fine holdings remain operational" : "Includes Billing; archived Bills and their transfers remain reference-only"),
       manualResetPreviewItem("Bills", options.billMode === "F1" ? `${stats.bills} kept as reference` : "All cleared", options.billMode === "F1" ? "Read-only bill and item history; excluded from stock, non-gold, Factory Out, Office and party balances" : "Bill/QC data is removed"),
       manualResetPreviewItem("Factory Ledger", options.ledgerMode === "D1" ? "New zero ledger" : options.ledgerMode === "D2" ? "Vendor balances carried" : "Complete ledger kept", options.ledgerMode === "D2" ? "Opening entries are ledger-only and create no physical stock" : ""),
       manualResetPreviewItem("Fine Sheet / Tally", options.reportMode === "E1" ? "History kept" : "History cleared", "Dabba/Container Master always remains"),
@@ -6677,6 +6682,39 @@ function manualResetRetainedNonGoldSafeItems(resetAt) {
         nonGoldBreakdown: breakdown,
         sourceType: "manual-reset-retained-non-gold",
         sourceId: item.id || "",
+        manualResetAt: resetAt,
+      };
+    })
+    .filter(Boolean);
+}
+
+function manualResetConsolidatedNonGoldSafeItems(resetAt) {
+  return nonGoldControlBalanceRows()
+    .map((row) => {
+      const nonGoldWeight = Number(weight3(Math.max(Number(row.totalFactory || 0), 0)));
+      if (nonGoldWeight <= 0) return null;
+      const materialType = normalizeNonGoldControlMaterial(row.materialType);
+      const purity = transferPurityLabel(karatLogicPurity(row.purity || "18K"));
+      return {
+        id: crypto.randomUUID(),
+        date: today(),
+        createdAt: resetAt,
+        status: "In",
+        safeKind: "non-gold",
+        materialType,
+        nonGoldCategory: materialType,
+        description: `Retained ${productionNonGoldMaterialLabel(materialType)} after manual reset`,
+        grossWeight: nonGoldWeight,
+        netWeight: 0,
+        waxStoneWeight: 0,
+        nonGoldWeight,
+        nonGoldWeightKnown: true,
+        nonGoldBreakdown: { [materialType]: nonGoldWeight },
+        purity,
+        desiredPurity: purity,
+        locker: safeLockerForPurity(purity),
+        sourceType: "manual-reset-consolidated-non-gold",
+        sourceId: `manual-reset-${materialType}-${karatPurityKey(purity) || purity}`,
         manualResetAt: resetAt,
       };
     })
@@ -6818,10 +6856,12 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
     }))
     : [];
   const historicalBillLots = manualResetHistoricalBillLots(retainedBills, resetAt);
-  const retainedNonGoldSafeItems = manualResetRetainedNonGoldSafeItems(resetAt);
-  const retainedGoldOnlySafeItems = manualResetGoldOnlySafeItems(resetAt);
   const preparedOrders = manualResetPreparedOrders(options.jobCardMode, resetAt);
   const clearProduction = options.productionMode !== "C3" || options.goldMode === "G1";
+  const retainedNonGoldSafeItems = clearProduction
+    ? manualResetConsolidatedNonGoldSafeItems(resetAt)
+    : manualResetRetainedNonGoldSafeItems(resetAt);
+  const retainedGoldOnlySafeItems = manualResetGoldOnlySafeItems(resetAt);
 
   state.factoryResetAt = resetAt;
   state.factoryResetReason = `Manual selected reset ${manualResetSelectionCode(options)}`;
@@ -6860,7 +6900,7 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
     state.safeItems = retainedGoldOnlySafeItems;
   }
 
-  if (options.nonGoldMode !== "A2") {
+  if (clearProduction || options.nonGoldMode !== "A2") {
     state.productionNonGoldIssues = [];
   }
 
@@ -6891,6 +6931,10 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
   backupRecentJobOrders(state.orders || []);
 
   const afterPhysical = factoryPhysicalStock();
+  const afterDepartmentHoldingScore = Number(weight3(Object.values(departmentMetalInHand()).reduce(
+    (total, department) => total + departmentHoldingScore(department),
+    0,
+  )));
   const audit = {
     id: crypto.randomUUID(),
     resetAt,
@@ -6905,6 +6949,8 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
     afterGross: Number(afterPhysical.grossWeight || 0),
     afterGold: Number(afterPhysical.goldWeight || 0),
     afterNonGold: Number(afterPhysical.nonGoldWeight || 0),
+    afterDepartmentHoldingScore,
+    departmentHoldingsCleared: clearProduction,
     beforeJobCards: beforeStats.jobCards,
     keptJobCards: new Set((state.orders || []).map((order) => order.jobNumber || order.number).filter(Boolean)).size,
     beforeBills: beforeStats.bills,
@@ -6991,7 +7037,7 @@ async function runManualResetFromUi(event) {
     const syncText = cloudSaved
       ? "Live sync is updated."
       : "Saved on this laptop. Old cloud data is blocked until this reset uploads successfully.";
-    alert(`Manual Reset completed.\n\nSelection ${code}\nGold ${gram(audit.beforeGold)} to ${gram(audit.afterGold)}\nNon-Gold ${gram(audit.beforeNonGold)} to ${gram(audit.afterNonGold)}\nJob Cards kept ${audit.keptJobCards}\nBills kept ${audit.keptBills}\n\n${syncText}`);
+    alert(`Manual Reset completed.\n\nSelection ${code}\nGold ${gram(audit.beforeGold)} to ${gram(audit.afterGold)}\nNon-Gold ${gram(audit.beforeNonGold)} to ${gram(audit.afterNonGold)}\nDepartment holdings after reset ${gram(audit.afterDepartmentHoldingScore)}\nJob Cards kept ${audit.keptJobCards}\nBills kept ${audit.keptBills}\n\n${syncText}`);
   } finally {
     if (button) {
       button.disabled = false;
@@ -12262,9 +12308,9 @@ function findOfficeEntryByBarcode(value) {
 
 function allOfficeBillItemEntries() {
   const entries = [];
-  (state.lots || []).forEach((lot) => {
+  activeOperationalLots().forEach((lot) => {
     const bill = billForLotRecord(lot);
-    if (!bill?.items?.length) return;
+    if (!bill?.items?.length || isReferenceOnlyBill(bill)) return;
     bill.items.forEach((item) => {
       entries.push({ lot, bill, item, order: findById("orders", item.orderId) || {} });
     });
@@ -16704,9 +16750,7 @@ function factoryPhysicalStock() {
       addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K", null, embeddedNonGold);
     });
 
-  (state.lots || [])
-    .filter((lot) => !lot.manualResetHistoricalAt && !lot.inventoryResetArchivedAt)
-    .forEach((lot) => {
+  activeOperationalLots().forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
       const balance = Number(transfer.departmentBalance || 0);
       if (Math.abs(balance) <= 0.0005) return;
@@ -25318,7 +25362,7 @@ function productionNonGoldDirectDepartmentBalances() {
     current.weight = Number(weight3(current.weight + Number(issue.weight || 0)));
     rows.set(key, current);
   });
-  (state.lots || []).forEach((lot) => {
+  activeOperationalLots().forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
       const added = Number(transfer.provisionalNonGoldAddedWeight || 0);
       if (added <= 0) return;
@@ -26421,7 +26465,7 @@ function isFittingItemsTransferDestination(transfer = {}) {
 }
 
 function factoryStockHoldingLot(lot = {}) {
-  if (lot.mergedIntoLotId || lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt) return false;
+  if (lot.mergedIntoLotId || isReferenceOnlyBillLot(lot)) return false;
   return lot.status !== "Completed" || Boolean(lot.fittingItemsJobCard && lot.fittingItemsIssuedToFitting);
 }
 
@@ -30926,12 +30970,13 @@ function designStoneSummaryText(items = []) {
 function operationalTaskDefinitions() {
   const activeJobs = groupedJobOrders((order) => !isCompletedOrder(order), "active");
   const urgentJobs = activeJobs.filter((job) => job.urgent || Number(daysRemaining(job.dueDate)) < 0);
-  const pendingBills = (state.lots || []).filter((lot) => {
+  const pendingBills = activeOperationalLots().filter((lot) => {
     const bill = billForLotRecord(lot);
     return !bill && lot.status === "Completed" && lotIsAtBillingDepartment(lot);
   });
-  const pendingQcItems = (state.lots || []).reduce((total, lot) => {
+  const pendingQcItems = activeOperationalLots().reduce((total, lot) => {
     const bill = billForLotRecord(lot);
+    if (isReferenceOnlyBill(bill || {})) return total;
     return total + (bill?.items || []).filter((item) => !isDiscardedItem(item) && (item.qcStatus || "Pending QC") === "Pending QC").length;
   }, 0);
   const officeEntries = officeItems();
@@ -31054,7 +31099,7 @@ function dashboardPendingOrderItem(job) {
 }
 
 function recentDashboardTransfers(limit = 30) {
-  const lotTransfers = state.lots
+  const lotTransfers = activeOperationalLots()
     .flatMap((lot) => (lot.transfers || []).map((transfer) => ({ type: "lot-transfer", lot, transfer })));
   return [...safeDepartmentTransferHistoryEntries(), ...lotTransfers]
     .sort((a, b) => {
@@ -31311,7 +31356,7 @@ function renderDepartmentSplit(totals) {
 function departmentMetalInHand() {
   const departments = {};
   seedDashboardDepartments(departments);
-  state.lots.forEach((lot) => {
+  activeOperationalLots().forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
       addDepartmentWeight(departments, dashboardDepartmentNameFromId(transfer.fromKarigarId) || transfer.fromKarigarName || transfer.balanceDepartment || transfer.fromDepartment || "Unassigned", {
         gold: Number(transfer.departmentBalance || 0),
@@ -32349,7 +32394,7 @@ function allLossLedgerRows() {
       }));
     }
   });
-  (state.lots || []).filter((lot) => Number(lot.actualWastage || 0) > 0.0005).forEach((lot) => rows.push(lossLedgerRow({
+  activeOperationalLots().filter((lot) => Number(lot.actualWastage || 0) > 0.0005).forEach((lot) => rows.push(lossLedgerRow({
     id: lot.id,
     date: lot.completeDate || lot.receiveDate || lot.issueDate,
     createdAt: lot.completedAt || lot.createdAt,
@@ -46650,15 +46695,16 @@ function updateDepartmentReferences(department) {
 }
 
 function renderReports() {
+  const operationalLots = activeOperationalLots();
   const departmentReceiptLosses = (state.safeDepartmentReturns || []).map((entry) => normalizeSafeDepartmentReturn(entry));
   const receiptLoss = departmentReceiptLosses.reduce((total, entry) => Number(weight3(total + entry.lossWeight)), 0);
   const receiptLossFine = departmentReceiptLosses.reduce((total, entry) => Number(weight3(total + entry.lossFineGold)), 0);
-  const wastage = Number(weight3(state.lots.reduce((total, lot) => total + Number(lot.actualWastage || 0), 0) + receiptLoss));
-  const wastageFineGold = Number(weight3(state.lots.reduce((total, lot) => total + Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage, lot.wastagePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || 0)), 0) + receiptLossFine));
-  const departmentBalance = Number(weight3(state.lots.reduce((total, lot) => {
+  const wastage = Number(weight3(operationalLots.reduce((total, lot) => total + Number(lot.actualWastage || 0), 0) + receiptLoss));
+  const wastageFineGold = Number(weight3(operationalLots.reduce((total, lot) => total + Number(lot.wastageFineGold ?? fineGoldWeight(lot.actualWastage, lot.wastagePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || 0)), 0) + receiptLossFine));
+  const departmentBalance = Number(weight3(operationalLots.reduce((total, lot) => {
     return total + (lot.transfers || []).reduce((sum, transfer) => sum + Number(transfer.departmentBalance || 0), 0);
   }, 0) + receiptLoss));
-  const making = state.lots.reduce((total, lot) => {
+  const making = operationalLots.reduce((total, lot) => {
     const karigar = findById("karigars", lot.karigarId);
     return total + Number(lot.finishedWeight || 0) * Number(karigar?.rate || 0);
   }, 0);
@@ -46737,7 +46783,7 @@ function closeManagerDayAndDownloadBackup() {
 }
 
 function onlineTransferHistoryEntries() {
-  const lotEntries = (state.lots || []).flatMap((lot) => [
+  const lotEntries = activeOperationalLots().flatMap((lot) => [
     ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
     goldIssueHistoryEntry(lot),
   ]);
@@ -47107,7 +47153,7 @@ function ensureDepartmentTransferSummary(map, name) {
 function departmentTransferEvents() {
   const events = [];
   let sortIndex = 0;
-  state.lots.forEach((lot) => {
+  activeOperationalLots().forEach((lot) => {
     const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + Number(lot.waxStoneWeight || 0)));
     if (lot.issueDate || issueGw > 0) {
       const firstDepartment = dashboardDepartmentNameFromId(lot.issueKarigarId)
