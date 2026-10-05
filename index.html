@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v676</small>
+      <small class="app-version-badge">App v677</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v676</span>
+          <span class="app-version-badge">App v677</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -661,8 +661,8 @@
             <span>Issue gold to whole job card</span>
           </button>
           <button class="action-tile" type="button" data-production-page="non-gold">
-            <strong>Issue Non-Gold</strong>
-            <span>Moti, black beads, spring, and other material</span>
+            <strong>Non-Gold Control</strong>
+            <span>Track every gram by category, location, job and status</span>
           </button>
           <button class="action-tile" type="button" data-production-page="setting">
             <strong>Setting Manager</strong>
@@ -702,6 +702,28 @@
           </form>
         </div>
         <div class="workbench production-page" id="production-page-non-gold">
+          <section class="panel non-gold-control-panel">
+            <div class="panel-heading non-gold-control-heading">
+              <div>
+                <h2>Permanent Non-Gold Control</h2>
+                <p>Every gram is shown in one location: Safe, department, production item, Bill pending, Factory Out, return or loss.</p>
+              </div>
+              <button id="refresh-non-gold-control" class="ghost-button" type="button">Refresh &amp; Reconcile</button>
+            </div>
+            <div id="non-gold-control-alert" class="non-gold-control-alert" hidden></div>
+            <div id="non-gold-control-summary" class="factory-summary-grid non-gold-control-summary"></div>
+            <div class="non-gold-control-filters">
+              <label>Search <input id="non-gold-control-search" class="search" placeholder="Material, department, Job Card, PR or reference"></label>
+              <label>Karat <select id="non-gold-control-purity"><option value="">All Karats</option><option value="9K">9K</option><option value="14K">14K</option><option value="18K">18K</option><option value="22K">22K</option></select></label>
+              <label>Material <select id="non-gold-control-material"><option value="">All Materials</option><option value="stone">Stone</option><option value="black-beads">Black Beads</option><option value="moti">Moti</option><option value="spring">Spring</option><option value="other">Other / Unidentified</option></select></label>
+            </div>
+            <div class="table-wrap non-gold-control-table-wrap">
+              <table class="non-gold-control-table">
+                <thead><tr><th>Material</th><th>Karat</th><th>Safe</th><th>Department Loose</th><th>WIP Unallocated</th><th>PR / Item Allocated</th><th>Bill Pending</th><th>Total In Factory</th><th>Unmatched</th></tr></thead>
+                <tbody id="non-gold-control-balance-table"></tbody>
+              </table>
+            </div>
+          </section>
           <section class="panel opening-non-gold-adjustment-panel">
             <div class="panel-heading">
               <div>
@@ -754,6 +776,11 @@
           </form>
           <form id="production-non-gold-form" class="form-panel">
             <h2>Issue Non-Gold To Department</h2>
+            <label>Stock Source <select name="sourceMode" required>
+              <option value="safe">Non-Gold Safe Stock</option>
+              <option value="opening">Existing / Opening GW Balance</option>
+            </select></label>
+            <label data-non-gold-safe-source-field>Safe Stock Item <select name="sourceSafeItemId" required></select></label>
             <label>Department <select name="departmentId" required></select></label>
             <label>Job Card / Lot <select name="lotId"></select></label>
             <label>Purity / Karat <input name="purity" list="metal-purity-options" value="18K" required></label>
@@ -767,7 +794,7 @@
             <label>No of Pcs <input name="pcs" type="number" min="0" step="1" placeholder="Optional"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label class="full-row">Remarks <input name="remarks" placeholder="Optional detail"></label>
-            <p id="non-gold-issue-summary" class="dialog-note">Select a department, then optionally link the non-gold issue to a production lot.</p>
+            <p id="non-gold-issue-summary" class="dialog-note">Select recorded Safe stock, destination department and optional production lot.</p>
             <button type="submit">Issue Non-Gold</button>
           </form>
           <form id="production-non-gold-remove-form" class="form-panel">
@@ -818,7 +845,14 @@
             </div>
           </section>
           <section class="panel table-panel non-gold-history-panel">
-            <div class="panel-heading"><h2>Non-Gold Movement History</h2></div>
+            <div class="panel-heading"><div><h2>Permanent Non-Gold Movement Ledger</h2><p>Stock movement is displayed from source to destination. Existing records are included automatically.</p></div></div>
+            <div class="table-wrap non-gold-control-ledger-wrap">
+              <table>
+                <thead><tr><th>Date &amp; Time</th><th>Material</th><th>Karat</th><th>Weight</th><th>From</th><th>To</th><th>Job / PR</th><th>Status</th><th>Reference</th></tr></thead>
+                <tbody id="non-gold-control-ledger-table"></tbody>
+              </table>
+            </div>
+            <div class="panel-heading"><h3>Legacy Non-Gold Entries</h3></div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Date</th><th>Action</th><th>Department</th><th>Lot</th><th>Job Card</th><th>Material</th><th>Pcs</th><th>Weight</th><th>Karat</th><th>Status</th><th>Remarks</th></tr></thead>
@@ -3732,7 +3766,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=676"></script>
+    <script src="app.js?v=677"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
