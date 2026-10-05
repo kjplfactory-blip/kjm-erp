@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=678">
+      <link rel="stylesheet" href="styles.css?v=679">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v678</small>
+      <small class="app-version-badge">App v679</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v678</span>
+          <span class="app-version-badge">App v679</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1346,6 +1346,33 @@
 
           <form id="factory-out-form" class="form-panel factory-out-panel">
             <h2>Factory Out</h2>
+            <section class="factory-out-batch-panel" aria-labelledby="factory-out-batch-title">
+              <div class="factory-out-batch-heading">
+                <div>
+                  <h3 id="factory-out-batch-title">Clear Multiple Bills</h3>
+                  <p>Select completed bills and post every bill to KJPL Office in one operation.</p>
+                </div>
+                <span id="factory-out-batch-ready-count" class="factory-out-batch-count">0 Ready</span>
+              </div>
+              <div class="factory-out-batch-toolbar">
+                <label>Search Bill / Job / Customer
+                  <input id="factory-out-batch-search" type="search" placeholder="Type bill no, job card or customer">
+                </label>
+                <label>Common WSTG (%)
+                  <input id="factory-out-batch-wstg" type="number" min="0" step="0.01" placeholder="Keep each bill value">
+                </label>
+                <div class="factory-out-batch-actions">
+                  <button id="factory-out-batch-select-all" type="button" class="secondary">Select All</button>
+                  <button id="factory-out-batch-clear" type="button" class="secondary">Clear</button>
+                </div>
+              </div>
+              <div id="factory-out-batch-list" class="factory-out-batch-list" role="group" aria-label="Bills ready for Factory Out"></div>
+              <div class="factory-out-batch-footer">
+                <div id="factory-out-batch-summary" class="factory-out-batch-summary">Select one or more bills.</div>
+                <button id="factory-out-batch-submit" type="button" disabled>Factory Out Selected Bills</button>
+              </div>
+            </section>
+            <div class="factory-out-mode-divider"><span>Single Bill Or Manual Factory Out</span></div>
             <label class="factory-out-bill-selector">Completed Bill / Office Transfer
               <select name="billId">
                 <option value="">Manual metal / stock factory out</option>
@@ -3865,7 +3892,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=678"></script>
+    <script src="app.js?v=679"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

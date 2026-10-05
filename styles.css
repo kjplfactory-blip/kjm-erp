@@ -698,8 +698,203 @@ button:hover {
 
 .factory-out-bill-selector,
 .factory-out-bill-summary,
-#factory-out-bill-status {
+#factory-out-bill-status,
+.factory-out-batch-panel,
+.factory-out-mode-divider {
   grid-column: 1 / -1;
+}
+
+.factory-out-batch-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #8ec5ee;
+  border-radius: 8px;
+  background: #f3f9ff;
+}
+
+.factory-out-batch-heading,
+.factory-out-batch-footer,
+.factory-out-batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.factory-out-batch-heading h3,
+.factory-out-batch-heading p {
+  margin: 0;
+}
+
+.factory-out-batch-heading h3 {
+  color: #064f85;
+  font-size: 16px;
+}
+
+.factory-out-batch-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.factory-out-batch-count {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: #064f85;
+  background: #dceeff;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.factory-out-batch-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.7fr) minmax(145px, 0.7fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.factory-out-batch-toolbar label {
+  min-width: 0;
+}
+
+.factory-out-batch-actions {
+  justify-content: flex-end;
+}
+
+.factory-out-batch-list {
+  display: grid;
+  gap: 7px;
+  max-height: 330px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 3px;
+}
+
+.factory-out-batch-row {
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1.4fr) minmax(130px, 1fr) repeat(3, minmax(76px, 0.55fr));
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #c9e1f4;
+  border-radius: 7px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.factory-out-batch-row:has(input:checked) {
+  border-color: #1687cc;
+  background: #e7f4ff;
+  box-shadow: inset 3px 0 0 #1687cc;
+}
+
+.factory-out-batch-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.factory-out-batch-row > span {
+  min-width: 0;
+}
+
+.factory-out-batch-row strong,
+.factory-out-batch-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factory-out-batch-row strong {
+  color: #083f68;
+  font-size: 12px;
+}
+
+.factory-out-batch-row small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.factory-out-batch-metric {
+  text-align: right;
+}
+
+.factory-out-batch-summary {
+  color: #174766;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.factory-out-batch-summary strong {
+  color: #064f85;
+  font-size: 13px;
+}
+
+.factory-out-batch-empty {
+  padding: 18px;
+  border: 1px dashed #a9cde7;
+  border-radius: 7px;
+  color: var(--muted);
+  text-align: center;
+  background: #ffffff;
+}
+
+.factory-out-mode-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.factory-out-mode-divider::before,
+.factory-out-mode-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #cbdce8;
+}
+
+@media (max-width: 820px) {
+  .factory-out-batch-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .factory-out-batch-count {
+    align-self: flex-start;
+  }
+
+  .factory-out-batch-toolbar,
+  .factory-out-batch-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .factory-out-batch-toolbar > label,
+  .factory-out-batch-actions,
+  .factory-out-batch-row .factory-out-batch-metric {
+    grid-column: 1 / -1;
+  }
+
+  .factory-out-batch-row .factory-out-batch-metric {
+    display: inline-flex;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  .factory-out-batch-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .factory-out-bill-selector select {
@@ -20798,6 +20993,8 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 /* V678: permanent Non-Gold Shelf and searchable Job Card item transfer. */
+
+/* V679: searchable multiple-bill Factory Out with one-save batch processing. */
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) #safe.operation-open .safe-non-gold-panel.active-operation-page {
   display: flex;
   flex-direction: column;

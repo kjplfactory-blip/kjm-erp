@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v678";
+const APP_VERSION = "v679";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -2637,6 +2637,35 @@ document.getElementById("factory-out-form").addEventListener("submit", async (ev
 
 document.querySelector('#factory-out-form select[name="billId"]')?.addEventListener("change", (event) => {
   applyFactoryOutBillSelection(event.target.value);
+});
+
+document.getElementById("factory-out-batch-search")?.addEventListener("input", () => {
+  renderFactoryOutBatchOptions(completedBillFactoryOutRecords());
+});
+
+document.getElementById("factory-out-batch-list")?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest('[data-factory-out-batch-bill-id]');
+  if (!checkbox) return;
+  const billId = String(checkbox.dataset.factoryOutBatchBillId || "");
+  if (checkbox.checked) factoryOutBatchSelectedBillIds.add(billId);
+  else factoryOutBatchSelectedBillIds.delete(billId);
+  updateFactoryOutBatchSummary();
+});
+
+document.getElementById("factory-out-batch-select-all")?.addEventListener("click", () => {
+  filteredFactoryOutBatchRecords(completedBillFactoryOutRecords()).forEach(({ bill }) => {
+    factoryOutBatchSelectedBillIds.add(String(bill.id || ""));
+  });
+  renderFactoryOutBatchOptions(completedBillFactoryOutRecords());
+});
+
+document.getElementById("factory-out-batch-clear")?.addEventListener("click", () => {
+  factoryOutBatchSelectedBillIds.clear();
+  renderFactoryOutBatchOptions(completedBillFactoryOutRecords());
+});
+
+document.getElementById("factory-out-batch-submit")?.addEventListener("click", async () => {
+  await saveSelectedBillsFactoryOut();
 });
 
 document.getElementById("cancel-vendor-edit").addEventListener("click", resetVendorForm);
@@ -16432,6 +16461,7 @@ function syncFactoryOutLedgerForState(source) {
       sourceId: bill.id,
       sourceLine: "job-order",
       factoryOutPostingId: bill.factoryOutPostingId || "",
+      factoryOutBatchId: bill.factoryOutBatchId || "",
       billId: bill.id,
       billNo,
       lotId: lot.id,
@@ -43768,6 +43798,111 @@ function factoryOutBillSummaryHtml(record) {
   `;
 }
 
+const factoryOutBatchSelectedBillIds = new Set();
+
+function factoryOutBatchSearchText(record = {}) {
+  const { bill = {}, lot = {}, totals = {} } = record;
+  return [
+    bill.billNo,
+    lot.orderNumber,
+    lot.number,
+    billCustomerNameForState(state, lot, bill),
+    totals.purityText,
+    ...(totals.productionNos || []),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function filteredFactoryOutBatchRecords(records = completedBillFactoryOutRecords()) {
+  const query = String(document.getElementById("factory-out-batch-search")?.value || "").trim().toLowerCase();
+  if (!query) return records;
+  return records.filter((record) => factoryOutBatchSearchText(record).includes(query));
+}
+
+function factoryOutBatchTotals(records = []) {
+  const totals = records.reduce((result, record) => {
+    const weights = record.totals || {};
+    result.bills += 1;
+    result.pieces += Number(weights.pieces || 0);
+    result.finalGw += Number(weights.finalGw || 0);
+    result.stoneWeight += Number(weights.stoneWeight || 0);
+    result.blackBeadsWeight += Number(weights.blackBeadsWeight || 0);
+    result.motiWeight += Number(weights.motiWeight || 0);
+    result.springWeight += Number(weights.springWeight || 0);
+    result.otherNonGoldWeight += Number(weights.otherNonGoldWeight || 0);
+    result.reducedWeight += Number(weights.reducedWeight || 0);
+    result.netWeight += Number(weights.netWeight || 0);
+    result.totalFineGold += Number(weights.totalFineGold || 0);
+    return result;
+  }, {
+    bills: 0,
+    pieces: 0,
+    finalGw: 0,
+    stoneWeight: 0,
+    blackBeadsWeight: 0,
+    motiWeight: 0,
+    springWeight: 0,
+    otherNonGoldWeight: 0,
+    reducedWeight: 0,
+    netWeight: 0,
+    totalFineGold: 0,
+  });
+  Object.keys(totals).forEach((key) => {
+    if (!["bills", "pieces"].includes(key)) totals[key] = Number(weight3(totals[key]));
+  });
+  return totals;
+}
+
+function selectedFactoryOutBatchRecords(records = completedBillFactoryOutRecords()) {
+  const eligibleIds = new Set(records.map(({ bill }) => String(bill.id || "")));
+  [...factoryOutBatchSelectedBillIds].forEach((billId) => {
+    if (!eligibleIds.has(billId)) factoryOutBatchSelectedBillIds.delete(billId);
+  });
+  return records.filter(({ bill }) => factoryOutBatchSelectedBillIds.has(String(bill.id || "")));
+}
+
+function updateFactoryOutBatchSummary(records = completedBillFactoryOutRecords()) {
+  const selected = selectedFactoryOutBatchRecords(records);
+  const totals = factoryOutBatchTotals(selected);
+  const summary = document.getElementById("factory-out-batch-summary");
+  const submit = document.getElementById("factory-out-batch-submit");
+  if (summary) {
+    summary.innerHTML = selected.length
+      ? `<strong>${totals.bills} Bills / ${totals.pieces} Items</strong> &nbsp; GW ${gram(totals.finalGw)} &nbsp; Non-Gold ${gram(totals.reducedWeight)} &nbsp; Net ${gram(totals.netWeight)} &nbsp; Fine ${gram(totals.totalFineGold)}`
+      : "Select one or more bills.";
+  }
+  if (submit) {
+    submit.disabled = selected.length === 0;
+    submit.textContent = selected.length
+      ? `Factory Out ${selected.length} Selected Bill${selected.length === 1 ? "" : "s"}`
+      : "Factory Out Selected Bills";
+  }
+}
+
+function renderFactoryOutBatchOptions(records = completedBillFactoryOutRecords()) {
+  const list = document.getElementById("factory-out-batch-list");
+  const readyCount = document.getElementById("factory-out-batch-ready-count");
+  if (!list) return;
+  const selected = selectedFactoryOutBatchRecords(records);
+  const visible = filteredFactoryOutBatchRecords(records);
+  if (readyCount) readyCount.textContent = `${records.length} Ready / ${selected.length} Selected`;
+  list.innerHTML = visible.length ? visible.map(({ bill, lot, totals }) => {
+    const billId = String(bill.id || "");
+    const customer = billCustomerNameForState(state, lot, bill) || "No customer";
+    const checked = factoryOutBatchSelectedBillIds.has(billId) ? " checked" : "";
+    return `
+      <label class="factory-out-batch-row">
+        <input type="checkbox" data-factory-out-batch-bill-id="${escapeHtml(billId)}"${checked}>
+        <span><strong>${escapeHtml(bill.billNo || "Bill")}</strong><small>${escapeHtml(lot.orderNumber || lot.number || "No Job Card")} / ${escapeHtml(customer)}</small></span>
+        <span><strong>${totals.pieces} Items</strong><small>${escapeHtml(totals.purityText || "-")}</small></span>
+        <span class="factory-out-batch-metric"><small>GW</small><strong>${gram(totals.finalGw)}</strong></span>
+        <span class="factory-out-batch-metric"><small>Non-Gold</small><strong>${gram(totals.reducedWeight)}</strong></span>
+        <span class="factory-out-batch-metric"><small>Net</small><strong>${gram(totals.netWeight)}</strong></span>
+      </label>
+    `;
+  }).join("") : `<div class="factory-out-batch-empty">${records.length ? "No pending bills match this search." : "No completed bills are waiting for Factory Out."}</div>`;
+  updateFactoryOutBatchSummary(records);
+}
+
 function setFactoryOutBillLocked(form, locked) {
   if (!form) return;
   ["vendorId", "materialType"].forEach((name) => {
@@ -43807,6 +43942,7 @@ function renderFactoryBillOutOptions() {
       ? `${records.length} completed bill${records.length === 1 ? " is" : "s are"} ready. Select a Bill No to capture all weights.`
       : "Completed bills will appear here after QC OK items are transferred to Office.";
   }
+  renderFactoryOutBatchOptions(records);
 }
 
 function applyFactoryOutBillSelection(billId = "", options = {}) {
@@ -43922,6 +44058,153 @@ async function verifyBillFactoryOutInCloud(billId = "") {
   } catch (error) {
     console.warn("Factory Out cloud read-back could not be completed.", error);
     return false;
+  }
+}
+
+async function verifyBillsFactoryOutInCloud(billIds = []) {
+  const lookupIds = [...new Set((billIds || []).map((billId) => String(billId || "")).filter(Boolean))];
+  if (!supabaseClient || !lookupIds.length) return false;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient
+        .from("erp_state")
+        .select("data, updated_at")
+        .eq("id", supabaseStateId)
+        .maybeSingle(),
+      "Multiple Bill Factory Out cloud verification timeout."
+    );
+    if (result?.error || !result?.data?.data) return false;
+    const verified = lookupIds.every((billId) => billFactoryOutTransactionIsComplete(billId, result.data.data));
+    if (verified) {
+      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
+      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
+    }
+    return verified;
+  } catch (error) {
+    console.warn("Multiple Bill Factory Out cloud read-back could not be completed.", error);
+    return false;
+  }
+}
+
+function stageBillFactoryOut(record, options = {}) {
+  const { bill, lot } = record || {};
+  if (!bill?.id || !lot?.id || isBillFactoryOutPosted(bill)) return false;
+  const postedAt = options.postedAt || new Date().toISOString();
+  const wstgPercent = factoryWstgPercent(options.wstgPercent ?? bill.factoryOutWstgPercent ?? 0);
+  bill.factoryOutWstgPercent = wstgPercent;
+  bill.factoryOutPostingId = bill.factoryOutPostingId || crypto.randomUUID();
+  bill.factoryOutBatchId = options.batchId || bill.factoryOutBatchId || "";
+  bill.factoryOutPostedAt = postedAt;
+  bill.factoryOutUpdatedAt = postedAt;
+  lot.bill = bill;
+  const billIndex = (state.bills || []).findIndex((item) => item.id === bill.id || item.lotId === bill.lotId);
+  if (billIndex >= 0) state.bills[billIndex] = bill;
+  return true;
+}
+
+function setFactoryOutBatchBusy(busy) {
+  const panel = document.querySelector(".factory-out-batch-panel");
+  panel?.querySelectorAll("input, button").forEach((control) => {
+    control.disabled = Boolean(busy);
+  });
+  const submit = document.getElementById("factory-out-batch-submit");
+  if (busy && submit) submit.textContent = "Saving Selected Bills...";
+}
+
+async function saveSelectedBillsFactoryOut() {
+  const eligibleRecords = completedBillFactoryOutRecords();
+  const records = selectedFactoryOutBatchRecords(eligibleRecords);
+  if (!records.length) {
+    alert("Select at least one completed bill for Factory Out.");
+    return false;
+  }
+  const commonWstgInput = document.getElementById("factory-out-batch-wstg");
+  const commonWstgText = String(commonWstgInput?.value || "").trim();
+  const useCommonWstg = commonWstgText !== "";
+  const commonWstg = useCommonWstg ? Number(commonWstgText) : null;
+  if (useCommonWstg && (!Number.isFinite(commonWstg) || commonWstg < 0)) {
+    alert("Enter a valid common WSTG percentage, or leave it blank to keep each bill value.");
+    commonWstgInput?.focus();
+    return false;
+  }
+  const totals = factoryOutBatchTotals(records);
+  const billNumbers = records.map(({ bill }) => bill.billNo || "Bill");
+  const preview = billNumbers.slice(0, 12).join(", ");
+  const more = billNumbers.length > 12 ? ` +${billNumbers.length - 12} more` : "";
+  const confirmed = confirm(
+    `Factory Out ${records.length} selected bill${records.length === 1 ? "" : "s"} to ${KJPL_OFFICE_VENDOR_NAME}?\n\n${preview}${more}\n\nGW ${gram(totals.finalGw)}\nNon-Gold ${gram(totals.reducedWeight)}\nNet ${gram(totals.netWeight)}\n\nEach bill will remain a separate Factory Ledger entry.`
+  );
+  if (!confirmed) return false;
+
+  const rollbackSnapshot = captureBillFactoryOutTransactionState();
+  const batchId = `factory-out-batch-${crypto.randomUUID()}`;
+  const postedAt = new Date().toISOString();
+  let localCommitted = false;
+  setFactoryOutBatchBusy(true);
+  try {
+    records.forEach((record) => {
+      const wstgPercent = useCommonWstg
+        ? commonWstg
+        : factoryWstgPercent(record.bill.factoryOutWstgPercent || 0);
+      if (!stageBillFactoryOut(record, { wstgPercent, postedAt, batchId })) {
+        throw new Error(`${record.bill?.billNo || "A selected bill"} is no longer available for Factory Out.`);
+      }
+    });
+    syncFactoryOutForBill();
+    const billIds = records.map(({ bill }) => String(bill.id || ""));
+    if (!billIds.every((billId) => billFactoryOutTransactionIsComplete(billId))) {
+      throw new Error("Batch validation failed before saving. No selected bill was posted.");
+    }
+    const intendedTransactions = records.map(({ bill, lot }) => ({
+      bill: structuredClone(bill),
+      lot: structuredClone(lot),
+      ledgerEntry: structuredClone((state.factoryLedger || []).find((entry) => (
+        entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === String(bill.id || "")
+      ))),
+    }));
+    const savedLocally = saveState({
+      alertOnFailure: true,
+      context: `${records.length} Bill Factory Out batch`,
+    });
+    if (!savedLocally) throw new Error("The selected bills could not be saved on this laptop.");
+    localCommitted = true;
+
+    factoryOutBatchSelectedBillIds.clear();
+    if (commonWstgInput) commonWstgInput.value = "";
+    render();
+    let status = document.getElementById("factory-out-bill-status");
+    if (status) status.textContent = `${records.length} bills are saved on this laptop. Confirming one live sync for the full batch...`;
+    const savedToCloud = await saveCurrentStateToCloudNow({ context: `${records.length} Bill Factory Out batch` });
+    const cloudVerified = savedToCloud && await verifyBillsFactoryOutInCloud(billIds);
+    if (!cloudVerified) {
+      if (!billIds.every((billId) => billFactoryOutTransactionIsComplete(billId))) {
+        intendedTransactions.forEach((transaction) => reapplyBillFactoryOutTransaction(transaction));
+      }
+      saveState({ alertOnFailure: false, context: `${records.length} Bill Factory Out batch retry` });
+    }
+    renderFactory();
+    status = document.getElementById("factory-out-bill-status");
+    if (cloudVerified) {
+      if (status) status.textContent = `${records.length} bills are posted, synced, and removed from the pending list.`;
+      alert(`${records.length} bills saved and confirmed in Supabase cloud.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\nGW ${gram(totals.finalGw)}\nNon-Gold ${gram(totals.reducedWeight)}\nNet ${gram(totals.netWeight)}`);
+    } else {
+      if (status) status.textContent = `${records.length} bills are saved safely on this laptop. Cloud sync is pending and will retry automatically.`;
+      alert(`${records.length} bills are saved safely on this laptop and removed from the pending list.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\n\nCloud sync is pending. Do not post these bills again.\n\nGW ${gram(totals.finalGw)} / Net ${gram(totals.netWeight)}`);
+    }
+    return true;
+  } catch (error) {
+    if (!localCommitted) {
+      restoreBillFactoryOutTransactionState(rollbackSnapshot);
+      saveState({ alertOnFailure: false, context: "Factory Out batch rollback" });
+    }
+    render();
+    alert(localCommitted
+      ? `${records.length} bills remain saved safely on this laptop. Cloud confirmation will retry automatically.\n\n${error?.message || "Cloud confirmation was interrupted."}`
+      : (error?.message || "Multiple Bill Factory Out failed. No selected bill was posted."));
+    return false;
+  } finally {
+    setFactoryOutBatchBusy(false);
+    updateFactoryOutBatchSummary();
   }
 }
 
