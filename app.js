@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v679";
+const APP_VERSION = "v680";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3416,6 +3416,22 @@ function billRecordModifiedTime(bill = {}) {
   return new Date(bill.updatedAt || bill.savedAt || bill.createdAt || bill.billDate || 0).getTime() || 0;
 }
 
+function isReferenceOnlyBill(bill = {}) {
+  return Boolean(bill.referenceOnlyAfterReset || bill.manualResetHistoricalAt || bill.inventoryResetArchivedAt);
+}
+
+function isReferenceOnlyBillLot(lot = {}) {
+  return Boolean(lot.referenceOnlyAfterReset || lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt || isReferenceOnlyBill(lot.bill || {}));
+}
+
+function isReferenceOnlyFactoryLedgerEntry(entry = {}) {
+  return Boolean(entry.referenceOnlyAfterReset || entry.manualResetHistoricalAt || entry.inventoryResetArchivedAt);
+}
+
+function activeOperationalBills(sourceState = state) {
+  return (sourceState.bills || []).filter((bill) => !isReferenceOnlyBill(bill));
+}
+
 function resolveLotForBillRecord(bill = {}, sourceState = state) {
   const lots = Array.isArray(sourceState?.lots) ? sourceState.lots : [];
   if (!bill || typeof bill !== "object" || !lots.length) return null;
@@ -3692,6 +3708,10 @@ function deleteBillFromDialog() {
     alert("No pending Combined Bill or generated Bill is available to delete.");
     return;
   }
+  if (isReferenceOnlyBill(bill || {}) || isReferenceOnlyBillLot(lot)) {
+    alert("This Reference Bill is read-only and cannot be deleted from live ERP operations.");
+    return;
+  }
   if (!canDeleteErpData() || isReadOnlyUser()) {
     alert("Only Owner or Manager can delete a Bill.");
     return;
@@ -3798,6 +3818,10 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   const lot = findById("lots", data.lotId);
   if (!lot) return null;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  if (isReferenceOnlyBill(existingBill) || isReferenceOnlyBillLot(lot)) {
+    alert("This Reference Bill can be viewed, printed and exported, but it cannot change current ERP data.");
+    return null;
+  }
   const qcOnlyWorkflow = isBillQcOnlyMode() || isOrderBillQcMode(existingBill);
   if (qcOnlyWorkflow && !existingBill.id) {
     alert("QC can be updated only after Bill Dept, Manager, or Owner has created the bill.");
@@ -6512,7 +6536,8 @@ function manualResetCurrentStats() {
     jobItems: (state.orders || []).length,
     editedStoneItems,
     bills: (state.bills || []).length,
-    productionLots: (state.lots || []).filter((lot) => !lot.manualResetHistoricalAt).length,
+    referenceBills: (state.bills || []).filter(isReferenceOnlyBill).length,
+    productionLots: (state.lots || []).filter((lot) => !isReferenceOnlyBillLot(lot)).length,
     goldWeight: Number(physical.goldWeight || 0),
     nonGoldWeight: Number(physical.nonGoldWeight || 0),
     grossWeight: Number(physical.grossWeight || 0),
@@ -6566,7 +6591,7 @@ function renderManualResetPreview() {
     summary.innerHTML = [
       manualResetSummaryItem("Current Factory GW", gram(stats.grossWeight), `Gold ${gram(stats.goldWeight)} / Non-Gold ${gram(stats.nonGoldWeight)}`),
       manualResetSummaryItem("Job Cards", String(stats.jobCards), `${stats.jobItems} PR items / ${stats.editedStoneItems} edited stone items`),
-      manualResetSummaryItem("Bills", String(stats.bills), "Bill item data currently saved"),
+      manualResetSummaryItem("Bills", String(stats.bills), `${stats.referenceBills} already stored as reference only`),
       manualResetSummaryItem("Live Operations", String(stats.productionLots), `${stats.factoryLedger} Factory Ledger entries`),
     ].join("");
   }
@@ -6590,7 +6615,7 @@ function renderManualResetPreview() {
       manualResetPreviewItem("Non-Gold After Reset", nonGoldResult, options.nonGoldMode === "A3" ? "Fresh stock entry opens after reset" : options.nonGoldMode === "A2" ? "Current non-gold is retained" : "Non-gold starts at zero"),
       manualResetPreviewItem("Job Cards", jobsResult, jobNote),
       manualResetPreviewItem("Production", options.productionMode === "C3" ? "Kept live" : "Live balances cleared", options.productionMode === "C1" ? "Audit summary plus downloaded backup retained" : options.productionMode === "C2" ? "Correction logs also cleared" : "Current lots continue to affect holdings"),
-      manualResetPreviewItem("Bills", options.billMode === "F1" ? `${stats.bills} kept` : "All cleared", options.billMode === "F1" ? "Kept bills will not post again into fresh stock" : "Bill/QC data is removed"),
+      manualResetPreviewItem("Bills", options.billMode === "F1" ? `${stats.bills} kept as reference` : "All cleared", options.billMode === "F1" ? "Read-only bill and item history; excluded from stock, non-gold, Factory Out, Office and party balances" : "Bill/QC data is removed"),
       manualResetPreviewItem("Factory Ledger", options.ledgerMode === "D1" ? "New zero ledger" : options.ledgerMode === "D2" ? "Vendor balances carried" : "Complete ledger kept", options.ledgerMode === "D2" ? "Opening entries are ledger-only and create no physical stock" : ""),
       manualResetPreviewItem("Fine Sheet / Tally", options.reportMode === "E1" ? "History kept" : "History cleared", "Dabba/Container Master always remains"),
       manualResetPreviewItem("Protected Masters", "Always kept", "Design, images, Stone Library, Moti Library, Catalogue and users"),
@@ -6716,19 +6741,43 @@ function manualResetVendorOpeningEntries(rows = [], resetAt = new Date().toISOSt
 }
 
 function manualResetHistoricalBillLots(retainedBills = [], resetAt = new Date().toISOString()) {
-  const billByLot = new Map(retainedBills.filter((bill) => bill.lotId).map((bill) => [bill.lotId, bill]));
-  return (state.lots || [])
-    .filter((lot) => billByLot.has(lot.id))
-    .map((lot) => ({
-      ...structuredClone(lot),
-      bill: structuredClone(billByLot.get(lot.id) || lot.bill || {}),
+  const lotsById = new Map((state.lots || []).map((lot) => [String(lot.id || ""), lot]));
+  return retainedBills.filter(isReferenceOnlyBill).map((bill, index) => {
+    const existing = lotsById.get(String(bill.lotId || "")) || null;
+    const orderIds = [...new Set((bill.items || []).map((item) => item.orderId).filter(Boolean))];
+    const lotId = existing?.id || bill.lotId || `reference-bill-${bill.id || index + 1}`;
+    const grossWeight = Number(weight3((bill.items || []).reduce((total, item) => total + Number(item.finalGw || 0), 0)));
+    bill.lotId = lotId;
+    return {
+      ...(existing ? structuredClone(existing) : {
+        id: lotId,
+        number: bill.lotNumber || bill.billNo || `Reference Bill ${index + 1}`,
+        orderNumber: bill.jobNumber || "",
+        orderId: orderIds[0] || "",
+        orderIds,
+        billOrderIds: orderIds,
+        issueDate: bill.billDate || today(),
+        createdAt: bill.createdAt || bill.savedAt || resetAt,
+        finishedWeight: grossWeight,
+        grossIssuedWeight: grossWeight,
+        issuedWeight: 0,
+        transfers: [],
+      }),
+      bill: structuredClone(bill),
       status: "Completed",
-      currentDepartment: "Historical Bill",
-      karigarName: "Historical Bill",
-      transfers: [],
-      manualResetHistoricalAt: resetAt,
-      inventoryResetArchivedAt: resetAt,
-    }));
+      currentDepartment: "Reference Bill Archive",
+      karigarName: "Reference Bill Archive",
+      historicalOriginalStatus: existing?.status || "",
+      historicalOriginalDepartment: existing?.currentDepartment || existing?.karigarName || "",
+      referenceOnlyAfterReset: true,
+      referenceOnlyResetAt: bill.referenceOnlyResetAt || resetAt,
+      manualResetHistoricalAt: bill.manualResetHistoricalAt || resetAt,
+      inventoryResetArchivedAt: bill.inventoryResetArchivedAt || resetAt,
+      stockExcludedAfterReset: true,
+      accountingExcludedAfterReset: true,
+      productionStockWeight: 0,
+    };
+  });
 }
 
 function manualResetPreparedOrders(mode, resetAt = new Date().toISOString()) {
@@ -6756,10 +6805,16 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
   };
   const vendorRowsBefore = vendorBalanceRows().map((row) => ({ ...row, vendor: { ...(row.vendor || {}) } }));
   const oldFactoryLedger = structuredClone(state.factoryLedger || []);
+  const archiveRetainedBills = options.billMode === "F1";
   const retainedBills = options.billMode === "F1"
     ? (state.bills || []).map((bill) => ({
       ...structuredClone(bill),
-      manualResetHistoricalAt: (options.goldMode === "G1" || options.productionMode !== "C3") ? resetAt : bill.manualResetHistoricalAt || "",
+      referenceOnlyAfterReset: archiveRetainedBills || isReferenceOnlyBill(bill),
+      referenceOnlyResetAt: archiveRetainedBills ? resetAt : bill.referenceOnlyResetAt || "",
+      manualResetHistoricalAt: archiveRetainedBills ? resetAt : bill.manualResetHistoricalAt || "",
+      inventoryResetArchivedAt: archiveRetainedBills ? resetAt : bill.inventoryResetArchivedAt || "",
+      stockExcludedAfterReset: archiveRetainedBills || Boolean(bill.stockExcludedAfterReset),
+      accountingExcludedAfterReset: archiveRetainedBills || Boolean(bill.accountingExcludedAfterReset),
     }))
     : [];
   const historicalBillLots = manualResetHistoricalBillLots(retainedBills, resetAt);
@@ -6787,6 +6842,13 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
       state.transferEditHistory = [];
       state.transferUndoHistory = [];
     }
+  } else if (archiveRetainedBills) {
+    const archivedLotsById = new Map(historicalBillLots.map((lot) => [String(lot.id || ""), lot]));
+    const existingLotIds = new Set((state.lots || []).map((lot) => String(lot.id || "")));
+    state.lots = [
+      ...(state.lots || []).map((lot) => archivedLotsById.get(String(lot.id || "")) || lot),
+      ...historicalBillLots.filter((lot) => !existingLotIds.has(String(lot.id || ""))),
+    ];
   }
 
   if (options.goldMode === "G1") {
@@ -6809,7 +6871,9 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
   } else {
     state.factoryLedger = oldFactoryLedger.map((entry) => ({
       ...entry,
+      referenceOnlyAfterReset: entry.sourceType === "bill" ? true : Boolean(entry.referenceOnlyAfterReset),
       manualResetHistoricalAt: entry.sourceType === "bill" ? resetAt : entry.manualResetHistoricalAt || "",
+      accountingExcludedAfterReset: entry.sourceType === "bill" ? true : Boolean(entry.accountingExcludedAfterReset),
     }));
   }
 
@@ -6845,6 +6909,7 @@ function applyManualResetSelection(options, resetAt = new Date().toISOString()) 
     keptJobCards: new Set((state.orders || []).map((order) => order.jobNumber || order.number).filter(Boolean)).size,
     beforeBills: beforeStats.bills,
     keptBills: (state.bills || []).length,
+    referenceOnlyBills: (state.bills || []).filter(isReferenceOnlyBill).length,
     backupDownloaded: true,
   };
   state.manualResetHistory = [audit, ...(state.manualResetHistory || [])].slice(0, 25);
@@ -9979,7 +10044,7 @@ function syncCreateJobCardColor(form = document.getElementById("order-form")) {
 function syncJobCardColourReferences(jobItems = [], color = "") {
   const orderIds = new Set(jobItems.map((item) => item.id).filter(Boolean));
   const productionNumbers = new Set(jobItems.flatMap((item) => [item.productionNo, item.number]).filter(Boolean));
-  (state.bills || []).forEach((bill) => {
+  activeOperationalBills().forEach((bill) => {
     (bill.items || []).forEach((item) => {
       if (orderIds.has(item.orderId) || productionNumbers.has(item.productionNo)) item.color = color;
     });
@@ -16281,11 +16346,12 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
 }
 
 function isBillFactoryOutPosted(bill = {}) {
-  return Boolean(bill.manualResetHistoricalAt || bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
+  return Boolean(isReferenceOnlyBill(bill) || bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
 }
 
 function completedBillFactoryOutRecords(source = state, options = {}) {
   return (source.bills || []).map((bill) => {
+    if (isReferenceOnlyBill(bill)) return null;
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!bill?.id || !lot) return null;
     if (!options.includePosted && isBillFactoryOutPosted(bill)) return null;
@@ -16385,10 +16451,10 @@ function syncFactoryOutLedgerForState(source) {
       manualBillEdits.set(factoryBillLedgerKey(entry.sourceId, entry.sourceLine), entry);
     }
   });
-  source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill" || entry.manualResetHistoricalAt);
+  source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill" || isReferenceOnlyFactoryLedgerEntry(entry));
   (source.bills || []).forEach((bill) => {
     if (!bill?.id) return;
-    if (bill.manualResetHistoricalAt) return;
+    if (isReferenceOnlyBill(bill)) return;
     bill.officeDestination = KJPL_OFFICE_VENDOR_NAME;
     bill.officePartyName = KJPL_OFFICE_VENDOR_NAME;
     if (!isBillFactoryOutPosted(bill)) return;
@@ -16484,7 +16550,7 @@ function syncFactoryOutForBill() {
 }
 
 function factoryLedgerTotals() {
-  return (state.factoryLedger || []).reduce((totals, entry) => {
+  return (state.factoryLedger || []).filter((entry) => !isReferenceOnlyFactoryLedgerEntry(entry)).reduce((totals, entry) => {
     const fine = factoryFineGoldBreakup(entry).fineGold;
     if (entry.direction === "out") totals.outFine = Number(weight3(totals.outFine + fine));
     else totals.inFine = Number(weight3(totals.inFine + fine));
@@ -16531,10 +16597,11 @@ function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = gr
 
 function addFactoryCompletedBillStock(parts) {
   (state.lots || []).forEach((lot) => {
-    if (lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt) return;
+    if (isReferenceOnlyBillLot(lot)) return;
     if (lot.status !== "Completed") return;
     if (lot.fittingItemsJobCard) return;
     const bill = lot.bill || (state.bills || []).find((item) => item.lotId === lot.id);
+    if (isReferenceOnlyBill(bill || {})) return;
     if (bill?.items?.length) {
       (bill.items || [])
         .filter((item) => !isFactoryOutBillItem(item) && !isRepairItem(item) && !isDiscardedItem(item))
@@ -16805,7 +16872,7 @@ function vendorBalanceRows() {
       balanceFine: 0,
     });
   });
-  (state.factoryLedger || []).forEach((entry) => {
+  (state.factoryLedger || []).filter((entry) => !isReferenceOnlyFactoryLedgerEntry(entry)).forEach((entry) => {
     const vendorId = entry.vendorId || "";
     const vendor = vendorId ? findById("vendors", vendorId) : null;
     const key = vendorId || entry.vendorName || "opening-stock";
@@ -17423,7 +17490,7 @@ function deleteMeltingEntry(meltingId) {
 }
 
 function finishedStock() {
-  return state.lots.reduce((total, lot) => {
+  return state.lots.filter((lot) => !isReferenceOnlyBillLot(lot)).reduce((total, lot) => {
     if (lot.productionStockWeight !== undefined) return total + Number(lot.productionStockWeight || 0);
     return total + Number(lot.finishedWeight || 0);
   }, 0);
@@ -21469,7 +21536,7 @@ function printBillFromDialog() {
   if (!lot) return;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
   let bill = existingBill;
-  if (!existingBill.id || canEditGeneratedBill()) {
+  if (!isReferenceOnlyBill(existingBill) && (!existingBill.id || canEditGeneratedBill())) {
     const saved = saveBillFromForm(false);
     if (!saved) return;
     bill = saved.bill;
@@ -21484,7 +21551,7 @@ function printPackingListFromDialog() {
   if (!lot) return;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
   let bill = existingBill;
-  if (!existingBill.id || canEditGeneratedBill()) {
+  if (!isReferenceOnlyBill(existingBill) && (!existingBill.id || canEditGeneratedBill())) {
     const saved = saveBillFromForm(false);
     if (!saved) return;
     bill = saved.bill;
@@ -21499,7 +21566,7 @@ function printBillTagsFromDialog(pageSize = "a4") {
   if (!lot) return;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
   let bill = existingBill;
-  if (!existingBill.id || canEditGeneratedBill()) {
+  if (!isReferenceOnlyBill(existingBill) && (!existingBill.id || canEditGeneratedBill())) {
     const saved = saveBillFromForm(false);
     if (!saved) return;
     bill = saved.bill;
@@ -25344,6 +25411,7 @@ function safeShelfWaxStoneDemandLines() {
 function trackedNonGoldDemandLines() {
   const lotDemands = (state.lots || []).flatMap((lot) => {
     const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id);
+    if (isReferenceOnlyBillLot(lot) || isReferenceOnlyBill(bill || {})) return [];
     const adjustment = bill?.nonGoldStockAdjustment;
     if (adjustment?.posted) {
       return (adjustment.lines || []).map((line, index) => ({
@@ -33723,7 +33791,7 @@ function nonGoldControlBalanceRows() {
     addBreakdown("wipUnallocated", demand.purity, unallocated);
   });
 
-  (state.bills || []).forEach((bill) => {
+  activeOperationalBills().forEach((bill) => {
     const lot = (state.lots || []).find((entry) => entry.id === bill.lotId) || {};
     (bill.items || []).forEach((item) => {
       if (isDiscardedItem(item) || isRepairItem(item) || isFactoryOutBillItem(item) || Number(item.finalGw || 0) <= 0) return;
@@ -33875,7 +33943,7 @@ function nonGoldControlLedgerEntries() {
     }));
   });
 
-  (state.bills || []).forEach((bill) => {
+  activeOperationalBills().forEach((bill) => {
     const lot = (state.lots || []).find((entry) => entry.id === bill.lotId) || {};
     (bill.items || []).forEach((item) => {
       if (!isFactoryOutBillItem(item) || isDiscardedItem(item)) return;
@@ -37835,7 +37903,7 @@ function manualWipCombinedPuritySummary(sources = manualWipBillingSources()) {
 }
 
 function manualWipBilledOrderIds() {
-  const billedIds = (state.bills || []).flatMap((bill) => (bill.items || []).map((item) => item.orderId).filter(Boolean));
+  const billedIds = activeOperationalBills().flatMap((bill) => (bill.items || []).map((item) => item.orderId).filter(Boolean));
   const pendingCombinedIds = (state.lots || [])
     .filter((lot) => lot.manualWipCombinedBill && !(lot.bill || (state.bills || []).some((bill) => bill.lotId === lot.id)))
     .flatMap((lot) => billableOrderIdsForLot(lot, {}));
@@ -38877,14 +38945,15 @@ function renderBills() {
         : (bill?.items || []).map((item) => findById("orders", item.orderId)).filter(Boolean);
       const customer = orders[0]?.customer || "-";
       const billWeight = bill ? gram(Number(bill.netWeight || 0)) : "-";
+      const referenceOnly = isReferenceOnlyBill(bill || {}) || isReferenceOnlyBillLot(lot || {});
       const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
-      const actionLabel = qcOnlyMode
+      const actionLabel = referenceOnly ? "View Reference Bill" : qcOnlyMode
         ? "QC Check"
         : bill
           ? (isGeneratedBillLockedForCurrentUser(bill) ? "View Bill" : "View / Edit Bill")
           : "Make Bill";
       return `
-        <tr>
+        <tr class="${referenceOnly ? "reference-bill-row" : ""}">
           <td>${escapeHtml(lot?.number || bill?.lotNumber || "Saved Bill")}</td>
           <td>${escapeHtml(lot?.orderNumber || bill?.jobNumber || "-")}${lot?.manualWipLot ? "<br><small>Non-Job-Card WIP</small>" : ""}${lot?.qcReturn ? "<br><small>Repair final bill</small>" : ""}</td>
           <td>${customerOrderDisplayHtml(customer)}</td>
@@ -38893,7 +38962,7 @@ function renderBills() {
           <td>${lot ? wastageDetailHtml(lot) : "-"}</td>
           <td>${escapeHtml(bill?.billNo || "-")}</td>
           <td>${billWeight}</td>
-          <td><span class="status ${bill ? "completed" : "pending"}">${detached ? "Saved / Link Refresh Pending" : bill ? escapeHtml(lot?.billingStage || "Sales Office QC") : "Pending Bill"}</span></td>
+          <td><span class="status ${bill ? "completed" : "pending"}">${referenceOnly ? "Reference Only / No Stock Effect" : detached ? "Saved / Link Refresh Pending" : bill ? escapeHtml(lot?.billingStage || "Sales Office QC") : "Pending Bill"}</span></td>
           <td>
             <div class="row-actions">
               <button type="button" onclick="${lot ? `openBill('${lot.id}')` : `openSavedBillFromList('${bill?.id || ""}')`}">${detached ? "View Saved Details" : actionLabel}</button>
@@ -40426,6 +40495,7 @@ function renderOfficeTeamSummary(items = officeItems()) {
 function officeItems() {
   return renderCachedValue("officeItems", () => state.lots.flatMap((lot) => {
     const bill = billForLotRecord(lot);
+    if (isReferenceOnlyBillLot(lot) || isReferenceOnlyBill(bill || {})) return [];
     if (!bill?.items?.length) return [];
     return bill.items
       .filter((item) => !isDiscardedItem(item) && (
@@ -40443,6 +40513,7 @@ function officeItems() {
 function repairJobItems() {
   return renderCachedValue("repairJobItems", () => state.lots.flatMap((lot) => {
     const bill = billForLotRecord(lot);
+    if (isReferenceOnlyBillLot(lot) || isReferenceOnlyBill(bill || {})) return [];
     if (!bill?.items?.length) return [];
     return bill.items
       .filter((item) => isRepairItem(item))
@@ -40962,6 +41033,7 @@ function selectedOfficeEntries(keys) {
   const selected = [];
   state.lots.forEach((lot) => {
     const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
+    if (isReferenceOnlyBillLot(lot) || isReferenceOnlyBill(bill || {})) return;
     if (!bill?.items?.length) return;
     bill.items.forEach((item) => {
       if (!keys.includes(officeItemKey(lot.id, item))) return;
@@ -40983,6 +41055,7 @@ function openBill(lotId) {
   const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
   const draft = billDraftForLot(lot, bill);
   const displayBill = workingBillRecord(lot, bill);
+  const referenceOnly = isReferenceOnlyBill(bill) || isReferenceOnlyBillLot(lot);
   if (isBillQcOnlyMode() && !bill.id) {
     alert("Bill must be created by Bill Dept, Manager, or Owner before QC check.");
     return;
@@ -41003,17 +41076,20 @@ function openBill(lotId) {
   form.elements.billWastagePercent.value = String(factoryWstgPercent(openingWastagePercent));
   const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
   const lockedForUser = isGeneratedBillLockedForCurrentUser(bill);
-  document.getElementById("bill-form-title").textContent = qcOnlyMode
+  document.getElementById("bill-form-title").textContent = referenceOnly ? "Reference Bill" : qcOnlyMode
     ? "QC Check"
     : bill.billNo
       ? (lockedForUser ? "View Bill" : "View / Edit Bill")
       : "Make Bill";
   document.getElementById("bill-summary").textContent = [
     `${lot.number} / ${lot.orderNumber || "-"} / ${customer} / ${billableOrders.length} current item${billableOrders.length === 1 ? "" : "s"} / Finished ${gram(lot.finishedWeight)}`,
+    referenceOnly ? "Historical reference only. This Bill is excluded from current stock, non-gold, Office, Factory Out and party balances." : "",
     lot.manualWipCombinedBill ? `Combined manual pool: enter each item's actual GW; deduction happens only when this Bill is saved.${lot.manualWipPoolSnapshot ? ` Pool at selection ${gram(lot.manualWipPoolSnapshot.grossWeight)}.` : ""}` : "",
     lockedForUser ? "Bill already generated. Bill Dept can view only; Manager and Owner can edit." : (isOrderBillQcMode(bill) ? "Order Dept can update QC and transfer QC OK items to Office; generated bill weights are locked." : ""),
   ].filter(Boolean).join(" | ");
-  if (draft) {
+  if (referenceOnly) {
+    setBillDraftStatus("Reference archive is locked. View, print and export remain available.", "saved");
+  } else if (draft) {
     const restoredAt = new Date(draft.updatedAt || Date.now()).toLocaleString("en-IN");
     setBillDraftStatus(`Protected draft restored from ${restoredAt}. Every new entry will continue saving automatically.`, "saved");
   } else if (canPersistBillDraft(lot, bill)) {
@@ -41109,21 +41185,23 @@ function applyBillAccessMode() {
   if (!form) return;
   const lot = findById("lots", form.lotId.value);
   const bill = lot?.bill || state.bills?.find((item) => item.lotId === lot?.id) || {};
+  const referenceOnly = isReferenceOnlyBill(bill) || isReferenceOnlyBillLot(lot || {});
   const qcOnlyMode = isBillQcOnlyMode() || isOrderBillQcMode(bill);
   const canChangeQc = canEditQcStatus();
   const lockedForUser = isGeneratedBillLockedForCurrentUser(bill);
   form.classList.toggle("qc-only-bill-form", qcOnlyMode);
-  form.classList.toggle("locked-bill-form", lockedForUser);
+  form.classList.toggle("locked-bill-form", lockedForUser || referenceOnly);
+  form.classList.toggle("reference-only-bill-form", referenceOnly);
   form.querySelectorAll("input, textarea").forEach((input) => {
     if (input.type === "hidden") return;
     if (input.id === "bill-item-search") {
       input.readOnly = false;
       return;
     }
-    input.readOnly = qcOnlyMode || lockedForUser || input.hasAttribute("readonly");
+    input.readOnly = referenceOnly || qcOnlyMode || lockedForUser || input.hasAttribute("readonly");
   });
   form.querySelectorAll("select").forEach((select) => {
-    select.disabled = lockedForUser || (qcOnlyMode && select.name !== "billItemQcStatus") || (select.name === "billItemQcStatus" && !canChangeQc);
+    select.disabled = referenceOnly || lockedForUser || (qcOnlyMode && select.name !== "billItemQcStatus") || (select.name === "billItemQcStatus" && !canChangeQc);
   });
   const transferOk = document.getElementById("bill-qc-ok");
   const transferFailed = document.getElementById("bill-qc-failed");
@@ -41133,25 +41211,29 @@ function applyBillAccessMode() {
   const saveDraftButton = document.getElementById("save-bill-draft");
   const deleteBillButton = document.getElementById("delete-bill");
   const submitButton = form.querySelector('button[type="submit"]');
-  if (transferOk) transferOk.classList.toggle("hidden", !canChangeQc);
-  if (transferFailed) transferFailed.classList.toggle("hidden", !canSendQcFailedItems());
-  if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", !canChangeQc);
+  if (transferOk) transferOk.classList.toggle("hidden", referenceOnly || !canChangeQc);
+  if (transferFailed) transferFailed.classList.toggle("hidden", referenceOnly || !canSendQcFailedItems());
+  if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", referenceOnly || !canChangeQc);
   if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
-  const canAddPending = Boolean(lot?.manualWipCombinedBill && (bill.id ? canEditGeneratedBill() : canCreateBill()));
+  const canAddPending = Boolean(!referenceOnly && lot?.manualWipCombinedBill && (bill.id ? canEditGeneratedBill() : canCreateBill()));
   if (addPendingItems) {
     addPendingItems.classList.toggle("hidden", !canAddPending);
     addPendingItems.textContent = bill.id ? "Add Pending Items To Bill" : "Add Pending Items";
   }
-  if (saveDraftButton) saveDraftButton.classList.toggle("hidden", !canPersistBillDraft(lot, bill));
-  const canDeleteBillOrDraft = Boolean((bill.id || lot?.manualWipCombinedBill) && canDeleteErpData() && !isReadOnlyUser());
+  if (saveDraftButton) saveDraftButton.classList.toggle("hidden", referenceOnly || !canPersistBillDraft(lot, bill));
+  const canDeleteBillOrDraft = Boolean(!referenceOnly && (bill.id || lot?.manualWipCombinedBill) && canDeleteErpData() && !isReadOnlyUser());
   if (deleteBillButton) {
     deleteBillButton.classList.toggle("hidden", !canDeleteBillOrDraft);
     deleteBillButton.textContent = bill.id ? "Delete Bill" : "Delete Pending Bill";
   }
   if (submitButton) {
-    submitButton.classList.toggle("hidden", lockedForUser);
-    submitButton.disabled = lockedForUser;
+    submitButton.classList.toggle("hidden", referenceOnly || lockedForUser);
+    submitButton.disabled = referenceOnly || lockedForUser;
     submitButton.textContent = qcOnlyMode ? "Save QC Check" : "Save Bill";
+    form.querySelectorAll("[data-add-bill-fitting], [data-refresh-bill-stone], [data-open-bill-stone], [data-remove-bill-item]").forEach((button) => {
+      button.classList.toggle("hidden", referenceOnly);
+      if (referenceOnly) button.disabled = true;
+    });
   }
 }
 
@@ -41698,6 +41780,7 @@ function workingBillRecord(lot = {}, bill = {}) {
 
 function canPersistBillDraft(lot = {}, bill = {}) {
   if (!lot?.id || isReadOnlyUser()) return false;
+  if (isReferenceOnlyBill(bill) || isReferenceOnlyBillLot(lot)) return false;
   if (!bill.id) return canCreateBill();
   if (canEditGeneratedBill()) return true;
   return Boolean((isBillQcOnlyMode() || isOrderBillQcMode(bill)) && canEditQcStatus());

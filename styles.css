@@ -21199,3 +21199,11 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     grid-template-columns: repeat(2, minmax(130px, 1fr));
   }
 }
+
+
+/* v680 reference-only bill archive */
+.reference-bill-row { background: #eef7ff; }
+.reference-bill-row td { border-color: #b8d8ef; }
+.reference-bill-row .status.completed { background: #d9edff; color: #075985; border-color: #7cc4ea; }
+.reference-only-bill-form::before { content: "REFERENCE ONLY - EXCLUDED FROM CURRENT ERP STOCK AND PARTY BALANCES"; display: block; margin: 0 0 10px; padding: 10px 14px; border: 1px solid #7cc4ea; border-radius: 6px; background: #e6f5ff; color: #075985; font-weight: 800; letter-spacing: .02em; }
+.reference-only-bill-form input[readonly], .reference-only-bill-form select:disabled, .reference-only-bill-form textarea[readonly] { background: #f3f8fc; color: #334155; opacity: 1; }
