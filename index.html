@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=681">
+      <link rel="stylesheet" href="styles.css?v=682">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v681</small>
+      <small class="app-version-badge">App v682</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v681</span>
+          <span class="app-version-badge">App v682</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -778,7 +778,7 @@
             <h2>Issue Non-Gold To Department</h2>
             <label>Stock Source <select name="sourceMode" required>
               <option value="safe">Non-Gold Safe Stock</option>
-              <option value="opening">Existing / Opening GW Balance</option>
+              <option value="opening">Existing / Opening GW Balance (Already Included In GW)</option>
             </select></label>
             <label data-non-gold-safe-source-field>Safe Stock Item <select name="sourceSafeItemId" required></select></label>
             <label>Department <select name="departmentId" required></select></label>
@@ -794,7 +794,7 @@
             <label>No of Pcs <input name="pcs" type="number" min="0" step="1" placeholder="Optional"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label class="full-row">Remarks <input name="remarks" placeholder="Optional detail"></label>
-            <p id="non-gold-issue-summary" class="dialog-note">Select recorded Safe stock, destination department and optional production lot.</p>
+            <p id="non-gold-issue-summary" class="dialog-note">Opening non-gold reclassifies weight already inside department GW: GW stays unchanged while Net and Fine Gold reduce.</p>
             <button type="submit">Issue Non-Gold</button>
           </form>
           <form id="production-non-gold-remove-form" class="form-panel">
@@ -3892,7 +3892,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=681"></script>
+    <script src="app.js?v=682"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
