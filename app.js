@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v687";
+const APP_VERSION = "v688";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -526,6 +526,7 @@ const demoState = {
   productionNonGoldIssues: [],
   nonGoldAuditEvents: [],
   nonGoldControlVersion: 1,
+  centralNonGoldShelfVersion: 2,
   settingSetters: [],
   settingManagerEntries: [],
   melting: [],
@@ -4447,7 +4448,19 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     return;
   }
 
-  const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+  const balanceCalculation = globalThis.KJMCentralNonGoldShelfV688?.departmentBalance({
+    fromDepartment: data.fromDepartment || lot.currentDepartment || lot.karigarName,
+    issueGw: transferWeight,
+    receiveGw: grossReceivedWeight,
+    handStoneWeight: stoneWeight,
+  }) || {
+    mode: isSettingDepartment(data.fromDepartment) ? "setting-net-receive" : "gross-weight",
+    receiveNet: isSettingDepartment(data.fromDepartment)
+      ? Number(weight3(grossReceivedWeight - stoneWeight))
+      : grossReceivedWeight,
+    balance: Number(weight3(transferWeight - (isSettingDepartment(data.fromDepartment) ? grossReceivedWeight - stoneWeight : grossReceivedWeight))),
+  };
+  const departmentBalance = Number(weight3(balanceCalculation.balance));
   const differencePurity = karatLogicPurity(lot.metalPurity || getLotOrders(lot)[0]?.purity || "");
   const differenceFineGold = fineGoldWeight(departmentBalance, differencePurity);
   const fittingItemsCompletion = lot.fittingItemsJobCard && isFittingItemsTransferDestination({
@@ -4476,6 +4489,8 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     reducedWeight,
     receivedWeight,
     departmentBalance,
+    departmentBalanceMode: balanceCalculation.mode,
+    receiveNetForBalance: Number(weight3(balanceCalculation.receiveNet)),
     differencePurity,
     differenceFineGold,
     balanceDepartment: mergedProductionDepartmentName(data.fromDepartment, editingTransfer?.fromKarigarName || lot.karigarName),
@@ -4508,8 +4523,8 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     createdAt: new Date().toISOString(),
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
-    weight: receivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, reduced ${gram(reducedWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    weight: grossReceivedWeight,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, item net wt ${gram(receivedWeight)}, department ${balanceCalculation.mode === "setting-net-receive" ? "setting metal" : "GW"} balance ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
     sourceType: editingTransfer ? "transfer-edit" : "transfer",
     sourceId: transferData.id,
     userId: currentUser?.id || "",
@@ -7941,8 +7956,9 @@ async function loadIncrementalSupabaseState(options = {}) {
   stampCurrentAppVersion(state);
   const stateBeforeLedgerRepair = structuredClone(state);
   const reconciledSafeSources = reconcileSafeSourceBalancesV687();
+  const reconciledDepartmentBalances = reconcileDepartmentTransferBalancesV688({ recordAudit: false });
   catalogueItems = state.catalogueItems || [];
-  lastLocallyPersistedState = reconciledSafeSources.count
+  lastLocallyPersistedState = reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded
     ? stateBeforeLedgerRepair
     : structuredClone(state);
   persistStateToBrowser({ context: "Incremental live ERP" });
@@ -7955,10 +7971,12 @@ async function loadIncrementalSupabaseState(options = {}) {
   supabaseLastCloudUpdatedAt = meta.updated_at || supabaseLastCloudUpdatedAt;
   supabaseStartupProtectionActive = false;
   supabaseLastSuccessfulContactAt = Date.now();
-  if (reconciledSafeSources.count) {
+  if (reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) {
     saveState({
-      context: `${reconciledSafeSources.count} cloud shelf source balance correction`,
-      changedStateKeys: ["safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows"],
+      context: reconciledDepartmentBalances.count
+        ? `${reconciledDepartmentBalances.count} cloud department GW balance correction`
+        : `${reconciledSafeSources.count} cloud shelf source balance correction`,
+      changedStateKeys: ["safeItems", "lots", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows", "centralNonGoldShelfVersion", "centralNonGoldShelfV688At"],
     });
   }
   render();
@@ -8493,6 +8511,43 @@ function reconcileSafeSourceBalancesV687(options = {}) {
   return result;
 }
 
+function reconcileDepartmentTransferBalancesV688(options = {}) {
+  const repairApi = globalThis.KJMCentralNonGoldShelfV688;
+  if (!repairApi?.reconcileTransferBalances) {
+    return { count: 0, rows: [], balanceDelta: 0, upgraded: false, error: "Central non-gold helper is unavailable." };
+  }
+  const changedAt = new Date().toISOString();
+  const upgraded = Number(state.centralNonGoldShelfVersion || 0) < 2;
+  const result = repairApi.reconcileTransferBalances(state, {
+    changedAt,
+    version: APP_VERSION,
+  });
+  (result.rows || []).forEach((row) => {
+    const lot = (state.lots || []).find((entry) => entry.id === row.lotId);
+    const transfer = (lot?.transfers || []).find((entry) => entry.id === row.transferId);
+    if (!transfer) return;
+    transfer.differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K");
+    transfer.differenceFineGold = fineGoldWeight(transfer.departmentBalance, transfer.differencePurity);
+  });
+  state.centralNonGoldShelfVersion = 2;
+  state.centralNonGoldShelfV688At = state.centralNonGoldShelfV688At || changedAt;
+  if (result.count && options.recordAudit !== false) {
+    state.ledger = state.ledger || [];
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: changedAt,
+      type: "Department GW Balance Reconciliation",
+      purity: "-",
+      weight: 0,
+      sourceType: "department-gw-balance-v688",
+      correctedTransfers: result.count,
+      reference: `${result.count} department transfer balance${result.count === 1 ? "" : "s"} reconciled to GW movement. Setting retains Receive GW minus Hand Stone.`,
+    });
+  }
+  return { ...result, upgraded };
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -8507,6 +8562,7 @@ function runPostCloudMigrations() {
     const repairedMergedSettingLots = repairPreviouslyMergedSettingSplitLots();
     const correctedLegacyIssueGoldWax = migrateLegacyIssueGoldWaxAllocationsV686();
     const reconciledSafeSources = reconcileSafeSourceBalancesV687();
+    const reconciledDepartmentBalances = reconcileDepartmentTransferBalancesV688();
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8522,22 +8578,25 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
       if (correctedLegacyIssueGoldWax.count) changedStateKeys.push("safeItems", "lots", "ledger", "legacyIssueGoldWaxAllocationV686At", "legacyIssueGoldWaxAllocationV686Lots");
       if (reconciledSafeSources.count) changedStateKeys.push("safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows");
+      if (reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) changedStateKeys.push("lots", "ledger", "centralNonGoldShelfVersion", "centralNonGoldShelfV688At");
       saveState({
         context: reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
           : (correctedOpeningNonGold
               ? "Confirmed opening non-gold reclassified from 14K to 18K"
-              : (reconciledSafeSources.count
+              : (reconciledDepartmentBalances.count
+                ? `${reconciledDepartmentBalances.count} department GW balance correction`
+                : (reconciledSafeSources.count
                   ? `${reconciledSafeSources.count} duplicate shelf source balance correction`
                   : (correctedLegacyIssueGoldWax.count
                       ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
-                      : "Post-cloud production and merged Setting lot correction"))),
+                      : "Central non-gold shelf and post-cloud production correction")))),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -17330,19 +17389,15 @@ function addFactoryCompletedBillStock(parts) {
         .forEach((item) => {
           const order = item.orderId ? findById("orders", item.orderId) : null;
           const gross = Number(item.finalGw || item.grossWeight || item.netWeight || 0);
-          const inventoryNonGold = nonGoldBreakdownTotal(nonGoldInventoryBreakdownForBillItem(item, order || {}));
-          const gold = Number(weight3(Math.max(gross - inventoryNonGold, 0)));
           const purity = item.purity || order?.purity || lot.metalPurity || "18K";
-          addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gold, purity, null, inventoryNonGold);
+          addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gross, purity);
         });
       return;
     }
     const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
     if (lot.manualWipLot) {
       const gross = Number(lot.manualWipGrossWeight || lot.grossIssuedWeight || 0);
-      const nonGold = Number(lot.manualWipNonGoldWeight || nonGoldBreakdownTotal(lot.manualWipNonGoldBreakdown));
-      const gold = Number(lot.manualWipGoldWeight ?? Math.max(gross - nonGold, 0));
-      if (gross > 0) addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gold, purity, null, nonGold);
+      if (gross > 0) addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gross, purity);
       return;
     }
     const fallbackWeight = Number(lot.finishedWeight || lot.productionStockWeight || 0);
@@ -17508,6 +17563,7 @@ function factoryPhysicalStock() {
     openingLooseNonGoldInsideGw: blankFactoryStockPart("Opening Loose Non-Gold Still Included In GW"),
     billNonGoldAdjustment: blankFactoryStockPart("Non-Gold Applied To Production / Bill"),
     nonGoldFineReconciliation: blankFactoryStockPart("ERP Non-Gold Deducted From GW"),
+    centralNonGoldShelfAdjustment: blankFactoryStockPart("Central Non-Gold Shelf Adjustment"),
   };
 
   Object.values(metalSafeBalances()).forEach((item) => {
@@ -17518,22 +17574,18 @@ function factoryPhysicalStock() {
   (state.safeItems || [])
     .filter((item) => item.status !== "Out")
     .forEach((item) => {
+      // Central non-gold rows classify material already contained in factory GW.
+      // They are a composition register, not a second physical-GW location.
+      if (safeItemKind(item) === "non-gold") return;
       const gross = Number(item.grossWeight ?? item.netWeight ?? 0);
-      const gold = safeItemFactoryGoldWeight(item);
-      addFactoryStockPart(parts, "shelf", "Safe Locker Items", gross, gold, safeItemDesiredPurity(item), null, safeItemFactoryNonGoldWeight(item));
+      addFactoryStockPart(parts, "shelf", "Safe Locker Items", gross, gross, safeItemDesiredPurity(item));
     });
 
   (state.lots || [])
     .filter(factoryStockHoldingLot)
     .forEach((lot) => {
       const totals = departmentCurrentLotTotals(lot);
-      const openingNonGold = activeProductionOpeningNonGoldBreakdown(lot);
-      const embeddedNonGold = Number(weight3(
-        nonGoldBreakdownTotal(openingNonGold)
-        + Number(totals.nonGold || 0)
-        - Number(totals.provisionalNonGold || 0)
-      ));
-      addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gold, totals.purity || lot.metalPurity || "18K", null, embeddedNonGold);
+      addFactoryStockPart(parts, "production", "Production Lots", totals.gross, totals.gross, totals.purity || lot.metalPurity || "18K");
     });
 
   activeOperationalLots().forEach((lot) => {
@@ -17555,8 +17607,7 @@ function factoryPhysicalStock() {
 
   safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
     const gross = Number(issue.grossWeight || issue.netWeight || 0);
-    const gold = Number(issue.netWeight || gross);
-    addFactoryStockPart(parts, "departmentIssues", "Safe Items In Departments", gross, gold, issue.purity || issue.locker || "", null, issue.nonGoldWeight || 0);
+    addFactoryStockPart(parts, "departmentIssues", "Safe Items In Departments", gross, gross, issue.purity || issue.locker || "");
   });
 
   (state.safeDepartmentReturns || [])
@@ -17564,16 +17615,14 @@ function factoryPhysicalStock() {
     .filter((entry) => !entry.issueId)
     .forEach((entry) => {
       const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
-      const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
       addFactoryStockPart(
         parts,
         "departmentReturns",
         "Department Receipts / Loss Adjustment",
         -grossReduction,
-        -goldReduction,
+        -grossReduction,
         entry.purity || entry.locker || "",
-        -fineGoldWeight(goldReduction, entry.purity || entry.locker || ""),
-        -Number(entry.nonGoldWeight || 0)
+        -fineGoldWeight(grossReduction, entry.purity || entry.locker || "")
       );
     });
 
@@ -17609,23 +17658,8 @@ function factoryPhysicalStock() {
   const directDepartmentNonGold = productionNonGoldDirectDepartmentBalances();
   directDepartmentNonGold.forEach((entry) => {
     const grossAdjustment = Number(entry.grossAdjustment || 0);
-    const physicalNonGold = Number(entry.physicalWeight || 0);
-    if (Math.abs(grossAdjustment) > 0.0005 || physicalNonGold > 0.0005) {
-      addFactoryStockPart(parts, "nonGoldDirect", "Direct Non-Gold In Factory", grossAdjustment, 0, entry.purity, 0, physicalNonGold);
-    }
-    const embeddedGoldWeight = Number(entry.embeddedGoldWeight || 0);
-    const embeddedNonGoldWeight = Number(entry.embeddedWeight || 0);
-    if (embeddedGoldWeight > 0.0005 || embeddedNonGoldWeight > 0.0005) {
-      addFactoryStockPart(
-        parts,
-        "openingNonGoldAdjustment",
-        "Opening Non-Gold Included In Department GW",
-        0,
-        -embeddedGoldWeight,
-        entry.purity,
-        -fineGoldWeight(embeddedGoldWeight, entry.purity),
-        embeddedNonGoldWeight,
-      );
+    if (Math.abs(grossAdjustment) > 0.0005) {
+      addFactoryStockPart(parts, "nonGoldDirect", "Department GW From Non-Gold Issue", grossAdjustment, grossAdjustment, entry.purity);
     }
   });
 
@@ -17637,55 +17671,25 @@ function factoryPhysicalStock() {
       "mainNonGoldRemoval",
       "Non-Gold Removed From Main Stock",
       -removedWeight,
-      0,
-      issue.purity || issue.karat,
-      0,
       -removedWeight,
-    );
-  });
-
-  const nonGoldAllocation = trackedNonGoldStockAllocation();
-  openingNonGoldAdjustmentPositions(nonGoldAllocation).forEach((position) => {
-    if (position.remaining <= 0) return;
-    addFactoryStockPart(
-      parts,
-      "openingNonGoldAdjustment",
-      "Opening Non-Gold Remaining After Production / Bill",
-      0,
-      -position.remaining,
-      position.purity,
-      -fineGoldWeight(position.remaining, position.purity),
-      position.remaining,
-    );
-  });
-
-  openingLooseNonGoldInsideGrossPositionsV687(nonGoldAllocation).forEach((position) => {
-    addFactoryStockPart(
-      parts,
-      "openingLooseNonGoldInsideGw",
-      "Opening Loose Non-Gold Still Included In Product GW",
-      0,
-      -position.remaining,
-      position.purity,
-      -fineGoldWeight(position.remaining, position.purity),
+      issue.purity || issue.karat,
+      -fineGoldWeight(removedWeight, issue.purity || issue.karat),
       0,
     );
   });
 
-  nonGoldAllocation.allocations.forEach((allocation) => {
-    const weight = Number(allocation.weight || 0);
-    if (weight <= 0) return;
-    if (allocation.embeddedInOpeningGw
-      && departmentTextKey(allocation.department) === departmentTextKey("Opening Stock Adjustment")) return;
+  centralNonGoldShelfRowsV688().forEach((position) => {
+    const weight = Number(weight3(position.weight || 0));
+    if (weight <= 0.0005) return;
     addFactoryStockPart(
       parts,
-      "billNonGoldAdjustment",
-      allocation.embeddedInOpeningGw ? "Opening Non-Gold Moved Into Production / Bill" : "Non-Gold Applied To Production / Bill",
-      -weight,
-      0,
-      allocation.purity,
+      "centralNonGoldShelfAdjustment",
+      "Central Non-Gold Shelf Deducted From Factory GW",
       0,
       -weight,
+      position.purity,
+      -fineGoldWeight(weight, position.purity),
+      weight,
     );
   });
 
@@ -17703,9 +17707,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.openingLooseNonGoldInsideGw.grossWeight + parts.billNonGoldAdjustment.grossWeight + parts.nonGoldFineReconciliation.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight + parts.openingLooseNonGoldInsideGw.goldWeight + parts.nonGoldFineReconciliation.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold + parts.openingLooseNonGoldInsideGw.fineGold + parts.nonGoldFineReconciliation.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.nonGoldDirect.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.nonGoldDirect.goldWeight + parts.centralNonGoldShelfAdjustment.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.nonGoldDirect.fineGold + parts.centralNonGoldShelfAdjustment.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
@@ -22814,17 +22818,16 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("metal", "Metal Safe", "Raw gold / pure metal"),
     partRow("shelf", "Safe Shelf", "Rod, casting item and wastage in safe"),
     partRow("production", "Production Lots", "Open job cards in departments"),
-    partRow("transferBalances", "Department Transfer Balances", "Issue Net less Receive Net remains with the originating department"),
+    partRow("transferBalances", "Department Transfer Balances", "Issue GW less Receive GW; Setting uses Receive GW less Hand Stone"),
     partRow("billPending", "Completed / Bill Pending", "Completed factory stock not yet out"),
     partRow("departmentIssues", "Dept Issued Safe Items", "Safe item issued directly to department"),
     partRow("departmentReturns", "Dept Receipt / Loss Adjustment", "Returned material and department loss adjustment"),
     partRow("departmentTallyLosses", "Daily Department Tally Loss", "Saved physical tally loss removed from factory stock"),
     partRow("meltingCasting", "Melting / Casting In Hand", "Issued but not received"),
     partRow("xrf", "XRF Pending", "Sample issued and not returned"),
-    partRow("nonGoldDirect", "Direct Non-Gold In Factory", "Physical only, no fine gold"),
-    partRow("mainNonGoldRemoval", "Main Stock Non-Gold Removed", "Reduces physical GW and non-gold equally; fine gold unchanged"),
-    partRow("openingNonGoldAdjustment", "Opening Non-Gold Included In GW", "Classification inside existing department GW; reduces net and fine gold without increasing GW"),
-    partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
+    partRow("nonGoldDirect", "Direct Non-Gold GW", "Included in gross movement before central non-gold adjustment"),
+    partRow("mainNonGoldRemoval", "Main Stock Non-Gold Removed", "Reduces factory GW and central non-gold together"),
+    partRow("centralNonGoldShelfAdjustment", "Central Non-Gold Shelf Adjustment", "All Stone, Black Beads, Moti, Spring and Other deducted once by karat"),
     { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine; KJPL-STOCK metal sold excluded" },
     { label: "KJPL-STOCK Metal Sold", fine: weight3(vendorTotals.metalSold || 0), note: "Ledger entry only; not counted in stock or vendor balance" },
     { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
@@ -27039,18 +27042,17 @@ function openTransferEdit(lotId, transferId) {
   form.stoneWeight.value = weight3(transfer.stoneWeight);
   const reducedWeight = transferReducedWeight(transfer);
   const receivedWeight = Number(weight3(Math.max(Number(transfer.grossReceivedWeight || 0) - reducedWeight, 0)));
-  const issuedNetWeight = Number(weight3(Math.max(
-    Number(transfer.transferWeight || 0)
-      - Number(transfer.waxStoneWeight || 0)
-      - currentHandStoneWeight(lot, transfer.id)
-      - transferProvisionalNonGoldBefore(lot, transfer.id),
-    0,
-  )));
   form.provisionalNonGoldWeight.value = weight3(transfer.provisionalNonGoldWeight || 0);
   form.provisionalNonGoldAddedWeight.value = weight3(transfer.provisionalNonGoldAddedWeight || 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(receivedWeight);
-  form.departmentBalance.value = weight3(issuedNetWeight - receivedWeight);
+  const balanceCalculation = globalThis.KJMCentralNonGoldShelfV688?.departmentBalance({
+    fromDepartment: transfer.fromDepartment || transfer.fromKarigarName,
+    issueGw: transfer.transferWeight,
+    receiveGw: transfer.grossReceivedWeight,
+    handStoneWeight: transfer.handStoneWeight ?? transfer.stoneWeight,
+  });
+  form.departmentBalance.value = weight3(balanceCalculation?.balance ?? Number(transfer.transferWeight || 0) - Number(transfer.grossReceivedWeight || 0));
   form.fromDepartment.value = transfer.fromDepartment || "";
   form.reason.value = transfer.reason || "";
   setTransferCurrentNote(`
@@ -27873,11 +27875,19 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
     )));
     const reducedWeight = Number(weight3(waxStoneWeight + handStoneWeight + provisionalNonGoldWeight));
     const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
-    const issuedNetWeight = Number(weight3(Math.max(
-      transferWeight - waxStoneWeight - previousHandStoneWeight - previousProvisionalNonGoldWeight,
-      0,
-    )));
-    const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+    const balanceCalculation = globalThis.KJMCentralNonGoldShelfV688?.departmentBalance({
+      fromDepartment: transfer.fromDepartment || transfer.fromKarigarName,
+      issueGw: transferWeight,
+      receiveGw: grossReceivedWeight,
+      handStoneWeight,
+    }) || {
+      mode: isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight",
+      receiveNet: isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName)
+        ? Number(weight3(grossReceivedWeight - handStoneWeight))
+        : grossReceivedWeight,
+      balance: Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
+    };
+    const departmentBalance = Number(weight3(balanceCalculation.balance));
     const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
     const differenceFineGold = fineGoldWeight(departmentBalance, differencePurity);
     const changed = Math.abs(savedHandStoneWeight - handStoneWeight) > 0.0005
@@ -27897,6 +27907,8 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       reducedWeight,
       receivedWeight,
       departmentBalance,
+      departmentBalanceMode: balanceCalculation.mode,
+      receiveNetForBalance: Number(weight3(balanceCalculation.receiveNet)),
       differencePurity,
       differenceFineGold,
     });
@@ -27909,7 +27921,7 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       transfer.stonePlanSyncReason = reason;
       const ledgerEntry = (sourceState.ledger || []).find((entry) => entry.sourceId === transfer.id && ["transfer", "transfer-edit"].includes(entry.sourceType));
       if (ledgerEntry) {
-        ledgerEntry.weight = receivedWeight;
+        ledgerEntry.weight = grossReceivedWeight;
         ledgerEntry.reference = `${lot.number} stone plan synced for ${lot.orderNumber || "Job Card"}; ${transfer.fromDepartment || transfer.fromKarigarName || "Department"} to ${transfer.toDepartment || transfer.toKarigarName || "Department"}; actual receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(handStoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, net wt ${gram(receivedWeight)}, difference ${gram(departmentBalance)}`;
         ledgerEntry.stonePlanSyncedAt = syncedAt;
       }
@@ -32553,7 +32565,7 @@ function departmentMetalInHand() {
   productionNonGoldDirectDepartmentBalances().forEach((entry) => {
     addDepartmentWeight(departments, entry.department, {
       gross: Number(entry.grossAdjustment || 0),
-      gold: -Number(entry.embeddedGoldWeight || 0),
+      gold: Number(entry.grossAdjustment || 0),
       nonGold: Number(entry.weight || 0),
       purity: entry.purity || "",
     });
@@ -32561,7 +32573,7 @@ function departmentMetalInHand() {
   safeDepartmentIssuesInHand().filter((issue) => !issue.goldIssueLotId && (issue.destinationMode !== "job" || !issue.lotId)).forEach((issue) => {
     addDepartmentWeight(departments, dashboardDepartmentNameFromId(issue.departmentId) || issue.departmentName || issue.process || "Unassigned", {
       gross: Number(issue.grossWeight || 0),
-      gold: Number(issue.netWeight || 0),
+      gold: Number(issue.grossWeight || 0),
       waxStone: Number(issue.waxStoneWeight || 0),
       nonGold: Number(issue.nonGoldWeight || 0),
       purity: issue.purity || issue.locker || "",
@@ -32571,13 +32583,12 @@ function departmentMetalInHand() {
     const departmentName = dashboardDepartmentNameFromId(entry.departmentId) || entry.departmentName || entry.process || "Unassigned";
     if (!entry.issueId) {
       const grossReduction = Number(weight3(entry.grossWeight + entry.lossWeight));
-      const goldReduction = Number(weight3(entry.netWeight + entry.lossWeight));
       addDepartmentWeight(departments, departmentName, {
         gross: -grossReduction,
-        gold: -goldReduction,
+        gold: -grossReduction,
         waxStone: -Number(entry.waxStoneWeight || 0),
         nonGold: -Number(entry.nonGoldWeight || 0),
-        fineGold: -fineGoldWeight(goldReduction, entry.purity),
+        fineGold: -fineGoldWeight(grossReduction, entry.purity),
         purity: entry.purity || entry.locker || "",
       });
     }
@@ -32599,18 +32610,6 @@ function departmentMetalInHand() {
         lossFineGold: allocation.fineGold,
         purity: allocation.purity,
       });
-    });
-  });
-  trackedNonGoldStockAllocation().allocations.forEach((allocation) => {
-    const weight = Number(allocation.weight || 0);
-    if (weight <= 0) return;
-    if (allocation.embeddedInOpeningGw
-      && departmentTextKey(allocation.department) === departmentTextKey("Opening Stock Adjustment")) return;
-    addDepartmentWeight(departments, allocation.department, {
-      gross: -weight,
-      nonGold: -weight,
-      fineGold: 0,
-      purity: allocation.purity,
     });
   });
   addMeltingCastingDashboardWeights(departments);
@@ -32707,7 +32706,9 @@ function departmentCurrentLotTotals(lot) {
   const waxStone = Number(weight3(lotWaxStone + linkedSafe.waxStone));
   const nonGold = Number(weight3(includedNonGold + directNonGold + linkedSafe.nonGold + provisionalNonGold));
   const gross = Number(weight3(metalGross + additionalDirectNonGold + linkedSafe.gross));
-  const gold = Number(weight3(Math.max(metalGross - lotWaxStone - handStone - includedNonGold - provisionalNonGold - embeddedDirectNonGold, 0) + linkedSafe.gold));
+  // v688 keeps every production movement and department holding in GW. The
+  // central non-gold shelf is deducted once, purity-wise, in the Fine Sheet.
+  const gold = gross;
   return { gross, gold, waxStone, handStone, nonGold, provisionalNonGold, purity: lot.metalPurity || getLotOrders(lot)[0]?.purity || "" };
 }
 
@@ -32717,7 +32718,7 @@ function safeJobIssuePhysicalTotalsForLot(lot = {}) {
     .filter((issue) => !issue.goldIssueLotId && issue.lotId === lot.id && issue.destinationMode === "job" && issue.status === "In Department")
     .reduce((totals, issue) => ({
       gross: Number(weight3(totals.gross + Number(issue.grossWeight || 0))),
-      gold: Number(weight3(totals.gold + Number(issue.netWeight || 0))),
+      gold: Number(weight3(totals.gold + Number(issue.grossWeight || 0))),
       waxStone: Number(weight3(totals.waxStone + Number(issue.waxStoneWeight || 0))),
       nonGold: Number(weight3(totals.nonGold + Number(issue.nonGoldWeight || 0))),
     }), { gross: 0, gold: 0, waxStone: 0, nonGold: 0 });
@@ -33198,7 +33199,7 @@ function dailyTallyStockTargets() {
     [departmentDashboardHeader("Melting / Casting")]: { source: "Melting / Casting", ...(parts.meltingCasting || {}) },
     [departmentDashboardHeader("XRF Pending")]: { source: "XRF Pending", ...(parts.xrf || {}) },
     [departmentDashboardHeader("Direct Non-Gold")]: { source: "Direct Non-Gold", ...(parts.nonGoldDirect || {}) },
-    [departmentDashboardHeader("Bill Non-Gold Adjustment")]: { source: "Bill / Production Non-Gold Adjustment", ...(parts.billNonGoldAdjustment || {}) },
+    [departmentDashboardHeader("Central Non-Gold Adjustment")]: { source: "Central Non-Gold Shelf", ...(parts.centralNonGoldShelfAdjustment || {}) },
     [departmentDashboardHeader("Office Item Stock")]: {
       source: "Office Stock",
       grossWeight: officeStockWeight(),
@@ -35051,6 +35052,29 @@ function nonGoldControlBalanceRows() {
   })).filter((row) => row.totalFactory > 0.0005 || row.unmatched > 0.0005)
     .sort((left, right) => NON_GOLD_CONTROL_MATERIALS.indexOf(left.materialType) - NON_GOLD_CONTROL_MATERIALS.indexOf(right.materialType)
       || puritySortValue(right.purity) - puritySortValue(left.purity));
+}
+
+function centralNonGoldShelfRowsV688() {
+  const balanceRows = nonGoldControlBalanceRows();
+  const helper = globalThis.KJMCentralNonGoldShelfV688;
+  if (helper?.centralShelfRows) return helper.centralShelfRows(balanceRows);
+  const grouped = new Map();
+  balanceRows.forEach((row) => {
+    const purity = transferPurityLabel(karatLogicPurity(row.purity || "18K"));
+    const key = karatPurityKey(purity) || purity;
+    const current = grouped.get(key) || { purity, weight: 0, byMaterial: {} };
+    const weight = Number(weight3(Math.max(Number(row.totalFactory || 0), 0)));
+    current.weight = Number(weight3(current.weight + weight));
+    current.byMaterial[row.materialType || "other"] = Number(weight3(
+      Number(current.byMaterial[row.materialType || "other"] || 0) + weight
+    ));
+    grouped.set(key, current);
+  });
+  return [...grouped.values()].filter((row) => row.weight > 0.0005);
+}
+
+function centralNonGoldShelfTotalV688() {
+  return Number(weight3(centralNonGoldShelfRowsV688().reduce((total, row) => total + Number(row.weight || 0), 0)));
 }
 
 function nonGoldControlLedgerEntries() {
@@ -36980,9 +37004,9 @@ function renderNonGoldControl() {
     return result;
   }, {});
   summary.innerHTML = [
-    factorySummaryCard("Total Non-Gold In Factory", gram(totals.totalFactory), "Safe + departments + production items + Bill pending"),
-    factorySummaryCard("Non-Gold Safe", gram(totals.safe), "Loose stock available for issue"),
-    factorySummaryCard("Department Loose", gram(totals.departmentLoose), "Issued but not finally allocated"),
+    factorySummaryCard("Central Non-Gold Shelf", gram(totals.totalFactory), "One factory-wide balance deducted once from Fine Sheet GW"),
+    factorySummaryCard("Safe / Source Register", gram(totals.safe), "Loose and embedded source entries"),
+    factorySummaryCard("Department Reference", gram(totals.departmentLoose), "Trace-only allocation; department movement remains GW"),
     factorySummaryCard("Inside Production Items", gram(Number(totals.itemAllocated || 0) + Number(totals.wipUnallocated || 0)), "Allocated PR stone plus unallocated WIP"),
     factorySummaryCard("Bill Pending", gram(totals.billPending), "Exact physical non-gold waiting for Factory Out"),
     factorySummaryCard("Unmatched", gram(totals.unmatched), totals.unmatched > 0.0005 ? "Stock source or category requires correction" : "Every production demand has matching stock"),
@@ -37113,8 +37137,8 @@ function renderProductionNonGoldReconciliation() {
   summary.innerHTML = [
     factorySummaryCard("Current Department GW", gram(totals.currentGw), "Includes gold and every non-gold component"),
     factorySummaryCard("Non-Gold In GW", gram(totals.nonGold), "Stone, black beads, moti, spring, wax / hand stone and other"),
-    factorySummaryCard("Net Gold", gram(totals.netGold), "Current GW less non-gold"),
-    factorySummaryCard("Fine Gold", gram(totals.fineGold), "Calculated only on net gold"),
+    factorySummaryCard("GW For Fine", gram(totals.netGold), "Department GW before the central non-gold deduction"),
+    factorySummaryCard("Fine Before Central NG", gram(totals.fineGold), "Department GW at karat purity; central shelf is deducted once in Fine Sheet"),
   ].join("");
   table.innerHTML = rows.length ? rows.map((row) => `
     <tr>
@@ -44735,7 +44759,7 @@ function renderSafeNonGoldSummary() {
   const totalNote = document.getElementById("safe-non-gold-total-note");
   if (totalNote) totalNote.textContent = totalUnmatched > 0.0005
     ? `${gram(totalUnmatched)} requires a matching shelf source or material correction.`
-    : "All current non-gold demand has a matching category-and-karat source.";
+    : "Central factory balance. Product movements remain in GW; this total is deducted once by karat in the Fine Sheet.";
   const alertBox = document.getElementById("safe-non-gold-alert");
   if (alertBox) {
     alertBox.hidden = totalUnmatched <= 0.0005;
@@ -45824,7 +45848,7 @@ function renderFactorySummary() {
   const parts = physical.parts || {};
   grid.innerHTML = [
     factorySummaryCard("Total Factory Weight", gram(physical.grossWeight), `NW ${gram(physical.goldWeight)} / Non-Gold ${gram(physical.nonGoldWeight)} / Fine ${gram(physical.totalFine)}`, "owned"),
-    factorySummaryCard("Total Non-Gold In Factory", gram(physical.nonGoldWeight), "Safe shelf + production + bill pending + direct factory holdings", "owned"),
+    factorySummaryCard("Central Non-Gold Shelf", gram(physical.nonGoldWeight), "Factory-wide composition register; deducted once by karat after all GW holdings", "owned"),
     factorySummaryCard("Net Factory Fine Stock", gram(totalFineStock), "Physical fine - external party fine balance; KJPL-STOCK sold excluded", "owned"),
     factorySummaryCard("Party Fine Balance", gram(vendorTotals.netBalance), `Payable ${gram(vendorTotals.payable)} / Receivable ${gram(vendorTotals.receivable)} / KJPL-STOCK Sold ${gram(vendorTotals.metalSold || 0)} not counted`),
     factorySummaryCard("Metal Safe", gram(parts.metal?.grossWeight || 0), factoryStockPartNote(parts.metal)),
@@ -45837,10 +45861,9 @@ function renderFactorySummary() {
     factorySummaryCard("Daily Tally Loss", gram(Math.abs(parts.departmentTallyLosses?.grossWeight || 0)), factoryStockPartNote(parts.departmentTallyLosses)),
     factorySummaryCard("Melting / Casting", gram(parts.meltingCasting?.grossWeight || 0), factoryStockPartNote(parts.meltingCasting)),
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
-    factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
-    factorySummaryCard("Main Stock NG Removed", gram(Math.abs(parts.mainNonGoldRemoval?.grossWeight || 0)), "Physical GW and non-gold reduced equally; fine gold unchanged"),
-    factorySummaryCard("Opening Non-Gold In GW", gram(parts.openingNonGoldAdjustment?.nonGoldWeight || 0), `${factoryStockPartNote(parts.openingNonGoldAdjustment)} / Already included in department GW`),
-    factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), `${factoryStockPartNote(parts.billNonGoldAdjustment)} / Karat-wise non-gold consumed from department stock`),
+    factorySummaryCard("Direct Non-Gold GW", gram(parts.nonGoldDirect?.grossWeight || 0), "Included in gross movement before the central deduction"),
+    factorySummaryCard("Main Stock NG Removed", gram(Math.abs(parts.mainNonGoldRemoval?.grossWeight || 0)), "Reduces factory GW and the central non-gold shelf together"),
+    factorySummaryCard("Central NG Fine Adjustment", signedFineGram(parts.centralNonGoldShelfAdjustment?.fineGold || 0), `${gram(parts.centralNonGoldShelfAdjustment?.nonGoldWeight || 0)} deducted once, purity-wise`),
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Ledger: bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
@@ -45862,8 +45885,7 @@ const fineSheetPartOrder = [
   "xrf",
   "nonGoldDirect",
   "mainNonGoldRemoval",
-  "openingNonGoldAdjustment",
-  "billNonGoldAdjustment",
+  "centralNonGoldShelfAdjustment",
 ];
 
 function signedFineGram(value) {
@@ -45896,10 +45918,9 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
         const effect = Number(weight3(bucket.fineGold || 0));
         const percent = purityPercent(bucket.purity);
         let calculation = "No fine-gold effect";
-        if (Math.abs(gold) > 0.0005 && percent > 0) calculation = `${weight3(gold)} x ${percent.toFixed(2)}%`;
+        if (key === "centralNonGoldShelfAdjustment") calculation = `${weight3(Math.abs(nonGold))} x ${percent.toFixed(2)}% deducted once from factory GW`;
+        else if (Math.abs(gold) > 0.0005 && percent > 0) calculation = `${weight3(gold)} x ${percent.toFixed(2)}%`;
         else if (key === "mainNonGoldRemoval") calculation = "Physical non-gold removed; fine gold unchanged";
-        else if (key === "openingNonGoldAdjustment") calculation = "Non-gold classified inside existing GW; Net/Fine Gold reduced only once";
-        else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
         rows.push({
           source: "Physical Stock",
           partKey: key,
@@ -45956,7 +45977,6 @@ const fineSheetDepartmentPartKeys = new Set([
   "meltingCasting",
   "xrf",
   "nonGoldDirect",
-  "billNonGoldAdjustment",
 ]);
 
 const fineSheetHoldingGroupOrder = {
@@ -45995,9 +46015,9 @@ function fineSheetDepartmentHoldingRows(departments = departmentMetalInHand()) {
   Object.entries(departments || {}).forEach(([department, totals]) => {
     Object.entries(totals.purities || {}).forEach(([purity, item]) => {
       const gross = Number(weight3(item.gross || 0));
-      const nonGold = Number(weight3(Number(item.waxStone || 0) + Number(item.handStone || 0) + Number(item.nonGold || 0)));
-      const gold = Number(weight3(item.gold || 0));
-      const effect = Number(weight3(item.fineGold || 0));
+      const nonGold = 0;
+      const gold = gross;
+      const effect = Number(weight3(fineGoldWeight(gross, purity)));
       if (![gross, nonGold, gold, effect].some((value) => Math.abs(value) > 0.0005)) return;
       rows.push({
         group: "Department",
@@ -49210,12 +49230,17 @@ function updateTransferBalance() {
   const provisionalNonGold = Number(weight3(provisionalBefore + provisionalAdded));
   if (form.provisionalNonGoldWeight) form.provisionalNonGoldWeight.value = weight3(provisionalNonGold);
   if (form.provisionalNonGoldAddedWeight) form.provisionalNonGoldAddedWeight.value = weight3(provisionalAdded);
-  const issuedNet = Math.max(issued - waxStone - currentHandStoneWeight(lot, form.transferId.value) - provisionalBefore, 0);
   const reducedWeight = waxStone + handStone + provisionalNonGold;
   const netReceived = Math.max(grossReceived - reducedWeight, 0);
   form.reducedWeight.value = weight3(reducedWeight);
   form.receivedWeight.value = weight3(netReceived);
-  form.departmentBalance.value = weight3(issuedNet - netReceived);
+  const balanceCalculation = globalThis.KJMCentralNonGoldShelfV688?.departmentBalance({
+    fromDepartment: form.fromDepartment.value,
+    issueGw: issued,
+    receiveGw: grossReceived,
+    handStoneWeight: handStone,
+  });
+  form.departmentBalance.value = weight3(balanceCalculation?.balance ?? issued - grossReceived);
   renderTransferNonGoldPoolStatus(lot);
 }
 
@@ -50655,8 +50680,19 @@ function normalizeLotIssueWeights(currentState, lot) {
     const transferWeight = Number(transfer.transferWeight || 0);
     const reducedWeight = Number(weight3(transferWaxStoneWeight + handStoneWeight + provisionalNonGoldWeight));
     const receivedWeight = Number(weight3(Math.max(grossReceivedWeight - reducedWeight, 0)));
-    const issuedNetWeight = Number(weight3(Math.max(transferWeight - transferWaxStoneWeight - previousHandStoneWeight - previousProvisionalNonGoldWeight, 0)));
-    const departmentBalance = Number(weight3(issuedNetWeight - receivedWeight));
+    const balanceCalculation = globalThis.KJMCentralNonGoldShelfV688?.departmentBalance({
+      fromDepartment: transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName,
+      issueGw: transferWeight,
+      receiveGw: grossReceivedWeight,
+      handStoneWeight,
+    }) || {
+      mode: isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight",
+      receiveNet: isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName)
+        ? Number(weight3(grossReceivedWeight - handStoneWeight))
+        : grossReceivedWeight,
+      balance: Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
+    };
+    const departmentBalance = Number(weight3(balanceCalculation.balance));
     const differencePurity = karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "");
     previousHandStoneWeight = Math.max(previousHandStoneWeight, handStoneWeight);
     previousProvisionalNonGoldWeight = provisionalNonGoldWeight;
@@ -50673,6 +50709,8 @@ function normalizeLotIssueWeights(currentState, lot) {
       reducedWeight,
       receivedWeight,
       departmentBalance,
+      departmentBalanceMode: balanceCalculation.mode,
+      receiveNetForBalance: Number(weight3(balanceCalculation.receiveNet)),
       differencePurity,
       differenceFineGold: fineGoldWeight(departmentBalance, differencePurity),
       balanceDepartment: mergedProductionDepartmentName(transfer.balanceDepartment || transfer.fromDepartment || "", transfer.fromKarigarName),

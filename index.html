@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v687</small>
+      <small class="app-version-badge">App v688</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v687</span>
+          <span class="app-version-badge">App v688</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -705,8 +705,8 @@
           <section class="panel non-gold-control-panel">
             <div class="panel-heading non-gold-control-heading">
               <div>
-                <h2>Permanent Non-Gold Control</h2>
-                <p>Every gram is shown in one location: Safe, department, production item, Bill pending, Factory Out, return or loss.</p>
+                <h2>Central Non-Gold Shelf Control</h2>
+                <p>Every gram stays in one factory-wide register while production transfers remain entirely in GW.</p>
               </div>
               <button id="refresh-non-gold-control" class="ghost-button" type="button">Refresh &amp; Reconcile</button>
             </div>
@@ -719,7 +719,7 @@
             </div>
             <div class="table-wrap non-gold-control-table-wrap">
               <table class="non-gold-control-table">
-                <thead><tr><th>Material</th><th>Karat</th><th>Safe</th><th>Department Loose</th><th>WIP Unallocated</th><th>PR / Item Allocated</th><th>Bill Pending</th><th>Total In Factory</th><th>Unmatched</th></tr></thead>
+                <thead><tr><th>Material</th><th>Karat</th><th>Safe / Source</th><th>Department Reference</th><th>WIP Unallocated</th><th>PR / Item Reference</th><th>Bill Pending</th><th>Central Shelf Total</th><th>Unmatched</th></tr></thead>
                 <tbody id="non-gold-control-balance-table"></tbody>
               </table>
             </div>
@@ -794,7 +794,7 @@
             <label>No of Pcs <input name="pcs" type="number" min="0" step="1" placeholder="Optional"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
             <label class="full-row">Remarks <input name="remarks" placeholder="Optional detail"></label>
-            <p id="non-gold-issue-summary" class="dialog-note">Opening non-gold reclassifies weight already inside department GW: GW stays unchanged while Net and Fine Gold reduce.</p>
+            <p id="non-gold-issue-summary" class="dialog-note">Non-gold remains in the central shelf register while every production movement stays in GW. Fine Sheet deducts the central balance once by karat.</p>
             <button type="submit">Issue Non-Gold</button>
           </form>
           <form id="production-non-gold-remove-form" class="form-panel">
@@ -839,7 +839,7 @@
             <div id="production-non-gold-reconciliation-summary" class="factory-summary-grid non-gold-reconciliation-summary"></div>
             <div class="table-wrap">
               <table class="non-gold-reconciliation-table">
-                <thead><tr><th>Department</th><th>Karat</th><th>GW Issued</th><th>GW Received / Out</th><th>Ledger GW Remaining</th><th>Current GW</th><th>Non-Gold In GW</th><th>Net Gold</th><th>Fine Gold</th></tr></thead>
+                <thead><tr><th>Department</th><th>Karat</th><th>GW Issued</th><th>GW Received / Out</th><th>Ledger GW Remaining</th><th>Current GW</th><th>Non-Gold Reference</th><th>GW For Fine</th><th>Fine Before Central NG</th></tr></thead>
                 <tbody id="production-non-gold-reconciliation-table"></tbody>
               </table>
             </div>
@@ -1170,9 +1170,9 @@
           <section class="panel safe-non-gold-panel">
             <div class="panel-heading non-gold-shelf-heading">
               <div>
-                <span>Permanent Physical Inventory</span>
-                <h2>Non-Gold Shelf</h2>
-                <p>Every gram remains visible as loose shelf stock, embedded casting stock, department stock, production WIP, or Bill pending until Factory Out.</p>
+                <span>Central Factory Inventory</span>
+                <h2>Central Non-Gold Shelf</h2>
+                <p>Stone, Black Beads, Moti, Spring and Other remain visible here across the complete factory until Factory Out.</p>
               </div>
               <div class="row-actions">
                 <button id="safe-non-gold-add-focus" type="button">Add Stock</button>
@@ -1181,9 +1181,9 @@
             </div>
             <div id="safe-non-gold-alert" class="non-gold-control-alert" hidden></div>
             <div class="non-gold-shelf-total-strip">
-              <span>Total ERP Non-Gold</span>
+              <span>Central ERP Non-Gold Shelf</span>
               <strong id="safe-non-gold-total">0.000 g</strong>
-              <small id="safe-non-gold-total-note">Stone, Black Beads, Moti, Spring, and Other across the complete factory.</small>
+              <small id="safe-non-gold-total-note">One factory-wide register for Stone, Black Beads, Moti, Spring, and Other. Production moves only in GW.</small>
             </div>
             <div id="safe-non-gold-summary" class="safe-non-gold-summary-grid"></div>
 
@@ -1246,7 +1246,7 @@
 
             <div class="table-wrap non-gold-shelf-balance-wrap">
               <table class="non-gold-shelf-balance-table">
-                <thead><tr><th>Material</th><th>Karat</th><th>Loose Shelf</th><th>Casting / Embedded Shelf</th><th>Department Loose</th><th>WIP Unallocated</th><th>PR / Item</th><th>Bill Pending</th><th>Total ERP</th><th>Unmatched</th></tr></thead>
+                <thead><tr><th>Material</th><th>Karat</th><th>Loose Source</th><th>Casting / Embedded</th><th>Department Reference</th><th>WIP Unallocated</th><th>PR / Item</th><th>Bill Pending</th><th>Central Shelf Total</th><th>Unmatched</th></tr></thead>
                 <tbody id="safe-non-gold-balance-table"></tbody>
               </table>
             </div>
@@ -1254,7 +1254,7 @@
             <div class="safe-subsection-heading non-gold-shelf-section-heading">
               <div>
                 <span>Available Physical Stock</span>
-                <h3>Loose Non-Gold Shelf Entries</h3>
+                <h3>Non-Gold Source / Entry Register</h3>
                 <small>Issue these entries to a department or Job Card. Casting-embedded stone is protected from loose issue.</small>
               </div>
             </div>
@@ -3904,8 +3904,9 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
+  <script src="central-non-gold-shelf-v688.js?v=688"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
-    <script src="app.js?v=687"></script>
+    <script src="app.js?v=688"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
