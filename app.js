@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v683";
+const APP_VERSION = "v684";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -389,6 +389,7 @@ let appVersionReloadAttempting = false;
 let appVersionReloadStarted = false;
 let appVersionLastSyncAttemptAt = 0;
 let restoredRecentJobOrderCount = 0;
+let billNonGoldShelfMigrationCount = 0;
 let erpStateIndexedDbPendingRecord = null;
 let erpStateIndexedDbWritePromise = null;
 let erpStateIndexedDbSchedulePromise = null;
@@ -3506,6 +3507,7 @@ function normalizeStateForRuntime(currentState = {}) {
   } else {
     normalized = normalizeLoadedState(currentState);
   }
+  reconcilePostedBillNonGoldShelfConsumption(normalized);
   return reconcileBillLotLinks(normalized);
 }
 
@@ -3773,6 +3775,7 @@ function deleteBillFromDialog() {
     factoryLedger: state.factoryLedger || [],
     ledger: state.ledger || [],
     vendors: state.vendors || [],
+    safeItems: state.safeItems || [],
     billDeletionHistory: state.billDeletionHistory || [],
   });
   try {
@@ -3791,6 +3794,7 @@ function deleteBillFromDialog() {
       factoryOutReversed: isBillFactoryOutPosted(bill),
       deletedBy: currentUser?.name || currentUser?.id || "User",
     });
+    reverseBillNonGoldShelfConsumption(state, bill);
     state.factoryLedger = (state.factoryLedger || []).filter((entry) =>
       String(entry.sourceId || entry.billId || "") !== String(bill.id)
     );
@@ -3822,6 +3826,13 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   const lot = findById("lots", data.lotId);
   if (!lot) return null;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
+  const existingBillIndex = (state.bills || []).findIndex((item) => item.lotId === lot.id);
+  const postedBillShelfRollback = isBillFactoryOutPosted(existingBill) && existingBill.nonGoldShelfConsumption?.posted
+    ? {
+        safeItems: structuredClone(state.safeItems || []),
+        bill: structuredClone(existingBill),
+      }
+    : null;
   if (isReferenceOnlyBill(existingBill) || isReferenceOnlyBillLot(lot)) {
     alert("This Reference Bill can be viewed, printed and exported, but it cannot change current ERP data.");
     return null;
@@ -3905,15 +3916,30 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     makingGold: 0,
     manufacturingMakingGold: 0,
     officeMakingGold: 0,
-    factoryOutWstgPercent: isBillFactoryOutPosted(existingBill)
-      ? factoryWstgPercent(existingBill.factoryOutWstgPercent || 0)
-      : effectiveWastagePercent,
+    factoryOutWstgPercent: postedBillShelfRollback
+      ? effectiveWastagePercent
+      : (isBillFactoryOutPosted(existingBill) ? billFactoryOutWstgPercent(existingBill) : effectiveWastagePercent),
     factoryOutPostedAt: existingBill.factoryOutPostedAt || "",
     factoryOutUpdatedAt: existingBill.factoryOutUpdatedAt || "",
+    factoryOutPostingId: existingBill.factoryOutPostingId || "",
+    factoryOutBatchId: existingBill.factoryOutBatchId || "",
+    nonGoldShelfConsumption: postedBillShelfRollback ? null : (existingBill.nonGoldShelfConsumption || null),
     officeDestination: KJPL_OFFICE_VENDOR_NAME,
     officePartyName: KJPL_OFFICE_VENDOR_NAME,
     remarks: data.remarks || "",
   };
+  if (postedBillShelfRollback) {
+    try {
+      reverseBillNonGoldShelfConsumption(state, existingBill);
+      consumeBillNonGoldFromLooseShelf(state, bill, lot);
+    } catch (error) {
+      state.safeItems = postedBillShelfRollback.safeItems;
+      if (existingBillIndex >= 0) state.bills[existingBillIndex] = postedBillShelfRollback.bill;
+      lot.bill = postedBillShelfRollback.bill;
+      alert(error?.message || "The edited Bill non-gold weights could not be reconciled with the loose Non-Gold Shelf.");
+      return null;
+    }
+  }
   state.bills = state.bills || [];
   const existingIndex = state.bills.findIndex((item) => item.lotId === lot.id);
   if (existingIndex >= 0) state.bills[existingIndex] = bill;
@@ -3933,6 +3959,12 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     };
   }
   if (!saveState({ alertOnFailure: true, context: `${bill.billNo || lot.number} Bill` })) {
+    if (postedBillShelfRollback) {
+      state.safeItems = postedBillShelfRollback.safeItems;
+      if (existingBillIndex >= 0) state.bills[existingBillIndex] = postedBillShelfRollback.bill;
+      lot.bill = postedBillShelfRollback.bill;
+      syncFactoryOutForBill();
+    }
     setBillDraftStatus("Final Bill could not be saved. Your protected draft remains available for retry.", "error");
     return null;
   }
@@ -8365,6 +8397,8 @@ function runPostCloudMigrations() {
   if (supabaseStartupProtectionActive) return;
   postCloudMigrationsStarted = true;
   (async () => {
+    const reconciledBillNonGold = billNonGoldShelfMigrationCount;
+    billNonGoldShelfMigrationCount = 0;
     const correctedOpeningNonGold = migrateConfirmedOpeningNonGoldTo18KV683();
     const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
@@ -8384,14 +8418,17 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
+      const changedStateKeys = [];
+      if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
+      if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
       saveState({
-        context: correctedOpeningNonGold
-          ? "Confirmed opening non-gold reclassified from 14K to 18K"
-          : "Post-cloud production and merged Setting lot correction",
-        changedStateKeys: correctedOpeningNonGold
-          ? ["safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At"]
-          : undefined,
+        context: reconciledBillNonGold
+          ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
+          : (correctedOpeningNonGold
+              ? "Confirmed opening non-gold reclassified from 14K to 18K"
+              : "Post-cloud production and merged Setting lot correction"),
+        changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
     }
@@ -16349,11 +16386,22 @@ function billFactoryVendorName(source, lot = {}, bill = {}) {
   return KJPL_OFFICE_VENDOR_NAME;
 }
 
+function billFactoryOutWstgPercent(bill = {}) {
+  const postedRate = factoryWstgPercent(bill.factoryOutWstgPercent || 0);
+  if (postedRate > 0) return postedRate;
+  const billRate = bill.billWastagePercent !== undefined
+    && bill.billWastagePercent !== null
+    && String(bill.billWastagePercent) !== ""
+    ? bill.billWastagePercent
+    : bill.effectiveWastagePercent;
+  return factoryWstgPercent(billRate || 0);
+}
+
 function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
   const entries = (bill.items || []).map((item, index) => {
     const order = (source.orders || []).find((entry) => entry.id === item.orderId) || {};
     const finalGw = Number(item.finalGw || 0);
-    const stoneWeight = Number(order.id ? actualBillStoneWeight(order) : item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0);
+    const stoneWeight = Number(billInventoryStoneWeight(item, order));
     const blackBeadsWeight = Number(item.blackBeadsWeight ?? item.bbWeight ?? 0);
     const motiWeight = Number(item.motiWeight ?? item.mmWeight ?? 0);
     const springWeight = Number(item.springWeight || 0);
@@ -16397,6 +16445,225 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
     purityText: purities.length === 1 ? purities[0] : `Mixed ${purities.join(" / ")}`,
     productionNos: entries.map((entry) => entry.productionNo).filter(Boolean),
   };
+}
+
+function billFactoryOutNonGoldLines(source = state, bill = {}, lot = {}) {
+  const groups = new Map();
+  billFactoryOutWeightSummary(source, bill, lot).entries.forEach((entry) => {
+    const purity = transferPurityLabel(karatLogicPurity(entry.purity || "18K"));
+    const breakdown = normalizeNonGoldControlBreakdown({
+      stone: entry.stoneWeight,
+      "black-beads": entry.blackBeadsWeight,
+      moti: entry.motiWeight,
+      spring: entry.springWeight,
+      other: entry.otherNonGoldWeight,
+    });
+    Object.entries(breakdown).forEach(([materialType, weight]) => {
+      const key = `${karatPurityKey(purity) || purity}|${materialType}`;
+      const current = groups.get(key) || { purity, materialType, weight: 0 };
+      current.weight = Number(weight3(current.weight + Number(weight || 0)));
+      groups.set(key, current);
+    });
+  });
+  return [...groups.values()].filter((line) => line.weight > 0.0005);
+}
+
+function looseNonGoldShelfCandidates(source = state, purity = "18K", materialType = "other") {
+  const purityKey = karatPurityKey(purity);
+  return (source.safeItems || [])
+    .filter((item) => item.status !== "Out" && safeItemKind(item) === "non-gold")
+    .filter((item) => karatPurityKey(safeItemDesiredPurity(item) || item.locker || item.purity || "18K") === purityKey)
+    .filter((item) => {
+      const breakdown = safeItemNonGoldBreakdown(item);
+      return Number(breakdown[materialType] || 0) > 0.0005 || Number(breakdown.combination || 0) > 0.0005;
+    })
+    .sort((left, right) => {
+      const leftBreakdown = safeItemNonGoldBreakdown(left);
+      const rightBreakdown = safeItemNonGoldBreakdown(right);
+      const leftPriority = Number(leftBreakdown[materialType] || 0) > 0.0005 ? 0 : 1;
+      const rightPriority = Number(rightBreakdown[materialType] || 0) > 0.0005 ? 0 : 1;
+      const leftTime = new Date(left.createdAt || left.date || 0).getTime() || 0;
+      const rightTime = new Date(right.createdAt || right.date || 0).getTime() || 0;
+      return leftPriority - rightPriority || leftTime - rightTime;
+    });
+}
+
+function availableLooseNonGoldWeight(source = state, purity = "18K", materialType = "other") {
+  return Number(weight3(looseNonGoldShelfCandidates(source, purity, materialType).reduce((total, item) => {
+    const breakdown = safeItemNonGoldBreakdown(item);
+    return total + Number(breakdown[materialType] || 0) + Number(breakdown.combination || 0);
+  }, 0)));
+}
+
+function consumeBillNonGoldFromLooseShelf(source = state, bill = {}, lot = {}) {
+  if (bill.nonGoldShelfConsumption?.posted) return bill.nonGoldShelfConsumption;
+  const demandLines = billFactoryOutNonGoldLines(source, bill, lot);
+  const shortages = demandLines.map((line) => ({
+    ...line,
+    available: availableLooseNonGoldWeight(source, line.purity, line.materialType),
+  })).filter((line) => line.weight > line.available + 0.0005);
+  if (shortages.length) {
+    const detail = shortages.map((line) => `${line.purity} ${productionNonGoldMaterialLabel(line.materialType)} requires ${gram(line.weight)}, available ${gram(line.available)}`).join("\n");
+    const error = new Error(`Loose Non-Gold Shelf does not have enough matching stock for ${bill.billNo || "this Bill"}.\n\n${detail}`);
+    error.nonGoldShortages = shortages;
+    throw error;
+  }
+
+  const postedAt = new Date().toISOString();
+  const consumptionLines = [];
+  demandLines.forEach((demand) => {
+    let remaining = Number(weight3(demand.weight));
+    looseNonGoldShelfCandidates(source, demand.purity, demand.materialType).forEach((item) => {
+      if (remaining <= 0.0005) return;
+      const breakdown = safeItemNonGoldBreakdown(item);
+      const directAvailable = Number(breakdown[demand.materialType] || 0);
+      const directTake = Number(weight3(Math.min(directAvailable, remaining)));
+      if (directTake > 0) {
+        breakdown[demand.materialType] = Number(weight3(directAvailable - directTake));
+        remaining = Number(weight3(remaining - directTake));
+      }
+      const flexibleAvailable = Number(breakdown.combination || 0);
+      const flexibleTake = Number(weight3(Math.min(flexibleAvailable, remaining)));
+      if (flexibleTake > 0) {
+        breakdown.combination = Number(weight3(flexibleAvailable - flexibleTake));
+        remaining = Number(weight3(remaining - flexibleTake));
+      }
+      const taken = Number(weight3(directTake + flexibleTake));
+      if (taken <= 0) return;
+
+      item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? item.grossWeight ?? safeItemFactoryNonGoldWeight(item)));
+      item.nonGoldBreakdown = normalizeNonGoldBreakdown(breakdown);
+      item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
+      item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory);
+      item.grossWeight = Number(weight3(Math.max(Number(item.grossWeight || 0) - taken, 0)));
+      item.netWeight = 0;
+      item.updatedAt = postedAt;
+      if (item.nonGoldWeight <= 0.0005 || item.grossWeight <= 0.0005) {
+        item.status = "Out";
+        item.outDate = bill.billDate || today();
+      }
+      consumptionLines.push({
+        safeItemId: item.id,
+        purity: demand.purity,
+        materialType: demand.materialType,
+        sourceMaterialType: directTake > 0 && flexibleTake <= 0 ? demand.materialType : "combination",
+        directWeight: directTake,
+        flexibleWeight: flexibleTake,
+        weight: taken,
+        sourceDescription: item.description || "Loose Non-Gold",
+        sourceReference: item.reference || item.source || "",
+      });
+    });
+  });
+
+  const consumption = {
+    posted: true,
+    postedAt,
+    updatedAt: postedAt,
+    billNo: bill.billNo || "",
+    billDate: bill.billDate || today(),
+    lotId: lot.id || bill.lotId || "",
+    jobNumber: lot.orderNumber || bill.jobNumber || "",
+    lines: consumptionLines,
+    demandLines,
+    total: Number(weight3(consumptionLines.reduce((total, line) => total + Number(line.weight || 0), 0))),
+  };
+  bill.nonGoldShelfConsumption = consumption;
+  return consumption;
+}
+
+function reverseBillNonGoldShelfConsumption(source = state, bill = {}) {
+  const consumption = bill.nonGoldShelfConsumption;
+  if (!consumption?.posted) return false;
+  const restoredAt = new Date().toISOString();
+  (consumption.lines || []).forEach((line) => {
+    const restoreParts = [
+      [line.materialType || "other", Number(line.directWeight || 0)],
+      ["combination", Number(line.flexibleWeight || 0)],
+    ].filter(([, weight]) => weight > 0.0005);
+    if (!restoreParts.length && Number(line.weight || 0) > 0.0005) {
+      restoreParts.push([line.sourceMaterialType || line.materialType || "other", Number(line.weight || 0)]);
+    }
+    const restoredBreakdown = normalizeNonGoldBreakdown(Object.fromEntries(restoreParts));
+    const restoredWeight = nonGoldBreakdownTotal(restoredBreakdown);
+    let item = (source.safeItems || []).find((entry) => entry.id === line.safeItemId);
+    if (!item) {
+      item = addSafeItemToState(source, {
+        id: line.safeItemId || crypto.randomUUID(),
+        date: bill.billDate || today(),
+        locker: safeLockerForPurity(line.purity || "18K"),
+        purity: line.purity || "18K",
+        desiredPurity: line.purity || "18K",
+        description: line.sourceDescription || `${productionNonGoldMaterialLabel(line.materialType)} - Bill Reversal`,
+        source: line.sourceReference || `${bill.billNo || "Bill"} reversal`,
+        safeKind: "non-gold",
+        nonGoldCategory: nonGoldBreakdownCategory(restoredBreakdown, line.materialType),
+        nonGoldBreakdown: restoredBreakdown,
+        nonGoldWeight: restoredWeight,
+        grossWeight: restoredWeight,
+        netWeight: 0,
+        status: "In Safe",
+      });
+      return;
+    }
+    item.nonGoldBreakdown = addNonGoldBreakdowns(safeItemNonGoldBreakdown(item), restoredBreakdown);
+    item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
+    item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, line.materialType);
+    item.grossWeight = Number(weight3(Number(item.grossWeight || 0) + restoredWeight));
+    item.netWeight = 0;
+    item.status = "In Safe";
+    item.outDate = "";
+    item.updatedAt = restoredAt;
+  });
+  bill.nonGoldShelfConsumption = {
+    ...consumption,
+    posted: false,
+    reversedAt: restoredAt,
+    reversedBy: currentUser?.name || currentUser?.id || "ERP",
+  };
+  return true;
+}
+
+function addSafeItemToState(source = state, item = {}) {
+  const target = source === state;
+  if (target) return addSafeItem(item);
+  const originalState = state;
+  try {
+    state = source;
+    return addSafeItem(item);
+  } finally {
+    state = originalState;
+  }
+}
+
+function reconcilePostedBillNonGoldShelfConsumption(currentState = {}) {
+  let reconciledCount = 0;
+  const postedBills = (currentState.bills || [])
+    .filter((bill) => bill?.id && isBillFactoryOutPosted(bill) && !isReferenceOnlyBill(bill) && !bill.nonGoldShelfConsumption?.posted)
+    .sort((left, right) => new Date(left.factoryOutPostedAt || left.factoryOutUpdatedAt || left.billDate || 0) - new Date(right.factoryOutPostedAt || right.factoryOutUpdatedAt || right.billDate || 0));
+  postedBills.forEach((bill) => {
+    const lot = (currentState.lots || []).find((entry) => entry.id === bill.lotId);
+    if (!lot) return;
+    try {
+      consumeBillNonGoldFromLooseShelf(currentState, bill, lot);
+      reconciledCount += 1;
+    } catch (error) {
+      bill.nonGoldShelfConsumption = {
+        posted: false,
+        updatedAt: new Date().toISOString(),
+        billNo: bill.billNo || "",
+        billDate: bill.billDate || today(),
+        lotId: lot.id,
+        jobNumber: lot.orderNumber || bill.jobNumber || "",
+        lines: [],
+        demandLines: billFactoryOutNonGoldLines(currentState, bill, lot),
+        total: 0,
+        shortage: error?.message || "Matching loose non-gold stock is unavailable.",
+      };
+    }
+  });
+  billNonGoldShelfMigrationCount += reconciledCount;
+  return currentState;
 }
 
 function isBillFactoryOutPosted(bill = {}) {
@@ -16488,7 +16755,8 @@ function restoreBillPostingMarkersFromLedger(source) {
     const bill = bills.find((item) => String(item.id || "") === billId);
     if (!bill || isBillFactoryOutPosted(bill)) return;
     const recoveredAt = entry.updatedAt || entry.createdAt || entry.editedAt || new Date().toISOString();
-    bill.factoryOutWstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent ?? 0);
+    const ledgerWstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent ?? 0);
+    bill.factoryOutWstgPercent = ledgerWstgPercent > 0 ? ledgerWstgPercent : billFactoryOutWstgPercent(bill);
     bill.factoryOutPostingId = entry.factoryOutPostingId || `recovered-${billId}`;
     bill.factoryOutPostedAt = recoveredAt;
     bill.factoryOutUpdatedAt = recoveredAt;
@@ -16530,7 +16798,7 @@ function syncFactoryOutLedgerForState(source) {
     const lotNumber = lot.number || "";
     const billNo = bill.billNo || "Bill";
     const purityText = totals.purityText;
-    const billWstgPercent = factoryWstgPercent(bill.factoryOutWstgPercent || 0);
+    const billWstgPercent = billFactoryOutWstgPercent(bill);
     const billWstgFineGold = Number(weight3(totalNetWeight * (billWstgPercent / 100)));
     const reference = [
       billNo,
@@ -16972,6 +17240,7 @@ function factoryPhysicalFineStock() {
 
 function isKjplStockMetalSoldEntry(entry = {}) {
   if (String(entry.direction || "").toLowerCase() !== "out") return false;
+  if (entry.sourceType === "bill" && isKjplOfficePartyName(entry.vendorName || entry.officePartyName || "")) return false;
   const partyName = entry.originalPartyName || entry.customerName || entry.vendorName || "";
   return isKjplStockPartyName(partyName)
     || String(entry.orderType || "").trim().toLowerCase() === "kjpl stock order";
@@ -25549,6 +25818,7 @@ function trackedNonGoldDemandLines() {
   const lotDemands = (state.lots || []).flatMap((lot) => {
     const bill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id);
     if (isReferenceOnlyBillLot(lot) || isReferenceOnlyBill(bill || {})) return [];
+    if (bill?.nonGoldShelfConsumption?.posted) return [];
     const adjustment = bill?.nonGoldStockAdjustment;
     if (adjustment?.posted) {
       return (adjustment.lines || []).map((line, index) => ({
@@ -33933,16 +34203,22 @@ function recordNonGoldAuditEvent(entry = {}) {
   return normalized;
 }
 
+function billInventoryStoneWeight(item = {}, order = {}) {
+  const savedBillWeight = item.stoneWeight ?? item.stWeight;
+  if (savedBillWeight !== undefined && savedBillWeight !== null && String(savedBillWeight) !== "") {
+    return Number(weight3(Math.max(Number(savedBillWeight || 0), 0)));
+  }
+  const actualWeight = item.billActualStoneWeight ?? (order?.id ? actualBillStoneWeight(order) : 0);
+  const factor = Number(item.billStoneWeightFactor || BILL_STONE_WEIGHT_FACTOR || 1);
+  return Number(weight3(Math.max(Number(actualWeight || 0) * factor, 0)));
+}
+
 function nonGoldInventoryBreakdownForBillItem(item = {}, order = {}) {
   const commercial = billAccessoryNonGoldBreakdown(item);
-  const actualStoneWeight = Number(weight3(
-    order?.id
-      ? actualBillStoneWeight(order)
-      : item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0
-  ));
+  const billStoneWeight = billInventoryStoneWeight(item, order);
   return normalizeNonGoldControlBreakdown({
     ...commercial,
-    stone: actualStoneWeight,
+    stone: billStoneWeight,
   });
 }
 
@@ -44220,7 +44496,7 @@ function renderFactoryBillOutOptions() {
   select.innerHTML = [
     '<option value="">Manual metal / stock factory out</option>',
     ...records.map(({ bill, lot, totals }) => {
-      const wstg = factoryWstgPercent(bill.factoryOutWstgPercent || 0);
+      const wstg = billFactoryOutWstgPercent(bill);
       const status = wstg ? ` / WSTG ${wstg.toFixed(2)}%` : "";
       return `<option value="${escapeHtml(bill.id)}">${escapeHtml(bill.billNo || "Bill")} / ${escapeHtml(lot.orderNumber || lot.number || "-")} / ${totals.pieces} pcs / Net ${gram(totals.netWeight)}${escapeHtml(status)}</option>`;
     }),
@@ -44272,7 +44548,9 @@ function applyFactoryOutBillSelection(billId = "", options = {}) {
   form.vendorId.value = vendor.id;
   form.materialType.value = "bill";
   form.purity.value = totals.purityText;
-  form.wstgPercent.value = factoryWstgPercent(ledgerEntry?.wstgPercent ?? bill.factoryOutWstgPercent ?? 0);
+  form.wstgPercent.value = ledgerEntry
+    ? factoryWstgPercent(ledgerEntry.wstgPercent ?? ledgerEntry.wastagePercent ?? 0)
+    : billFactoryOutWstgPercent(bill);
   form.weight.value = weight3(totals.netWeight);
   form.reference.value = [bill.billNo, lot.orderNumber ? `Job ${lot.orderNumber}` : "", lot.number ? `Lot ${lot.number}` : ""].filter(Boolean).join(" / ");
   form.remarks.value = bill.remarks || "";
@@ -44291,6 +44569,7 @@ function captureBillFactoryOutTransactionState() {
     lots: state.lots || [],
     factoryLedger: state.factoryLedger || [],
     vendors: state.vendors || [],
+    safeItems: state.safeItems || [],
   });
 }
 
@@ -44299,12 +44578,19 @@ function restoreBillFactoryOutTransactionState(snapshot = {}) {
   state.lots = structuredClone(snapshot.lots || []);
   state.factoryLedger = structuredClone(snapshot.factoryLedger || []);
   state.vendors = structuredClone(snapshot.vendors || []);
+  state.safeItems = structuredClone(snapshot.safeItems || []);
 }
 
 function billFactoryOutTransactionIsComplete(billId = "", source = state) {
   const lookupId = String(billId || "");
   const bill = (source.bills || []).find((item) => String(item.id || "") === lookupId);
   if (!bill || !isBillFactoryOutPosted(bill)) return false;
+  const lot = (source.lots || []).find((item) => String(item.id || "") === String(bill.lotId || ""));
+  const expectedNonGold = lot ? billFactoryOutWeightSummary(source, bill, lot).reducedWeight : 0;
+  const consumedNonGold = Number(bill.nonGoldShelfConsumption?.total || 0);
+  const nonGoldComplete = expectedNonGold <= 0.0005
+    || (bill.nonGoldShelfConsumption?.posted && Math.abs(consumedNonGold - expectedNonGold) <= 0.0015);
+  if (!nonGoldComplete) return false;
   const linkedEntries = (source.factoryLedger || []).filter((entry) => (
     entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === lookupId
   ));
@@ -44324,6 +44610,7 @@ function reapplyBillFactoryOutTransaction(transaction = {}) {
     entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === billId
   ));
   if (transaction.ledgerEntry) state.factoryLedger.unshift(structuredClone(transaction.ledgerEntry));
+  if (transaction.safeItems) state.safeItems = structuredClone(transaction.safeItems);
   syncFactoryOutForBill();
   return billFactoryOutTransactionIsComplete(billId);
 }
@@ -44381,7 +44668,7 @@ function stageBillFactoryOut(record, options = {}) {
   const { bill, lot } = record || {};
   if (!bill?.id || !lot?.id || isBillFactoryOutPosted(bill)) return false;
   const postedAt = options.postedAt || new Date().toISOString();
-  const wstgPercent = factoryWstgPercent(options.wstgPercent ?? bill.factoryOutWstgPercent ?? 0);
+  const wstgPercent = factoryWstgPercent(options.wstgPercent ?? billFactoryOutWstgPercent(bill));
   bill.factoryOutWstgPercent = wstgPercent;
   bill.factoryOutPostingId = bill.factoryOutPostingId || crypto.randomUUID();
   bill.factoryOutBatchId = options.batchId || bill.factoryOutBatchId || "";
@@ -44390,6 +44677,7 @@ function stageBillFactoryOut(record, options = {}) {
   lot.bill = bill;
   const billIndex = (state.bills || []).findIndex((item) => item.id === bill.id || item.lotId === bill.lotId);
   if (billIndex >= 0) state.bills[billIndex] = bill;
+  consumeBillNonGoldFromLooseShelf(state, bill, lot);
   return true;
 }
 
@@ -44436,7 +44724,7 @@ async function saveSelectedBillsFactoryOut() {
     records.forEach((record) => {
       const wstgPercent = useCommonWstg
         ? commonWstg
-        : factoryWstgPercent(record.bill.factoryOutWstgPercent || 0);
+        : billFactoryOutWstgPercent(record.bill);
       if (!stageBillFactoryOut(record, { wstgPercent, postedAt, batchId })) {
         throw new Error(`${record.bill?.billNo || "A selected bill"} is no longer available for Factory Out.`);
       }
@@ -44452,6 +44740,7 @@ async function saveSelectedBillsFactoryOut() {
       ledgerEntry: structuredClone((state.factoryLedger || []).find((entry) => (
         entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === String(bill.id || "")
       ))),
+      safeItems: structuredClone(state.safeItems || []),
     }));
     const savedLocally = saveState({
       alertOnFailure: true,
@@ -44525,6 +44814,18 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
   lot.bill = bill;
   const billIndex = (state.bills || []).findIndex((item) => item.id === bill.id || item.lotId === bill.lotId);
   if (billIndex >= 0) state.bills[billIndex] = bill;
+  try {
+    consumeBillNonGoldFromLooseShelf(state, bill, lot);
+  } catch (error) {
+    restoreBillFactoryOutTransactionState(rollbackSnapshot);
+    alert(error?.message || "The matching loose non-gold shelf stock could not be consumed.");
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = originalSubmitText;
+    }
+    render();
+    return false;
+  }
   syncFactoryOutForBill();
   const ledgerEntry = (state.factoryLedger || []).find((entry) => (
     entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === String(bill.id || "")
@@ -44555,7 +44856,7 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
     }
     return false;
   }
-  const intendedTransaction = structuredClone({ bill, lot, ledgerEntry });
+  const intendedTransaction = structuredClone({ bill, lot, ledgerEntry, safeItems: state.safeItems || [] });
   const savedLocally = saveState({ alertOnFailure: true, context: `${bill.billNo || "Bill"} Factory Out` });
   if (!savedLocally) {
     restoreBillFactoryOutTransactionState(rollbackSnapshot);
@@ -49014,6 +49315,20 @@ function normalizeState(currentState) {
       discardMeltingId: item.discardMeltingId || "",
       });
     }),
+    nonGoldStockAdjustment: bill.nonGoldStockAdjustment || null,
+    nonGoldShelfConsumption: bill.nonGoldShelfConsumption || null,
+    baseFineWeight: Number(bill.baseFineWeight || 0),
+    wastageFineWeight: Number(bill.wastageFineWeight || 0),
+    fineWeight: Number(bill.fineWeight || 0),
+    billWastagePercent: bill.billWastagePercent ?? null,
+    effectiveWastagePercent: Number(bill.effectiveWastagePercent || 0),
+    factoryOutWstgPercent: billFactoryOutWstgPercent(bill),
+    factoryOutPostingId: bill.factoryOutPostingId || "",
+    factoryOutBatchId: bill.factoryOutBatchId || "",
+    factoryOutPostedAt: bill.factoryOutPostedAt || "",
+    factoryOutUpdatedAt: bill.factoryOutUpdatedAt || "",
+    officeDestination: bill.officeDestination || KJPL_OFFICE_VENDOR_NAME,
+    officePartyName: bill.officePartyName || KJPL_OFFICE_VENDOR_NAME,
     remarks: bill.remarks || "",
   }));
   currentState.catalogueItems = (currentState.catalogueItems || []).map(normalizeCatalogueItem);
