@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v686";
+const APP_VERSION = "v687";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -7939,8 +7939,12 @@ async function loadIncrementalSupabaseState(options = {}) {
   reconcileBillLotLinks(state);
   invalidateUniversalSearchIndex();
   stampCurrentAppVersion(state);
+  const stateBeforeLedgerRepair = structuredClone(state);
+  const reconciledSafeSources = reconcileSafeSourceBalancesV687();
   catalogueItems = state.catalogueItems || [];
-  lastLocallyPersistedState = structuredClone(state);
+  lastLocallyPersistedState = reconciledSafeSources.count
+    ? stateBeforeLedgerRepair
+    : structuredClone(state);
   persistStateToBrowser({ context: "Incremental live ERP" });
   persistEntitySyncRevisions(cloudRevision, cloudLegacyRevision);
   supabaseInitialReadComplete = true;
@@ -7951,6 +7955,12 @@ async function loadIncrementalSupabaseState(options = {}) {
   supabaseLastCloudUpdatedAt = meta.updated_at || supabaseLastCloudUpdatedAt;
   supabaseStartupProtectionActive = false;
   supabaseLastSuccessfulContactAt = Date.now();
+  if (reconciledSafeSources.count) {
+    saveState({
+      context: `${reconciledSafeSources.count} cloud shelf source balance correction`,
+      changedStateKeys: ["safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows"],
+    });
+  }
   render();
   setSyncStatus("online", "Live Sync: Updated", `${rows.length} changed record${rows.length === 1 ? "" : "s"} loaded.`);
   return { handled: true, ok: true };
@@ -8440,6 +8450,49 @@ async function initializeSupabase(options = {}) {
   }
 }
 
+function reconcileSafeSourceBalancesV687(options = {}) {
+  const repairApi = globalThis.KJMLedgerRepairV687;
+  if (!repairApi?.reconcileSafeSourceBalances) {
+    return { count: 0, grossCorrection: 0, rows: [], error: "Ledger repair helper is unavailable." };
+  }
+  const correctedAt = new Date().toISOString();
+  const result = repairApi.reconcileSafeSourceBalances(state, {
+    apply: true,
+    correctedAt,
+    date: today(),
+    version: APP_VERSION,
+  });
+  if (!result.count) return result;
+  state.safeSourceLedgerReconciliationV687At = correctedAt;
+  state.safeSourceLedgerReconciliationV687Rows = result.rows.map((row) => ({
+    safeItemId: row.safeItemId,
+    description: row.description,
+    purity: row.purity,
+    initialGrossWeight: row.initialGrossWeight,
+    directIssueWeight: row.directIssueWeight,
+    goldIssueWeight: row.goldIssueWeight,
+    previousGrossWeight: row.currentGrossWeight,
+    expectedGrossWeight: row.expectedGrossWeight,
+    correctionWeight: row.correctionWeight,
+  }));
+  if (options.recordAudit !== false) {
+    state.ledger = state.ledger || [];
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: correctedAt,
+      type: "Safe Source Ledger Reconciliation",
+      purity: "-",
+      weight: 0,
+      sourceType: "safe-source-ledger-reconciliation-v687",
+      correctedSafeItems: result.count,
+      correctedGrossWeight: result.grossCorrection,
+      reference: `${result.count} shelf source balance${result.count === 1 ? "" : "s"} replayed from their issue history. Duplicate remaining GW removed: ${gram(result.grossCorrection)}.`,
+    });
+  }
+  return result;
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -8453,6 +8506,7 @@ function runPostCloudMigrations() {
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
     const repairedMergedSettingLots = repairPreviouslyMergedSettingSplitLots();
     const correctedLegacyIssueGoldWax = migrateLegacyIssueGoldWaxAllocationsV686();
+    const reconciledSafeSources = reconcileSafeSourceBalancesV687();
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8468,19 +8522,22 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
       if (correctedLegacyIssueGoldWax.count) changedStateKeys.push("safeItems", "lots", "ledger", "legacyIssueGoldWaxAllocationV686At", "legacyIssueGoldWaxAllocationV686Lots");
+      if (reconciledSafeSources.count) changedStateKeys.push("safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows");
       saveState({
         context: reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
           : (correctedOpeningNonGold
               ? "Confirmed opening non-gold reclassified from 14K to 18K"
-              : (correctedLegacyIssueGoldWax.count
-                  ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
-                  : "Post-cloud production and merged Setting lot correction")),
+              : (reconciledSafeSources.count
+                  ? `${reconciledSafeSources.count} duplicate shelf source balance correction`
+                  : (correctedLegacyIssueGoldWax.count
+                      ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
+                      : "Post-cloud production and merged Setting lot correction"))),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -13542,6 +13599,8 @@ function issueFromSafeLocker(locker, weight, reference, sourceId = "", safeKind 
     const changedAt = new Date().toISOString();
     item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
     item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
+    item.initialWaxStoneWeight = Number(weight3(item.initialWaxStoneWeight ?? itemWax));
+    item.initialNonGoldWeight = Number(weight3(item.initialNonGoldWeight ?? itemNonGold));
     if (take >= itemNet - 0.0005) {
       item.status = "Out";
       item.outDate = today();
@@ -13630,6 +13689,9 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
   const changedAt = new Date().toISOString();
   item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
   item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
+  item.initialWaxStoneWeight = Number(weight3(item.initialWaxStoneWeight ?? itemWax));
+  item.initialNonGoldWeight = Number(weight3(item.initialNonGoldWeight ?? itemNonGold));
+  item.initialNonGoldBreakdown = item.initialNonGoldBreakdown || structuredClone(itemNonGoldBreakdown);
   if (grossTake >= itemGross - 0.0005) {
     item.grossWeight = grossTake;
     item.waxStoneWeight = issuedWax;
@@ -17334,6 +17396,100 @@ function openingNonGoldAdjustmentPositions(allocation = trackedNonGoldStockAlloc
   });
 }
 
+function explicitEmbeddedNonGoldBreakdownV687(record = {}) {
+  let breakdown = {};
+  const sources = Array.isArray(record.embeddedNonGoldSources) ? record.embeddedNonGoldSources : [];
+  sources.forEach((source) => {
+    breakdown = addNonGoldBreakdowns(
+      breakdown,
+      normalizeNonGoldControlBreakdown(source.breakdown, source.materialType || "other", source.weight || 0),
+    );
+  });
+  if (nonGoldBreakdownTotal(breakdown) <= 0.0005 && record.issueGoldEmbeddedNonGoldSource?.posted) {
+    const source = record.issueGoldEmbeddedNonGoldSource;
+    const lines = Array.isArray(source.demandLines) && source.demandLines.length
+      ? source.demandLines
+      : (source.lines || []);
+    lines.forEach((line) => {
+      breakdown = addNonGoldBreakdowns(
+        breakdown,
+        normalizeNonGoldControlBreakdown(line.breakdown, line.materialType || "stone", line.weight || 0),
+      );
+    });
+  }
+  return normalizeNonGoldControlBreakdown(breakdown);
+}
+
+function openingLooseNonGoldInsideGrossPositionsV687(allocation = trackedNonGoldStockAllocation()) {
+  const explicitlyManagedPurities = new Set(
+    openingNonGoldAdjustmentPositions(allocation)
+      .filter((position) => Number(position.initial || 0) > 0.0005)
+      .map((position) => karatPurityKey(position.purity) || transferPurityLabel(position.purity)),
+  );
+  const pools = new Map();
+  (state.safeItems || [])
+    .filter((item) => {
+      if (item.status === "Out" || !item.nonGoldShelfEntry) return false;
+      const reference = `${item.source || ""} ${item.reference || ""} ${item.remarks || ""}`.toLowerCase();
+      return reference.includes("opening stock");
+    })
+    .forEach((item) => {
+      const purity = transferPurityLabel(karatLogicPurity(safeItemDesiredPurity(item) || item.locker || item.purity || "18K"));
+      const key = karatPurityKey(purity) || purity;
+      if (explicitlyManagedPurities.has(key)) return;
+      const current = pools.get(key) || { purity, currentLooseWeight: 0, activeUnlinkedWeight: 0, remaining: 0, byMaterial: {} };
+      const breakdown = normalizeNonGoldControlBreakdown(safeItemFactoryNonGoldBreakdown(item));
+      Object.entries(breakdown).forEach(([materialType, componentWeight]) => {
+        current.byMaterial[materialType] = Number(weight3(Number(current.byMaterial[materialType] || 0) + Number(componentWeight || 0)));
+      });
+      current.currentLooseWeight = Number(weight3(current.currentLooseWeight + nonGoldBreakdownTotal(breakdown)));
+      pools.set(key, current);
+    });
+
+  const demands = [];
+  (state.lots || []).forEach((lot) => {
+    const demand = activeProductionNonGoldDemandLine(lot);
+    if (!demand) return;
+    demands.push({
+      purity: demand.purity,
+      breakdown: normalizeNonGoldControlBreakdown(demand.breakdown),
+      backed: explicitEmbeddedNonGoldBreakdownV687(lot),
+    });
+  });
+  (state.safeItems || [])
+    .filter((item) => item.status !== "Out" && !item.nonGoldShelfEntry && safeItemKind(item) !== "non-gold")
+    .forEach((item) => {
+      const breakdown = normalizeNonGoldControlBreakdown(safeItemFactoryNonGoldBreakdown(item));
+      if (nonGoldBreakdownTotal(breakdown) <= 0.0005) return;
+      demands.push({
+        purity: safeItemDesiredPurity(item) || item.locker || item.purity || "18K",
+        breakdown,
+        backed: explicitEmbeddedNonGoldBreakdownV687(item),
+      });
+    });
+
+  demands.forEach((demand) => {
+    const purity = transferPurityLabel(karatLogicPurity(demand.purity || "18K"));
+    const key = karatPurityKey(purity) || purity;
+    const pool = pools.get(key);
+    if (!pool) return;
+    Object.entries(demand.breakdown || {}).forEach(([materialType, componentWeight]) => {
+      const unlinked = Number(weight3(Math.max(Number(componentWeight || 0) - Number(demand.backed?.[materialType] || 0), 0)));
+      if (unlinked <= 0.0005) return;
+      const available = Number(pool.byMaterial[materialType] || 0);
+      const matched = Number(weight3(Math.min(unlinked, available)));
+      if (matched <= 0.0005) return;
+      pool.byMaterial[materialType] = Number(weight3(Math.max(available - matched, 0)));
+      pool.activeUnlinkedWeight = Number(weight3(pool.activeUnlinkedWeight + matched));
+    });
+  });
+
+  return [...pools.values()].map((pool) => ({
+    ...pool,
+    remaining: Number(weight3(Math.max(pool.currentLooseWeight - pool.activeUnlinkedWeight, 0))),
+  })).filter((pool) => pool.remaining > 0.0005);
+}
+
 function factoryPhysicalStock() {
   const parts = {
     metal: blankFactoryStockPart("Metal Safe"),
@@ -17349,6 +17505,7 @@ function factoryPhysicalStock() {
     nonGoldDirect: blankFactoryStockPart("Direct Non-Gold In Factory"),
     mainNonGoldRemoval: blankFactoryStockPart("Non-Gold Removed From Main Stock"),
     openingNonGoldAdjustment: blankFactoryStockPart("Opening Non-Gold Included In GW"),
+    openingLooseNonGoldInsideGw: blankFactoryStockPart("Opening Loose Non-Gold Still Included In GW"),
     billNonGoldAdjustment: blankFactoryStockPart("Non-Gold Applied To Production / Bill"),
     nonGoldFineReconciliation: blankFactoryStockPart("ERP Non-Gold Deducted From GW"),
   };
@@ -17502,6 +17659,19 @@ function factoryPhysicalStock() {
     );
   });
 
+  openingLooseNonGoldInsideGrossPositionsV687(nonGoldAllocation).forEach((position) => {
+    addFactoryStockPart(
+      parts,
+      "openingLooseNonGoldInsideGw",
+      "Opening Loose Non-Gold Still Included In Product GW",
+      0,
+      -position.remaining,
+      position.purity,
+      -fineGoldWeight(position.remaining, position.purity),
+      0,
+    );
+  });
+
   nonGoldAllocation.allocations.forEach((allocation) => {
     const weight = Number(allocation.weight || 0);
     if (weight <= 0) return;
@@ -17533,9 +17703,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight + parts.nonGoldFineReconciliation.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight + parts.nonGoldFineReconciliation.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold + parts.nonGoldFineReconciliation.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.openingLooseNonGoldInsideGw.grossWeight + parts.billNonGoldAdjustment.grossWeight + parts.nonGoldFineReconciliation.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight + parts.openingLooseNonGoldInsideGw.goldWeight + parts.nonGoldFineReconciliation.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold + parts.openingLooseNonGoldInsideGw.fineGold + parts.nonGoldFineReconciliation.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
