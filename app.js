@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v684";
+const APP_VERSION = "v685";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1900,15 +1900,16 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     alert(`Selected casting item is in ${selectedLocker} Safe, but this job needs ${issueLocker} Safe.`);
     return;
   }
-  const castingItemAvailable = safeItemAvailableWeight(castingSafeItem);
-  if (netMetalIssuedWeight > castingItemAvailable) {
-    alert(`Selected casting item has only ${gram(castingItemAvailable)} available. Required for this job card is ${gram(netMetalIssuedWeight)}.`);
+  const castingItemAvailableGross = safeItemAvailableGrossWeight(castingSafeItem);
+  if (issuedWeight > castingItemAvailableGross + 0.0005) {
+    alert(`Selected casting item has only ${gram(castingItemAvailableGross)} GW available. Required for this job card is ${gram(issuedWeight)} GW.`);
     return;
   }
-  const balanceAfterIssue = Number(weight3(castingItemAvailable - netMetalIssuedWeight));
+  const balanceAfterIssue = Number(weight3(castingItemAvailableGross - issuedWeight));
   const issueSourceName = safeIssueSourceName(castingSafeItem);
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
   const issueSafeItemsBefore = captureSafeIssueSourceItems(castingSafeItem);
+  const castingSourceForAssignment = structuredClone(castingSafeItem);
 
   selectedOrders.forEach((order) => {
     order.status = "In Production";
@@ -1955,6 +1956,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     grossWeight: issuedWeight,
     waxStoneWeight,
   });
+  assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, waxStoneWeight, selectedOrders);
   event.target.reset();
   saveState({
     context: `Issue Gold ${lotNumber}`,
@@ -2856,6 +2858,26 @@ document.getElementById("melting-receive-form").addEventListener("submit", (even
   if (!validateCastingReceiveXrfIssue(data, receiveBreakup, melting)) return;
   if (!validateCastingFittingItemsJobCard(data, receiveBreakup, melting)) return;
   const createFittingItemsCard = fittingItemsCardRequested(data, melting);
+  const isCastingReceive = !isMeltingDepartmentReceive(melting);
+  const waxStoneSource = normalizeEmbeddedNonGoldSourceMode(data.castingWaxStoneSource || melting.castingWaxStoneSource);
+  if (isCastingReceive) {
+    try {
+      replaceEmbeddedNonGoldSource(state, melting, {
+        field: "embeddedNonGoldSource",
+        sourceMode: waxStoneSource,
+        sourceType: "casting-wax",
+        sourceId: melting.id,
+        purity: safeLockerForPurity(melting.targetPurity || "18K"),
+        breakdown: { stone: Number(receiveBreakup.castingWaxStoneWeight || 0) },
+        reference: `${melting.batchName || "Casting Receive"} wax stone`,
+        date: melting.receivedDate || today(),
+      });
+    } catch (error) {
+      alert(error?.message || "Wax stone could not be adjusted from the Loose Non-Gold Shelf.");
+      return;
+    }
+    melting.castingWaxStoneSource = waxStoneSource;
+  }
   melting.receivedDate = melting.receivedDate || today();
   melting.grossReceivedWeight = meltingReceiveGrossWeight(receiveBreakup, melting);
   melting.receivedWeight = receivedWeight;
@@ -13454,6 +13476,14 @@ function safeItemAvailableWeight(item = {}) {
   return safeItemGoldWeight(item);
 }
 
+function safeItemAvailableGrossWeight(item = {}) {
+  if (!item) return 0;
+  if (item.virtualSafeGroup) {
+    return Number(weight3((item.items || []).reduce((total, entry) => total + Number(entry.status === "Out" ? 0 : entry.grossWeight || 0), 0)));
+  }
+  return Number(weight3(item.status === "Out" ? 0 : Number(item.grossWeight ?? item.netWeight ?? 0)));
+}
+
 function captureSafeIssueSourceItems(selection = null) {
   if (!selection) return [];
   const items = selection.virtualSafeGroup ? selection.items || [] : [selection];
@@ -13531,13 +13561,30 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
   if (take <= 0 || take > itemNet + 0.0005) return false;
   const itemGross = Number(item.grossWeight || itemNet);
   const itemWax = safeItemWaxStoneWeight(item);
+  const itemNonGoldBreakdown = safeItemNonGoldBreakdown(item);
+  const itemNonGold = nonGoldBreakdownTotal(itemNonGoldBreakdown);
   const explicitWax = Object.prototype.hasOwnProperty.call(issueDetails, "waxStoneWeight");
   const waxTake = explicitWax
     ? Number(weight3(Math.min(itemWax, Number(issueDetails.waxStoneWeight || 0))))
     : itemNet
       ? Number(weight3((take / itemNet) * itemWax))
       : 0;
-  const grossTake = Number(weight3(Math.min(itemGross, take + waxTake)));
+  const explicitNonGold = Object.prototype.hasOwnProperty.call(issueDetails, "nonGoldBreakdown")
+    || Object.prototype.hasOwnProperty.call(issueDetails, "nonGoldWeight");
+  const requestedNonGoldBreakdown = normalizeNonGoldBreakdown(
+    issueDetails.nonGoldBreakdown,
+    issueDetails.nonGoldCategory,
+    issueDetails.nonGoldWeight,
+  );
+  const proportionalNonGoldBreakdown = Object.fromEntries(Object.entries(itemNonGoldBreakdown).map(([materialType, componentWeight]) => [
+    materialType,
+    itemNet ? Number(weight3((take / itemNet) * Number(componentWeight || 0))) : 0,
+  ]));
+  const nonGoldTakeBreakdown = explicitNonGold
+    ? normalizeNonGoldBreakdown(requestedNonGoldBreakdown)
+    : normalizeNonGoldBreakdown(proportionalNonGoldBreakdown);
+  const nonGoldTake = Number(weight3(Math.min(itemNonGold, nonGoldBreakdownTotal(nonGoldTakeBreakdown))));
+  const grossTake = Number(weight3(Math.min(itemGross, take + waxTake + nonGoldTake)));
   const changedAt = new Date().toISOString();
   item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
   item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
@@ -13549,6 +13596,9 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
   } else {
     item.netWeight = Number(weight3(itemNet - take));
     item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
+    item.nonGoldBreakdown = subtractNonGoldBreakdown(itemNonGoldBreakdown, nonGoldTakeBreakdown);
+    item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
+    item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory);
     item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
     item.updatedAt = changedAt;
     addSafeItem({
@@ -13564,9 +13614,13 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
       colour: safeItemColour(item),
       desiredPurity: safeItemDesiredPurity(item),
       safeKind: safeItemKind(item),
-      grossWeight: grossTake,
-      waxStoneWeight: waxTake,
-      netWeight: take,
+        grossWeight: grossTake,
+        waxStoneWeight: waxTake,
+        nonGoldCategory: nonGoldBreakdownCategory(nonGoldTakeBreakdown, item.nonGoldCategory),
+        nonGoldBreakdown: nonGoldTakeBreakdown,
+        nonGoldWeight: nonGoldTake,
+        nonGoldWeightKnown: true,
+        netWeight: take,
       status: "Out",
       outDate: today(),
       remarks: reference,
@@ -13584,6 +13638,7 @@ function issueFromSafeSelection(selection, weight, reference, sourceId = "", iss
 function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetails = {}) {
   let remainingNet = Number(weight3(weight));
   let remainingWax = Number(weight3(issueDetails.waxStoneWeight || 0));
+  let remainingNonGoldBreakdown = normalizeNonGoldBreakdown(issueDetails.nonGoldBreakdown, issueDetails.nonGoldCategory, issueDetails.nonGoldWeight);
   const totalNet = remainingNet;
   const items = [...(group.items || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
   for (const item of items) {
@@ -13594,9 +13649,21 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
     const proportionalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * Number(issueDetails.waxStoneWeight || 0))) : 0;
     const targetWax = remainingNet - takeNet <= 0.0005 ? remainingWax : proportionalWax;
     const takeWax = Number(weight3(Math.min(safeItemWaxStoneWeight(item), remainingWax, targetWax)));
-    issueFromSafeItem(item.id, takeNet, reference, sourceId, { ...issueDetails, waxStoneWeight: takeWax });
+    const itemBreakdown = safeItemNonGoldBreakdown(item);
+    const takeNonGoldBreakdown = {};
+    Object.entries(remainingNonGoldBreakdown).forEach(([materialType, requested]) => {
+      const take = Number(weight3(Math.min(Number(requested || 0), Number(itemBreakdown[materialType] || 0))));
+      if (take > 0) takeNonGoldBreakdown[materialType] = take;
+    });
+    issueFromSafeItem(item.id, takeNet, reference, sourceId, {
+      ...issueDetails,
+      waxStoneWeight: takeWax,
+      nonGoldBreakdown: takeNonGoldBreakdown,
+      nonGoldWeight: nonGoldBreakdownTotal(takeNonGoldBreakdown),
+    });
     remainingNet = Number(weight3(remainingNet - takeNet));
     remainingWax = Number(weight3(Math.max(remainingWax - takeWax, 0)));
+    remainingNonGoldBreakdown = subtractNonGoldBreakdown(remainingNonGoldBreakdown, takeNonGoldBreakdown);
   }
   return remainingNet <= 0.0005;
 }
@@ -16495,23 +16562,41 @@ function availableLooseNonGoldWeight(source = state, purity = "18K", materialTyp
   }, 0)));
 }
 
-function consumeBillNonGoldFromLooseShelf(source = state, bill = {}, lot = {}) {
-  if (bill.nonGoldShelfConsumption?.posted) return bill.nonGoldShelfConsumption;
-  const demandLines = billFactoryOutNonGoldLines(source, bill, lot);
-  const shortages = demandLines.map((line) => ({
+function normalizeEmbeddedNonGoldSourceMode(value = "") {
+  return String(value || "").trim().toLowerCase() === "direct" ? "direct" : "shelf";
+}
+
+function nonGoldDemandLinesForBreakdown(purity = "18K", breakdownValue = {}) {
+  const purityLabel = transferPurityLabel(karatLogicPurity(purity || "18K"));
+  return Object.entries(normalizeNonGoldControlBreakdown(breakdownValue))
+    .map(([materialType, weight]) => ({
+      purity: purityLabel,
+      materialType: normalizeNonGoldControlMaterial(materialType),
+      weight: Number(weight3(weight || 0)),
+    }))
+    .filter((line) => line.weight > 0.0005);
+}
+
+function consumeLooseNonGoldDemandLines(source = state, demandLines = [], metadata = {}) {
+  const normalizedDemand = (demandLines || []).map((line) => ({
+    purity: transferPurityLabel(karatLogicPurity(line.purity || "18K")),
+    materialType: normalizeNonGoldControlMaterial(line.materialType || "other"),
+    weight: Number(weight3(Math.max(Number(line.weight || 0), 0))),
+  })).filter((line) => line.weight > 0.0005);
+  const shortages = normalizedDemand.map((line) => ({
     ...line,
     available: availableLooseNonGoldWeight(source, line.purity, line.materialType),
   })).filter((line) => line.weight > line.available + 0.0005);
   if (shortages.length) {
     const detail = shortages.map((line) => `${line.purity} ${productionNonGoldMaterialLabel(line.materialType)} requires ${gram(line.weight)}, available ${gram(line.available)}`).join("\n");
-    const error = new Error(`Loose Non-Gold Shelf does not have enough matching stock for ${bill.billNo || "this Bill"}.\n\n${detail}`);
+    const error = new Error(`Loose Non-Gold Shelf does not have enough matching stock for ${metadata.reference || "this operation"}.\n\n${detail}\n\nAdd the material to the Loose Non-Gold Shelf, or select Direct Process Entry when the material came from outside the shelf.`);
     error.nonGoldShortages = shortages;
     throw error;
   }
 
-  const postedAt = new Date().toISOString();
+  const postedAt = metadata.postedAt || new Date().toISOString();
   const consumptionLines = [];
-  demandLines.forEach((demand) => {
+  normalizedDemand.forEach((demand) => {
     let remaining = Number(weight3(demand.weight));
     looseNonGoldShelfCandidates(source, demand.purity, demand.materialType).forEach((item) => {
       if (remaining <= 0.0005) return;
@@ -16534,13 +16619,13 @@ function consumeBillNonGoldFromLooseShelf(source = state, bill = {}, lot = {}) {
       item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? item.grossWeight ?? safeItemFactoryNonGoldWeight(item)));
       item.nonGoldBreakdown = normalizeNonGoldBreakdown(breakdown);
       item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
-      item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory);
+      item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory || demand.materialType);
       item.grossWeight = Number(weight3(Math.max(Number(item.grossWeight || 0) - taken, 0)));
       item.netWeight = 0;
       item.updatedAt = postedAt;
       if (item.nonGoldWeight <= 0.0005 || item.grossWeight <= 0.0005) {
         item.status = "Out";
-        item.outDate = bill.billDate || today();
+        item.outDate = metadata.date || today();
       }
       consumptionLines.push({
         safeItemId: item.id,
@@ -16555,27 +16640,24 @@ function consumeBillNonGoldFromLooseShelf(source = state, bill = {}, lot = {}) {
       });
     });
   });
-
-  const consumption = {
+  return {
     posted: true,
+    sourceMode: "shelf",
     postedAt,
     updatedAt: postedAt,
-    billNo: bill.billNo || "",
-    billDate: bill.billDate || today(),
-    lotId: lot.id || bill.lotId || "",
-    jobNumber: lot.orderNumber || bill.jobNumber || "",
+    sourceType: metadata.sourceType || "loose-non-gold-consumption",
+    sourceId: metadata.sourceId || "",
+    reference: metadata.reference || "",
     lines: consumptionLines,
-    demandLines,
+    demandLines: normalizedDemand,
     total: Number(weight3(consumptionLines.reduce((total, line) => total + Number(line.weight || 0), 0))),
+    embeddedTotal: Number(weight3(normalizedDemand.reduce((total, line) => total + Number(line.weight || 0), 0))),
   };
-  bill.nonGoldShelfConsumption = consumption;
-  return consumption;
 }
 
-function reverseBillNonGoldShelfConsumption(source = state, bill = {}) {
-  const consumption = bill.nonGoldShelfConsumption;
-  if (!consumption?.posted) return false;
-  const restoredAt = new Date().toISOString();
+function restoreLooseNonGoldConsumption(source = state, consumption = {}, metadata = {}) {
+  if (!consumption?.posted || consumption.sourceMode === "direct") return false;
+  const restoredAt = metadata.restoredAt || new Date().toISOString();
   (consumption.lines || []).forEach((line) => {
     const restoreParts = [
       [line.materialType || "other", Number(line.directWeight || 0)],
@@ -16590,12 +16672,12 @@ function reverseBillNonGoldShelfConsumption(source = state, bill = {}) {
     if (!item) {
       item = addSafeItemToState(source, {
         id: line.safeItemId || crypto.randomUUID(),
-        date: bill.billDate || today(),
+        date: metadata.date || today(),
         locker: safeLockerForPurity(line.purity || "18K"),
         purity: line.purity || "18K",
         desiredPurity: line.purity || "18K",
-        description: line.sourceDescription || `${productionNonGoldMaterialLabel(line.materialType)} - Bill Reversal`,
-        source: line.sourceReference || `${bill.billNo || "Bill"} reversal`,
+        description: line.sourceDescription || `${productionNonGoldMaterialLabel(line.materialType)} - Reversal`,
+        source: line.sourceReference || metadata.reference || "Non-Gold reversal",
         safeKind: "non-gold",
         nonGoldCategory: nonGoldBreakdownCategory(restoredBreakdown, line.materialType),
         nonGoldBreakdown: restoredBreakdown,
@@ -16614,6 +16696,174 @@ function reverseBillNonGoldShelfConsumption(source = state, bill = {}) {
     item.status = "In Safe";
     item.outDate = "";
     item.updatedAt = restoredAt;
+  });
+  return true;
+}
+
+function replaceEmbeddedNonGoldSource(source = state, holder = {}, options = {}) {
+  const field = options.field || "embeddedNonGoldSource";
+  const sourceMode = normalizeEmbeddedNonGoldSourceMode(options.sourceMode);
+  const demandLines = nonGoldDemandLinesForBreakdown(options.purity || "18K", options.breakdown || {});
+  const embeddedTotal = Number(weight3(demandLines.reduce((total, line) => total + line.weight, 0)));
+  const previous = holder[field];
+  const safeSnapshot = structuredClone(source.safeItems || []);
+  try {
+    if (previous?.posted) restoreLooseNonGoldConsumption(source, previous, { reference: options.reference });
+    const next = sourceMode === "shelf"
+      ? consumeLooseNonGoldDemandLines(source, demandLines, {
+          sourceType: options.sourceType,
+          sourceId: options.sourceId,
+          reference: options.reference,
+          date: options.date,
+        })
+      : {
+          posted: true,
+          sourceMode: "direct",
+          postedAt: previous?.postedAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          sourceType: options.sourceType || "direct-process-entry",
+          sourceId: options.sourceId || "",
+          reference: options.reference || "",
+          lines: [],
+          demandLines,
+          total: 0,
+          embeddedTotal,
+        };
+    holder[field] = next;
+    return next;
+  } catch (error) {
+    source.safeItems = safeSnapshot;
+    holder[field] = previous;
+    throw error;
+  }
+}
+
+function setLotEmbeddedNonGoldSource(lot = {}, options = {}) {
+  if (!lot?.id) return [];
+  const sourceType = options.sourceType || "embedded-non-gold";
+  const sourceId = options.sourceId || "";
+  const materialType = normalizeNonGoldControlMaterial(options.materialType || "stone");
+  const totalWeight = Number(weight3(Math.max(Number(options.weight || 0), 0)));
+  const orders = (options.orders || []).filter((order) => order?.id);
+  const settingType = options.settingType || "";
+  const planned = orders.map((order) => ({
+    order,
+    weight: Number(weight3(productionStoneTotalsForOrders([order], settingType).weight || 0)),
+  }));
+  const plannedTotal = Number(weight3(planned.reduce((total, line) => total + line.weight, 0)));
+  lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => !(
+    entry.sourceType === sourceType && String(entry.sourceId || "") === String(sourceId)
+  ));
+  if (totalWeight <= 0.0005) return [];
+  let remaining = totalWeight;
+  const entries = plannedTotal > 0.0005
+    ? planned.map((line, index) => {
+        const weight = index === planned.length - 1
+          ? remaining
+          : Number(weight3(Math.min(remaining, totalWeight * (line.weight / plannedTotal))));
+        remaining = Number(weight3(Math.max(remaining - weight, 0)));
+        return { orderId: line.order.id, weight };
+      }).filter((line) => line.weight > 0.0005)
+    : [{ orderId: "", weight: totalWeight }];
+  const createdAt = new Date().toISOString();
+  const saved = entries.map((entry) => ({
+    id: `${sourceType}:${sourceId || lot.id}:${entry.orderId || "lot"}`,
+    sourceType,
+    sourceId,
+    sourceMode: normalizeEmbeddedNonGoldSourceMode(options.sourceMode),
+    materialType,
+    purity: transferPurityLabel(karatLogicPurity(options.purity || lot.metalPurity || "18K")),
+    orderId: entry.orderId,
+    breakdown: { [materialType]: Number(weight3(entry.weight)) },
+    weight: Number(weight3(entry.weight)),
+    createdAt,
+  }));
+  lot.embeddedNonGoldSources.push(...saved);
+  return saved;
+}
+
+function billEmbeddedNonGoldCreditLines(source = state, bill = {}, lot = {}, demandLines = []) {
+  const billOrderIds = new Set((bill.items || []).map((item) => item.orderId).filter(Boolean));
+  const candidates = [];
+  (lot.embeddedNonGoldSources || []).forEach((entry) => {
+    if (entry.orderId && billOrderIds.size && !billOrderIds.has(entry.orderId)) return;
+    Object.entries(normalizeNonGoldControlBreakdown(entry.breakdown, entry.materialType, entry.weight)).forEach(([materialType, weight]) => {
+      candidates.push({ purity: entry.purity || lot.metalPurity || "18K", materialType, weight, sourceType: entry.sourceType, sourceId: entry.sourceId });
+    });
+  });
+  safeJobNonGoldEntries(lot.id).forEach(({ issue }) => {
+    if (issue.orderId && billOrderIds.size && !billOrderIds.has(issue.orderId)) return;
+    if (Number(issue.weight || 0) <= 0) return;
+    candidates.push({
+      purity: issue.purity || lot.metalPurity || "18K",
+      materialType: issue.materialType || "other",
+      weight: Number(issue.weight || 0),
+      sourceType: "safe-shelf-job",
+      sourceId: issue.safeDepartmentIssueId || issue.id,
+    });
+  });
+  const remainingDemand = new Map((demandLines || []).map((line) => [
+    `${karatPurityKey(line.purity) || transferPurityLabel(line.purity)}|${normalizeNonGoldControlMaterial(line.materialType)}`,
+    Number(weight3(line.weight || 0)),
+  ]));
+  const credits = [];
+  candidates.forEach((candidate) => {
+    const purity = transferPurityLabel(karatLogicPurity(candidate.purity || "18K"));
+    const materialType = normalizeNonGoldControlMaterial(candidate.materialType || "other");
+    const key = `${karatPurityKey(purity) || purity}|${materialType}`;
+    const remaining = Number(remainingDemand.get(key) || 0);
+    const weight = Number(weight3(Math.min(Math.max(Number(candidate.weight || 0), 0), remaining)));
+    if (weight <= 0.0005) return;
+    credits.push({ ...candidate, purity, materialType, weight });
+    remainingDemand.set(key, Number(weight3(remaining - weight)));
+  });
+  const looseDemandLines = (demandLines || []).map((line) => {
+    const purity = transferPurityLabel(karatLogicPurity(line.purity || "18K"));
+    const materialType = normalizeNonGoldControlMaterial(line.materialType || "other");
+    const key = `${karatPurityKey(purity) || purity}|${materialType}`;
+    return { purity, materialType, weight: Number(weight3(remainingDemand.get(key) || 0)) };
+  }).filter((line) => line.weight > 0.0005);
+  return {
+    credits,
+    looseDemandLines,
+    total: Number(weight3(credits.reduce((total, line) => total + line.weight, 0))),
+  };
+}
+
+function consumeBillNonGoldFromLooseShelf(source = state, bill = {}, lot = {}) {
+  if (bill.nonGoldShelfConsumption?.posted) return bill.nonGoldShelfConsumption;
+  const demandLines = billFactoryOutNonGoldLines(source, bill, lot);
+  const embeddedCredit = billEmbeddedNonGoldCreditLines(source, bill, lot, demandLines);
+  const looseConsumption = consumeLooseNonGoldDemandLines(source, embeddedCredit.looseDemandLines, {
+    sourceType: "bill-factory-out",
+    sourceId: bill.id,
+    reference: bill.billNo || "Bill Factory Out",
+    date: bill.billDate || today(),
+  });
+  const consumption = {
+    ...looseConsumption,
+    billNo: bill.billNo || "",
+    billDate: bill.billDate || today(),
+    lotId: lot.id || bill.lotId || "",
+    jobNumber: lot.orderNumber || bill.jobNumber || "",
+    embeddedCreditLines: embeddedCredit.credits,
+    embeddedCreditTotal: embeddedCredit.total,
+    demandLines,
+    expectedTotal: Number(weight3(demandLines.reduce((total, line) => total + Number(line.weight || 0), 0))),
+    accountedTotal: Number(weight3(looseConsumption.total + embeddedCredit.total)),
+  };
+  bill.nonGoldShelfConsumption = consumption;
+  return consumption;
+}
+
+function reverseBillNonGoldShelfConsumption(source = state, bill = {}) {
+  const consumption = bill.nonGoldShelfConsumption;
+  if (!consumption?.posted) return false;
+  const restoredAt = new Date().toISOString();
+  restoreLooseNonGoldConsumption(source, consumption, {
+    restoredAt,
+    date: bill.billDate || today(),
+    reference: `${bill.billNo || "Bill"} reversal`,
   });
   bill.nonGoldShelfConsumption = {
     ...consumption,
@@ -16929,20 +17179,8 @@ function reconcileFactoryNonGoldInsideGross(parts = {}) {
       nonGoldByPurity.set(purity, Number(weight3(current + nonGoldWeight)));
     });
   });
-  nonGoldByPurity.forEach((rawWeight, purity) => {
-    const weight = Number(weight3(Math.max(rawWeight, 0)));
-    if (weight <= 0.0005) return;
-    addFactoryStockPart(
-      parts,
-      "nonGoldFineReconciliation",
-      "ERP Non-Gold Deducted From GW",
-      0,
-      -weight,
-      purity,
-      -fineGoldWeight(weight, purity),
-      0,
-    );
-  });
+  // Every physical holding already stores gold as GW minus its embedded non-gold.
+  // Keep this summary diagnostic-only so non-gold is never deducted from fine gold twice.
   return [...nonGoldByPurity.entries()]
     .map(([purity, weight]) => ({ purity, weight: Number(weight3(Math.max(weight, 0))) }))
     .filter((entry) => entry.weight > 0.0005);
@@ -17836,18 +18074,23 @@ function syncMeltingReceiveRecords(melting) {
     });
   }
   syncMeltingReceiveSafeItems(melting);
+  state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) => !(
+    entry.sourceType === "casting-wax-recognition" && entry.sourceId === melting.id
+  ));
   if (!isMeltingDepartmentReceive(melting) && waxStoneWeight > 0.0005) {
     const purity = safeLockerForPurity(melting.targetPurity || meltingBatchPurityLabel(melting) || "18K");
+    const embeddedSource = melting.embeddedNonGoldSource || {};
+    const sourceMode = normalizeEmbeddedNonGoldSourceMode(embeddedSource.sourceMode || melting.castingWaxStoneSource);
     recordNonGoldAuditEvent({
-      action: "Casting Recognition",
+      action: sourceMode === "shelf" ? "Embed From Shelf" : "Direct Process Entry",
       materialType: "stone",
       weight: waxStoneWeight,
       purity,
-      fromLocation: "Casting Wax Setting",
+      fromLocation: sourceMode === "shelf" ? `${purity} Loose Non-Gold Shelf` : "Direct Casting / Other Source",
       toLocation: `${purity} Casting / Embedded Shelf`,
       department: melting.departmentName || "Casting Department",
       status: "Embedded",
-      reference: `${batchName} / Wax stone automatically recognized from Casting Receive`,
+      reference: `${batchName} / Wax stone embedded from ${sourceMode === "shelf" ? "Loose Non-Gold Shelf" : "Direct Casting Entry"}`,
       sourceType: "casting-wax-recognition",
       sourceId: melting.id,
     });
@@ -17863,9 +18106,18 @@ function deleteMeltingEntry(meltingId) {
     alert("This casting has a Fitting Items job card that was already transferred. Delete or correct that transfer before deleting the casting entry.");
     return;
   }
+  const assignedWaxStone = assignedEmbeddedSourceWeight("casting-wax", melting.id);
+  if (assignedWaxStone > 0.0005) {
+    alert(`This casting already supplied ${gram(assignedWaxStone)} Wax Stone to production job cards. Undo or correct those Issue Gold entries before deleting this casting.`);
+    return;
+  }
   const fittingCardNote = fittingItemsLots.length ? ` The linked Fitting Items job card${fittingItemsLots.length > 1 ? "s" : ""} will also be deleted.` : "";
   if (!confirm(`Delete this melting entry? Issue, receive, loss and safe locker records for this melting will be corrected.${fittingCardNote}`)) return;
   restoreMeltingRodIssues(cloneMeltingSourceMetals(melting.sourceMetals), melting.id, "Melting entry deleted");
+  restoreLooseNonGoldConsumption(state, melting.embeddedNonGoldSource, {
+    date: melting.receivedDate || today(),
+    reference: `${melting.batchName || "Casting"} deleted`,
+  });
   removeMeltingIssueRecords(melting.id);
   state.ledger = (state.ledger || []).filter((entry) => entry.meltingId !== melting.id);
   state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) =>
@@ -22334,7 +22586,6 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("mainNonGoldRemoval", "Main Stock Non-Gold Removed", "Reduces physical GW and non-gold equally; fine gold unchanged"),
     partRow("openingNonGoldAdjustment", "Opening Non-Gold Included In GW", "Classification inside existing department GW; reduces net and fine gold without increasing GW"),
     partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
-    partRow("nonGoldFineReconciliation", "ERP Non-Gold Deducted From GW", "Total GW stays unchanged; karat-wise non-gold reduces Net and Fine Gold"),
     { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine; KJPL-STOCK metal sold excluded" },
     { label: "KJPL-STOCK Metal Sold", fine: weight3(vendorTotals.metalSold || 0), note: "Ledger entry only; not counted in stock or vendor balance" },
     { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
@@ -24447,6 +24698,7 @@ function saveGoldIssueCorrection(event) {
   const sourceName = safeIssueSourceName(source);
   const sourceDetail = safeItemOptionLabel(source);
   const sourceSnapshots = captureSafeIssueSourceItems(source);
+  const sourceForAssignment = structuredClone(source);
   const balanceAfter = Number(weight3(available - net));
   const issueDepartment = mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name);
   const reference = `${lot.number} for ${target.jobNumber} issued from ${sourceName} to ${karigar.name}; ${sourceDetail}; Gold Issue ${gram(gross)} - Wax Stone ${gram(wax)} = Net Wt ${gram(net)}; Balance ${gram(balanceAfter)}`;
@@ -24497,6 +24749,7 @@ function saveGoldIssueCorrection(event) {
     alert("The corrected Safe Locker issue could not be completed. No data was changed.");
     return;
   }
+  assignCastingEmbeddedSourceToLot(lot, sourceForAssignment, wax, target.orders);
   recordGoldIssueCorrection(
     lot,
     "EDIT",
@@ -24741,6 +24994,48 @@ function issueMetalWaxStoneWeight(selection = null, plannedWaxStoneWeight = 0, g
   if (plannedWax > 0) return Number(weight3(Math.min(plannedWax, sourceWax)));
   if (sourceGross <= 0) return sourceWax;
   return Number(weight3(Math.min(sourceWax, (Number(grossIssueWeight || 0) / sourceGross) * sourceWax)));
+}
+
+function assignedEmbeddedSourceWeight(sourceType = "", sourceId = "", excludeLotId = "") {
+  return Number(weight3((state.lots || []).reduce((total, lot) => {
+    if (excludeLotId && lot.id === excludeLotId) return total;
+    return total + (lot.embeddedNonGoldSources || [])
+      .filter((entry) => entry.sourceType === sourceType && String(entry.sourceId || "") === String(sourceId || ""))
+      .reduce((entryTotal, entry) => entryTotal + Number(entry.weight || 0), 0);
+  }, 0)));
+}
+
+function assignCastingEmbeddedSourceToLot(lot = {}, selection = null, waxStoneWeight = 0, orders = []) {
+  if (!lot?.id || !selection) return [];
+  lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => entry.sourceType !== "casting-wax");
+  let remaining = Number(weight3(Math.max(Number(waxStoneWeight || 0), 0)));
+  const items = selection.virtualSafeGroup ? [...(selection.items || [])] : [selection];
+  const saved = [];
+  items.sort((left, right) => String(left.createdAt || left.date || "").localeCompare(String(right.createdAt || right.date || ""))).forEach((item) => {
+    if (remaining <= 0.0005 || item.sourceType !== "melting-receive" || !item.sourceId) return;
+    const melting = (state.melting || []).find((entry) => entry.id === item.sourceId);
+    const embeddedSource = melting?.embeddedNonGoldSource;
+    if (!embeddedSource?.posted) return;
+    const sourceTotal = Number(weight3(embeddedSource.embeddedTotal ?? nonGoldBreakdownTotal(Object.fromEntries((embeddedSource.demandLines || []).map((line) => [line.materialType, line.weight])))));
+    const alreadyAssigned = assignedEmbeddedSourceWeight("casting-wax", melting.id, lot.id);
+    const sourceAvailable = Number(weight3(Math.max(sourceTotal - alreadyAssigned, 0)));
+    const itemWax = Number(weight3(Math.max(safeItemWaxStoneWeight(item), 0)));
+    const take = Number(weight3(Math.min(remaining, sourceAvailable, itemWax || sourceAvailable)));
+    if (take <= 0.0005) return;
+    saved.push(...setLotEmbeddedNonGoldSource(lot, {
+      sourceType: "casting-wax",
+      sourceId: melting.id,
+      sourceMode: embeddedSource.sourceMode,
+      materialType: "stone",
+      weight: take,
+      purity: lot.metalPurity || melting.targetPurity || "18K",
+      orders,
+      settingType: "wax",
+    }));
+    remaining = Number(weight3(remaining - take));
+  });
+  lot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(remaining, 0)));
+  return saved;
 }
 
 function productionStoneItemsForOrder(order) {
@@ -26981,6 +27276,12 @@ function rejoinSettingSplitLot(sourceLot = {}, targetLot = {}, targetJobNumber =
   targetLot.settingMergedProvisionalNonGoldWeight = combinedProvisionalNonGold;
   targetLot.settingMergedBaseTransferCount = targetLot.transfers.length;
   targetLot.settingMergedCurrentAt = mergedAt;
+  const mergedEmbeddedSources = [...(targetLot.embeddedNonGoldSources || []), ...(sourceLot.embeddedNonGoldSources || [])];
+  targetLot.embeddedNonGoldSources = [...new Map(mergedEmbeddedSources.map((entry) => [
+    entry.id || `${entry.sourceType || "embedded"}:${entry.sourceId || ""}:${entry.orderId || ""}:${entry.materialType || "other"}`,
+    entry,
+  ])).values()];
+  sourceLot.embeddedNonGoldSources = [];
   targetLot.mergedSettingLotHistory = [...(targetLot.mergedSettingLotHistory || []), {
     id: crypto.randomUUID(),
     date: today(),
@@ -27109,6 +27410,13 @@ function syncSettingEntriesForUpdatedStoneOrders(orders = [], reason = "Job Card
       currentEntry.totalStoneWeight = Number(weight3(currentEntry.waxStoneWeight + entryHandStoneWeight));
       currentEntry.nonGoldWeight = Number(weight3(liveTotals.nonGold || 0));
       currentEntry.currentNetWeight = Number(weight3(liveTotals.gold || 0));
+      if (currentEntry.status === "Received" || currentEntry.receiveGw !== "") {
+        try {
+          applySettingHandStoneInventorySource(currentEntry, lot, selectedOrders);
+        } catch (error) {
+          currentEntry.nonGoldSourceError = error.message || "Hand stone source could not be synchronized.";
+        }
+      }
       const after = JSON.stringify({
         jobNumber: currentEntry.jobNumber,
         handStoneWeight: currentEntry.handStoneWeight,
@@ -36527,6 +36835,10 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     issueGw,
     handStoneWeight,
     handStoneWeightSource,
+    handStoneInventorySource: normalizeEmbeddedNonGoldSourceMode(
+      entry.handStoneInventorySource || entry.embeddedNonGoldSource?.sourceMode,
+    ),
+    embeddedNonGoldSource: entry.embeddedNonGoldSource || null,
     waxStoneWeight: Number(weight3(entry.waxStoneWeight || 0)),
     totalStoneWeight: Number(weight3(entry.totalStoneWeight ?? (Number(entry.waxStoneWeight || 0) + handStoneWeight))),
     nonGoldWeight: Number(weight3(entry.nonGoldWeight || 0)),
@@ -36580,6 +36892,13 @@ function reconcileSettingEntriesForLotDeparture(lot = {}, currentState = state) 
       autoReceivedFromTransferId: entry.autoReceivedFromTransferId,
     });
     const normalized = normalizeSettingManagerEntry(entry, currentState);
+    if (normalized.status === "Received") {
+      try {
+        applySettingHandStoneInventorySource(normalized, lot, getLotOrders(lot));
+      } catch (error) {
+        normalized.nonGoldSourceError = error.message || "Hand stone source could not be recorded.";
+      }
+    }
     const after = JSON.stringify({
       status: normalized.status,
       receiveDate: normalized.receiveDate,
@@ -36965,12 +37284,40 @@ function splitSettingLotForSetter(lot, selectedOrderIds = [], splitGw = 0) {
   const splitLotNumber = `LOT-${state.nextLot++}`;
   const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "Setting", lot.karigarName);
   const splitReason = `Setting split ${selectedIds.length} PR item(s), ${gram(splitWeight)} GW from ${lot.number} to ${splitLotNumber}`;
+  const selectedEmbeddedNonGoldSources = [];
+  const remainingEmbeddedNonGoldSources = [];
+  (lot.embeddedNonGoldSources || []).forEach((sourceEntry) => {
+    if (sourceEntry.orderId) {
+      (selectedIdSet.has(sourceEntry.orderId) ? selectedEmbeddedNonGoldSources : remainingEmbeddedNonGoldSources).push(sourceEntry);
+      return;
+    }
+    const sourceWeight = Number(weight3(sourceEntry.weight || nonGoldBreakdownTotal(sourceEntry.breakdown)));
+    const ratio = currentGw > 0 ? Math.min(Math.max(splitWeight / currentGw, 0), 1) : 0;
+    const selectedWeight = Number(weight3(sourceWeight * ratio));
+    const remainingWeight = Number(weight3(Math.max(sourceWeight - selectedWeight, 0)));
+    if (selectedWeight > 0.0005) {
+      selectedEmbeddedNonGoldSources.push({
+        ...sourceEntry,
+        id: `${sourceEntry.id || sourceEntry.sourceId || "embedded"}:${splitLotNumber}`,
+        weight: selectedWeight,
+        breakdown: { [sourceEntry.materialType || "stone"]: selectedWeight },
+      });
+    }
+    if (remainingWeight > 0.0005) {
+      remainingEmbeddedNonGoldSources.push({
+        ...sourceEntry,
+        weight: remainingWeight,
+        breakdown: { [sourceEntry.materialType || "stone"]: remainingWeight },
+      });
+    }
+  });
 
   lot.orderIds = remainingIds;
   lot.orderId = remainingIds[0] || "";
   lot.grossIssuedWeight = remainingGw;
   lot.waxStoneWeight = remainingWax;
   lot.issuedWeight = remainingNetWeight;
+  lot.embeddedNonGoldSources = remainingEmbeddedNonGoldSources;
   lot.transfers = lot.transfers || [];
   lot.transfers.push(splitLotAdjustmentTransfer(lot, currentGw, remainingGw, remainingWax, remainingHand, `${splitReason}; remaining PR items stay in original Setting lot`));
   recalculateLotAfterTransferChange(lot);
@@ -36999,6 +37346,7 @@ function splitSettingLotForSetter(lot, selectedOrderIds = [], splitGw = 0) {
     status: "Issued",
     transfers: [],
     castingBatchId: lot.castingBatchId || "",
+    embeddedNonGoldSources: selectedEmbeddedNonGoldSources,
     settingSplit: true,
     settingSplitFromLotId: lot.id,
     settingSplitFromLotNumber: lot.number,
@@ -37324,6 +37672,7 @@ function updateSettingIssueSummary(event) {
   const manualPurityField = document.getElementById("setting-issue-manual-purity-field");
   const scopeField = document.getElementById("setting-issue-scope-field");
   const handStoneField = document.getElementById("setting-issue-hand-stone-field");
+  const handStoneSourceField = document.getElementById("setting-issue-hand-stone-source-field");
   lotField?.classList.toggle("hidden", isAccessory || isManualSource || isManual);
   accessoryField?.classList.toggle("hidden", !isAccessory);
   manualSourceField?.classList.toggle("hidden", !isManualSource);
@@ -37331,6 +37680,7 @@ function updateSettingIssueSummary(event) {
   manualPurityField?.classList.toggle("hidden", !isManual);
   scopeField?.classList.toggle("hidden", isAccessory || isManualSource || isManual);
   handStoneField?.classList.toggle("hidden", isAccessory);
+  handStoneSourceField?.classList.toggle("hidden", isAccessory);
   form.lotId.required = !isAccessory && !isManualSource && !isManual;
   form.accessoryIssueId.required = isAccessory;
   form.manualSourceIssueId.required = isManualSource;
@@ -37493,6 +37843,7 @@ function updateSettingReceiveSummary(event) {
   const returnMaterialLabel = settingReturnMaterialLabel(returnMaterialType);
   document.getElementById("setting-receive-gw-field")?.classList.toggle("hidden", !isClose);
   document.getElementById("setting-receive-hand-stone-field")?.classList.toggle("hidden", !isClose || isReturnableAccessory);
+  document.getElementById("setting-receive-hand-stone-source-field")?.classList.toggle("hidden", !isClose || isReturnableAccessory);
   document.getElementById("setting-receive-net-field")?.classList.toggle("hidden", !isClose);
   document.getElementById("setting-return-material-type-field")?.classList.toggle("hidden", isLoss);
   document.getElementById("setting-receive-rawa-field")?.classList.toggle("hidden", isLoss);
@@ -37515,6 +37866,7 @@ function updateSettingReceiveSummary(event) {
     if (entryChanged) {
       const savedWeight = Number(weight3(entry.handStoneWeight || 0));
       form.handStoneWeight.value = savedWeight > 0 ? weight3(savedWeight) : "";
+      if (form.handStoneInventorySource) form.handStoneInventorySource.value = normalizeEmbeddedNonGoldSourceMode(entry.handStoneInventorySource || entry.embeddedNonGoldSource?.sourceMode);
       form.rawaWeight.value = "0.000";
       form.setterLossWeight.value = "0.000";
     }
@@ -37584,6 +37936,65 @@ function updateSettingReceiveSummary(event) {
   }
 }
 
+function applySettingHandStoneInventorySource(entry = {}, lot = null, orders = []) {
+  const handStoneWeight = Number(weight3(Math.max(Number(entry.handStoneWeight || 0), 0)));
+  const sourceMode = normalizeEmbeddedNonGoldSourceMode(
+    entry.handStoneInventorySource || entry.embeddedNonGoldSource?.sourceMode,
+  );
+  const purity = entry.purity || lot?.metalPurity || activeOrderPurityForState(state, lot || {}) || "18K";
+  const reference = `${settingEntryReference(entry)} / ${entry.setterName || "Setter"} / Hand Stone`;
+  const allocation = replaceEmbeddedNonGoldSource(state, entry, {
+    field: "embeddedNonGoldSource",
+    sourceMode,
+    sourceType: "setting-hand",
+    sourceId: entry.id,
+    purity,
+    breakdown: { stone: handStoneWeight },
+    reference,
+    date: entry.receiveDate || entry.issueDate || today(),
+  });
+  entry.handStoneInventorySource = sourceMode;
+  entry.nonGoldSourceError = "";
+  if (lot?.id) {
+    setLotEmbeddedNonGoldSource(lot, {
+      sourceType: "setting-hand",
+      sourceId: entry.id,
+      sourceMode,
+      materialType: "stone",
+      weight: handStoneWeight,
+      purity,
+      orders: orders.length ? orders : getLotOrders(lot),
+      settingType: "hand",
+    });
+  }
+  state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((auditEvent) => !(
+    auditEvent.sourceType === "setting-hand-recognition" && String(auditEvent.sourceId || "") === String(entry.id || "")
+  ));
+  if (handStoneWeight > 0.0005) {
+    const linkedOrders = orders.length ? orders : getLotOrders(lot || {});
+    recordNonGoldAuditEvent({
+      date: entry.receiveDate || entry.issueDate || today(),
+      action: sourceMode === "shelf" ? "Embed From Shelf" : "Direct Process Entry",
+      sourceType: "setting-hand-recognition",
+      sourceId: entry.id || "",
+      lotId: lot?.id || entry.lotId || "",
+      lotNumber: lot?.number || entry.lotNumber || "",
+      jobNumber: lot?.orderNumber || entry.jobNumber || "",
+      orderId: linkedOrders[0]?.id || "",
+      productionNo: linkedOrders[0]?.productionNo || "",
+      purity: transferPurityLabel(karatLogicPurity(purity)),
+      materialType: "stone",
+      weight: handStoneWeight,
+      fromLocation: sourceMode === "shelf" ? `${safeLockerForPurity(purity)} Non-Gold Shelf` : "Direct Setting / Other Source",
+      toLocation: `${entry.currentDepartment || "Setting"} / Embedded In Item`,
+      department: entry.currentDepartment || "Setting",
+      status: "Embedded",
+      reference,
+    });
+  }
+  return allocation;
+}
+
 function issueSettingLotToSetter(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -37628,10 +38039,17 @@ function issueSettingLotToSetter(event) {
       issueGw,
       handStoneWeight,
       handStoneWeightSource: "Manual",
+      handStoneInventorySource: data.handStoneInventorySource,
       remarks: data.remarks || "",
       currentDepartment: source.departmentName || "Stone Setting Department",
       ...settingSingleOperationEntryFields(settlement, data.remarks || ""),
     });
+    try {
+      applySettingHandStoneInventorySource(entry);
+    } catch (error) {
+      alert(error.message || "Hand stone source could not be recorded.");
+      return;
+    }
     state.settingManagerEntries.unshift(entry);
     const manualSourceUpdate = applySettingManualHandStoneToSource(entry, handStoneWeight);
     form.reset();
@@ -37673,10 +38091,17 @@ function issueSettingLotToSetter(event) {
       issueGw,
       handStoneWeight,
       handStoneWeightSource: "Manual",
+      handStoneInventorySource: data.handStoneInventorySource,
       remarks: data.remarks || "",
       currentDepartment: "Setting Department",
       ...settingSingleOperationEntryFields(settlement, data.remarks || ""),
     });
+    try {
+      applySettingHandStoneInventorySource(entry);
+    } catch (error) {
+      alert(error.message || "Hand stone source could not be recorded.");
+      return;
+    }
     state.settingManagerEntries.unshift(entry);
     applySettingManualHandStoneToSource(entry, handStoneWeight);
     form.reset();
@@ -37785,6 +38210,15 @@ function issueSettingLotToSetter(event) {
     alert("Enter a valid hand stone weight.");
     return;
   }
+  const handStoneInventorySource = normalizeEmbeddedNonGoldSourceMode(data.handStoneInventorySource);
+  const sourcePurity = activeOrderPurityForState(state, lot) || lot.metalPurity || "18K";
+  if (
+    handStoneInventorySource === "shelf"
+    && handStoneWeight > availableLooseNonGoldWeight(state, sourcePurity, "stone") + 0.0005
+  ) {
+    alert(`Loose Non-Gold Shelf does not have enough ${transferPurityLabel(karatLogicPurity(sourcePurity))} Stone. Required ${gram(handStoneWeight)}, available ${gram(availableLooseNonGoldWeight(state, sourcePurity, "stone"))}. Add the Stone to the shelf or select Direct Setting Entry / Other Source.`);
+    return;
+  }
   const settlement = settingSingleOperationValues(data, issueGw, handStoneWeight);
   if (settlement.error) {
     alert(settlement.error);
@@ -37805,7 +38239,7 @@ function issueSettingLotToSetter(event) {
     lot.settingHandStoneWeightOverrideBy = currentUser?.name || currentUserConfig()?.name || "Owner";
   }
   state.settingManagerEntries = state.settingManagerEntries || [];
-  state.settingManagerEntries.unshift(normalizeSettingManagerEntry({
+  const entry = normalizeSettingManagerEntry({
     workType: data.issueType === "repair" ? "Repair Item" : "Stone Setting",
     issueDate: today(),
     lotId: lot.id,
@@ -37821,10 +38255,18 @@ function issueSettingLotToSetter(event) {
     handStoneWeightSource: ownerHandStoneOverride || Object.prototype.hasOwnProperty.call(lot, "settingHandStoneWeightOverride")
       ? "Owner Override"
       : "Job Card",
+    handStoneInventorySource,
     remarks: data.remarks || "",
     currentDepartment: lot.currentDepartment || lot.karigarName || "Setting",
     ...settingSingleOperationEntryFields(settlement, data.remarks || ""),
-  }));
+  });
+  try {
+    applySettingHandStoneInventorySource(entry, lot, getLotOrders(lot));
+  } catch (error) {
+    alert(error.message || "Hand stone source could not be recorded.");
+    return;
+  }
+  state.settingManagerEntries.unshift(entry);
   form.reset();
   form.dataset.selectedManualSourceId = "";
   form.dataset.selectedLotId = "";
@@ -38012,6 +38454,26 @@ function receiveSettingLotFromSetter(event) {
     alert(`Receive Net + Returned Material + Loss exceeds Issue GW by ${gram(Math.abs(balanceWeight))}. Correct the entry.`);
     return;
   }
+  const lot = findById("lots", entry.lotId);
+  const previousHandStoneWeight = entry.handStoneWeight;
+  const previousHandStoneInventorySource = entry.handStoneInventorySource;
+  entry.handStoneWeight = handStoneWeight;
+  entry.handStoneInventorySource = normalizeEmbeddedNonGoldSourceMode(
+    data.handStoneInventorySource || entry.handStoneInventorySource,
+  );
+  try {
+    if (!isReturnableAccessory) {
+      const selectedOrders = entry.selectedOrderIds?.length
+        ? entry.selectedOrderIds.map((orderId) => findById("orders", orderId)).filter(Boolean)
+        : getLotOrders(lot || {});
+      applySettingHandStoneInventorySource(entry, lot, selectedOrders);
+    }
+  } catch (error) {
+    entry.handStoneWeight = previousHandStoneWeight;
+    entry.handStoneInventorySource = previousHandStoneInventorySource;
+    alert(error.message || "Hand stone source could not be recorded.");
+    return;
+  }
   entry.receiveDate = today();
   entry.closeDate = today();
   entry.receiveGw = Number(weight3(receiveGw));
@@ -38047,7 +38509,6 @@ function receiveSettingLotFromSetter(event) {
     remarks: data.remarks || "",
   });
   const manualSourceUpdate = applySettingManualHandStoneToSource(entry, handStoneWeight);
-  const lot = findById("lots", entry.lotId);
   if (lot && !isReturnableAccessory && ownerHandStoneOverride) {
     lot.settingHandStoneWeightOverride = handStoneWeight;
     lot.settingHandStoneWeightOverrideAt = new Date().toISOString();
@@ -38247,7 +38708,7 @@ function renderSettingManager() {
       <td>${escapeHtml(settingEntryReference(entry))}<br><small>${escapeHtml(["Accessory", "Manual"].includes(entry.entryType) ? `${entry.materialType || "Manual Item"} / No Job Card` : entry.jobNumber || "-")} / ${escapeHtml(entry.workType || "Setter Work")}<br>${escapeHtml(settingEntryProductionText(entry))}</small></td>
       <td>${escapeHtml(entry.setterName || "-")}</td>
       <td>${gram(entry.issueGw)}</td>
-      <td>${entry.entryType === "Accessory" ? "-" : gram(entry.handStoneWeight)}<br><small>${escapeHtml(entry.handStoneWeightSource || "Manual")}</small></td>
+      <td>${entry.entryType === "Accessory" ? "-" : gram(entry.handStoneWeight)}<br><small>${escapeHtml(entry.handStoneWeightSource || "Manual")} / ${entry.handStoneInventorySource === "direct" ? "Direct Entry" : "Loose Shelf"}</small></td>
       <td><b>${escapeHtml(settingReturnMaterialBreakdownText(entry))}</b><br><small>Loss ${gram(entry.setterLossWeight)} / Bal ${gram(entry.balanceWeight)}</small></td>
       <td>${settingEntryAgeText(entry.issueDate)}</td>
       <td>${escapeHtml(entry.remarks || "-")}</td>
@@ -38265,7 +38726,7 @@ function renderSettingManager() {
       <td>${escapeHtml(entry.setterName || "-")}</td>
       <td>${gram(entry.issueGw)}</td>
       <td>${(entry.entryType === "Accessory" && !entry.returnExpected) || entry.receiveGw === "" ? "-" : gram(entry.receiveGw)}</td>
-      <td>${entry.entryType === "Accessory" ? "-" : `${gram(entry.handStoneWeight)}<br><small>${escapeHtml(entry.handStoneWeightSource || "Manual")}</small>`}</td>
+      <td>${entry.entryType === "Accessory" ? "-" : `${gram(entry.handStoneWeight)}<br><small>${escapeHtml(entry.handStoneWeightSource || "Manual")} / ${entry.handStoneInventorySource === "direct" ? "Direct Entry" : "Loose Shelf"}</small>`}</td>
       <td>${(entry.entryType === "Accessory" && !entry.returnExpected) || entry.receiveNetWeight === "" ? "-" : gram(entry.receiveNetWeight)}</td>
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : `${escapeHtml(settingReturnMaterialBreakdownText(entry))}<br><small>Total ${gram(entry.rawaWeight)}</small>`}</td>
       <td>${entry.entryType === "Accessory" && !entry.returnExpected ? "-" : gram(entry.setterLossWeight)}</td>
@@ -44342,6 +44803,9 @@ function renderFactoryVendorOptions() {
 function factoryOutBillSummaryHtml(record) {
   if (!record) return "";
   const { bill, lot, totals } = record;
+  const demandLines = billFactoryOutNonGoldLines(state, bill, lot);
+  const sourcePlan = billEmbeddedNonGoldCreditLines(state, bill, lot, demandLines);
+  const looseAtFactoryOut = Number(weight3(sourcePlan.looseDemandLines.reduce((total, line) => total + Number(line.weight || 0), 0)));
   const cards = [
     ["Destination", KJPL_OFFICE_VENDOR_NAME],
     ["Items", totals.pieces],
@@ -44352,6 +44816,8 @@ function factoryOutBillSummaryHtml(record) {
     ["Spring", gram(totals.springWeight)],
     ["Other", gram(totals.otherNonGoldWeight)],
     ["Total Non-Gold", gram(totals.reducedWeight)],
+    ["Already Embedded", gram(sourcePlan.total)],
+    ["Loose Shelf At Factory Out", gram(looseAtFactoryOut)],
     ["Net Weight", gram(totals.netWeight)],
   ];
   return `
@@ -44587,7 +45053,10 @@ function billFactoryOutTransactionIsComplete(billId = "", source = state) {
   if (!bill || !isBillFactoryOutPosted(bill)) return false;
   const lot = (source.lots || []).find((item) => String(item.id || "") === String(bill.lotId || ""));
   const expectedNonGold = lot ? billFactoryOutWeightSummary(source, bill, lot).reducedWeight : 0;
-  const consumedNonGold = Number(bill.nonGoldShelfConsumption?.total || 0);
+  const consumedNonGold = Number(
+    bill.nonGoldShelfConsumption?.accountedTotal
+    ?? (Number(bill.nonGoldShelfConsumption?.total || 0) + Number(bill.nonGoldShelfConsumption?.embeddedCreditTotal || 0)),
+  );
   const nonGoldComplete = expectedNonGold <= 0.0005
     || (bill.nonGoldShelfConsumption?.posted && Math.abs(consumedNonGold - expectedNonGold) <= 0.0015);
   if (!nonGoldComplete) return false;
@@ -44922,7 +45391,6 @@ function renderFactorySummary() {
     factorySummaryCard("Main Stock NG Removed", gram(Math.abs(parts.mainNonGoldRemoval?.grossWeight || 0)), "Physical GW and non-gold reduced equally; fine gold unchanged"),
     factorySummaryCard("Opening Non-Gold In GW", gram(parts.openingNonGoldAdjustment?.nonGoldWeight || 0), `${factoryStockPartNote(parts.openingNonGoldAdjustment)} / Already included in department GW`),
     factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), `${factoryStockPartNote(parts.billNonGoldAdjustment)} / Karat-wise non-gold consumed from department stock`),
-    factorySummaryCard("Non-Gold Deducted From GW", gram(Math.abs(parts.nonGoldFineReconciliation?.goldWeight || 0)), `${factoryStockPartNote(parts.nonGoldFineReconciliation)} / ${factoryStockPartPurityNote(parts.nonGoldFineReconciliation)} / Total GW unchanged`),
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Ledger: bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
@@ -44946,7 +45414,6 @@ const fineSheetPartOrder = [
   "mainNonGoldRemoval",
   "openingNonGoldAdjustment",
   "billNonGoldAdjustment",
-  "nonGoldFineReconciliation",
 ];
 
 function signedFineGram(value) {
@@ -44983,7 +45450,6 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
         else if (key === "mainNonGoldRemoval") calculation = "Physical non-gold removed; fine gold unchanged";
         else if (key === "openingNonGoldAdjustment") calculation = "Non-gold classified inside existing GW; Net/Fine Gold reduced only once";
         else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
-        else if (key === "nonGoldFineReconciliation") calculation = "ERP non-gold inside total GW x karat purity";
         rows.push({
           source: "Physical Stock",
           partKey: key,
@@ -48341,6 +48807,11 @@ function openMeltingReceive(meltingId) {
   form.finalWeight.value = weight3(melting.finalWeight);
   form.castingItemWeight.value = weight3(isRodReceive ? 0 : (breakup.castingItemWeight ?? defaultItemWeight));
   form.castingWaxStoneWeight.value = weight3(isRodReceive ? 0 : (breakup.castingWaxStoneWeight ?? breakup.waxStoneWeight ?? 0));
+  if (form.castingWaxStoneSource) {
+    form.castingWaxStoneSource.value = normalizeEmbeddedNonGoldSourceMode(
+      melting.castingWaxStoneSource || melting.embeddedNonGoldSource?.sourceMode || "direct",
+    );
+  }
   form.castingItemNetWeight.value = weight3(isRodReceive ? 0 : safeItemNetFromGross(form.castingItemWeight.value, form.castingWaxStoneWeight.value));
   form.treeCutWeight.value = weight3(breakup.treeCutWeight);
   form.wastageWeight.value = weight3(breakup.wastageWeight);
@@ -49460,6 +49931,12 @@ function normalizeState(currentState) {
       grossReceivedWeight: Number(item.grossReceivedWeight ?? (item.receiveBreakup ? meltingReceiveGrossWeight(item.receiveBreakup, item) : item.receivedWeight) ?? 0),
       meltingLoss: Number(item.meltingLoss || 0),
       receiveBreakup: item.receiveBreakup || null,
+      castingWaxStoneSource: normalizeEmbeddedNonGoldSourceMode(
+        item.castingWaxStoneSource
+        || item.embeddedNonGoldSource?.sourceMode
+        || ((item.status || "Issued") === "Received" ? "shelf" : "direct"),
+      ),
+      embeddedNonGoldSource: item.embeddedNonGoldSource || null,
       sourceType: item.sourceType || "",
       sourceLotId: item.sourceLotId || "",
       sourceJobNumber: item.sourceJobNumber || "",
@@ -49773,6 +50250,19 @@ function normalizeLotIssueWeights(currentState, lot) {
     physicalWaxStoneWeight: waxStoneWeight,
     plannedWaxStoneWeight,
     issuedWeight,
+    embeddedNonGoldSources: (lot.embeddedNonGoldSources || []).map((entry) => {
+      const materialType = normalizeNonGoldControlMaterial(entry.materialType || "stone");
+      const breakdown = normalizeNonGoldControlBreakdown(entry.breakdown, materialType, entry.weight);
+      return {
+        ...entry,
+        id: entry.id || `${entry.sourceType || "embedded"}:${entry.sourceId || lot.id}:${entry.orderId || "lot"}`,
+        sourceMode: normalizeEmbeddedNonGoldSourceMode(entry.sourceMode),
+        materialType,
+        purity: transferPurityLabel(karatLogicPurity(entry.purity || metalPurity || "18K")),
+        breakdown,
+        weight: Number(weight3(entry.weight || nonGoldBreakdownTotal(breakdown))),
+      };
+    }),
     nonGoldIssues: (lot.nonGoldIssues || []).map((issue) => normalizeProductionNonGoldIssue(issue, lot, currentState)),
     issueSourceName: lot.issueSourceName || `SHELF${safeLockerForPurity(lot.issueSourceLocker || metalPurity || primaryOrder?.purity || "18K")}`,
     issueSourceDetail: lot.issueSourceDetail || lot.castingSafeItemDescription || "",

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=684">
+      <link rel="stylesheet" href="styles.css?v=685">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v684</small>
+      <small class="app-version-badge">App v685</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v684</span>
+          <span class="app-version-badge">App v685</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -924,6 +924,10 @@
               <label>Issue GW (g) <input name="issueGw" type="number" step="0.001" readonly></label>
               <label id="setting-issue-receive-gw-field">Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
               <label id="setting-issue-hand-stone-field"><span id="setting-issue-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <label id="setting-issue-hand-stone-source-field">Hand Stone Source <select name="handStoneInventorySource">
+                <option value="direct">Direct Setting Entry / Other Source</option>
+                <option value="shelf">Issued From Loose Non-Gold Shelf</option>
+              </select></label>
               <label id="setting-issue-receive-net-field">Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
               <label id="setting-issue-return-material-type-field">Returned Material <select name="returnMaterialType">
                 <option value="rawa">Rawa</option>
@@ -960,6 +964,10 @@
               <label id="setting-receive-issue-field">Issue / Outstanding (g) <input name="issueGw" type="number" step="0.001" readonly></label>
               <label id="setting-receive-gw-field">Receive GW (g) <input name="receiveGw" type="number" min="0.001" step="0.001" required></label>
               <label id="setting-receive-hand-stone-field"><span id="setting-receive-hand-stone-label">Hand Stone Weight (g)</span> <input name="handStoneWeight" type="number" min="0" step="0.001" readonly></label>
+              <label id="setting-receive-hand-stone-source-field">Hand Stone Source <select name="handStoneInventorySource">
+                <option value="direct">Direct Setting Entry / Other Source</option>
+                <option value="shelf">Issued From Loose Non-Gold Shelf</option>
+              </select></label>
               <label id="setting-receive-net-field">Receive Net Wt (g) <input name="receiveNetWeight" type="number" step="0.001" readonly></label>
               <label id="setting-return-material-type-field">Returned Material <select name="returnMaterialType">
                 <option value="rawa">Rawa</option>
@@ -3469,6 +3477,10 @@
         <label>Final Weight Issued (g) <input name="finalWeight" type="number" readonly></label>
         <label class="melting-receive-casting">Casting Item Weight (g) <input name="castingItemWeight" type="number" min="0" step="0.001" value="0"></label>
         <label class="melting-receive-casting">Wax Set Stone Weight (g) <input name="castingWaxStoneWeight" type="number" min="0" step="0.001" value="0"></label>
+        <label class="melting-receive-casting">Wax Stone Source <select name="castingWaxStoneSource">
+          <option value="direct">Direct Casting Entry / Other Source</option>
+          <option value="shelf">Issued From Loose Non-Gold Shelf</option>
+        </select></label>
         <label class="melting-receive-casting">Casting Item NT / Reduced (g) <input name="castingItemNetWeight" type="number" readonly value="0"></label>
         <label class="melting-receive-casting casting-fitting-card-toggle">
           <input name="createFittingItemsJobCard" type="checkbox">
@@ -3892,7 +3904,7 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-    <script src="app.js?v=684"></script>
+    <script src="app.js?v=685"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>
