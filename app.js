@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v682";
+const APP_VERSION = "v683";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -8365,6 +8365,7 @@ function runPostCloudMigrations() {
   if (supabaseStartupProtectionActive) return;
   postCloudMigrationsStarted = true;
   (async () => {
+    const correctedOpeningNonGold = migrateConfirmedOpeningNonGoldTo18KV683();
     const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
     const repairedMergedSettingLots = repairPreviouslyMergedSettingSplitLots();
@@ -8383,8 +8384,15 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
-      saveState({ context: "Post-cloud production and merged Setting lot correction" });
+    if (correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
+      saveState({
+        context: correctedOpeningNonGold
+          ? "Confirmed opening non-gold reclassified from 14K to 18K"
+          : "Post-cloud production and merged Setting lot correction",
+        changedStateKeys: correctedOpeningNonGold
+          ? ["safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At"]
+          : undefined,
+      });
       render();
     }
     await migrateLegacyDesignImages();
@@ -16641,6 +16649,37 @@ function addFactoryStockPart(parts, key, label, grossWeight = 0, goldWeight = gr
   return part;
 }
 
+function reconcileFactoryNonGoldInsideGross(parts = {}) {
+  const nonGoldByPurity = new Map();
+  Object.entries(parts).forEach(([partKey, part]) => {
+    if (["nonGoldFineReconciliation", "openingNonGoldAdjustment"].includes(partKey)) return;
+    Object.values(part.purityBreakdown || {}).forEach((bucket) => {
+      const nonGoldWeight = Number(bucket.nonGoldWeight || 0);
+      if (Math.abs(nonGoldWeight) <= 0.0005) return;
+      const purity = karatLogicPurity(bucket.purity && bucket.purity !== "NON-GOLD" ? bucket.purity : "18K") || "18K";
+      const current = nonGoldByPurity.get(purity) || 0;
+      nonGoldByPurity.set(purity, Number(weight3(current + nonGoldWeight)));
+    });
+  });
+  nonGoldByPurity.forEach((rawWeight, purity) => {
+    const weight = Number(weight3(Math.max(rawWeight, 0)));
+    if (weight <= 0.0005) return;
+    addFactoryStockPart(
+      parts,
+      "nonGoldFineReconciliation",
+      "ERP Non-Gold Deducted From GW",
+      0,
+      -weight,
+      purity,
+      -fineGoldWeight(weight, purity),
+      0,
+    );
+  });
+  return [...nonGoldByPurity.entries()]
+    .map(([purity, weight]) => ({ purity, weight: Number(weight3(Math.max(weight, 0))) }))
+    .filter((entry) => entry.weight > 0.0005);
+}
+
 function addFactoryCompletedBillStock(parts) {
   (state.lots || []).forEach((lot) => {
     if (isReferenceOnlyBillLot(lot)) return;
@@ -16736,6 +16775,7 @@ function factoryPhysicalStock() {
     mainNonGoldRemoval: blankFactoryStockPart("Non-Gold Removed From Main Stock"),
     openingNonGoldAdjustment: blankFactoryStockPart("Opening Non-Gold Included In GW"),
     billNonGoldAdjustment: blankFactoryStockPart("Non-Gold Applied To Production / Bill"),
+    nonGoldFineReconciliation: blankFactoryStockPart("ERP Non-Gold Deducted From GW"),
   };
 
   Object.values(metalSafeBalances()).forEach((item) => {
@@ -16904,6 +16944,7 @@ function factoryPhysicalStock() {
     );
   });
 
+  reconcileFactoryNonGoldInsideGross(parts);
   const allParts = Object.values(parts);
   const grossWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.grossWeight || 0))), 0);
   const goldWeight = allParts.reduce((total, part) => Number(weight3(total + Number(part.goldWeight || 0))), 0);
@@ -16917,9 +16958,9 @@ function factoryPhysicalStock() {
     shelfWeight: parts.shelf.grossWeight,
     shelfGoldWeight: parts.shelf.goldWeight,
     shelfFine: parts.shelf.fineGold,
-    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight)),
-    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight)),
-    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold)),
+    productionWeight: Number(weight3(parts.production.grossWeight + parts.transferBalances.grossWeight + parts.billPending.grossWeight + parts.departmentIssues.grossWeight + parts.departmentReturns.grossWeight + parts.departmentTallyLosses.grossWeight + parts.meltingCasting.grossWeight + parts.xrf.grossWeight + parts.mainNonGoldRemoval.grossWeight + parts.openingNonGoldAdjustment.grossWeight + parts.billNonGoldAdjustment.grossWeight + parts.nonGoldFineReconciliation.grossWeight)),
+    productionGoldWeight: Number(weight3(parts.production.goldWeight + parts.transferBalances.goldWeight + parts.billPending.goldWeight + parts.departmentIssues.goldWeight + parts.departmentReturns.goldWeight + parts.departmentTallyLosses.goldWeight + parts.meltingCasting.goldWeight + parts.xrf.goldWeight + parts.mainNonGoldRemoval.goldWeight + parts.openingNonGoldAdjustment.goldWeight + parts.nonGoldFineReconciliation.goldWeight)),
+    productionFine: Number(weight3(parts.production.fineGold + parts.transferBalances.fineGold + parts.billPending.fineGold + parts.departmentIssues.fineGold + parts.departmentReturns.fineGold + parts.departmentTallyLosses.fineGold + parts.meltingCasting.fineGold + parts.xrf.fineGold + parts.mainNonGoldRemoval.fineGold + parts.openingNonGoldAdjustment.fineGold + parts.nonGoldFineReconciliation.fineGold)),
     nonGoldWeight: Number(weight3(allParts.reduce((total, part) => total + Number(part.nonGoldWeight || 0), 0))),
     totalFine,
   };
@@ -22024,6 +22065,7 @@ function factorySummaryCategoryRows(ledger, physical, vendorTotals, totalFineSto
     partRow("mainNonGoldRemoval", "Main Stock Non-Gold Removed", "Reduces physical GW and non-gold equally; fine gold unchanged"),
     partRow("openingNonGoldAdjustment", "Opening Non-Gold Included In GW", "Classification inside existing department GW; reduces net and fine gold without increasing GW"),
     partRow("billNonGoldAdjustment", "Non-Gold Applied To Production / Bill", "Reduces the karat-wise department non-gold pool; never reduces fine gold twice"),
+    partRow("nonGoldFineReconciliation", "ERP Non-Gold Deducted From GW", "Total GW stays unchanged; karat-wise non-gold reduces Net and Fine Gold"),
     { label: "Party Fine Balance", fine: weight3(vendorTotals.netBalance), note: "Payable fine minus receivable fine; KJPL-STOCK metal sold excluded" },
     { label: "KJPL-STOCK Metal Sold", fine: weight3(vendorTotals.metalSold || 0), note: "Ledger entry only; not counted in stock or vendor balance" },
     { label: "Factory In Fine Ledger", fine: weight3(ledger.inFine), note: "Vendor inward + WSTG + opening stock" },
@@ -27000,6 +27042,61 @@ function migrateJob1689S2FilingTransferStone() {
     state.job1689S2FilingStoneTransferCorrectionCount = updated;
   }
   return updated;
+}
+
+function migrateConfirmedOpeningNonGoldTo18KV683() {
+  if (state.openingNonGold18KReclassifiedV683At) return 0;
+  const targets = [
+    { materialType: "stone", weight: 0.140 },
+    { materialType: "black-beads", weight: 0.210 },
+  ];
+  const openingCandidates = (state.safeItems || []).filter((item) => {
+    if (item.status === "Out" || safeItemKind(item) !== "non-gold") return false;
+    if (safeLockerForPurity(item.locker || item.purity) !== "14K") return false;
+    return normalizeSearchText(item.source || "").includes("opening stock");
+  });
+  const matchedItems = targets.map((target) => openingCandidates.find((item) => {
+    const breakdown = normalizeNonGoldControlBreakdown(safeItemFactoryNonGoldBreakdown(item));
+    const targetWeight = Number(weight3(target.weight));
+    return Number(weight3(breakdown[target.materialType] || 0)) === targetWeight
+      && Number(weight3(safeItemFactoryNonGoldWeight(item))) === targetWeight;
+  }));
+  if (matchedItems.some((item) => !item) || new Set(matchedItems.map((item) => item.id)).size !== targets.length) return 0;
+
+  const correctedAt = new Date().toISOString();
+  state.nonGoldAuditEvents = state.nonGoldAuditEvents || [];
+  matchedItems.forEach((item, index) => {
+    const target = targets[index];
+    item.locker = "18K";
+    item.purity = "18K";
+    item.desiredPurity = "18K";
+    item.updatedAt = correctedAt;
+    item.openingPurityReclassifiedFrom = "14K";
+    item.openingPurityReclassifiedAt = correctedAt;
+    const auditId = `opening-non-gold-18k-v683-${item.id}`;
+    if (!state.nonGoldAuditEvents.some((entry) => entry.id === auditId)) {
+      state.nonGoldAuditEvents.unshift(normalizeNonGoldAuditEvent({
+        id: auditId,
+        date: today(),
+        createdAt: correctedAt,
+        action: "Reclassify",
+        materialType: target.materialType,
+        weight: target.weight,
+        purity: "18K",
+        fromLocation: "14K Non-Gold Shelf",
+        toLocation: "18K Non-Gold Shelf",
+        status: "Corrected",
+        reference: "Confirmed Opening Stock purity correction to 18K in v683",
+        sourceType: "opening-non-gold-reclassification-v683",
+        sourceId: item.id,
+        userName: "System v683 Migration",
+      }));
+    }
+  });
+  state.nonGoldAuditEvents = state.nonGoldAuditEvents.slice(0, 10000);
+  state.openingNonGold18KReclassifiedV683At = correctedAt;
+  state.openingNonGold18KReclassifiedV683ItemIds = matchedItems.map((item) => item.id);
+  return matchedItems.length;
 }
 
 function productionStoneWeightForTransfer(lot) {
@@ -44522,8 +44619,9 @@ function renderFactorySummary() {
     factorySummaryCard("XRF Pending", gram(parts.xrf?.grossWeight || 0), factoryStockPartNote(parts.xrf)),
     factorySummaryCard("Direct Non-Gold", gram(parts.nonGoldDirect?.grossWeight || 0), "Only physical weight, no fine gold"),
     factorySummaryCard("Main Stock NG Removed", gram(Math.abs(parts.mainNonGoldRemoval?.grossWeight || 0)), "Physical GW and non-gold reduced equally; fine gold unchanged"),
-    factorySummaryCard("Opening Non-Gold In GW", gram(parts.openingNonGoldAdjustment?.nonGoldWeight || 0), "Already included in department GW; lowers Net and Fine Gold without adding physical weight"),
-    factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), "Karat-wise non-gold consumed from department stock"),
+    factorySummaryCard("Opening Non-Gold In GW", gram(parts.openingNonGoldAdjustment?.nonGoldWeight || 0), `${factoryStockPartNote(parts.openingNonGoldAdjustment)} / Already included in department GW`),
+    factorySummaryCard("NG Applied To Product / Bill", gram(Math.abs(parts.billNonGoldAdjustment?.grossWeight || 0)), `${factoryStockPartNote(parts.billNonGoldAdjustment)} / Karat-wise non-gold consumed from department stock`),
+    factorySummaryCard("Non-Gold Deducted From GW", gram(Math.abs(parts.nonGoldFineReconciliation?.goldWeight || 0)), `${factoryStockPartNote(parts.nonGoldFineReconciliation)} / ${factoryStockPartPurityNote(parts.nonGoldFineReconciliation)} / Total GW unchanged`),
     factorySummaryCard("Factory In Fine", gram(ledger.inFine), "Ledger: vendor inward + WSTG + opening stock"),
     factorySummaryCard("Factory Out Fine", gram(ledger.outFine), "Ledger: bills + metal/stock out"),
     factorySummaryCard("Ledger Fine Balance", gram(ledger.balanceFine), "Factory in minus factory out"),
@@ -44547,6 +44645,7 @@ const fineSheetPartOrder = [
   "mainNonGoldRemoval",
   "openingNonGoldAdjustment",
   "billNonGoldAdjustment",
+  "nonGoldFineReconciliation",
 ];
 
 function signedFineGram(value) {
@@ -44583,6 +44682,7 @@ function fineSheetCalculationRows(physical = factoryPhysicalStock(), vendorRows 
         else if (key === "mainNonGoldRemoval") calculation = "Physical non-gold removed; fine gold unchanged";
         else if (key === "openingNonGoldAdjustment") calculation = "Non-gold classified inside existing GW; Net/Fine Gold reduced only once";
         else if (key === "billNonGoldAdjustment") calculation = "Physical non-gold allocation only";
+        else if (key === "nonGoldFineReconciliation") calculation = "ERP non-gold inside total GW x karat purity";
         rows.push({
           source: "Physical Stock",
           partKey: key,
@@ -45450,6 +45550,13 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
 
 function factoryStockPartNote(part = {}) {
   return `NW ${gram(part.goldWeight || 0)}${Number(part.nonGoldWeight || 0) ? ` / Non-Gold ${gram(part.nonGoldWeight)}` : ""} / Fine ${gram(part.fineGold || 0)}`;
+}
+
+function factoryStockPartPurityNote(part = {}) {
+  const rows = Object.values(part.purityBreakdown || {})
+    .filter((bucket) => Math.abs(Number(bucket.goldWeight || 0)) > 0.0005)
+    .map((bucket) => `${dashboardPurityLabel(bucket.purity)} ${gram(Math.abs(Number(bucket.goldWeight || 0)))}`);
+  return rows.join(" + ") || "No karat allocation";
 }
 
 function factorySummaryCard(title, value, note, variant = "") {
