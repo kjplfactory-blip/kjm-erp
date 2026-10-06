@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=687">
+      <link rel="stylesheet" href="styles.css?v=690">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -1105,7 +1105,9 @@
               </label>
               <label>Kind
                 <select name="safeKind">
-                  <option value="rod">Rod / Casting Item</option>
+                  <option value="casting-item">Casting Item</option>
+                  <option value="rod">Rod</option>
+                  <option value="rejected-item">Rejected Item</option>
                   <option value="unfinished">Unfinished Item</option>
                   <option value="wip">WIP Item</option>
                   <option value="wastage">Wastage / Scrap</option>
@@ -1322,7 +1324,9 @@
             <label>Material Type
               <select name="materialType">
                 <option value="raw-metal">Raw Metal / Pure Gold</option>
-                <option value="casting-item">Casting Item / Rod</option>
+                <option value="casting-item">Casting Item</option>
+                <option value="rod">Rod</option>
+                <option value="rejected-item">Rejected Item With Non-Gold</option>
                 <option value="wastage">Wastage / Scrap</option>
                 <option value="other">Other Stock Item</option>
               </select>
@@ -1330,6 +1334,21 @@
             <label>Purity <input name="purity" list="metal-purity-options" value="99.5%" placeholder="99.5%, 18K, 14K" required></label>
             <label>WSTG (%) <input name="wstgPercent" type="number" min="0" step="0.01" value="0" placeholder="e.g. 2"></label>
             <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+            <fieldset id="factory-in-rejected-fields" class="factory-rejected-breakup full-row hidden">
+              <legend>Rejected Item Weight Breakup</legend>
+              <div class="factory-rejected-grid">
+                <label>Stone (g) <input name="stoneWeight" type="number" min="0" step="0.001" value="0"></label>
+                <label>Black Beads (g) <input name="blackBeadsWeight" type="number" min="0" step="0.001" value="0"></label>
+                <label>Moti (g) <input name="motiWeight" type="number" min="0" step="0.001" value="0"></label>
+                <label>Spring (g) <input name="springWeight" type="number" min="0" step="0.001" value="0"></label>
+                <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.001" value="0"></label>
+              </div>
+              <div class="factory-rejected-summary">
+                <span>Total Non-Gold <strong data-factory-rejected-total>0.000 g</strong></span>
+                <span>Net Gold <strong data-factory-rejected-net>0.000 g</strong></span>
+              </div>
+              <small>GW stays with the rejected item. Its non-gold breakup is registered centrally and deducted from fine-gold calculation.</small>
+            </fieldset>
             <label>Reference / Item <input name="reference" placeholder="Memo no, old gold, rod, casting item" required></label>
             <label>Remarks <input name="remarks" placeholder="Optional note"></label>
             <button type="submit">Add Factory In</button>
@@ -1393,7 +1412,9 @@
               <select name="materialType">
                 <option value="bill">Bill / Office Transfer</option>
                 <option value="raw-metal" selected>Metal Out From Metal Safe</option>
-                <option value="casting-item">Rod / Casting Item Out</option>
+                <option value="casting-item">Casting Item Out</option>
+                <option value="rod">Rod Out</option>
+                <option value="rejected-item">Rejected Item Out</option>
                 <option value="wastage">Wastage / Scrap Out</option>
                 <option value="other">Other Shelf Stock Out</option>
               </select>
@@ -1430,7 +1451,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>WSTG</th><th>Weight</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th><th></th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Vendor</th><th>Material</th><th>Purity</th><th>WSTG</th><th>Weight / Breakup</th><th>Fine Gold</th><th>Stock Posting</th><th>Reference</th><th></th></tr></thead>
               <tbody id="factory-ledger-table"></tbody>
             </table>
           </div>
@@ -3579,7 +3600,9 @@
           <label>Material
             <select name="materialType">
               <option value="raw-metal">Raw Metal / Pure Gold</option>
-              <option value="casting-item">Casting Item / Rod</option>
+              <option value="casting-item">Casting Item</option>
+              <option value="rod">Rod</option>
+              <option value="rejected-item">Rejected Item With Non-Gold</option>
               <option value="wastage">Wastage / Scrap</option>
               <option value="other">Other Stock Item</option>
               <option value="bill">Bill / Factory Out</option>
@@ -3588,6 +3611,20 @@
           <label>Purity <input name="purity" list="metal-purity-options" required></label>
           <label>WSTG (%) <input name="wstgPercent" type="number" min="0" step="0.01"></label>
           <label>Weight (g) <input name="weight" type="number" min="0.001" step="0.001" required></label>
+          <fieldset id="factory-edit-rejected-fields" class="factory-rejected-breakup full-row hidden">
+            <legend>Rejected Item Weight Breakup</legend>
+            <div class="factory-rejected-grid">
+              <label>Stone (g) <input name="stoneWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>Black Beads (g) <input name="blackBeadsWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>Moti (g) <input name="motiWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>Spring (g) <input name="springWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.001" value="0"></label>
+            </div>
+            <div class="factory-rejected-summary">
+              <span>Total Non-Gold <strong data-factory-rejected-total>0.000 g</strong></span>
+              <span>Net Gold <strong data-factory-rejected-net>0.000 g</strong></span>
+            </div>
+          </fieldset>
           <label>Reference <input name="reference" required></label>
           <label>Remarks <input name="remarks"></label>
         </div>
@@ -3906,7 +3943,7 @@
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
   <script src="central-non-gold-shelf-v688.js?v=688"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
-    <script src="app.js?v=689"></script>
+    <script src="app.js?v=690"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
   <script src="department-holdings-v615.js?v=616"></script>

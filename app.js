@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v689";
+const APP_VERSION = "v690";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -2596,17 +2596,33 @@ document.getElementById("vendor-form").addEventListener("submit", (event) => {
   render();
 });
 
+document.getElementById("factory-in-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "materialType") updateFactoryRejectedMode(event.currentTarget);
+});
+
+document.getElementById("factory-in-form")?.addEventListener("input", (event) => {
+  if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
+    updateFactoryRejectedMode(event.currentTarget);
+  }
+});
+
 document.getElementById("factory-in-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = getFormData(event.target);
   const vendor = findById("vendors", data.vendorId);
   const weight = Number(data.weight || 0);
+  const nonGoldBreakdown = data.materialType === "rejected-item" ? factoryRejectedBreakdown(data) : {};
+  const totalNonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
   if (!vendor) {
     alert("Select vendor / party first.");
     return;
   }
   if (weight <= 0) {
     alert("Enter valid factory in weight.");
+    return;
+  }
+  if (totalNonGoldWeight > weight + 0.0005) {
+    alert(`Rejected item non-gold ${gram(totalNonGoldWeight)} cannot exceed GW ${gram(weight)}.`);
     return;
   }
   addFactoryInEntry({
@@ -2617,10 +2633,12 @@ document.getElementById("factory-in-form").addEventListener("submit", (event) =>
     wstgPercent: data.wstgPercent,
     reference: data.reference,
     remarks: data.remarks,
+    nonGoldBreakdown,
   });
   event.target.reset();
   event.target.purity.value = "99.5%";
   event.target.wstgPercent.value = "0";
+  updateFactoryRejectedMode(event.target);
   saveState();
   render();
 });
@@ -2739,6 +2757,14 @@ document.getElementById("factory-ledger-table")?.addEventListener("focusout", (e
 });
 document.querySelector(".factory-ledger-panel .table-wrap")?.addEventListener("scroll", hideFactoryReferenceTooltip);
 document.getElementById("print-factory-summary").addEventListener("click", printFactorySummary);
+document.getElementById("factory-entry-edit-form")?.addEventListener("change", (event) => {
+  if (event.target.name === "materialType") updateFactoryRejectedMode(event.currentTarget);
+});
+document.getElementById("factory-entry-edit-form")?.addEventListener("input", (event) => {
+  if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
+    updateFactoryRejectedMode(event.currentTarget);
+  }
+});
 document.getElementById("factory-entry-edit-form").addEventListener("submit", saveFactoryLedgerEdit);
 document.getElementById("cancel-factory-entry-edit").addEventListener("click", () => {
   document.getElementById("factory-entry-dialog").close();
@@ -12888,7 +12914,7 @@ function safeItemMatchesKind(item, safeKind = "all") {
 
 function normalizeSafeKind(value = "") {
   const text = String(value || "").toLowerCase().trim();
-  if (["rod", "unfinished", "wip", "wastage", "ghiss", "non-gold", "accessory"].includes(text)) return text;
+  if (["casting-item", "rod", "rejected-item", "unfinished", "wip", "wastage", "ghiss", "non-gold", "accessory"].includes(text)) return text;
   return "all";
 }
 
@@ -12897,9 +12923,14 @@ function safeItemKind(item = {}) {
   const sourceLine = String(item.sourceLine || "").toLowerCase();
   const description = String(item.description || "").toLowerCase();
   if (savedKind === "ghiss" || sourceLine.includes("ghiss") || description.includes("ghiss")) return "ghiss";
+  if (savedKind === "rejected-item" || sourceLine === "rejected-item" || description.includes("rejected item")) return "rejected-item";
+  if (sourceLine === "castingitemweight" || description.includes("casting item") || description.includes("casting shelf")) return "casting-item";
+  if (sourceLine === "casting-item") {
+    return /\brod\b/.test(description) && !description.includes("casting item") ? "rod" : "casting-item";
+  }
   if (savedKind !== "all") return savedKind;
-  if (["rod1weight", "rod2weight", "castingitemweight"].includes(sourceLine)) return "rod";
-  if (description.includes("rod") || description.includes("casting item")) return "rod";
+  if (["rod1weight", "rod2weight", "rodsource", "rod"].includes(sourceLine)) return "rod";
+  if (description.includes("rod")) return "rod";
   if (
     sourceLine.includes("wastage")
     || sourceLine === "treecutweight"
@@ -12916,13 +12947,16 @@ function safeItemKind(item = {}) {
 
 function safeKindLabel(kindOrItem = "") {
   const kind = typeof kindOrItem === "string" ? normalizeSafeKind(kindOrItem) : safeItemKind(kindOrItem);
+  if (kind === "casting-item") return "Casting Item";
+  if (kind === "rod") return "Rod";
+  if (kind === "rejected-item") return "Rejected Item";
   if (kind === "ghiss") return "Ghiss";
   if (kind === "non-gold") return "Non-Gold Item";
   if (kind === "unfinished") return "Unfinished Item";
   if (kind === "wip") return "WIP Item";
   if (kind === "wastage") return "Wastage / Scrap";
   if (kind === "accessory") return "Accessory / Other";
-  return "Rod / Casting";
+  return "Shelf Item";
 }
 
 function safeTextKey(value = "") {
@@ -12942,7 +12976,8 @@ function isSafeShelfId(value = "") {
 }
 
 function isCastingIssueStock(item = {}) {
-  if (!item || item.status === "Out" || safeItemKind(item) !== "rod") return false;
+  if (!item || item.status === "Out") return false;
+  if (safeItemKind(item) === "casting-item") return true;
   const sourceLine = String(item.sourceLine || "").toLowerCase();
   const description = String(item.description || "").toLowerCase();
   return sourceLine === "castingitemweight"
@@ -12970,7 +13005,7 @@ function castingShelfGroups(purity = "") {
         sourceLine: "castingItemWeight",
         colour,
         desiredPurity,
-        safeKind: "rod",
+        safeKind: "casting-item",
         status: "In Safe",
         grossWeight: 0,
         waxStoneWeight: 0,
@@ -13364,7 +13399,7 @@ function safeSourceSelectionLabel(value = "", sourceKind = "rod", fallback = "")
   const categorySuffix = sourceKind === "wastage" ? " / Collective Wastage" : sourceKind === "ghiss" ? " / Collective Ghiss" : "";
   if (group) return `${group.locker} Safe / ${group.colour} / ${group.desiredPurity}${categorySuffix}`;
   if (item) {
-    const source = item.castingBatchName || item.description || item.source || "Rod / Casting Item";
+    const source = item.castingBatchName || item.description || item.source || "Rod";
     return `${source} / ${safeLockerForPurity(item.locker || item.purity)} Safe / ${safeItemColour(item) || "Mixed / Not Set"} / ${transferPurityLabel(safeItemDesiredPurity(item))} / Avl ${gram(item.status === "Out" ? 0 : safeItemAvailableWeight(item))}`;
   }
   if (fallback) return fallback;
@@ -15270,7 +15305,7 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
   const grossWeight = Math.abs(Number(weight3(entry.grossWeight || 0)));
   const waxStoneWeight = Math.abs(Number(weight3(entry.waxStoneWeight || 0)));
   const lossWeight = Math.abs(Number(weight3(entry.lossWeight || 0)));
-  const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "rod", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "other"];
+  const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "casting-item", "rod", "rejected-item", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "other"];
   const returnType = allowedReturnTypes.includes(entry.returnType) ? entry.returnType : "other";
   const savedNonGoldCategory = normalizeSafeNonGoldCategory(entry.nonGoldCategory || safeDepartmentReturnNonGoldCategory(returnType));
   const savedNonGoldWeight = Math.abs(Number(weight3(entry.nonGoldWeight ?? (savedNonGoldCategory ? grossWeight - waxStoneWeight : 0))));
@@ -15321,7 +15356,9 @@ function safeDepartmentReturnLabel(value = "") {
     tar: "Tar",
     patta: "Patta",
     accessory: "Manufactured Accessory",
-    rod: "Rod / Metal",
+    "casting-item": "Casting Item",
+    rod: "Rod",
+    "rejected-item": "Rejected Item",
     chain: "Chain",
     "gold-ball": "Gold Ball",
     stone: "Stone",
@@ -15335,7 +15372,9 @@ function safeDepartmentReturnLabel(value = "") {
 
 function safeDepartmentReturnSafeKind(value = "") {
   if (["wastage", "rava"].includes(value)) return "wastage";
+  if (value === "casting-item") return "casting-item";
   if (value === "rod") return "rod";
+  if (value === "rejected-item") return "rejected-item";
   if (safeDepartmentReturnNonGoldCategory(value)) return "non-gold";
   return "accessory";
 }
@@ -15346,7 +15385,7 @@ function safeDepartmentReturnNonGoldCategory(value = "") {
 }
 
 function safeDepartmentReceiveReturnTypes() {
-  return ["accessory", "patta", "tar", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "rod", "rava", "laser-wire", "wastage", "loss", "other"];
+  return ["accessory", "casting-item", "rod", "rejected-item", "patta", "tar", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "rava", "laser-wire", "wastage", "loss", "other"];
 }
 
 function safeDepartmentReceiveDestinationValue(department = {}, process = "") {
@@ -15988,7 +16027,7 @@ function syncMeltingReceiveSafeItems(melting) {
     ["rod2Weight", "Rod 2"],
     ["wastage1Weight", "Wastage 1"],
     ["wastage2Weight", "Wastage 2"],
-    ["castingItemWeight", "Rod / Casting Item"],
+    ["castingItemWeight", "Casting Item"],
     ["treeCutWeight", "Tree Cut"],
     ["wastageWeight", "Wastage"],
     ["scrapDustWeight", "Scrap / Dust"],
@@ -16007,6 +16046,11 @@ function syncMeltingReceiveSafeItems(melting) {
       sourceType: "melting-receive",
       sourceId,
       sourceLine: field,
+      safeKind: field === "castingItemWeight"
+        ? "casting-item"
+        : ["rod1Weight", "rod2Weight"].includes(field)
+          ? "rod"
+          : "wastage",
       colour: melting.colour || "",
       desiredPurity: issuePurity,
       grossWeight: weight,
@@ -16286,10 +16330,58 @@ function metalSafeBalanceForPurity(purity) {
 function factoryMaterialLabel(value = "") {
   const key = String(value || "").toLowerCase();
   if (key === "raw-metal") return "Raw Metal / Pure Gold";
-  if (key === "casting-item") return "Casting Item / Rod";
+  if (key === "casting-item") return "Casting Item";
+  if (key === "rod") return "Rod";
+  if (key === "rejected-item") return "Rejected Item";
   if (key === "wastage") return "Wastage / Scrap";
   if (key === "bill") return "Bill / Factory Out";
+  if (key === "bill-return") return "Office Return / Rejected Item";
   return "Other Stock Item";
+}
+
+function factoryRejectedBreakdown(value = {}) {
+  return normalizeNonGoldBreakdown({
+    stone: value.stoneWeight,
+    "black-beads": value.blackBeadsWeight,
+    moti: value.motiWeight,
+    spring: value.springWeight,
+    other: value.otherNonGoldWeight,
+  });
+}
+
+function factoryEntryNonGoldBreakdown(entry = {}) {
+  const saved = normalizeNonGoldBreakdown(entry.nonGoldBreakdown);
+  return nonGoldBreakdownTotal(saved) > 0.0005 ? saved : factoryRejectedBreakdown(entry);
+}
+
+function factoryEntryFineWeight(entry = {}) {
+  const useNet = entry.fineWeightBasis === "net" || entry.materialType === "rejected-item";
+  return Number(weight3(useNet ? (entry.netWeight ?? entry.weight) : entry.weight));
+}
+
+function updateFactoryRejectedMode(form) {
+  if (!form) return;
+  const rejected = form.materialType?.value === "rejected-item";
+  const panel = form.querySelector(".factory-rejected-breakup");
+  panel?.classList.toggle("hidden", !rejected);
+  const breakdown = rejected ? factoryRejectedBreakdown(getFormData(form)) : {};
+  const total = nonGoldBreakdownTotal(breakdown);
+  const gross = Number(weight3(Math.max(Number(form.weight?.value || 0), 0)));
+  const net = Number(weight3(Math.max(gross - total, 0)));
+  const totalNode = form.querySelector("[data-factory-rejected-total]");
+  const netNode = form.querySelector("[data-factory-rejected-net]");
+  if (totalNode) totalNode.textContent = gram(total);
+  if (netNode) netNode.textContent = gram(net);
+}
+
+function factoryEntryWeightBreakupHtml(entry = {}) {
+  if (entry.materialType !== "rejected-item" && Number(entry.totalNonGoldWeight || 0) <= 0.0005) {
+    return `${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}`;
+  }
+  const breakdown = factoryEntryNonGoldBreakdown(entry);
+  const detail = nonGoldBreakdownText(breakdown) || "No non-gold";
+  const sign = entry.direction === "out" ? "-" : "+";
+  return `<strong>${sign}GW ${gram(entry.grossWeight ?? entry.weight)}</strong><br><small>${escapeHtml(detail)}</small><br><small>NG ${gram(entry.totalNonGoldWeight || nonGoldBreakdownTotal(breakdown))} / NET ${gram(entry.netWeight ?? entry.weight)}</small>`;
 }
 
 function factoryStockPosting(entry = {}) {
@@ -16327,8 +16419,14 @@ function addFactoryLedgerEntry(entry = {}) {
   if (weight <= 0) return null;
   const purity = entry.purity || "";
   const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
-  const baseFineGold = fineGoldWeight(weight, purity);
-  const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (weight * (wstgPercent / 100))));
+  const grossWeight = Number(weight3(entry.grossWeight ?? weight));
+  const nonGoldBreakdown = factoryEntryNonGoldBreakdown(entry);
+  const totalNonGoldWeight = Number(weight3(entry.totalNonGoldWeight ?? nonGoldBreakdownTotal(nonGoldBreakdown)));
+  const netWeight = Number(weight3(entry.netWeight ?? Math.max(grossWeight - totalNonGoldWeight, 0)));
+  const fineWeightBasis = entry.fineWeightBasis || (entry.materialType === "rejected-item" ? "net" : "weight");
+  const fineBasisWeight = Number(weight3(fineWeightBasis === "net" ? netWeight : weight));
+  const baseFineGold = fineGoldWeight(fineBasisWeight, purity);
+  const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (fineBasisWeight * (wstgPercent / 100))));
   const ledgerEntry = {
     id: entry.id || crypto.randomUUID(),
     date: entry.date || today(),
@@ -16340,6 +16438,7 @@ function addFactoryLedgerEntry(entry = {}) {
     materialType: entry.materialType || "other",
     purity,
     weight,
+    fineWeightBasis,
     wstgPercent,
     wastagePercent: wstgPercent,
     baseFineGold,
@@ -16362,14 +16461,15 @@ function addFactoryLedgerEntry(entry = {}) {
     originalPartyName: entry.originalPartyName || entry.customerName || "",
     officePartyName: entry.officePartyName || entry.vendorName || "",
     orderType: entry.orderType || "",
-    grossWeight: Number(weight3(entry.grossWeight ?? weight)),
-    stoneWeight: Number(weight3(entry.stoneWeight || 0)),
-    blackBeadsWeight: Number(weight3(entry.blackBeadsWeight || 0)),
-    motiWeight: Number(weight3(entry.motiWeight || 0)),
-    springWeight: Number(weight3(entry.springWeight || 0)),
-    otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight || 0)),
-    totalNonGoldWeight: Number(weight3(entry.totalNonGoldWeight || 0)),
-    netWeight: Number(weight3(entry.netWeight ?? weight)),
+    grossWeight,
+    stoneWeight: Number(weight3(entry.stoneWeight ?? nonGoldBreakdown.stone ?? 0)),
+    blackBeadsWeight: Number(weight3(entry.blackBeadsWeight ?? nonGoldBreakdown["black-beads"] ?? 0)),
+    motiWeight: Number(weight3(entry.motiWeight ?? nonGoldBreakdown.moti ?? 0)),
+    springWeight: Number(weight3(entry.springWeight ?? nonGoldBreakdown.spring ?? 0)),
+    otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight ?? nonGoldBreakdown.other ?? 0)),
+    nonGoldBreakdown,
+    totalNonGoldWeight,
+    netWeight,
   };
   state.factoryLedger.unshift(ledgerEntry);
   return ledgerEntry;
@@ -16381,21 +16481,50 @@ function factoryWstgPercent(value = 0) {
 }
 
 function factoryFineGoldBreakup(entry = {}) {
+  const fineBasisWeight = factoryEntryFineWeight(entry);
   const baseFineGold = karatPurityKey(entry.purity)
-    ? fineGoldWeight(entry.weight, entry.purity)
-    : Number(entry.baseFineGold ?? fineGoldWeight(entry.weight, entry.purity));
+    ? fineGoldWeight(fineBasisWeight, entry.purity)
+    : Number(entry.baseFineGold ?? fineGoldWeight(fineBasisWeight, entry.purity));
   const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
-  const weight = Number(entry.weight || 0);
-  const wstgFineGold = Number(entry.wstgFineGold ?? Number(weight3(weight * (wstgPercent / 100))));
+  const wstgFineGold = Number(entry.wstgFineGold ?? Number(weight3(fineBasisWeight * (wstgPercent / 100))));
   const fineGold = Number(weight3(baseFineGold + wstgFineGold));
   return { baseFineGold, wstgPercent, wstgFineGold, fineGold };
 }
 
-function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, reference, remarks }) {
+function factorySafeKindForIncomingMaterial(materialType = "") {
+  if (materialType === "casting-item") return "casting-item";
+  if (materialType === "rod") return "rod";
+  if (materialType === "rejected-item") return "rejected-item";
+  if (materialType === "wastage") return "wastage";
+  return "accessory";
+}
+
+function recordRejectedFactoryInNonGold(ledgerEntry = {}, breakdown = {}) {
+  Object.entries(normalizeNonGoldBreakdown(breakdown)).forEach(([materialType, componentWeight]) => {
+    if (Number(componentWeight || 0) <= 0.0005) return;
+    recordNonGoldAuditEvent({
+      action: "Rejected Item In",
+      materialType,
+      weight: componentWeight,
+      purity: ledgerEntry.purity,
+      fromLocation: ledgerEntry.vendorName || "Vendor",
+      toLocation: `${safeLockerForPurity(ledgerEntry.purity)} Rejected Item Shelf`,
+      status: "Embedded In GW",
+      reference: [ledgerEntry.reference, ledgerEntry.remarks].filter(Boolean).join(" / "),
+      sourceType: "rejected-item-factory-in",
+      sourceId: ledgerEntry.id,
+    });
+  });
+}
+
+function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, reference, remarks, nonGoldBreakdown = {} }) {
   const material = materialType || "raw-metal";
+  const rejectedBreakdown = material === "rejected-item" ? normalizeNonGoldBreakdown(nonGoldBreakdown) : {};
+  const totalNonGoldWeight = nonGoldBreakdownTotal(rejectedBreakdown);
+  const netWeight = Number(weight3(Math.max(Number(weight || 0) - totalNonGoldWeight, 0)));
   const ledgerEntry = addFactoryLedgerEntry({
     direction: "in",
-    type: "Factory In",
+    type: material === "rejected-item" ? "Rejected Item Factory In" : "Factory In",
     vendorId: vendor.id,
     vendorName: vendor.name,
     materialType: material,
@@ -16404,7 +16533,21 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, 
     wstgPercent,
     reference,
     remarks,
-    stockPosting: material === "raw-metal" ? "Metal Safe" : `${safeLockerForPurity(purity)} Shelf`,
+    grossWeight: weight,
+    stoneWeight: rejectedBreakdown.stone || 0,
+    blackBeadsWeight: rejectedBreakdown["black-beads"] || 0,
+    motiWeight: rejectedBreakdown.moti || 0,
+    springWeight: rejectedBreakdown.spring || 0,
+    otherNonGoldWeight: rejectedBreakdown.other || 0,
+    nonGoldBreakdown: rejectedBreakdown,
+    totalNonGoldWeight,
+    netWeight,
+    fineWeightBasis: material === "rejected-item" ? "net" : "weight",
+    stockPosting: material === "raw-metal"
+      ? "Metal Safe"
+      : material === "rejected-item"
+        ? `${safeLockerForPurity(purity)} Rejected Item Shelf`
+        : `${safeLockerForPurity(purity)} Shelf`,
     sourceType: "factory-in",
   });
   if (!ledgerEntry) return null;
@@ -16422,7 +16565,7 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, 
       sourceId: ledgerEntry.id,
     });
   } else {
-    addSafeItem({
+    const safeItem = addSafeItem({
       date: ledgerEntry.date,
       locker: safeLockerForPurity(purity),
       purity,
@@ -16431,20 +16574,29 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, 
       sourceType: "factory-in",
       sourceId: ledgerEntry.id,
       sourceLine: material,
-      safeKind: material === "wastage" ? "wastage" : "rod",
+      safeKind: factorySafeKindForIncomingMaterial(material),
       grossWeight: weight,
       waxStoneWeight: 0,
-      netWeight: weight,
+      nonGoldCategory: nonGoldBreakdownCategory(rejectedBreakdown),
+      nonGoldBreakdown: rejectedBreakdown,
+      nonGoldWeight: totalNonGoldWeight,
+      nonGoldWeightKnown: true,
+      receivedNonGoldBreakdown: rejectedBreakdown,
+      receivedNonGoldWeight: totalNonGoldWeight,
+      netWeight,
       status: "In Safe",
       remarks: remarks || "",
     });
+    if (material === "rejected-item" && safeItem) recordRejectedFactoryInNonGold(ledgerEntry, rejectedBreakdown);
   }
   return ledgerEntry;
 }
 
 function factorySafeKindForMaterial(materialType = "") {
   if (materialType === "wastage") return "wastage";
-  if (materialType === "casting-item") return "rod";
+  if (materialType === "casting-item") return "casting-item";
+  if (materialType === "rod") return "rod";
+  if (materialType === "rejected-item") return "rejected-item";
   return "all";
 }
 
@@ -16455,11 +16607,12 @@ function factoryOutAvailableWeight(materialType = "", purity = "") {
 
 function factoryOutStockPosting(materialType = "", purity = "") {
   if (materialType === "raw-metal") return `Metal Safe ${normalizeMetalSafePurity(purity)}`;
-  const kindText = materialType === "wastage"
-    ? "Wastage"
-    : materialType === "casting-item"
-      ? "Rod / Casting"
-      : "Shelf Stock";
+  const kindText = ({
+    wastage: "Wastage",
+    "casting-item": "Casting Item",
+    rod: "Rod",
+    "rejected-item": "Rejected Item",
+  })[materialType] || "Shelf Stock";
   return `${safeLockerForPurity(purity)} Shelf ${kindText}`;
 }
 
@@ -16536,6 +16689,7 @@ function removeFactoryEntryStockPosting(entry = {}) {
     state.metalSafeMovements = (state.metalSafeMovements || []).filter((movement) => movement.sourceId !== sourceId);
   } else if (stockType === "safe-in") {
     state.safeItems = (state.safeItems || []).filter((item) => !(item.sourceType === "factory-in" && item.sourceId === sourceId));
+    state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((event) => !(event.sourceType === "rejected-item-factory-in" && event.sourceId === sourceId));
   }
 }
 
@@ -16556,7 +16710,8 @@ function postFactoryEntryStockPosting(entry = {}) {
       sourceId,
     });
   } else if (stockType === "safe-in") {
-    addSafeItem({
+    const nonGoldBreakdown = entry.materialType === "rejected-item" ? factoryEntryNonGoldBreakdown(entry) : {};
+    const safeItem = addSafeItem({
       date: entry.date || today(),
       locker: safeLockerForPurity(entry.purity),
       purity: entry.purity,
@@ -16565,13 +16720,20 @@ function postFactoryEntryStockPosting(entry = {}) {
       sourceType: "factory-in",
       sourceId,
       sourceLine: entry.materialType || "",
-      safeKind: entry.materialType === "wastage" ? "wastage" : "rod",
-      grossWeight: entry.weight,
+      safeKind: factorySafeKindForIncomingMaterial(entry.materialType),
+      grossWeight: entry.grossWeight ?? entry.weight,
       waxStoneWeight: 0,
-      netWeight: entry.weight,
+      nonGoldCategory: nonGoldBreakdownCategory(nonGoldBreakdown),
+      nonGoldBreakdown,
+      nonGoldWeight: entry.totalNonGoldWeight ?? nonGoldBreakdownTotal(nonGoldBreakdown),
+      nonGoldWeightKnown: true,
+      receivedNonGoldBreakdown: nonGoldBreakdown,
+      receivedNonGoldWeight: entry.totalNonGoldWeight ?? nonGoldBreakdownTotal(nonGoldBreakdown),
+      netWeight: entry.netWeight ?? entry.weight,
       status: "In Safe",
       remarks: entry.remarks || "",
     });
+    if (entry.materialType === "rejected-item" && safeItem) recordRejectedFactoryInNonGold(entry, nonGoldBreakdown);
   }
 }
 
@@ -17841,7 +18003,7 @@ function renderSafeLockerRodOptions(selected = "") {
     ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(isRodSourceGroupId(selected) ? "Previous combined rod selection" : previousItem ? `${safeSourceSelectionLabel(selected, "rod")} / Previously issued` : `${safeLockerForPurity(selected)} Safe / Previous rod selection`)}</option>`
     : "";
   const options = items.map((item) =>
-    `<option value="${escapeHtml(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(`${item.castingBatchName || item.description || item.source || "Rod / Casting Item"} / ${safeLockerForPurity(item.locker || item.purity)} Safe / ${safeItemColour(item) || "Mixed / Not Set"} / ${transferPurityLabel(safeItemDesiredPurity(item))} / ${item.date || "-"} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}`)}</option>`
+    `<option value="${escapeHtml(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(`${item.castingBatchName || item.description || item.source || "Rod"} / ${safeLockerForPurity(item.locker || item.purity)} Safe / ${safeItemColour(item) || "Mixed / Not Set"} / ${transferPurityLabel(safeItemDesiredPurity(item))} / ${item.date || "-"} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}`)}</option>`
   ).join("");
   return legacySelected || options
     ? `${legacySelected}${options}`
@@ -44878,7 +45040,9 @@ function renderSafeLockers() {
       waxStoneWeight: Number(weight3(items.reduce((total, item) => total + safeItemWaxStoneWeight(item), 0))),
       nonGoldWeight: Number(weight3(items.reduce((total, item) => total + safeItemNonGoldWeight(item), 0))),
       netWeight: Number(weight3(items.reduce((total, item) => total + safeItemFactoryGoldWeight(item), 0))),
+      castingItemWeight: safeLockerBalance(locker, "casting-item"),
       rodWeight: safeLockerBalance(locker, "rod"),
+      rejectedItemWeight: safeLockerBalance(locker, "rejected-item"),
       wastageWeight: safeLockerBalance(locker, "wastage"),
     };
     return acc;
@@ -44890,7 +45054,8 @@ function renderSafeLockers() {
         <span>${locker} Safe</span>
         <strong>GW ${gram(totals[locker].grossWeight)}</strong>
         <small>Wax Tracking ${gram(totals[locker].waxStoneWeight)} / Non-Gold ${gram(totals[locker].nonGoldWeight)} / Factory Net Gold ${gram(totals[locker].netWeight)}</small>
-        <small>Rod NT ${gram(totals[locker].rodWeight)} / Wstg NT ${gram(totals[locker].wastageWeight)}</small>
+        <small>Casting NT ${gram(totals[locker].castingItemWeight)} / Rod NT ${gram(totals[locker].rodWeight)}</small>
+        <small>Rejected NT ${gram(totals[locker].rejectedItemWeight)} / Wstg NT ${gram(totals[locker].wastageWeight)}</small>
         <small>${totals[locker].count} item${totals[locker].count === 1 ? "" : "s"}</small>
       </button>
     `).join("");
@@ -45259,6 +45424,7 @@ function renderFactory() {
   syncFactoryOutForBill();
   renderFactoryVendorOptions();
   renderFactoryBillOutOptions();
+  updateFactoryRejectedMode(document.getElementById("factory-in-form"));
   renderFactorySummary();
   renderVendorBalances();
   renderFactoryLedger();
@@ -46651,7 +46817,7 @@ function renderFineSheetLedger() {
         <td>${escapeHtml(entry.vendorName || "-")}</td>
         <td><span class="fine-ledger-reference" title="${escapeHtml([entry.reference, entry.remarks].filter(Boolean).join(" | "))}">${escapeHtml(entry.reference || "-")}</span></td>
         <td>${escapeHtml(karatPurityKey(entry.purity) || normalizeMetalSafePurity(entry.purity))}</td>
-        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
+        <td>${factoryEntryWeightBreakupHtml(entry)}</td>
         <td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}% / ${gram(fine.wstgFineGold)}` : "-"}</td>
         <td><strong class="${effect > 0.0005 ? "fine-positive" : effect < -0.0005 ? "fine-negative" : "fine-zero"}">${signedFineGram(effect)}</strong></td>
         <td><strong>${gram(ledgerRunning)}</strong></td>
@@ -46710,7 +46876,7 @@ function printDetailedFineSheet(snapshotOrEvent = null) {
       <tr>
         <td>${escapeHtml(fineSheetLedgerDate(entry))}</td><td>${escapeHtml(String(entry.direction || "in").toUpperCase())}</td><td>${escapeHtml(entry.vendorName || "-")}</td>
         <td class="reference">${escapeHtml([entry.reference, entry.remarks].filter(Boolean).join(" / ") || "-")}</td><td>${escapeHtml(karatPurityKey(entry.purity) || normalizeMetalSafePurity(entry.purity))}</td>
-        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td><td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}% / ${gram(fine.wstgFineGold)}` : "-"}</td>
+        <td>${factoryEntryWeightBreakupHtml(entry)}</td><td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}% / ${gram(fine.wstgFineGold)}` : "-"}</td>
         <td class="number ${effect < -0.0005 ? "negative" : ""}">${signedFineGram(effect)}</td><td class="number">${gram(running)}</td>
       </tr>`).join("")
     : '<tr><td colspan="9">No Factory In / Out entries.</td></tr>';
@@ -46968,7 +47134,7 @@ function renderFactoryLedger() {
         <td>${escapeHtml(factoryMaterialLabel(entry.materialType))}</td>
         <td>${escapeHtml(entry.purity || "-")}</td>
         <td>${fine.wstgPercent ? `${fine.wstgPercent.toFixed(2)}%<br><small>${gram(fine.wstgFineGold)}</small>` : "-"}</td>
-        <td>${entry.direction === "out" ? "-" : "+"}${gram(entry.weight)}</td>
+        <td>${factoryEntryWeightBreakupHtml(entry)}</td>
         <td>${entry.direction === "out" ? "-" : "+"}${gram(fine.fineGold)}<br><small>Base ${gram(fine.baseFineGold)}</small></td>
         <td>${escapeHtml(factoryStockPosting(entry))}</td>
         <td class="factory-reference-cell">${factoryLedgerReferenceHtml(entry)}</td>
@@ -47012,9 +47178,16 @@ function openFactoryLedgerEdit(id) {
   form.materialType.value = entry.materialType || "raw-metal";
   form.purity.value = entry.purity || "";
   form.wstgPercent.value = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
-  form.weight.value = weight3(entry.weight || 0);
+  form.weight.value = weight3(entry.materialType === "rejected-item" ? (entry.grossWeight ?? entry.weight ?? 0) : (entry.weight ?? 0));
+  const nonGoldBreakdown = factoryEntryNonGoldBreakdown(entry);
+  form.stoneWeight.value = weight3(nonGoldBreakdown.stone || 0);
+  form.blackBeadsWeight.value = weight3(nonGoldBreakdown["black-beads"] || 0);
+  form.motiWeight.value = weight3(nonGoldBreakdown.moti || 0);
+  form.springWeight.value = weight3(nonGoldBreakdown.spring || 0);
+  form.otherNonGoldWeight.value = weight3(nonGoldBreakdown.other || 0);
   form.reference.value = entry.reference || "";
   form.remarks.value = entry.remarks || "";
+  updateFactoryRejectedMode(form);
   document.getElementById("factory-entry-edit-note").textContent = entry.sourceType === "bill"
     ? "Bill factory-out row: corrected details will stay linked to this bill / job card."
     : "Factory in/out row: linked metal/shelf posting will be corrected where possible.";
@@ -47027,15 +47200,21 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
   const materialType = data.materialType || existing.materialType || "raw-metal";
   const purity = data.purity || existing.purity || "";
   const weight = Number(weight3(data.weight || existing.weight || 0));
+  const nonGoldBreakdown = materialType === "rejected-item" ? factoryRejectedBreakdown(data) : {};
+  const totalNonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
+  const netWeight = Number(weight3(Math.max(weight - totalNonGoldWeight, 0)));
+  const fineWeightBasis = materialType === "rejected-item" ? "net" : "weight";
+  const fineBasisWeight = fineWeightBasis === "net" ? netWeight : weight;
   const wstgPercent = factoryWstgPercent(data.wstgPercent ?? existing.wstgPercent);
   const isBillEntry = existing.sourceType === "bill" || materialType === "bill";
+  const preserveSavedBreakup = isBillEntry && materialType !== "rejected-item";
   const fixedBillVendor = isBillEntry ? (findVendorByName(KJPL_OFFICE_VENDOR_NAME) || findOrCreateVendorByName(KJPL_OFFICE_VENDOR_NAME)) : null;
   const existingWeight = Number(existing.weight || 0);
   const shouldScaleExistingBillFine = isBillEntry && Number(existing.baseFineGold || 0) > 0 && (!purityPercent(purity) || String(purity || "").toLowerCase().includes("mixed"));
   const baseFineGold = shouldScaleExistingBillFine
-    ? Number(weight3(existingWeight ? (weight / existingWeight) * Number(existing.baseFineGold || 0) : existing.baseFineGold))
-    : fineGoldWeight(weight, purity);
-  const wstgFineGold = Number(weight3(weight * (wstgPercent / 100)));
+    ? Number(weight3(existingWeight ? (fineBasisWeight / existingWeight) * Number(existing.baseFineGold || 0) : existing.baseFineGold))
+    : fineGoldWeight(fineBasisWeight, purity);
+  const wstgFineGold = Number(weight3(fineBasisWeight * (wstgPercent / 100)));
   const sourceType = existing.sourceType === "bill" ? "bill" : (direction === "out" ? "factory-out" : "factory-in");
   const stockPosting = materialType === "bill"
     ? "Factory Out By Bill"
@@ -47043,7 +47222,9 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
       ? factoryOutStockPosting(materialType, purity)
       : materialType === "raw-metal"
         ? "Metal Safe"
-        : `${safeLockerForPurity(purity)} Shelf`;
+        : materialType === "rejected-item"
+          ? `${safeLockerForPurity(purity)} Rejected Item Shelf`
+          : `${safeLockerForPurity(purity)} Shelf`;
   return {
     ...existing,
     date: existing.date || today(),
@@ -47052,13 +47233,25 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
       ? "Bill / Factory Out"
       : direction === "out"
         ? "Metal / Stock Factory Out"
-        : "Factory In",
+        : materialType === "rejected-item"
+          ? "Rejected Item Factory In"
+          : "Factory In",
     vendorId: fixedBillVendor?.id || vendor?.id || data.vendorId || "",
     vendorName: isBillEntry ? KJPL_OFFICE_VENDOR_NAME : (vendor?.name || existing.vendorName || ""),
     officePartyName: isBillEntry ? KJPL_OFFICE_VENDOR_NAME : (existing.officePartyName || ""),
     materialType,
     purity,
     weight,
+    grossWeight: materialType === "rejected-item" ? weight : Number(existing.grossWeight ?? weight),
+    stoneWeight: preserveSavedBreakup ? Number(existing.stoneWeight || 0) : Number(nonGoldBreakdown.stone || 0),
+    blackBeadsWeight: preserveSavedBreakup ? Number(existing.blackBeadsWeight || 0) : Number(nonGoldBreakdown["black-beads"] || 0),
+    motiWeight: preserveSavedBreakup ? Number(existing.motiWeight || 0) : Number(nonGoldBreakdown.moti || 0),
+    springWeight: preserveSavedBreakup ? Number(existing.springWeight || 0) : Number(nonGoldBreakdown.spring || 0),
+    otherNonGoldWeight: preserveSavedBreakup ? Number(existing.otherNonGoldWeight || 0) : Number(nonGoldBreakdown.other || 0),
+    nonGoldBreakdown: preserveSavedBreakup ? factoryEntryNonGoldBreakdown(existing) : nonGoldBreakdown,
+    totalNonGoldWeight: preserveSavedBreakup ? Number(existing.totalNonGoldWeight || 0) : totalNonGoldWeight,
+    netWeight: preserveSavedBreakup ? Number(existing.netWeight ?? weight) : netWeight,
+    fineWeightBasis: preserveSavedBreakup ? (existing.fineWeightBasis || "weight") : fineWeightBasis,
     wstgPercent,
     wastagePercent: wstgPercent,
     baseFineGold,
@@ -47085,6 +47278,10 @@ function saveFactoryLedgerEdit(event) {
   const newEntry = editedFactoryLedgerEntry(oldEntry, data);
   if (newEntry.weight <= 0) {
     alert("Enter valid factory weight.");
+    return;
+  }
+  if (newEntry.materialType === "rejected-item" && newEntry.totalNonGoldWeight > newEntry.grossWeight + 0.0005) {
+    alert(`Rejected item non-gold ${gram(newEntry.totalNonGoldWeight)} cannot exceed GW ${gram(newEntry.grossWeight)}.`);
     return;
   }
   if (oldEntry.sourceType !== "bill") updateFactoryEntryStockPosting(oldEntry, newEntry);
@@ -49843,7 +50040,26 @@ function normalizeManufacturingCustomers(customers = [], orders = []) {
   return normalized;
 }
 
+function migrateRodCastingCategoriesV690(currentState = {}) {
+  if (!currentState || typeof currentState !== "object" || currentState.rodCastingCategorySplitV690) return currentState;
+  (currentState.safeItems || []).forEach((item) => {
+    const inferredKind = safeItemKind(item);
+    if (["casting-item", "rod"].includes(inferredKind)) item.safeKind = inferredKind;
+  });
+  (currentState.factoryLedger || []).forEach((entry) => {
+    if (entry.materialType !== "casting-item") return;
+    const linkedSafeItem = (currentState.safeItems || []).find((item) => item.sourceId && item.sourceId === (entry.sourceId || entry.id));
+    const referenceText = `${entry.reference || ""} ${entry.remarks || ""}`.toLowerCase();
+    if ((linkedSafeItem && safeItemKind(linkedSafeItem) === "rod") || (/\brod\b/.test(referenceText) && !referenceText.includes("casting item"))) {
+      entry.materialType = "rod";
+    }
+  });
+  currentState.rodCastingCategorySplitV690 = true;
+  return currentState;
+}
+
 function normalizeLoadedState(currentState) {
+  migrateRodCastingCategoriesV690(currentState);
   if (currentState && typeof currentState === "object" && stateSyncBuild(currentState) >= MIN_NORMALIZED_STATE_BUILD) {
     if (!currentState.jobItemDuplicateSuffixNamesV657) migrateJobItemNames(currentState);
     return currentState;
@@ -49855,6 +50071,7 @@ function normalizeState(currentState) {
   if (!currentState || typeof currentState !== "object") {
     currentState = structuredClone(demoState);
   }
+  migrateRodCastingCategoriesV690(currentState);
   currentState.syncDeletionTombstones = normalizeSyncDeletionTombstones(currentState.syncDeletionTombstones);
   migrateTransferHistoryTimestamps(currentState);
   currentState.factoryResetAt = currentState.factoryResetAt || "";
@@ -49918,11 +50135,18 @@ function normalizeState(currentState) {
   currentState.factoryLedger = (currentState.factoryLedger || []).map((entry) => {
     const weight = Number(weight3(entry.weight || 0));
     const purity = entry.purity || "";
+    const materialType = entry.materialType || (String(entry.type || "").toLowerCase().includes("bill") ? "bill" : "raw-metal");
+    const grossWeight = Number(weight3(entry.grossWeight ?? weight));
+    const nonGoldBreakdown = factoryEntryNonGoldBreakdown(entry);
+    const totalNonGoldWeight = Number(weight3(entry.totalNonGoldWeight ?? nonGoldBreakdownTotal(nonGoldBreakdown)));
+    const netWeight = Number(weight3(entry.netWeight ?? Math.max(grossWeight - totalNonGoldWeight, 0)));
+    const fineWeightBasis = entry.fineWeightBasis || (materialType === "rejected-item" ? "net" : "weight");
+    const fineBasisWeight = Number(weight3(fineWeightBasis === "net" ? netWeight : weight));
     const wstgPercent = factoryWstgPercent(entry.wstgPercent ?? entry.wastagePercent);
     const baseFineGold = karatPurityKey(purity)
-      ? fineGoldWeight(weight, purity)
-      : Number(weight3(entry.baseFineGold ?? fineGoldWeight(weight, purity)));
-    const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (weight * (wstgPercent / 100))));
+      ? fineGoldWeight(fineBasisWeight, purity)
+      : Number(weight3(entry.baseFineGold ?? fineGoldWeight(fineBasisWeight, purity)));
+    const wstgFineGold = Number(weight3(entry.wstgFineGold ?? (fineBasisWeight * (wstgPercent / 100))));
     return {
       id: entry.id || crypto.randomUUID(),
       date: entry.date || today(),
@@ -49932,9 +50156,10 @@ function normalizeState(currentState) {
       type: entry.type || "Factory In",
       vendorId: entry.vendorId || "",
       vendorName: entry.vendorName || "",
-      materialType: entry.materialType || (String(entry.type || "").toLowerCase().includes("bill") ? "bill" : "raw-metal"),
+      materialType,
       purity,
       weight,
+      fineWeightBasis,
       wstgPercent,
       wastagePercent: wstgPercent,
       baseFineGold,
@@ -49959,14 +50184,15 @@ function normalizeState(currentState) {
       originalPartyName: entry.originalPartyName || entry.customerName || "",
       officePartyName: entry.officePartyName || (entry.customerName ? manufacturingOfficeDestinationLabel(entry.customerName) : entry.vendorName || ""),
       orderType: entry.orderType || (entry.customerName ? manufacturingOrderTypeLabel(entry.customerName) : ""),
-      grossWeight: Number(weight3(entry.grossWeight ?? weight)),
-      stoneWeight: Number(weight3(entry.stoneWeight || 0)),
-      blackBeadsWeight: Number(weight3(entry.blackBeadsWeight || 0)),
-      motiWeight: Number(weight3(entry.motiWeight || 0)),
-      springWeight: Number(weight3(entry.springWeight || 0)),
-      otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight || 0)),
-      totalNonGoldWeight: Number(weight3(entry.totalNonGoldWeight || 0)),
-      netWeight: Number(weight3(entry.netWeight ?? weight)),
+      grossWeight,
+      stoneWeight: Number(weight3(entry.stoneWeight ?? nonGoldBreakdown.stone ?? 0)),
+      blackBeadsWeight: Number(weight3(entry.blackBeadsWeight ?? nonGoldBreakdown["black-beads"] ?? 0)),
+      motiWeight: Number(weight3(entry.motiWeight ?? nonGoldBreakdown.moti ?? 0)),
+      springWeight: Number(weight3(entry.springWeight ?? nonGoldBreakdown.spring ?? 0)),
+      otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight ?? nonGoldBreakdown.other ?? 0)),
+      nonGoldBreakdown,
+      totalNonGoldWeight,
+      netWeight,
     };
   });
   currentState.safeItems = (currentState.safeItems || []).map((item) => {
