@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v685";
+const APP_VERSION = "v686";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1910,10 +1910,12 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
   const issueSafeItemsBefore = captureSafeIssueSourceItems(castingSafeItem);
   const castingSourceForAssignment = structuredClone(castingSafeItem);
-
-  selectedOrders.forEach((order) => {
-    order.status = "In Production";
-  });
+  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(castingSourceForAssignment, waxStoneWeight);
+  const looseWaxAvailable = availableLooseNonGoldWeight(state, metalPurity, "stone");
+  if (looseWaxAllocationWeight > looseWaxAvailable + 0.0005) {
+    alert(`This ${issueSourceName} entry is stored as GW only, but ${data.jobNumber} already contains ${gram(looseWaxAllocationWeight)} wax stone.\n\nLoose Non-Gold Shelf has only ${gram(looseWaxAvailable)} matching ${transferPurityLabel(metalPurity)} stone. Add or correct the Loose Stone balance before issuing this Job Card.`);
+    return;
+  }
   const lotNumber = `LOT-${state.nextLot++}`;
   const issuedLot = {
     id: crypto.randomUUID(),
@@ -1949,14 +1951,39 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     transfers: [],
     issueSafeItemsBefore,
   };
-  state.lots.unshift(issuedLot);
   const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
-  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference, sourceType: "gold-issue", sourceId: issuedLot.id });
-  issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
+  const safeItemsBeforeTransaction = structuredClone(state.safeItems || []);
+  const sourceIssued = issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
     grossWeight: issuedWeight,
     waxStoneWeight,
+    externalWaxStoneWeight: looseWaxAllocationWeight,
   });
-  assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, waxStoneWeight, selectedOrders);
+  if (!sourceIssued) {
+    state.safeItems = safeItemsBeforeTransaction;
+    alert(`The selected ${issueSourceName} holding could not issue GW ${gram(issuedWeight)} as Net Gold ${gram(netMetalIssuedWeight)} plus Wax Stone ${gram(waxStoneWeight)}. No stock was changed.`);
+    return;
+  }
+  try {
+    const castingSources = assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, waxStoneWeight, selectedOrders);
+    const castingAssignedWeight = Number(weight3(castingSources.reduce((total, entry) => total + Number(entry.weight || 0), 0)));
+    const storedWaxWeight = Number(weight3(Math.max(waxStoneWeight - looseWaxAllocationWeight, 0)));
+    const safeEmbeddedWeight = Number(weight3(Math.max(storedWaxWeight - castingAssignedWeight, 0)));
+    assignSafeEmbeddedWaxSourceToLot(issuedLot, castingSourceForAssignment, safeEmbeddedWeight, selectedOrders);
+    issuedLot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
+      Number(issuedLot.unassignedWaxStoneSourceWeight || 0) - safeEmbeddedWeight,
+      0,
+    )));
+    applyIssueGoldLooseWaxSource(issuedLot, selectedOrders, looseWaxAllocationWeight);
+  } catch (error) {
+    state.safeItems = safeItemsBeforeTransaction;
+    alert(error?.message || "The Job Card wax stone could not be allocated from the Loose Non-Gold Shelf. No stock was changed.");
+    return;
+  }
+  selectedOrders.forEach((order) => {
+    order.status = "In Production";
+  });
+  state.lots.unshift(issuedLot);
+  state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference, sourceType: "gold-issue", sourceId: issuedLot.id });
   event.target.reset();
   saveState({
     context: `Issue Gold ${lotNumber}`,
@@ -8425,6 +8452,7 @@ function runPostCloudMigrations() {
     const correctedSetterBalances = migrateLot203SetterMetalBalance();
     const correctedFilingTransfers = migrateJob1689S2FilingTransferStone();
     const repairedMergedSettingLots = repairPreviouslyMergedSettingSplitLots();
+    const correctedLegacyIssueGoldWax = migrateLegacyIssueGoldWaxAllocationsV686();
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8440,16 +8468,19 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
+      if (correctedLegacyIssueGoldWax.count) changedStateKeys.push("safeItems", "lots", "ledger", "legacyIssueGoldWaxAllocationV686At", "legacyIssueGoldWaxAllocationV686Lots");
       saveState({
         context: reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
           : (correctedOpeningNonGold
               ? "Confirmed opening non-gold reclassified from 14K to 18K"
-              : "Post-cloud production and merged Setting lot correction"),
+              : (correctedLegacyIssueGoldWax.count
+                  ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
+                  : "Post-cloud production and merged Setting lot correction")),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -13564,11 +13595,17 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
   const itemNonGoldBreakdown = safeItemNonGoldBreakdown(item);
   const itemNonGold = nonGoldBreakdownTotal(itemNonGoldBreakdown);
   const explicitWax = Object.prototype.hasOwnProperty.call(issueDetails, "waxStoneWeight");
+  const requestedWax = explicitWax ? Number(weight3(Math.max(Number(issueDetails.waxStoneWeight || 0), 0))) : 0;
+  const externalWaxTake = explicitWax
+    ? Number(weight3(Math.min(requestedWax, Math.max(Number(issueDetails.externalWaxStoneWeight || 0), 0))))
+    : 0;
+  const storedWaxRequest = Number(weight3(Math.max(requestedWax - externalWaxTake, 0)));
   const waxTake = explicitWax
-    ? Number(weight3(Math.min(itemWax, Number(issueDetails.waxStoneWeight || 0))))
+    ? Number(weight3(Math.min(itemWax, storedWaxRequest)))
     : itemNet
       ? Number(weight3((take / itemNet) * itemWax))
       : 0;
+  const issuedWax = Number(weight3(waxTake + externalWaxTake));
   const explicitNonGold = Object.prototype.hasOwnProperty.call(issueDetails, "nonGoldBreakdown")
     || Object.prototype.hasOwnProperty.call(issueDetails, "nonGoldWeight");
   const requestedNonGoldBreakdown = normalizeNonGoldBreakdown(
@@ -13584,22 +13621,35 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
     ? normalizeNonGoldBreakdown(requestedNonGoldBreakdown)
     : normalizeNonGoldBreakdown(proportionalNonGoldBreakdown);
   const nonGoldTake = Number(weight3(Math.min(itemNonGold, nonGoldBreakdownTotal(nonGoldTakeBreakdown))));
-  const grossTake = Number(weight3(Math.min(itemGross, take + waxTake + nonGoldTake)));
+  const calculatedGrossTake = Number(weight3(take + issuedWax + nonGoldTake));
+  const explicitGross = Object.prototype.hasOwnProperty.call(issueDetails, "grossWeight");
+  const grossTake = explicitGross
+    ? Number(weight3(Math.max(Number(issueDetails.grossWeight || 0), 0)))
+    : calculatedGrossTake;
+  if (grossTake <= 0 || grossTake > itemGross + 0.0005 || grossTake + 0.0005 < calculatedGrossTake) return false;
   const changedAt = new Date().toISOString();
   item.initialGrossWeight = Number(weight3(item.initialGrossWeight ?? itemGross));
   item.initialNetWeight = Number(weight3(item.initialNetWeight ?? itemNet));
-  if (take >= itemNet - 0.0005) {
+  if (grossTake >= itemGross - 0.0005) {
+    item.grossWeight = grossTake;
+    item.waxStoneWeight = issuedWax;
+    item.nonGoldBreakdown = normalizeNonGoldBreakdown(nonGoldTakeBreakdown);
+    item.nonGoldWeight = nonGoldTake;
+    item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory);
+    item.netWeight = take;
     item.status = "Out";
     item.outDate = today();
     item.remarks = reference;
     item.updatedAt = changedAt;
   } else {
-    item.netWeight = Number(weight3(itemNet - take));
-    item.waxStoneWeight = Number(weight3(Math.max(itemWax - waxTake, 0)));
+    const remainingGross = Number(weight3(Math.max(itemGross - grossTake, 0)));
+    const remainingWax = Number(weight3(Math.max(itemWax - waxTake, 0)));
     item.nonGoldBreakdown = subtractNonGoldBreakdown(itemNonGoldBreakdown, nonGoldTakeBreakdown);
     item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
     item.nonGoldCategory = nonGoldBreakdownCategory(item.nonGoldBreakdown, item.nonGoldCategory);
-    item.grossWeight = Number(weight3(Math.max(itemGross - grossTake, 0)));
+    item.grossWeight = remainingGross;
+    item.waxStoneWeight = remainingWax;
+    item.netWeight = safeItemNetFromGross(remainingGross, remainingWax, item.nonGoldWeight);
     item.updatedAt = changedAt;
     addSafeItem({
       date: today(),
@@ -13614,13 +13664,13 @@ function issueFromSafeItem(itemId, weight, reference, sourceId = "", issueDetail
       colour: safeItemColour(item),
       desiredPurity: safeItemDesiredPurity(item),
       safeKind: safeItemKind(item),
-        grossWeight: grossTake,
-        waxStoneWeight: waxTake,
-        nonGoldCategory: nonGoldBreakdownCategory(nonGoldTakeBreakdown, item.nonGoldCategory),
-        nonGoldBreakdown: nonGoldTakeBreakdown,
-        nonGoldWeight: nonGoldTake,
-        nonGoldWeightKnown: true,
-        netWeight: take,
+      grossWeight: grossTake,
+      waxStoneWeight: issuedWax,
+      nonGoldCategory: nonGoldBreakdownCategory(nonGoldTakeBreakdown, item.nonGoldCategory),
+      nonGoldBreakdown: nonGoldTakeBreakdown,
+      nonGoldWeight: nonGoldTake,
+      nonGoldWeightKnown: true,
+      netWeight: take,
       status: "Out",
       outDate: today(),
       remarks: reference,
@@ -13638,8 +13688,10 @@ function issueFromSafeSelection(selection, weight, reference, sourceId = "", iss
 function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetails = {}) {
   let remainingNet = Number(weight3(weight));
   let remainingWax = Number(weight3(issueDetails.waxStoneWeight || 0));
+  let remainingExternalWax = Number(weight3(issueDetails.externalWaxStoneWeight || 0));
   let remainingNonGoldBreakdown = normalizeNonGoldBreakdown(issueDetails.nonGoldBreakdown, issueDetails.nonGoldCategory, issueDetails.nonGoldWeight);
   const totalNet = remainingNet;
+  const totalExternalWax = remainingExternalWax;
   const items = [...(group.items || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
   for (const item of items) {
     if (remainingNet <= 0.0005) break;
@@ -13648,24 +13700,41 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
     const takeNet = Number(weight3(Math.min(itemNet, remainingNet)));
     const proportionalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * Number(issueDetails.waxStoneWeight || 0))) : 0;
     const targetWax = remainingNet - takeNet <= 0.0005 ? remainingWax : proportionalWax;
-    const takeWax = Number(weight3(Math.min(safeItemWaxStoneWeight(item), remainingWax, targetWax)));
+    const proportionalExternalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * totalExternalWax)) : 0;
+    const takeExternalWax = Number(weight3(Math.min(
+      remainingExternalWax,
+      remainingNet - takeNet <= 0.0005 ? remainingExternalWax : proportionalExternalWax,
+      targetWax,
+    )));
+    const takeStoredWax = Number(weight3(Math.min(
+      safeItemWaxStoneWeight(item),
+      Math.max(remainingWax - takeExternalWax, 0),
+      Math.max(targetWax - takeExternalWax, 0),
+    )));
+    const takeWax = Number(weight3(takeStoredWax + takeExternalWax));
     const itemBreakdown = safeItemNonGoldBreakdown(item);
     const takeNonGoldBreakdown = {};
     Object.entries(remainingNonGoldBreakdown).forEach(([materialType, requested]) => {
       const take = Number(weight3(Math.min(Number(requested || 0), Number(itemBreakdown[materialType] || 0))));
       if (take > 0) takeNonGoldBreakdown[materialType] = take;
     });
-    issueFromSafeItem(item.id, takeNet, reference, sourceId, {
+    const takeNonGoldWeight = nonGoldBreakdownTotal(takeNonGoldBreakdown);
+    const takeGross = Number(weight3(takeNet + takeWax + takeNonGoldWeight));
+    const issued = issueFromSafeItem(item.id, takeNet, reference, sourceId, {
       ...issueDetails,
+      grossWeight: takeGross,
       waxStoneWeight: takeWax,
+      externalWaxStoneWeight: takeExternalWax,
       nonGoldBreakdown: takeNonGoldBreakdown,
-      nonGoldWeight: nonGoldBreakdownTotal(takeNonGoldBreakdown),
+      nonGoldWeight: takeNonGoldWeight,
     });
+    if (!issued) return false;
     remainingNet = Number(weight3(remainingNet - takeNet));
     remainingWax = Number(weight3(Math.max(remainingWax - takeWax, 0)));
+    remainingExternalWax = Number(weight3(Math.max(remainingExternalWax - takeExternalWax, 0)));
     remainingNonGoldBreakdown = subtractNonGoldBreakdown(remainingNonGoldBreakdown, takeNonGoldBreakdown);
   }
-  return remainingNet <= 0.0005;
+  return remainingNet <= 0.0005 && remainingWax <= 0.0005 && remainingExternalWax <= 0.0005;
 }
 
 function factoryInWeight() {
@@ -24143,7 +24212,7 @@ function goldIssueOriginalSourceAvailable(lot = {}) {
     : safeIssue?.sourceSafeItemBefore
       ? [safeIssue.sourceSafeItemBefore]
       : [];
-  return Number(weight3(snapshots.reduce((total, item) => total + safeItemAvailableWeight(item), 0)));
+  return Number(weight3(snapshots.reduce((total, item) => total + safeItemAvailableGrossWeight(item), 0)));
 }
 
 function updateGoldIssueCorrectionSourceOptions() {
@@ -24158,7 +24227,7 @@ function updateGoldIssueCorrectionSourceOptions() {
   const originalLocker = safeLockerForPurity(lot.issueSourceLocker || lot.metalPurity);
   const originalAvailable = goldIssueOriginalSourceAvailable(lot);
   const originalOption = originalLocker === targetLocker && originalAvailable > 0.0005
-    ? `<option value="__ORIGINAL__">ORIGINAL SOURCE / ${escapeHtml(lot.issueSourceDetail || lot.issueSourceName || originalLocker)} / Net Available ${gram(originalAvailable)}</option>`
+    ? `<option value="__ORIGINAL__">ORIGINAL SOURCE / ${escapeHtml(lot.issueSourceDetail || lot.issueSourceName || originalLocker)} / GW Available ${gram(originalAvailable)}</option>`
     : "";
   const items = castingSafeItemsForPurity(target.purity);
   form.castingSafeItemId.innerHTML = `${originalOption}${items.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(safeItemOptionLabel(item))}</option>`).join("")}`
@@ -24186,7 +24255,7 @@ function updateGoldIssueCorrectionSummary() {
     : findSafeItemOrGroup(form.castingSafeItemId.value, target.purity);
   const available = form.castingSafeItemId.value === "__ORIGINAL__"
     ? goldIssueOriginalSourceAvailable(lot)
-    : source ? safeItemAvailableWeight(source) : 0;
+    : source ? safeItemAvailableGrossWeight(source) : 0;
   const note = document.getElementById("gold-issue-correction-note");
   if (note) {
     if (form.dataset.correctionMode === "weight-only") {
@@ -24200,8 +24269,8 @@ function updateGoldIssueCorrectionSummary() {
       note.textContent = `Issue GW correction only: ${gram(oldGross)} to ${gram(gross)}. Existing Wax / Hand / Other deduction ${gram(preservedDeductions)} remains unchanged, so corrected Net Gold is ${gram(Math.max(correctedNet, 0))}. Additional Shelf Gold required ${gram(additionalIssue)}; selected Safe balance ${gram(available)}.`;
       note.classList.toggle("warn", correctedNet <= 0 || additionalIssue > available + 0.0005);
     } else {
-      note.textContent = `Corrected calculation: GW ${gram(gross)} - Wax Stone ${gram(wax)} = Net Gold ${gram(Math.max(net, 0))}. Selected Safe balance ${gram(available)}; balance after correction ${gram(Math.max(available - Math.max(net, 0), 0))}.`;
-      note.classList.toggle("warn", net <= 0 || net > available + 0.0005);
+      note.textContent = `Corrected calculation: GW ${gram(gross)} - Wax Stone ${gram(wax)} = Net Gold ${gram(Math.max(net, 0))}. Selected Safe GW ${gram(available)}; GW balance after correction ${gram(Math.max(available - gross, 0))}.`;
+      note.classList.toggle("warn", net <= 0 || gross > available + 0.0005);
     }
   }
 }
@@ -24303,6 +24372,7 @@ function restoreGoldIssueSafeStock(lot = {}) {
     : safeIssue?.sourceSafeItemBefore
       ? [safeIssue.sourceSafeItemBefore]
       : [];
+  restoreIssueGoldLooseWaxSource(lot);
   if (restoreSafeIssueSnapshots(lot, snapshots)) return true;
 
   if (safeIssue) {
@@ -24686,12 +24756,12 @@ function saveGoldIssueCorrection(event) {
   }
   const requiredLocker = safeLockerForPurity(purity);
   const sourceLocker = safeLockerForPurity(source.locker || source.purity);
-  const available = safeItemAvailableWeight(source);
-  if (sourceLocker !== requiredLocker || net > available + 0.0005) {
+  const available = safeItemAvailableGrossWeight(source);
+  if (sourceLocker !== requiredLocker || gross > available + 0.0005) {
     state = stateBefore;
     alert(sourceLocker !== requiredLocker
       ? `Selected holding is in ${sourceLocker} Safe, but ${target.jobNumber} requires ${requiredLocker} Safe.`
-      : `Selected holding has only ${gram(available)} available. Corrected Net Gold requires ${gram(net)}.`);
+      : `Selected holding has only ${gram(available)} GW available. Corrected issue requires ${gram(gross)} GW.`);
     return;
   }
 
@@ -24699,7 +24769,14 @@ function saveGoldIssueCorrection(event) {
   const sourceDetail = safeItemOptionLabel(source);
   const sourceSnapshots = captureSafeIssueSourceItems(source);
   const sourceForAssignment = structuredClone(source);
-  const balanceAfter = Number(weight3(available - net));
+  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(sourceForAssignment, wax);
+  const looseWaxAvailable = availableLooseNonGoldWeight(state, purity, "stone");
+  if (looseWaxAllocationWeight > looseWaxAvailable + 0.0005) {
+    state = stateBefore;
+    alert(`Corrected Job Card requires ${gram(looseWaxAllocationWeight)} wax stone from the Loose Non-Gold Shelf, but only ${gram(looseWaxAvailable)} is available. No data was changed.`);
+    return;
+  }
+  const balanceAfter = Number(weight3(available - gross));
   const issueDepartment = mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name);
   const reference = `${lot.number} for ${target.jobNumber} issued from ${sourceName} to ${karigar.name}; ${sourceDetail}; Gold Issue ${gram(gross)} - Wax Stone ${gram(wax)} = Net Wt ${gram(net)}; Balance ${gram(balanceAfter)}`;
 
@@ -24744,12 +24821,32 @@ function saveGoldIssueCorrection(event) {
     sourceType: "gold-issue",
     sourceId: lot.id,
   });
-  if (!issueFromSafeSelection(source, net, reference, lot.number, { grossWeight: gross, waxStoneWeight: wax })) {
+  if (!issueFromSafeSelection(source, net, reference, lot.number, {
+    grossWeight: gross,
+    waxStoneWeight: wax,
+    externalWaxStoneWeight: looseWaxAllocationWeight,
+  })) {
     state = stateBefore;
     alert("The corrected Safe Locker issue could not be completed. No data was changed.");
     return;
   }
-  assignCastingEmbeddedSourceToLot(lot, sourceForAssignment, wax, target.orders);
+  try {
+    lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => entry.sourceType !== "safe-embedded-wax");
+    const castingSources = assignCastingEmbeddedSourceToLot(lot, sourceForAssignment, wax, target.orders);
+    const castingAssignedWeight = Number(weight3(castingSources.reduce((total, entry) => total + Number(entry.weight || 0), 0)));
+    const storedWaxWeight = Number(weight3(Math.max(wax - looseWaxAllocationWeight, 0)));
+    const safeEmbeddedWeight = Number(weight3(Math.max(storedWaxWeight - castingAssignedWeight, 0)));
+    assignSafeEmbeddedWaxSourceToLot(lot, sourceForAssignment, safeEmbeddedWeight, target.orders);
+    lot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
+      Number(lot.unassignedWaxStoneSourceWeight || 0) - safeEmbeddedWeight,
+      0,
+    )));
+    applyIssueGoldLooseWaxSource(lot, target.orders, looseWaxAllocationWeight);
+  } catch (error) {
+    state = stateBefore;
+    alert(error?.message || "The corrected wax-stone source could not be saved. No data was changed.");
+    return;
+  }
   recordGoldIssueCorrection(
     lot,
     "EDIT",
@@ -24989,11 +25086,97 @@ function issueMetalWaxStoneWeight(selection = null, plannedWaxStoneWeight = 0, g
   if (!selection) return plannedWax;
   const sourceGross = Number(weight3(Math.max(Number(selection.grossWeight || 0), 0)));
   const sourceWax = Number(weight3(Math.max(Number(selection.waxStoneWeight ?? safeItemWaxStoneWeight(selection) ?? 0), 0)));
-  if (sourceWax <= 0) return selection.virtualSafeGroup || isCastingIssueStock(selection) ? 0 : plannedWax;
+  // Older WIP and casting shelf rows were stored only as GW even though their
+  // physical pieces already contained the Job Card wax stones. In that case
+  // the Job Card is the composition record and the wax is allocated from the
+  // Loose Non-Gold Shelf during Issue Gold.
+  if (sourceWax <= 0) return plannedWax;
   if (sourceGross > 0 && Number(grossIssueWeight || 0) >= sourceGross - 0.0005) return sourceWax;
   if (plannedWax > 0) return Number(weight3(Math.min(plannedWax, sourceWax)));
   if (sourceGross <= 0) return sourceWax;
   return Number(weight3(Math.min(sourceWax, (Number(grossIssueWeight || 0) / sourceGross) * sourceWax)));
+}
+
+function issueGoldStoredWaxWeight(selection = null, waxStoneWeight = 0) {
+  if (!selection) return 0;
+  const requested = Number(weight3(Math.max(Number(waxStoneWeight || 0), 0)));
+  const items = selection.virtualSafeGroup ? selection.items || [] : [selection];
+  const available = Number(weight3(items.reduce((total, item) => total + Math.max(safeItemWaxStoneWeight(item), 0), 0)));
+  return Number(weight3(Math.min(requested, available)));
+}
+
+function issueGoldLooseWaxAllocationWeight(selection = null, waxStoneWeight = 0) {
+  const requested = Number(weight3(Math.max(Number(waxStoneWeight || 0), 0)));
+  return Number(weight3(Math.max(requested - issueGoldStoredWaxWeight(selection, requested), 0)));
+}
+
+function assignSafeEmbeddedWaxSourceToLot(lot = {}, selection = null, weight = 0, orders = []) {
+  const embeddedWeight = Number(weight3(Math.max(Number(weight || 0), 0)));
+  if (!lot?.id || !selection || embeddedWeight <= 0.0005) return [];
+  return setLotEmbeddedNonGoldSource(lot, {
+    sourceType: "safe-embedded-wax",
+    sourceId: selection.id || lot.castingSafeItemId || lot.id,
+    sourceMode: "direct",
+    materialType: "stone",
+    weight: embeddedWeight,
+    purity: lot.metalPurity || selection.purity || selection.locker || "18K",
+    orders,
+    settingType: "wax",
+  });
+}
+
+function applyIssueGoldLooseWaxSource(lot = {}, orders = [], weight = 0) {
+  const looseWeight = Number(weight3(Math.max(Number(weight || 0), 0)));
+  if (!lot?.id || looseWeight <= 0.0005) {
+    delete lot.issueGoldEmbeddedNonGoldSource;
+    return null;
+  }
+  const source = replaceEmbeddedNonGoldSource(state, lot, {
+    field: "issueGoldEmbeddedNonGoldSource",
+    sourceMode: "shelf",
+    sourceType: "issue-gold-wax",
+    sourceId: lot.id,
+    purity: lot.metalPurity || orders[0]?.purity || "18K",
+    breakdown: { stone: looseWeight },
+    reference: `${lot.number || "Gold Issue"} / ${lot.orderNumber || "Job Card"} wax stone already included in GW`,
+    date: lot.issueDate || today(),
+  });
+  setLotEmbeddedNonGoldSource(lot, {
+    sourceType: "issue-gold-wax",
+    sourceId: lot.id,
+    sourceMode: "shelf",
+    materialType: "stone",
+    weight: looseWeight,
+    purity: lot.metalPurity || orders[0]?.purity || "18K",
+    orders,
+    settingType: "wax",
+  });
+  lot.looseWaxAllocationWeight = looseWeight;
+  lot.looseWaxAllocationAt = source.postedAt || new Date().toISOString();
+  lot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
+    Number(lot.unassignedWaxStoneSourceWeight || 0) - looseWeight,
+    0,
+  )));
+  return source;
+}
+
+function restoreIssueGoldLooseWaxSource(lot = {}) {
+  const source = lot?.issueGoldEmbeddedNonGoldSource;
+  if (!source?.posted) return false;
+  restoreLooseNonGoldConsumption(state, source, {
+    date: lot.issueDate || today(),
+    reference: `${lot.number || "Gold Issue"} wax-stone source reversal`,
+  });
+  lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => !(
+    entry.sourceType === "issue-gold-wax" && String(entry.sourceId || "") === String(lot.id || "")
+  ));
+  lot.issueGoldEmbeddedNonGoldSource = {
+    ...source,
+    posted: false,
+    reversedAt: new Date().toISOString(),
+  };
+  lot.looseWaxAllocationWeight = 0;
+  return true;
 }
 
 function assignedEmbeddedSourceWeight(sourceType = "", sourceId = "", excludeLotId = "") {
@@ -25099,13 +25282,15 @@ function updateIssueMetalSummary() {
     summary.textContent = "Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.";
     return;
   }
-  const castingAvailable = castingItem ? safeItemAvailableWeight(castingItem) : 0;
+  const castingAvailable = castingItem ? safeItemAvailableGrossWeight(castingItem) : 0;
+  const looseWaxAllocation = issueGoldLooseWaxAllocationWeight(castingItem, waxStoneWeight);
+  const looseWaxAvailable = availableLooseNonGoldWeight(state, form.metalPurity.value || purities[0] || "18K", "stone");
   const castingNote = castingItem
-    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Physical wax used ${gram(waxStoneWeight)}${Math.abs(plannedWaxStoneWeight - waxStoneWeight) > 0.0005 ? ` (Job Card estimate ${gram(plannedWaxStoneWeight)})` : ""}. Balance after issue ${gram(Math.max(castingAvailable - Math.max(netMetal, 0), 0))}.`
+    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Physical wax used ${gram(waxStoneWeight)}${Math.abs(plannedWaxStoneWeight - waxStoneWeight) > 0.0005 ? ` (Job Card estimate ${gram(plannedWaxStoneWeight)})` : ""}. GW balance after issue ${gram(Math.max(castingAvailable - Math.max(grossIssue, 0), 0))}.${looseWaxAllocation > 0.0005 ? ` Wax already inside this GW: ${gram(looseWaxAllocation)} will move from Loose Non-Gold to the Job Card (available ${gram(looseWaxAvailable)}).` : ""}`
     : ` Select casting or related item from ${safeLockerForPurity(form.metalPurity.value || purities[0] || "18K")} Safe.`;
   const purityNote = purities.length > 1 ? ` Multiple purities in job: ${purities.join(", ")}.` : ` Purity: ${purities[0] || form.metalPurity.value || "-"}.`;
   summary.textContent = `Gold Issue ${gram(grossIssue)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${purityNote}${castingNote}`;
-  summary.classList.toggle("warn", grossIssue > 0 && netMetal <= 0);
+  summary.classList.toggle("warn", grossIssue > 0 && (netMetal <= 0 || grossIssue > castingAvailable + 0.0005 || looseWaxAllocation > looseWaxAvailable + 0.0005));
 }
 
 function applyIssuePurityFromJob() {
@@ -27675,6 +27860,101 @@ function migrateConfirmedOpeningNonGoldTo18KV683() {
   state.openingNonGold18KReclassifiedV683At = correctedAt;
   state.openingNonGold18KReclassifiedV683ItemIds = matchedItems.map((item) => item.id);
   return matchedItems.length;
+}
+
+function migrateLegacyIssueGoldWaxAllocationsV686() {
+  const correctedLots = [];
+  const skippedLots = [];
+  (state.lots || [])
+    .filter((lot) => lot?.id && !lot.mergedIntoLotId && lot.status !== "Merged" && lot.status !== "Completed")
+    .sort((left, right) => transferHistoryTime(left.createdAt, left.issueDate) - transferHistoryTime(right.createdAt, right.issueDate))
+    .forEach((lot) => {
+      const waxWeight = Number(weight3(Math.max(Number(lot.waxStoneWeight || 0), 0)));
+      if (waxWeight <= 0.0005 || lot.legacyIssueGoldWaxReconciledAt || lot.issueGoldEmbeddedNonGoldSource?.posted) return;
+      if ((lot.embeddedNonGoldSources || []).some((entry) => ["casting-wax", "issue-gold-wax", "safe-embedded-wax"].includes(entry.sourceType))) return;
+      const snapshots = Array.isArray(lot.issueSafeItemsBefore) ? lot.issueSafeItemsBefore.filter((item) => item?.id) : [];
+      if (!snapshots.length || issueGoldStoredWaxWeight({ virtualSafeGroup: true, items: snapshots }, waxWeight) > 0.0005) return;
+      const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
+      const outgoing = (state.safeItems || []).filter((item) =>
+        item.sourceType === "factory-issue"
+        && sourceIds.has(String(item.sourceId || ""))
+        && safeItemWaxStoneWeight(item) <= 0.0005
+      );
+      const outgoingGross = Number(weight3(outgoing.reduce((total, item) => total + Number(item.grossWeight || 0), 0)));
+      const issuedNet = Number(weight3(lot.issuedWeight || 0));
+      if (!outgoing.length || Math.abs(outgoingGross - issuedNet) > 0.002) return;
+      const purity = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
+      const availableStone = availableLooseNonGoldWeight(state, purity, "stone");
+      if (waxWeight > availableStone + 0.0005) {
+        skippedLots.push({ lotNumber: lot.number || lot.id, waxWeight, availableStone });
+        return;
+      }
+      const safeItemsBefore = structuredClone(state.safeItems || []);
+      const lotBefore = structuredClone(lot);
+      try {
+        let remainingWax = waxWeight;
+        outgoing.forEach((part, index) => {
+          if (remainingWax <= 0.0005) return;
+          const proportional = outgoingGross > 0
+            ? Number(weight3(waxWeight * (Number(part.grossWeight || 0) / outgoingGross)))
+            : 0;
+          const allocatedWax = index === outgoing.length - 1
+            ? remainingWax
+            : Number(weight3(Math.min(remainingWax, proportional)));
+          const sourceItem = (state.safeItems || []).find((item) => item.id === part.sourceSafeItemId);
+          if (!sourceItem || sourceItem.status === "Out" || Number(sourceItem.grossWeight || 0) + 0.0005 < allocatedWax) {
+            throw new Error(`The remaining source row for ${lot.number || "this lot"} could not be corrected safely.`);
+          }
+          sourceItem.grossWeight = Number(weight3(Math.max(Number(sourceItem.grossWeight || 0) - allocatedWax, 0)));
+          sourceItem.netWeight = safeItemNetFromGross(
+            sourceItem.grossWeight,
+            safeItemWaxStoneWeight(sourceItem),
+            safeItemNonGoldWeight(sourceItem),
+          );
+          sourceItem.updatedAt = new Date().toISOString();
+          if (sourceItem.grossWeight <= 0.0005) {
+            sourceItem.status = "Out";
+            sourceItem.outDate = lot.issueDate || today();
+          }
+          part.grossWeight = Number(weight3(Number(part.grossWeight || 0) + allocatedWax));
+          part.waxStoneWeight = Number(weight3(Number(part.waxStoneWeight || 0) + allocatedWax));
+          part.netWeight = Number(weight3(part.netWeight ?? part.grossWeight - part.waxStoneWeight));
+          part.updatedAt = new Date().toISOString();
+          remainingWax = Number(weight3(Math.max(remainingWax - allocatedWax, 0)));
+        });
+        if (remainingWax > 0.0005) throw new Error(`Wax allocation for ${lot.number || "this lot"} is incomplete.`);
+        applyIssueGoldLooseWaxSource(lot, getLotOrders(lot), waxWeight);
+        lot.physicalWaxStoneWeight = waxWeight;
+        lot.legacyIssueGoldWaxReconciledAt = new Date().toISOString();
+        lot.legacyIssueGoldWaxReconciledVersion = "v686";
+        lot.legacyIssueGoldWaxReconciledWeight = waxWeight;
+        correctedLots.push(lot.number || lot.id);
+      } catch (error) {
+        state.safeItems = safeItemsBefore;
+        Object.keys(lot).forEach((key) => delete lot[key]);
+        Object.assign(lot, lotBefore);
+        skippedLots.push({ lotNumber: lot.number || lot.id, waxWeight, availableStone, error: error?.message || "Correction failed" });
+      }
+    });
+  if (correctedLots.length) {
+    const correctedAt = new Date().toISOString();
+    state.legacyIssueGoldWaxAllocationV686At = correctedAt;
+    state.legacyIssueGoldWaxAllocationV686Lots = correctedLots;
+    state.ledger = state.ledger || [];
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: correctedAt,
+      type: "WIP Wax Composition Correction",
+      purity: "-",
+      weight: 0,
+      sourceType: "wip-wax-composition-v686",
+      correctedLots,
+      reference: `${correctedLots.length} active legacy WIP/Shelf Gold Issue(s) corrected: full GW removed from source, Net Gold retained in production, and Wax Stone allocated from Loose Non-Gold. Lots: ${correctedLots.join(", ")}.`,
+    });
+  }
+  state.legacyIssueGoldWaxAllocationV686Skipped = skippedLots.slice(0, 100);
+  return { count: correctedLots.length, correctedLots, skippedLots };
 }
 
 function productionStoneWeightForTransfer(lot) {
