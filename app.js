@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v688";
+const APP_VERSION = "v689";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26617,7 +26617,7 @@ function renderTransferNonGoldPoolStatus(lot = {}) {
     <span>Final Bill Used: ${gram(position.billApplied)}</span>
     <span>Main Stock Removed: ${gram(position.mainStockRemoved)}</span>
     <span>Factory Balance: ${gram(position.remaining)}</span>
-    ${position.unmatched > 0.0005 ? `<b>Unmatched: ${gram(position.unmatched)} - record the corresponding karat-wise non-gold issue.</b>` : ""}
+    ${position.unmatched > 0.0005 ? `<b>Factory Out pending: ${gram(position.unmatched)} - complete or correct the linked Bill / Factory Out posting.</b>` : ""}
   `;
 }
 
@@ -26675,7 +26675,10 @@ function trackedNonGoldStockAllocation() {
           pool.remaining = Number(weight3(Math.max(pool.remaining - weight, 0)));
           remaining = Number(weight3(remaining - weight));
         });
-      if (remaining > 0.0005) {
+      // Production departments move the complete product in GW. Stone remains
+      // in the central non-gold register and needs no department-level transfer.
+      // Only an incomplete Bill / Factory Out posting is actionable here.
+      if (remaining > 0.0005 && demand.sourceType !== "production") {
         unmatched.push({
           ...demand,
           materialType,
@@ -37009,7 +37012,7 @@ function renderNonGoldControl() {
     factorySummaryCard("Department Reference", gram(totals.departmentLoose), "Trace-only allocation; department movement remains GW"),
     factorySummaryCard("Inside Production Items", gram(Number(totals.itemAllocated || 0) + Number(totals.wipUnallocated || 0)), "Allocated PR stone plus unallocated WIP"),
     factorySummaryCard("Bill Pending", gram(totals.billPending), "Exact physical non-gold waiting for Factory Out"),
-    factorySummaryCard("Unmatched", gram(totals.unmatched), totals.unmatched > 0.0005 ? "Stock source or category requires correction" : "Every production demand has matching stock"),
+    factorySummaryCard("Factory Out Pending", gram(totals.unmatched), totals.unmatched > 0.0005 ? "Bill shelf deduction requires completion or correction" : "Every Factory Out non-gold deduction is complete"),
   ].join("");
   const materialLabel = (materialType) => productionNonGoldMaterialLabel(materialType === "other" ? "other" : materialType);
   balanceTable.innerHTML = rows.length ? rows.map((row) => `
@@ -37060,8 +37063,8 @@ function renderNonGoldControl() {
   alertBox.hidden = false;
   alertBox.classList.toggle("ok", Number(totals.unmatched || 0) <= 0.0005);
   alertBox.textContent = Number(totals.unmatched || 0) > 0.0005
-    ? `ACTION REQUIRED: ${gram(totals.unmatched)} has production or Bill demand without matching category-and-karat stock. Open the highlighted rows and record the correct stock source.`
-    : "RECONCILED: Every tracked production and Bill non-gold demand has a matching category-and-karat stock source.";
+    ? `ACTION REQUIRED: ${gram(totals.unmatched)} is waiting for its linked Bill / Factory Out shelf deduction. Department transfers remain GW-only.`
+    : "RECONCILED: Department transfers are GW-only and every Factory Out non-gold deduction is complete.";
 }
 
 function productionNonGoldReconciliationRows() {
@@ -44758,13 +44761,13 @@ function renderSafeNonGoldSummary() {
   if (totalElement) totalElement.textContent = gram(totalFactory);
   const totalNote = document.getElementById("safe-non-gold-total-note");
   if (totalNote) totalNote.textContent = totalUnmatched > 0.0005
-    ? `${gram(totalUnmatched)} requires a matching shelf source or material correction.`
+    ? `${gram(totalUnmatched)} is waiting for its linked Bill / Factory Out shelf deduction.`
     : "Central factory balance. Product movements remain in GW; this total is deducted once by karat in the Fine Sheet.";
   const alertBox = document.getElementById("safe-non-gold-alert");
   if (alertBox) {
     alertBox.hidden = totalUnmatched <= 0.0005;
     alertBox.textContent = totalUnmatched > 0.0005
-      ? `ACTION REQUIRED: ${gram(totalUnmatched)} is unmatched. Add the correct opening shelf stock or correct its material/karat source.`
+      ? `ACTION REQUIRED: ${gram(totalUnmatched)} is waiting for its linked Bill / Factory Out shelf deduction. Department transfers remain GW-only.`
       : "";
   }
   container.innerHTML = categories.map((category) => `
@@ -44773,7 +44776,7 @@ function renderSafeNonGoldSummary() {
       <strong>${gram(category.totalFactory)}</strong>
       <small>Loose ${gram(category.safeLoose)} / Casting Shelf ${gram(category.safeEmbedded)}</small>
       <small>Dept ${gram(category.departmentLoose)} / WIP ${gram(category.wip)} / Bill ${gram(category.billPending)}</small>
-      ${category.unmatched > 0.0005 ? `<em>Unmatched ${gram(category.unmatched)}</em>` : ""}
+      ${category.unmatched > 0.0005 ? `<em>Factory Out Pending ${gram(category.unmatched)}</em>` : ""}
     </button>
   `).join("");
 
