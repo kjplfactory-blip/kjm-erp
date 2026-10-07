@@ -147,7 +147,13 @@
       if (!grouped.has(event.department)) grouped.set(event.department, []);
       grouped.get(event.department).push(event);
     });
-    return coreSummaries.call(this).map((summary) => enrichSummary(summary, grouped.get(summary.name) || []));
+    return coreSummaries.call(this).map((summary) => {
+      const summaryEvents = grouped.get(summary.name) || [];
+      return {
+        ...enrichSummary(summary, summaryEvents),
+        purityRows: departmentTransferPurityRows(summaryEvents),
+      };
+    });
   };
 
   departmentTransferSummaryFromEvents = function departmentTransferSummaryFromEventsV615(name, events = []) {
@@ -192,21 +198,46 @@
     } : physicalMetrics(totals);
   }
 
+  function renderDashboardLivePurityRows(summary = {}) {
+    if (!(summary.purityRows || []).length) return "";
+    return `
+      <div class="department-purity-split">
+        <div class="department-purity-head"><span>Purity</span><span>GW</span><span>Other</span><span>Net W</span><span>Loss</span><span>Fine</span></div>
+        ${summary.purityRows.map((row) => `
+          <div class="department-purity-row">
+            <span>${escapeHtml(row.purity)}</span>
+            <span>${gram(row.gwDifference)}</span>
+            <span>${gram(row.nonGoldHolding)}</span>
+            <span>${gram(row.netWeightDifference)}</span>
+            <span>${gram(row.difference || 0)}</span>
+            <span>${gram(row.fineGoldHolding)}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
   renderDepartmentMetal = function renderDepartmentMetalV615() {
     const departments = departmentMetalInHand();
-    const summaryMap = new Map(departmentTransferSummaries().map((summary) => [departmentTextKey(summary.name), summary]));
+    const summaries = departmentTransferSummaries();
+    summaries.forEach((summary) => {
+      const department = departmentDashboardHeader(summary.name || "Unassigned");
+      if (!departments[department]) addDepartmentWeight(departments, department, { alwaysShow: true });
+    });
+    const summaryMap = new Map(summaries.map((summary) => [departmentTextKey(summary.name), summary]));
     renderDepartmentReconciliationAlerts([]);
     const rows = Object.entries(departments)
       .map(([department, totals]) => {
         const summary = summaryMap.get(departmentTextKey(department)) || {};
-        return { department, totals, summary };
+        const metrics = dashboardMetrics(totals, summary);
+        return { department, totals, summary, metrics };
       })
-      .sort((left, right) => Math.abs(Number(right.totals.gross || 0)) - Math.abs(Number(left.totals.gross || 0)) || left.department.localeCompare(right.department))
-      .map(({ department, totals, summary }) => `
-        <article class="department-card ${Math.abs(Number(totals.gross || 0)) > 0.0005 ? "" : "empty-department-card"}" tabindex="0">
+      .sort((left, right) => Math.abs(Number(right.metrics.gwDifference || 0)) - Math.abs(Number(left.metrics.gwDifference || 0)) || left.department.localeCompare(right.department))
+      .map(({ department, totals, summary, metrics }) => `
+        <article class="department-card ${Math.abs(Number(metrics.gwDifference || 0)) > 0.0005 ? "" : "empty-department-card"}" tabindex="0">
           <span>${escapeHtml(department)}</span>
-          <small class="department-holding-label">Current GW Holding</small>
-          <strong>${gram(totals.gross)}</strong>
+          <small class="department-holding-label">Live GW Difference (IN - OUT)</small>
+          <strong>${gram(metrics.gwDifference)}</strong>
           <div class="department-hover-popup" role="tooltip">
             <div class="department-popup-heading"><strong>${escapeHtml(department)}</strong><small>Karat-wise holding detail</small></div>
             ${renderDepartmentHoldingDetail(totals, summary)}
@@ -224,17 +255,18 @@
 
   renderDepartmentHoldingDetail = function renderDepartmentHoldingDetailV615(totals = {}, summary = {}) {
     const metrics = dashboardMetrics(totals, summary);
+    const hasHistory = Number(summary.inCount || 0) > 0 || Number(summary.outCount || 0) > 0;
     return `
       <div class="department-breakup department-breakup-v615">
-        <small><b>GW Difference</b>${gram(metrics.gwDifference)}</small>
+        <small><b>Live GW Difference (IN - OUT)</b>${gram(metrics.gwDifference)}</small>
         <small><b>Net Wt Difference</b>${gram(metrics.netWeightDifference)}</small>
         <small><b>Non-Gold Holding</b>${gram(metrics.nonGoldHolding)}</small>
         <small><b>Fine Gold Holding</b>${gram(metrics.fineGoldHolding)}</small>
         <small><b>IN Receive GW</b>${gram(summary.inGw || 0)}</small>
         <small><b>OUT Receive GW</b>${gram(summary.outGw || 0)}</small>
       </div>
-      ${renderDepartmentPuritySplit(totals)}
-      ${renderDepartmentSplit(totals)}
+      ${hasHistory ? renderDashboardLivePurityRows(summary) : renderDepartmentPuritySplit(totals)}
+      ${hasHistory ? "" : renderDepartmentSplit(totals)}
     `;
   };
 

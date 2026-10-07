@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v695";
+const APP_VERSION = "v696";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3587,6 +3587,30 @@ function reconcileBillLotLinks(currentState = {}) {
   return currentState;
 }
 
+function reconcileBilledOrdersToCompletedV696(currentState = state) {
+  const completedAt = new Date().toISOString();
+  const ordersById = new Map((currentState.orders || []).map((order) => [String(order.id || ""), order]));
+  let completedCount = 0;
+  (currentState.bills || []).forEach((bill) => {
+    (bill.items || []).forEach((item) => {
+      const order = ordersById.get(String(item.orderId || ""));
+      if (!order || isDiscardedItem(item) || isRepairItem(item)) return;
+      const alreadyCompleted = isCompletedOrder(order);
+      order.status = "Completed";
+      order.completedDate = order.completedDate || bill.billDate || String(completedAt).slice(0, 10);
+      order.completionReason = order.completionReason || "Bill Generated";
+      order.completedByBillId = bill.id || order.completedByBillId || "";
+      order.completedByBillNo = bill.billNo || order.completedByBillNo || "";
+      order.completedByBillAt = order.completedByBillAt || bill.updatedAt || bill.savedAt || bill.createdAt || completedAt;
+      if (!alreadyCompleted) completedCount += 1;
+    });
+  });
+  const upgraded = Number(currentState.billedOrderCompletionVersion || 0) < 1;
+  currentState.billedOrderCompletionVersion = 1;
+  currentState.billedOrderCompletionV696At = currentState.billedOrderCompletionV696At || completedAt;
+  return { count: completedCount, upgraded };
+}
+
 function normalizeStateForRuntime(currentState = {}) {
   let normalized;
   if (stateSyncBuild(currentState) >= FAST_STATE_LOAD_MIN_BUILD) {
@@ -3631,6 +3655,18 @@ function reconcileActiveLotCurrentDepartmentsV693(currentState = {}) {
   return repaired;
 }
 
+function existingBillingLotForManualBillItem(item = {}, combinedLotId = "") {
+  const orderId = String(item.orderId || "");
+  if (!orderId) return null;
+  return activeOperationalLots().find((candidate) => {
+    if (!candidate || candidate.id === combinedLotId || candidate.manualWipCombinedBill || candidate.mergedIntoLotId) return false;
+    if (!getLotOrderIds(candidate).some((id) => String(id || "") === orderId)) return false;
+    const candidateBill = billForLotRecord(candidate);
+    if (candidateBill && (candidateBill.items || []).some((billItem) => String(billItem.orderId || "") === orderId)) return false;
+    return lotIsAtBillingDepartment(candidate);
+  }) || null;
+}
+
 function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "") {
   if (!lot.manualWipCombinedBill) return null;
   const billableItems = items.filter((item) => !isDiscardedItem(item));
@@ -3641,8 +3677,36 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
   }
   clearManualWipCombinedBillAllocations(lot.id);
   const sources = manualWipBillingSources();
-  const demandByPurity = new Map();
+  const existingBillingSources = new Map();
+  const manualPoolItems = [];
   billableItems.forEach((item) => {
+    const billingLot = existingBillingLotForManualBillItem(item, lot.id);
+    if (!billingLot) {
+      manualPoolItems.push(item);
+      return;
+    }
+    const current = existingBillingSources.get(billingLot.id) || {
+      lotId: billingLot.id,
+      lotNumber: billingLot.number || "",
+      jobNumber: billingLot.orderNumber || "",
+      grossWeight: 0,
+      itemCount: 0,
+    };
+    current.grossWeight = Number(weight3(current.grossWeight + Number(item.finalGw || 0)));
+    current.itemCount += 1;
+    existingBillingSources.set(billingLot.id, current);
+  });
+  const demandByPurity = new Map();
+  const billByPurity = new Map();
+  billableItems.forEach((item) => {
+    const purity = karatLogicPurity(item.purity || "18K");
+    const key = karatPurityKey(purity) || transferPurityLabel(purity);
+    const current = billByPurity.get(key) || { purity: transferPurityLabel(purity), grossWeight: 0, itemCount: 0 };
+    current.grossWeight = Number(weight3(current.grossWeight + Number(item.finalGw || 0)));
+    current.itemCount += 1;
+    billByPurity.set(key, current);
+  });
+  manualPoolItems.forEach((item) => {
     const purity = karatLogicPurity(item.purity || "18K");
     const key = karatPurityKey(purity) || transferPurityLabel(purity);
     const current = demandByPurity.get(key) || { purity: transferPurityLabel(purity), grossWeight: 0, itemCount: 0 };
@@ -3714,6 +3778,8 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
   const totals = billTotals(billableItems);
   const sourceNetWeight = Number(weight3(lines.reduce((total, line) => total + Number(line.sourceNetWeight || 0), 0)));
   const sourceNonGoldWeight = Number(weight3(lines.reduce((total, line) => total + Number(line.sourceNonGoldWeight || 0), 0)));
+  const existingBillingGrossWeight = Number(weight3([...existingBillingSources.values()].reduce((total, source) => total + Number(source.grossWeight || 0), 0)));
+  const manualPoolGrossWeight = Number(weight3(lines.reduce((total, line) => total + Number(line.grossWeight || 0), 0)));
   const summary = {
     posted: true,
     postedAt: createdAt,
@@ -3723,8 +3789,14 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
     totalBillNetWeight: totals.netWeight,
     sourceNetWeight,
     sourceNonGoldWeight,
+    existingBillingGrossWeight,
+    manualPoolGrossWeight,
+    existingBillingSources: [...existingBillingSources.values()],
     lines,
-    byPurity: [...demandByPurity.values()],
+    byPurity: [...billByPurity.values()],
+    allocationMode: manualPoolGrossWeight > 0.0005
+      ? (existingBillingGrossWeight > 0.0005 ? "mixed" : "manual-pool")
+      : "existing-billing",
   };
   lot.grossIssuedWeight = totals.finalGw;
   lot.finishedWeight = totals.finalGw;
@@ -3751,9 +3823,9 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
     date: today(),
     createdAt,
     type: "Manual Combined Bill Weight",
-    purity: demandByPurity.size === 1 ? [...demandByPurity.values()][0].purity : "Mixed",
+    purity: billByPurity.size === 1 ? [...billByPurity.values()][0].purity : "Mixed",
     weight: 0,
-    reference: `${billNo || lot.number} / ${billableItems.length} items / Total GW ${gram(totals.finalGw)} deducted from combined manual Billing holdings.`,
+    reference: `${billNo || lot.number} / ${billableItems.length} items / Total GW ${gram(totals.finalGw)} used from existing Billing holdings; no additional physical issue created.${manualPoolGrossWeight > 0.0005 ? ` Manual WIP used ${gram(manualPoolGrossWeight)}.` : ""}`,
     sourceType: "manual-combined-bill",
     sourceId: lot.id,
   });
@@ -4067,6 +4139,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   if (existingIndex >= 0) state.bills[existingIndex] = bill;
   else state.bills.unshift(bill);
   lot.bill = bill;
+  reconcileBilledOrdersToCompletedV696(state);
   syncFactoryOutForBill(lot, bill);
   lot.productionStockWeight = billProductionStockWeight(bill);
   lot.billingStage = lot.billingStage || "Bill / QC";
@@ -8622,6 +8695,39 @@ function reconcileDepartmentTransferBalancesV688(options = {}) {
   return { ...result, upgraded };
 }
 
+function reconcileManualCombinedBillsV696() {
+  const upgraded = Number(state.manualCombinedBillingVersion || 0) < 2;
+  if (!upgraded) return { count: 0, skipped: 0, upgraded: false };
+  let count = 0;
+  let skipped = 0;
+  (state.lots || []).filter((lot) => lot.manualWipCombinedBill && !isReferenceOnlyBillLot(lot)).forEach((lot) => {
+    const bill = billForLotRecord(lot);
+    if (!bill?.id) return;
+    const rollback = {
+      safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+      ledger: structuredClone(state.ledger || []),
+      orders: structuredClone(state.orders || []),
+      lot: structuredClone(lot),
+    };
+    try {
+      const summary = applyManualWipCombinedBillAllocation(lot, bill.items || [], bill.billNo || "");
+      bill.manualWipCombinedAllocation = summary;
+      count += 1;
+    } catch (error) {
+      state.safeDepartmentIssues = rollback.safeDepartmentIssues;
+      state.ledger = rollback.ledger;
+      state.orders = rollback.orders;
+      Object.keys(lot).forEach((key) => delete lot[key]);
+      Object.assign(lot, rollback.lot);
+      skipped += 1;
+      console.warn(`Manual combined Bill ${bill.billNo || lot.number || lot.id} could not be reconciled automatically.`, error);
+    }
+  });
+  state.manualCombinedBillingVersion = 2;
+  state.manualCombinedBillingV696At = state.manualCombinedBillingV696At || new Date().toISOString();
+  return { count, skipped, upgraded };
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -8637,6 +8743,8 @@ function runPostCloudMigrations() {
     const correctedLegacyIssueGoldWax = migrateLegacyIssueGoldWaxAllocationsV686();
     const reconciledSafeSources = reconcileSafeSourceBalancesV687();
     const reconciledDepartmentBalances = reconcileDepartmentTransferBalancesV688();
+    const reconciledManualBills = reconcileManualCombinedBillsV696();
+    const completedBilledOrders = reconcileBilledOrdersToCompletedV696(state);
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8652,13 +8760,15 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
       if (correctedLegacyIssueGoldWax.count) changedStateKeys.push("safeItems", "lots", "ledger", "legacyIssueGoldWaxAllocationV686At", "legacyIssueGoldWaxAllocationV686Lots");
       if (reconciledSafeSources.count) changedStateKeys.push("safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows");
       if (reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) changedStateKeys.push("lots", "ledger", "centralNonGoldShelfVersion", "centralNonGoldShelfV688At");
+      if (reconciledManualBills.count || reconciledManualBills.upgraded) changedStateKeys.push("safeDepartmentIssues", "lots", "bills", "orders", "ledger", "manualCombinedBillingVersion", "manualCombinedBillingV696At");
+      if (completedBilledOrders.count || completedBilledOrders.upgraded) changedStateKeys.push("orders", "billedOrderCompletionVersion", "billedOrderCompletionV696At");
       saveState({
         context: reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
@@ -8670,7 +8780,11 @@ function runPostCloudMigrations() {
                   ? `${reconciledSafeSources.count} duplicate shelf source balance correction`
                   : (correctedLegacyIssueGoldWax.count
                       ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
-                      : "Central non-gold shelf and post-cloud production correction")))),
+                      : (reconciledManualBills.count
+                          ? `${reconciledManualBills.count} manual Bill duplicate issue correction`
+                          : (completedBilledOrders.count
+                              ? `${completedBilledOrders.count} billed PR completion correction`
+                              : "Central non-gold shelf and post-cloud production correction")))))),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -32683,23 +32797,31 @@ function dashboardTransferItem(entry) {
 function renderDepartmentMetal() {
   const departments = departmentMetalInHand();
   const summaries = departmentTransferSummaries();
+  summaries.forEach((summary) => {
+    const department = departmentDashboardHeader(summary.name || "Unassigned");
+    if (!departments[department]) addDepartmentWeight(departments, department, { alwaysShow: true });
+  });
   const transferSummaries = new Map(summaries.map((summary) => [departmentTextKey(summary.name), summary]));
   const reconciliations = departmentHoldingReconciliations(departments, summaries);
   const reconciliationMap = new Map(reconciliations.map((row) => [departmentTextKey(row.name), row]));
   renderDepartmentReconciliationAlerts(reconciliations);
   const rows = Object.entries(departments)
     .sort((a, b) => {
-      const scoreDiff = departmentHoldingScore(b[1]) - departmentHoldingScore(a[1]);
+      const aSummary = transferSummaries.get(departmentTextKey(a[0])) || {};
+      const bSummary = transferSummaries.get(departmentTextKey(b[0])) || {};
+      const scoreDiff = Math.abs(Number(bSummary.balanceGw ?? b[1].gross ?? 0)) - Math.abs(Number(aSummary.balanceGw ?? a[1].gross ?? 0));
       return scoreDiff || a[0].localeCompare(b[0]);
     })
     .map(([department, totals]) => {
       const reconciliation = reconciliationMap.get(departmentTextKey(department)) || {};
       const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
+      const hasLiveHistory = Boolean(Number(transferSummary.inCount || 0) || Number(transferSummary.outCount || 0));
+      const liveGrossWeight = Number(weight3(hasLiveHistory ? transferSummary.balanceGw : totals.gross));
       return `
-      <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"} ${reconciliation.needsCheck ? "department-card-check-required" : ""}" tabindex="0">
+      <article class="department-card ${Math.abs(liveGrossWeight) > 0.0005 ? "" : "empty-department-card"} ${reconciliation.needsCheck ? "department-card-check-required" : ""}" tabindex="0">
         <span>${escapeHtml(department)}</span>
-        <small class="department-holding-label">Current GW Holding</small>
-        <strong>${gram(totals.gross)}</strong>
+        <small class="department-holding-label">Live GW Difference (IN - OUT)</small>
+        <strong>${gram(liveGrossWeight)}</strong>
         <div class="department-hover-popup" role="tooltip">
           <div class="department-popup-heading">
             <strong>${escapeHtml(department)}</strong>
@@ -32720,8 +32842,11 @@ function renderDepartmentMetal() {
 }
 
 function renderDepartmentHoldingDetail(totals, transferSummary = {}, reconciliation = {}) {
-  const issueReceiveDifference = Number(weight3(totals.gross || 0));
-  const netWeightDifference = Number(weight3(totals.gold || 0));
+  const hasLiveHistory = Boolean(Number(transferSummary.inCount || 0) || Number(transferSummary.outCount || 0));
+  const issueReceiveDifference = Number(weight3(hasLiveHistory ? transferSummary.balanceGw : totals.gross || 0));
+  const netWeightDifference = Number(weight3(hasLiveHistory
+    ? Number(transferSummary.inNet || 0) - Number(transferSummary.outNet || 0)
+    : totals.gold || 0));
   const nonGoldHolding = Number(weight3(
     Number(totals.waxStone || 0)
     + Number(totals.handStone || 0)
@@ -32731,7 +32856,7 @@ function renderDepartmentHoldingDetail(totals, transferSummary = {}, reconciliat
   const historyNetDifference = Number(weight3(Number(transferSummary.inNet || 0) - Number(transferSummary.outNet || 0)));
   return `
     <div class="department-breakup">
-      <small><b>GW Diff (Issue - Receive)</b>${gram(issueReceiveDifference)}</small>
+      <small><b>Live GW Diff (IN - OUT)</b>${gram(issueReceiveDifference)}</small>
       <small><b>Net Wt Diff</b>${gram(netWeightDifference)}</small>
       <small><b>Non-Gold Holding</b>${gram(nonGoldHolding)}</small>
       <small><b>Fine Gold Holding</b>${gram(fineGoldHolding)}</small>
@@ -49481,7 +49606,7 @@ function departmentTransferEvents() {
   let sortIndex = 0;
   activeOperationalLots().forEach((lot) => {
     const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + Number(lot.waxStoneWeight || 0)));
-    if (lot.issueDate || issueGw > 0) {
+    if (!lot.manualWipCombinedBill && (lot.issueDate || issueGw > 0)) {
       let firstDepartment = dashboardDepartmentNameFromId(lot.issueKarigarId)
         || lot.issueKarigarName
         || dashboardDepartmentNameFromId(lot.karigarId)
