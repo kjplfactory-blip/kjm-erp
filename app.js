@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v694";
+const APP_VERSION = "v695";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3728,6 +3728,7 @@ function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "")
   };
   lot.grossIssuedWeight = totals.finalGw;
   lot.finishedWeight = totals.finalGw;
+  lot.finishedGrossWeight = totals.finalGw;
   lot.issuedWeight = totals.netWeight;
   lot.manualWipGrossWeight = totals.finalGw;
   lot.manualWipGoldWeight = totals.netWeight;
@@ -3814,6 +3815,7 @@ function resetLotAfterBillDeletion(lot = {}, bill = {}) {
   restoreOrdersAfterCombinedBillDeletion({ ...lot, bill });
   lot.grossIssuedWeight = 0;
   lot.finishedWeight = 0;
+  lot.finishedGrossWeight = 0;
   lot.issuedWeight = 0;
   lot.productionStockWeight = 0;
   lot.manualWipGrossWeight = 0;
@@ -14664,7 +14666,11 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
       ),
       netWeight: Number(weight3(totals.netWeight + Math.abs(Number(entry.netWeight || 0)) + Math.abs(Number(entry.lossWeight || 0)))),
     }), { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, nonGoldBreakdown: {}, netWeight: 0 });
-  const manualWipAllocationTotals = (issue.manualWipAllocations || []).reduce((totals, allocation) => {
+  const implicitSettingAllocations = globalThis.KJMFineIntegrityV695?.manualSettingSourceAllocations
+    ? globalThis.KJMFineIntegrityV695.manualSettingSourceAllocations(issue, currentState)
+    : [];
+  const sourceAllocations = [...(issue.manualWipAllocations || []), ...implicitSettingAllocations];
+  const manualWipAllocationTotals = sourceAllocations.reduce((totals, allocation) => {
     const allocationBreakdown = normalizeNonGoldBreakdown(
       allocation.sourceNonGoldBreakdown,
       "other",
@@ -17711,7 +17717,9 @@ function addFactoryCompletedBillStock(parts) {
       if (gross > 0) addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", gross, gross, purity);
       return;
     }
-    const fallbackWeight = Number(lot.finishedWeight || lot.productionStockWeight || 0);
+    const fallbackWeight = globalThis.KJMFineIntegrityV695?.completedLotGrossWeight
+      ? globalThis.KJMFineIntegrityV695.completedLotGrossWeight(lot)
+      : Number(lot.finishedGrossWeight || lot.finishedWeight || lot.productionStockWeight || 0);
     if (fallbackWeight <= 0) return;
     addFactoryStockPart(parts, "billPending", "Completed / Bill Pending", fallbackWeight, fallbackWeight, purity);
   });
@@ -17901,7 +17909,9 @@ function factoryPhysicalStock() {
 
   activeOperationalLots().forEach((lot) => {
     (lot.transfers || []).forEach((transfer) => {
-      const balance = Number(transfer.departmentBalance || 0);
+      const balance = globalThis.KJMFineIntegrityV695?.transferBalanceWeight
+        ? globalThis.KJMFineIntegrityV695.transferBalanceWeight(transfer)
+        : (transfer.splitAdjustment ? 0 : Number(transfer.departmentBalance || 0));
       if (Math.abs(balance) <= 0.0005) return;
       addFactoryStockPart(
         parts,
@@ -27374,6 +27384,7 @@ function openTransferEdit(lotId, transferId) {
     issueGw: transfer.transferWeight,
     receiveGw: transfer.grossReceivedWeight,
     handStoneWeight: transfer.handStoneWeight ?? transfer.stoneWeight,
+    splitAdjustment: Boolean(transfer.splitAdjustment),
   });
   form.departmentBalance.value = weight3(balanceCalculation?.balance ?? Number(transfer.transferWeight || 0) - Number(transfer.grossReceivedWeight || 0));
   form.fromDepartment.value = transfer.fromDepartment || "";
@@ -27754,6 +27765,7 @@ function recalculateLotAfterTransferChange(lot) {
   lot.currentDepartment = mergedProductionDepartmentName(lot.issueDepartment || lot.currentDepartment || lot.karigarName, lot.issueKarigarName || lot.karigarName);
   lot.status = "Issued";
   lot.finishedWeight = 0;
+  lot.finishedGrossWeight = 0;
   lot.actualWastage = 0;
   if (lot.fittingItemsJobCard) {
     lot.fittingItemsIssuedToFitting = false;
@@ -27786,6 +27798,7 @@ function recalculateLotAfterTransferChange(lot) {
   }
   if (isBillTransferDestination({ toDepartment: latest.toDepartment }, { name: latest.toKarigarName })) {
     lot.finishedWeight = Number(latest.receivedWeight || 0);
+    lot.finishedGrossWeight = Number(latest.grossReceivedWeight ?? latest.transferWeight ?? latest.receivedWeight ?? 0);
     lot.actualWastage = Number(latest.departmentBalance || 0);
     lot.status = "Completed";
     linkedOrders.forEach((order) => {
@@ -28203,12 +28216,13 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
       issueGw: transferWeight,
       receiveGw: grossReceivedWeight,
       handStoneWeight,
+      splitAdjustment: Boolean(transfer.splitAdjustment),
     }) || {
-      mode: isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight",
+      mode: transfer.splitAdjustment ? "split-adjustment" : (isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight"),
       receiveNet: isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName)
         ? Number(weight3(grossReceivedWeight - handStoneWeight))
         : grossReceivedWeight,
-      balance: Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
+      balance: transfer.splitAdjustment ? 0 : Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
     };
     const departmentBalance = Number(weight3(balanceCalculation.balance));
     const differencePurity = karatLogicPurity(transfer.differencePurity || lot.metalPurity || orders[0]?.purity || "");
@@ -28266,6 +28280,7 @@ function syncLatestFilingTransferStoneForLot(sourceState = state, lot = {}, reas
   const latest = transfers.at(-1);
   if (latest && isBillTransferDestination({ toDepartment: latest.toDepartment }, { name: latest.toKarigarName })) {
     lot.finishedWeight = Number(latest.receivedWeight || 0);
+    lot.finishedGrossWeight = Number(latest.grossReceivedWeight ?? latest.transferWeight ?? latest.receivedWeight ?? 0);
     lot.actualWastage = Number(latest.departmentBalance || 0);
   }
   return {
@@ -51682,12 +51697,13 @@ function normalizeLotIssueWeights(currentState, lot) {
       issueGw: transferWeight,
       receiveGw: grossReceivedWeight,
       handStoneWeight,
+      splitAdjustment: Boolean(transfer.splitAdjustment),
     }) || {
-      mode: isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight",
+      mode: transfer.splitAdjustment ? "split-adjustment" : (isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? "setting-net-receive" : "gross-weight"),
       receiveNet: isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName)
         ? Number(weight3(grossReceivedWeight - handStoneWeight))
         : grossReceivedWeight,
-      balance: Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
+      balance: transfer.splitAdjustment ? 0 : Number(weight3(transferWeight - (isSettingDepartment(transfer.fromDepartment || transfer.balanceDepartment || transfer.fromKarigarName) ? grossReceivedWeight - handStoneWeight : grossReceivedWeight))),
     };
     const departmentBalance = Number(weight3(balanceCalculation.balance));
     const differencePurity = karatLogicPurity(transfer.differencePurity || metalPurity || primaryOrder?.purity || "");

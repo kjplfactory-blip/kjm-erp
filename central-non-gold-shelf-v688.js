@@ -20,6 +20,17 @@
     const issueGw = number(input.issueGw ?? input.transferWeight);
     const receiveGw = number(input.receiveGw ?? input.grossReceivedWeight);
     const handStone = Math.max(number(input.handStoneWeight ?? input.stoneWeight), 0);
+    if (input.splitAdjustment) {
+      return {
+        mode: "split-adjustment",
+        setting: false,
+        issueGw: weight3(issueGw),
+        receiveGw: weight3(receiveGw),
+        handStone: 0,
+        receiveNet: weight3(receiveGw),
+        balance: 0,
+      };
+    }
     const setting = isSettingDepartment(input.fromDepartment || input.department || input.fromKarigarName);
     const receiveNet = setting ? weight3(receiveGw - handStone) : receiveGw;
     return {
@@ -58,6 +69,7 @@
           issueGw: transfer.transferWeight,
           receiveGw: transfer.grossReceivedWeight ?? transfer.receivedWeight,
           handStoneWeight: transfer.handStoneWeight ?? transfer.stoneWeight,
+          splitAdjustment: Boolean(transfer.splitAdjustment),
         });
         const previous = number(transfer.departmentBalance);
         const alreadyCurrent = transfer.departmentBalanceMode === calculation.mode
