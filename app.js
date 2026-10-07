@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v691";
+const APP_VERSION = "v692";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -16866,6 +16866,27 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
   };
 }
 
+function billingMasterDepartment(source = state) {
+  const departments = source.karigars || [];
+  const exact = departments.find((department) =>
+    ["billing", "billing department", "billing dept"].includes(departmentTextKey(department.name))
+  );
+  if (exact) return exact;
+  return departments.find((department) =>
+    [department.name, department.speciality, ...departmentProcesses(department)].some((value) => {
+      const key = departmentTextKey(value);
+      return key.includes("billing") || ["final bill", "bill department", "bill dept"].includes(key);
+    })
+  ) || null;
+}
+
+function billingDepartmentProcessName(department = {}, savedProcess = "") {
+  const process = String(savedProcess || "").trim();
+  const genericProcess = ["", "bill", "bill qc", "bill office", "office"].includes(departmentTextKey(process));
+  if (!genericProcess) return process;
+  return primaryDepartmentProcess(department) || department.speciality || "FINAL BILL";
+}
+
 function billingDepartmentIdentityForLot(lot = {}, source = state) {
   const billingTransfer = [...(lot.transfers || [])].reverse().find((transfer) =>
     isBillTransferDestination(
@@ -16873,15 +16894,19 @@ function billingDepartmentIdentityForLot(lot = {}, source = state) {
       { name: transfer.toKarigarName || "", speciality: transfer.toDepartment || "" },
     )
   );
-  const masterDepartment = (source.karigars || []).find((department) => department.id === billingTransfer?.toKarigarId);
+  const transferMasterDepartment = (source.karigars || []).find((department) => department.id === billingTransfer?.toKarigarId);
+  const masterDepartment = transferMasterDepartment || billingMasterDepartment(source);
+  const savedProcess = billingTransfer?.toDepartment
+    || lot.billingStage
+    || (lotIsAtBillingDepartment(lot) ? lot.currentDepartment : "")
+    || "Bill / QC";
   const departmentName = masterDepartment?.name
     || billingTransfer?.toKarigarName
     || (lotIsAtBillingDepartment(lot) ? (lot.karigarName || lot.currentDepartment || lot.billingStage) : "")
     || "Bill / QC";
-  const processName = billingTransfer?.toDepartment
-    || lot.billingStage
-    || (lotIsAtBillingDepartment(lot) ? lot.currentDepartment : "")
-    || "Bill / QC";
+  const processName = masterDepartment
+    ? billingDepartmentProcessName(masterDepartment, savedProcess)
+    : savedProcess;
   return {
     name: departmentName,
     process: processName,
@@ -42769,14 +42794,21 @@ function openBill(lotId) {
 
 function billLotTraceEntries(lot = {}) {
   const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)));
-  const firstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
+  const savedFirstDepartment = lot.issueDepartment || lot.currentDepartment || lot.karigarName || "-";
+  const firstDepartmentIdentity = isBillTransferDestination(
+    { toDepartment: savedFirstDepartment },
+    { name: lot.issueKarigarName || lot.karigarName || "", speciality: savedFirstDepartment },
+  ) ? billingDepartmentIdentityForLot(lot, state) : null;
+  const firstDepartment = firstDepartmentIdentity?.process || savedFirstDepartment;
+  const firstDepartmentDetail = firstDepartmentIdentity?.detail
+    || departmentTransferDetail(lot.issueKarigarName || lot.karigarName || firstDepartment, firstDepartment);
   const issueEntry = {
     step: 1,
     type: lot.manualWipCombinedBill ? "Combined Manual Bill" : lot.manualWipLot ? "Non-Job-Card WIP" : lot.fittingAccessoriesJobCard ? "Fitting Accessories Card" : "Gold Issue",
     date: lot.issueDate || "-",
     createdAt: lot.createdAt || "",
     from: lotIssueSourceName(lot),
-    to: departmentTransferDetail(lot.issueKarigarName || lot.karigarName || firstDepartment, firstDepartment),
+    to: firstDepartmentDetail,
     issueGw,
     receiveGw: issueGw,
     netWeight: Number(lot.issuedWeight || 0),
@@ -48867,14 +48899,22 @@ function departmentTransferEvents() {
   activeOperationalLots().forEach((lot) => {
     const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + Number(lot.waxStoneWeight || 0)));
     if (lot.issueDate || issueGw > 0) {
-      const firstDepartment = dashboardDepartmentNameFromId(lot.issueKarigarId)
+      let firstDepartment = dashboardDepartmentNameFromId(lot.issueKarigarId)
         || lot.issueKarigarName
         || dashboardDepartmentNameFromId(lot.karigarId)
         || lot.karigarName
         || lot.issueDepartment
         || lot.currentDepartment
         || "Unassigned";
-      const firstProcess = lot.issueDepartment || lot.currentDepartment || firstDepartment;
+      let firstProcess = lot.issueDepartment || lot.currentDepartment || firstDepartment;
+      if (isBillTransferDestination(
+        { toDepartment: firstProcess },
+        { name: firstDepartment, speciality: firstProcess },
+      )) {
+        const billingIdentity = billingDepartmentIdentityForLot(lot, state);
+        firstDepartment = billingIdentity.name;
+        firstProcess = billingIdentity.process;
+      }
       const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
       events.push({
         id: `${lot.id}-issue-in`,
