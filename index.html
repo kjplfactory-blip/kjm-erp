@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=693.1">
+      <link rel="stylesheet" href="styles.css?v=694.1">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v693</small>
+      <small class="app-version-badge">App v694</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v693</span>
+          <span class="app-version-badge">App v694</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -1974,6 +1974,10 @@
             <strong>Sold Item</strong>
             <span>Items marked sold</span>
           </button>
+          <button class="action-tile office-return-lot-tile" type="button" id="open-office-return-lot">
+            <strong>Return PR Items To Factory</strong>
+            <span>Combine PR items from different Bills into one repair or melting lot</span>
+          </button>
           <button class="action-tile" type="button" data-office-page="all">
             <strong>All Office Details</strong>
             <span>Search and full movement view</span>
@@ -2415,6 +2419,72 @@
           </div>
         </section>
       </div>
+    </dialog>
+
+    <dialog id="office-return-lot-dialog" class="office-return-lot-dialog">
+      <form id="office-return-lot-form" class="dialog-card history-dialog office-return-lot-card">
+        <div class="dialog-header office-return-lot-header">
+          <div>
+            <span class="office-return-eyebrow">KJPL Office To Factory</span>
+            <h2>Return PR Items To Factory</h2>
+            <p class="dialog-note">Search and collect PR items from any Bill. One new return lot is created and every original PR number remains unchanged.</p>
+          </div>
+          <button class="ghost-button" type="button" id="close-office-return-lot">Close</button>
+        </div>
+
+        <div class="office-return-lot-layout">
+          <section class="panel office-return-search-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>1. Find Office Items</h3>
+                <small>Type a full or partial PR number, then add the required item.</small>
+              </div>
+              <button class="ghost-button" type="button" id="clear-office-return-selection">Clear Selected</button>
+            </div>
+            <label class="office-return-search-label">PR Number
+              <input id="office-return-pr-search" class="search" autocomplete="off" placeholder="Example: PR-2682 or 2682">
+            </label>
+            <div id="office-return-search-results" class="office-return-search-results"></div>
+            <div class="office-return-recent-heading">
+              <h3>Recent Return Lots</h3>
+              <small>Latest combined Office returns.</small>
+            </div>
+            <div id="office-return-recent-lots" class="office-return-recent-lots"></div>
+          </section>
+
+          <section class="panel office-return-selected-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>2. Review Selected PR Items</h3>
+                <small>Returned weights can be corrected before the lot is saved.</small>
+              </div>
+              <span id="office-return-selection-count" class="selection-pill">0 items selected</span>
+            </div>
+            <div id="office-return-selected-summary" class="office-return-selected-summary"></div>
+            <div id="office-return-selected-items" class="office-return-selected-items"></div>
+          </section>
+        </div>
+
+        <section class="panel office-return-lot-settings">
+          <div>
+            <h3>3. Create Return Lot</h3>
+            <p class="dialog-note">The items first return to their matching Production Shelf with complete GW and non-gold breakup. The new lot groups them for Repair, Melting, or another factory process.</p>
+          </div>
+          <label>Return Purpose
+            <select name="purpose" required>
+              <option value="repair">Repair / Rework</option>
+              <option value="melting">Melting / Dismantling</option>
+              <option value="size">Size Correction</option>
+              <option value="polish">Polish / Finish Correction</option>
+              <option value="other">Other Factory Work</option>
+            </select>
+          </label>
+          <label class="office-return-remarks">Lot Remarks
+            <textarea name="remarks" rows="2" placeholder="Repair instruction, damage details, melting instruction or other work"></textarea>
+          </label>
+          <button id="create-office-return-lot" type="submit">Create Return Lot</button>
+        </section>
+      </form>
     </dialog>
 
     <dialog id="complete-dialog">
@@ -3943,10 +4013,10 @@
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
   <script src="central-non-gold-shelf-v688.js?v=688"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
-    <script src="app.js?v=693.1"></script>
+    <script src="app.js?v=694.1"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
-    <script src="department-holdings-v615.js?v=693"></script>
+    <script src="department-holdings-v615.js?v=694"></script>
   <script src="setting-internal-bill-excel-v616.js?v=666"></script>
   <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>

@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v693";
+const APP_VERSION = "v694";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -31,6 +31,8 @@ const BARCODE_SCAN_RESET_MS = 140;
 const BARCODE_SCAN_MIN_LENGTH = 3;
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
+const officeReturnLotSelection = new Set();
+const officeReturnLotDraftWeights = new Map();
 const FACTORY_RESET_STOCK_WEIGHT = 4000;
 const FACTORY_RESET_STOCK_PURITY = "99.5%";
 const FACTORY_RESET_PROTECTION_MS = 10 * 60 * 1000;
@@ -1046,6 +1048,17 @@ document.addEventListener("change", (event) => {
 document.querySelectorAll("[data-office-page]").forEach((button) => {
   button.addEventListener("click", () => switchOfficePage(button.dataset.officePage));
 });
+
+document.getElementById("open-office-return-lot")?.addEventListener("click", openOfficeReturnLotWorkspace);
+document.getElementById("close-office-return-lot")?.addEventListener("click", closeOfficeReturnLotWorkspace);
+document.getElementById("clear-office-return-selection")?.addEventListener("click", clearOfficeReturnLotSelection);
+document.getElementById("office-return-pr-search")?.addEventListener("input", renderOfficeReturnSearchResults);
+document.getElementById("office-return-pr-search")?.addEventListener("keydown", handleOfficeReturnSearchKeydown);
+document.getElementById("office-return-search-results")?.addEventListener("click", handleOfficeReturnSearchResultClick);
+document.getElementById("office-return-selected-items")?.addEventListener("click", handleOfficeReturnSelectedItemClick);
+document.getElementById("office-return-selected-items")?.addEventListener("input", updateOfficeReturnSelectedSummary);
+document.getElementById("office-return-recent-lots")?.addEventListener("click", handleOfficeReturnRecentLotClick);
+document.getElementById("office-return-lot-form")?.addEventListener("submit", createOfficeReturnLotFromSelection);
 
 document.getElementById("close-office-details").addEventListener("click", () => {
   document.getElementById("office-details-dialog").close();
@@ -5396,6 +5409,7 @@ function readOnlyButtonAllowed(button) {
   if (!button) return true;
   if (button.closest("#login-form")) return true;
   if (button.id === "logout" || button.id === "refresh-live-data" || button.id === "sync-status" || button.id === "focus-barcode-scan" || button.id === "open-header-job-card") return true;
+  if (button.id === "clear-office-return-selection" || button.matches("[data-office-return-add], [data-office-return-remove], [data-office-return-open-lot]")) return true;
   if (button.matches(".nav-item, .action-tile, .metric-open, .dashboard-open-button, .dashboard-job-button, .operations-task, .universal-search-result")) return true;
   if (button.matches("[data-dashboard-view], [data-order-page], [data-design-page], [data-stone-page], [data-moti-page], [data-catalogue-page], [data-production-page], [data-office-page], [data-operation-page]")) return true;
   const onclick = String(button.getAttribute("onclick") || "").trim();
@@ -41611,6 +41625,505 @@ function updateOfficeCustomerReferences(customer) {
   });
 }
 
+function officeReturnPurposeConfig(value = "repair") {
+  const purposes = {
+    repair: { label: "Repair / Rework", reason: "Repair Required", code: "REPAIR" },
+    melting: { label: "Melting / Dismantling", reason: "Remove Stones And Melt", code: "MELT" },
+    size: { label: "Size Correction", reason: "Size Correction", code: "SIZE" },
+    polish: { label: "Polish / Finish Correction", reason: "Polish / Finish Correction", code: "POLISH" },
+    other: { label: "Other Factory Work", reason: "Other Office Return", code: "RETURN" },
+  };
+  return purposes[value] || purposes.repair;
+}
+
+function normalizeOfficeReturnPr(value = "") {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function officeReturnEntryIsEligible(entry = {}) {
+  const item = entry.item || {};
+  return Boolean(
+    entry.lot?.id
+    && entry.bill
+    && (item.productionNo || entry.order?.productionNo)
+    && !isDiscardedItem(item)
+    && !isRepairItem(item)
+    && !item.productionReturnSafeItemId
+    && item.hallmarkStatus !== "Issued"
+  );
+}
+
+function officeReturnEligibleItems() {
+  return officeItems().filter(officeReturnEntryIsEligible);
+}
+
+function officeReturnSearchMatches(query = "") {
+  const normalizedQuery = normalizeOfficeReturnPr(query);
+  if (!normalizedQuery) return [];
+  return officeReturnEligibleItems()
+    .filter(({ item, order }) => normalizeOfficeReturnPr(item.productionNo || order.productionNo).includes(normalizedQuery))
+    .sort((left, right) => {
+      const leftPr = normalizeOfficeReturnPr(left.item.productionNo || left.order.productionNo);
+      const rightPr = normalizeOfficeReturnPr(right.item.productionNo || right.order.productionNo);
+      const leftExact = leftPr === normalizedQuery ? 0 : 1;
+      const rightExact = rightPr === normalizedQuery ? 0 : 1;
+      return leftExact - rightExact || leftPr.localeCompare(rightPr, undefined, { numeric: true });
+    })
+    .slice(0, 30);
+}
+
+function officeReturnSelectedEntries() {
+  const entries = [];
+  Array.from(officeReturnLotSelection).forEach((key) => {
+    const found = findOfficeBillItem(key);
+    if (!found) {
+      officeReturnLotSelection.delete(key);
+      officeReturnLotDraftWeights.delete(key);
+      return;
+    }
+    const order = findById("orders", found.item.orderId) || {};
+    const entry = { ...found, order, key };
+    if (!officeReturnEntryIsEligible(entry)) {
+      officeReturnLotSelection.delete(key);
+      officeReturnLotDraftWeights.delete(key);
+      return;
+    }
+    entries.push(entry);
+  });
+  return entries;
+}
+
+function openOfficeReturnLotWorkspace() {
+  if (!canReceiveRepairFactoryIn() && !isReadOnlyUser()) {
+    alert("This login cannot return Office items into Factory.");
+    return;
+  }
+  officeReturnLotSelection.clear();
+  officeReturnLotDraftWeights.clear();
+  const search = document.getElementById("office-return-pr-search");
+  if (search) search.value = "";
+  const form = document.getElementById("office-return-lot-form");
+  if (form) {
+    form.reset();
+    form.purpose.value = "repair";
+  }
+  renderOfficeReturnSearchResults();
+  renderOfficeReturnSelectedItems();
+  renderOfficeReturnRecentLots();
+  const officeDialog = document.getElementById("office-details-dialog");
+  if (officeDialog?.open) officeDialog.close();
+  const dialog = document.getElementById("office-return-lot-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
+  window.setTimeout(() => search?.focus(), 50);
+}
+
+function closeOfficeReturnLotWorkspace() {
+  document.getElementById("office-return-lot-dialog")?.close();
+}
+
+function clearOfficeReturnLotSelection() {
+  officeReturnLotSelection.clear();
+  officeReturnLotDraftWeights.clear();
+  renderOfficeReturnSearchResults();
+  renderOfficeReturnSelectedItems();
+  document.getElementById("office-return-pr-search")?.focus();
+}
+
+function renderOfficeReturnSearchResults() {
+  const container = document.getElementById("office-return-search-results");
+  if (!container) return;
+  const query = document.getElementById("office-return-pr-search")?.value || "";
+  if (!normalizeOfficeReturnPr(query)) {
+    container.innerHTML = '<div class="empty office-return-search-empty">Enter a PR number to find an item currently held by KJPL Office.</div>';
+    return;
+  }
+  const matches = officeReturnSearchMatches(query);
+  container.innerHTML = matches.length ? matches.map(({ lot, bill, item, order }) => {
+    const key = officeItemKey(lot.id, item);
+    const selected = officeReturnLotSelection.has(key);
+    const weights = productionReturnWeightSummary(item);
+    return `
+      <article class="office-return-search-result ${selected ? "selected" : ""}">
+        <div>
+          <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
+          <span>${escapeHtml(order.designNo || designLabel(order.designId) || "-")} / ${escapeHtml(jobItemDisplayName(order) || order.category || "-")}</span>
+          <small>${escapeHtml(lot.orderNumber || lot.number || "-")} / Bill ${escapeHtml(bill.billNo || "-")} / ${escapeHtml(officeItemLocation(item))}</small>
+        </div>
+        <div class="office-return-result-weight">
+          <b>GW ${gram(weights.grossWeight)}</b>
+          <small>Non-Gold ${gram(weights.nonGoldWeight)} / Net ${gram(weights.netWeight)}</small>
+        </div>
+        <button type="button" data-office-return-add="${escapeHtml(key)}" ${selected ? "disabled" : ""}>${selected ? "Added" : "Add PR"}</button>
+      </article>
+    `;
+  }).join("") : '<div class="empty office-return-search-empty">No eligible KJPL Office item matches this PR number.</div>';
+}
+
+function handleOfficeReturnSearchKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const match = officeReturnSearchMatches(event.currentTarget.value)[0];
+  if (match) addOfficeReturnItem(officeItemKey(match.lot.id, match.item));
+}
+
+function handleOfficeReturnSearchResultClick(event) {
+  const button = event.target.closest("[data-office-return-add]");
+  if (!button) return;
+  addOfficeReturnItem(button.dataset.officeReturnAdd || "");
+}
+
+function addOfficeReturnItem(key = "") {
+  captureOfficeReturnDraftWeights();
+  const found = findOfficeBillItem(key);
+  if (!found) {
+    alert("This PR item is no longer available in Office.");
+    return;
+  }
+  const entry = { ...found, order: findById("orders", found.item.orderId) || {} };
+  if (!officeReturnEntryIsEligible(entry)) {
+    alert("This PR is already returned, discarded, under repair, or currently issued to Hallmarking.");
+    return;
+  }
+  officeReturnLotSelection.add(key);
+  if (!officeReturnLotDraftWeights.has(key)) {
+    officeReturnLotDraftWeights.set(key, productionReturnWeightSummary(found.item));
+  }
+  const search = document.getElementById("office-return-pr-search");
+  if (search) search.value = "";
+  renderOfficeReturnSearchResults();
+  renderOfficeReturnSelectedItems();
+  search?.focus();
+}
+
+function handleOfficeReturnSelectedItemClick(event) {
+  const button = event.target.closest("[data-office-return-remove]");
+  if (!button) return;
+  captureOfficeReturnDraftWeights();
+  const key = button.dataset.officeReturnRemove || "";
+  officeReturnLotSelection.delete(key);
+  officeReturnLotDraftWeights.delete(key);
+  renderOfficeReturnSearchResults();
+  renderOfficeReturnSelectedItems();
+}
+
+function officeReturnWeightDraft(key = "", item = {}) {
+  const saved = officeReturnLotDraftWeights.get(key);
+  return saved ? productionReturnWeightSummary(item, saved) : productionReturnWeightSummary(item);
+}
+
+function officeReturnWeightsFromRow(row) {
+  const nonGoldBreakdown = normalizeNonGoldBreakdown({
+    stone: Number(row.querySelector('[data-return-weight="stone"]')?.value || 0),
+    "black-beads": Number(row.querySelector('[data-return-weight="black-beads"]')?.value || 0),
+    moti: Number(row.querySelector('[data-return-weight="moti"]')?.value || 0),
+    spring: Number(row.querySelector('[data-return-weight="spring"]')?.value || 0),
+    other: Number(row.querySelector('[data-return-weight="other"]')?.value || 0),
+  });
+  return productionReturnWeightSummary({}, {
+    grossWeight: Number(row.querySelector('[data-return-weight="gross"]')?.value || 0),
+    nonGoldBreakdown,
+  });
+}
+
+function captureOfficeReturnDraftWeights() {
+  document.querySelectorAll("[data-office-return-row]").forEach((row) => {
+    officeReturnLotDraftWeights.set(row.dataset.officeReturnRow || "", officeReturnWeightsFromRow(row));
+  });
+}
+
+function renderOfficeReturnSelectedItems() {
+  const container = document.getElementById("office-return-selected-items");
+  const count = document.getElementById("office-return-selection-count");
+  if (!container || !count) return;
+  const entries = officeReturnSelectedEntries();
+  count.textContent = `${entries.length} item${entries.length === 1 ? "" : "s"} selected`;
+  container.innerHTML = entries.length ? entries.map(({ key, lot, bill, item, order }) => {
+    const weights = officeReturnWeightDraft(key, item);
+    return `
+      <article class="office-return-selected-card" data-office-return-row="${escapeHtml(key)}">
+        <header>
+          <div>
+            <strong>${escapeHtml(item.productionNo || order.productionNo || "-")}</strong>
+            <span>${escapeHtml(order.designNo || designLabel(order.designId) || "-")} / ${escapeHtml(jobItemDisplayName(order) || order.category || "-")}</span>
+          </div>
+          <button class="delete-btn" type="button" data-office-return-remove="${escapeHtml(key)}">Remove</button>
+        </header>
+        <div class="office-return-source-line">
+          <span><b>Job</b> ${escapeHtml(lot.orderNumber || lot.number || "-")}</span>
+          <span><b>Bill</b> ${escapeHtml(bill.billNo || "-")}</span>
+          <span><b>Customer</b> ${escapeHtml(order.customer || "-")}</span>
+          <span><b>Office Location</b> ${escapeHtml(officeItemLocation(item))}</span>
+        </div>
+        <div class="office-return-weight-fields">
+          <label>Return GW (g)<input data-return-weight="gross" type="number" min="0.001" step="0.001" value="${weight3(weights.grossWeight)}" required></label>
+          <label>Stone (g)<input data-return-weight="stone" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.stone)}"></label>
+          <label>Black Beads (g)<input data-return-weight="black-beads" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown["black-beads"])}"></label>
+          <label>Moti (g)<input data-return-weight="moti" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.moti)}"></label>
+          <label>Spring (g)<input data-return-weight="spring" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.spring)}"></label>
+          <label>Other (g)<input data-return-weight="other" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.other)}"></label>
+        </div>
+        <div class="office-return-item-total" data-office-return-item-total></div>
+      </article>
+    `;
+  }).join("") : '<div class="empty office-return-selected-empty">No PR item selected. Search on the left and add items from one or more Bills.</div>';
+  updateOfficeReturnSelectedSummary();
+}
+
+function updateOfficeReturnSelectedSummary() {
+  const rows = Array.from(document.querySelectorAll("[data-office-return-row]"));
+  const totals = rows.reduce((summary, row) => {
+    const weights = officeReturnWeightsFromRow(row);
+    officeReturnLotDraftWeights.set(row.dataset.officeReturnRow || "", weights);
+    summary.grossWeight += weights.grossWeight;
+    summary.nonGoldWeight += weights.nonGoldWeight;
+    summary.netWeight += weights.netWeight;
+    if (weights.grossWeight <= 0 || weights.nonGoldWeight > weights.grossWeight + 0.0005) summary.invalid += 1;
+    const itemTotal = row.querySelector("[data-office-return-item-total]");
+    if (itemTotal) {
+      itemTotal.classList.toggle("invalid", weights.nonGoldWeight > weights.grossWeight + 0.0005);
+      itemTotal.innerHTML = `<span>Non-Gold <b>${gram(weights.nonGoldWeight)}</b></span><span>Net Gold <b>${gram(weights.netWeight)}</b></span>`;
+    }
+    return summary;
+  }, { grossWeight: 0, nonGoldWeight: 0, netWeight: 0, invalid: 0 });
+  const summary = document.getElementById("office-return-selected-summary");
+  if (!summary) return;
+  summary.classList.toggle("invalid", totals.invalid > 0);
+  summary.innerHTML = `
+    <article><span>Selected PR Items</span><strong>${rows.length}</strong></article>
+    <article><span>Total Return GW</span><strong>${gram(totals.grossWeight)}</strong></article>
+    <article><span>Total Non-Gold</span><strong>${gram(totals.nonGoldWeight)}</strong></article>
+    <article><span>Total Net Gold</span><strong>${gram(totals.netWeight)}</strong></article>
+  `;
+}
+
+function renderOfficeReturnRecentLots() {
+  const container = document.getElementById("office-return-recent-lots");
+  if (!container) return;
+  const lots = (state.lots || [])
+    .filter((lot) => lot.officeReturnBatch)
+    .sort((left, right) => transferHistoryTime(right.createdAt, right.issueDate) - transferHistoryTime(left.createdAt, left.issueDate))
+    .slice(0, 12);
+  container.innerHTML = lots.length ? lots.map((lot) => `
+    <article class="office-return-recent-lot">
+      <div>
+        <strong>${escapeHtml(lot.number || "-")} / ${escapeHtml(lot.officeReturnPurpose || "Office Return")}</strong>
+        <span>${Number(lot.officeReturnItemCount || lot.productionNos?.length || 0)} item${Number(lot.officeReturnItemCount || lot.productionNos?.length || 0) === 1 ? "" : "s"} / GW ${gram(lot.officeReturnGrossWeight)} / Net ${gram(lot.officeReturnNetWeight)}</span>
+        <small>PR ${escapeHtml((lot.productionNos || []).join(", ") || "-")}<br>Bills ${escapeHtml((lot.sourceBillNos || []).join(", ") || "-")}</small>
+      </div>
+      <button class="ghost-button" type="button" data-office-return-open-lot="${escapeHtml(lot.id || "")}">Open Lot</button>
+    </article>
+  `).join("") : '<div class="empty">No combined Office return lot has been created yet.</div>';
+}
+
+function handleOfficeReturnRecentLotClick(event) {
+  const button = event.target.closest("[data-office-return-open-lot]");
+  if (!button) return;
+  const lot = findById("lots", button.dataset.officeReturnOpenLot || "");
+  if (!lot) {
+    alert("This return lot is no longer available.");
+    return;
+  }
+  closeOfficeReturnLotWorkspace();
+  openLotHistory(lot.id);
+}
+
+function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remarks = "") {
+  state.nextLot = Number(state.nextLot || 1);
+  const lotNumber = `LOT-${state.nextLot++}`;
+  const orders = returnedEntries.map(({ found }) => found.order).filter((order) => order?.id);
+  const uniqueOrders = [...new Map(orders.map((order) => [order.id, order])).values()];
+  const sourceLots = [...new Map(returnedEntries.map(({ found }) => [found.lot.id, found.lot])).values()];
+  const sourceBills = [...new Map(returnedEntries.map(({ found }) => [found.bill.id || found.bill.billNo || found.lot.id, found.bill])).values()];
+  const productionNos = returnedEntries.map(({ result, found }) => result.safeItem.returnProductionNo || found.item.productionNo || found.order.productionNo).filter(Boolean);
+  const purities = [...new Set(returnedEntries.map(({ result }) => transferPurityLabel(result.safeItem.purity)).filter(Boolean))];
+  const totals = returnedEntries.reduce((summary, { result }) => {
+    summary.grossWeight += Number(result.safeItem.grossWeight || 0);
+    summary.nonGoldWeight += Number(result.safeItem.nonGoldWeight || 0);
+    summary.netWeight += Number(result.safeItem.netWeight || 0);
+    return summary;
+  }, { grossWeight: 0, nonGoldWeight: 0, netWeight: 0 });
+  const lot = {
+    id: crypto.randomUUID(),
+    number: lotNumber,
+    issueDate: today(),
+    createdAt: new Date().toISOString(),
+    createdBy: currentUser?.name || currentUser?.username || "",
+    orderId: uniqueOrders[0]?.id || "",
+    orderIds: uniqueOrders.map((order) => order.id),
+    billOrderIds: uniqueOrders.map((order) => order.id),
+    orderNumber: sourceLots.length === 1 ? sourceLots[0].orderNumber : `OFFICE-${purpose.code}-${lotNumber}`,
+    karigarId: "",
+    karigarName: "Production Shelf",
+    issueKarigarId: "",
+    issueKarigarName: KJPL_OFFICE_VENDOR_NAME,
+    issueDepartment: KJPL_OFFICE_VENDOR_NAME,
+    currentDepartment: purpose.code === "MELT" ? "Production Shelf / Pending Melting" : "Production Shelf / Repair Pending",
+    metalPurity: purities.length === 1 ? purities[0] : "Mixed Karat",
+    grossIssuedWeight: 0,
+    issuedWeight: 0,
+    waxStoneWeight: 0,
+    productionStockWeight: 0,
+    expectedWastage: 0,
+    finishedWeight: 0,
+    actualWastage: 0,
+    status: "Returned / Awaiting Issue",
+    transfers: [],
+    qcReturn: true,
+    officeReturnBatch: true,
+    officeReturnBatchStockReferenceOnly: true,
+    officeReturnPurpose: purpose.label,
+    officeReturnPurposeCode: purpose.code,
+    officeReturnReason: purpose.reason,
+    officeReturnRemarks: remarks,
+    officeReturnItemCount: returnedEntries.length,
+    officeReturnGrossWeight: Number(weight3(totals.grossWeight)),
+    officeReturnNonGoldWeight: Number(weight3(totals.nonGoldWeight)),
+    officeReturnNetWeight: Number(weight3(totals.netWeight)),
+    productionNos,
+    officeReturnSafeItemIds: returnedEntries.map(({ result }) => result.safeItem.id),
+    parentLotId: sourceLots.length === 1 ? sourceLots[0].id : "",
+    parentLotIds: sourceLots.map((lot) => lot.id),
+    sourceJobNumbers: [...new Set(sourceLots.map((lot) => lot.orderNumber || lot.number).filter(Boolean))],
+    sourceBillIds: sourceBills.map((bill) => bill.id).filter(Boolean),
+    sourceBillNos: [...new Set(sourceBills.map((bill) => bill.billNo).filter(Boolean))],
+  };
+  state.lots.unshift(lot);
+  return lot;
+}
+
+function linkOfficeReturnItemsToLot(returnedEntries = [], returnLot = null) {
+  if (!returnLot?.id) return;
+  returnedEntries.forEach(({ found, result }) => {
+    result.safeItem.officeReturnLotId = returnLot.id;
+    result.safeItem.officeReturnLotNumber = returnLot.number;
+    result.safeItem.officeReturnPurpose = returnLot.officeReturnPurpose;
+    const index = found.bill.items.findIndex((item) => officeItemKey(found.lot.id, item) === found.key);
+    if (index < 0) return;
+    found.bill.items[index] = {
+      ...found.bill.items[index],
+      officeReturnLotId: returnLot.id,
+      officeReturnLotNumber: returnLot.number,
+      officeReturnPurpose: returnLot.officeReturnPurpose,
+      officeReturnSourceBillNo: found.bill.billNo || "",
+      holder: `${result.safeItem.locker} Production Shelf / ${returnLot.number}`,
+    };
+    found.lot.bill = found.bill;
+  });
+}
+
+function officeReturnLotTransactionIsComplete(returnLotId = "", source = state) {
+  const returnLot = (source.lots || []).find((lot) => lot.id === returnLotId && lot.officeReturnBatch);
+  if (!returnLot || !returnLot.officeReturnSafeItemIds?.length) return false;
+  return returnLot.officeReturnSafeItemIds.every((safeItemId) => productionReturnTransactionIsComplete(safeItemId, source));
+}
+
+async function verifyOfficeReturnLotInCloud(returnLotId = "") {
+  if (!supabaseClient) return false;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient.from("erp_state").select("data, updated_at").eq("id", supabaseStateId).maybeSingle(),
+      "Office return lot cloud verification timeout."
+    );
+    if (result?.error || !result?.data?.data) return false;
+    const verified = officeReturnLotTransactionIsComplete(returnLotId, result.data.data);
+    if (verified) {
+      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
+      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
+    }
+    return verified;
+  } catch (error) {
+    console.warn("Office return lot cloud read-back could not be completed.", error);
+    return false;
+  }
+}
+
+async function createOfficeReturnLotFromSelection(event) {
+  event.preventDefault();
+  if (!canReceiveRepairFactoryIn()) {
+    alert("This login cannot return Office items into Factory.");
+    return;
+  }
+  captureOfficeReturnDraftWeights();
+  const selectedEntries = officeReturnSelectedEntries();
+  if (!selectedEntries.length) {
+    alert("Search and add at least one PR item.");
+    return;
+  }
+  const rows = new Map(Array.from(document.querySelectorAll("[data-office-return-row]")).map((row) => [row.dataset.officeReturnRow || "", row]));
+  const invalid = selectedEntries.find(({ key }) => {
+    const weights = rows.has(key) ? officeReturnWeightsFromRow(rows.get(key)) : officeReturnLotDraftWeights.get(key);
+    return !weights || weights.grossWeight <= 0 || weights.nonGoldWeight > weights.grossWeight + 0.0005;
+  });
+  if (invalid) {
+    alert(`Correct the return weights for ${invalid.item.productionNo || invalid.order.productionNo || "the selected PR"}. GW must be greater than zero and non-gold cannot exceed GW.`);
+    return;
+  }
+  const form = event.currentTarget;
+  const purpose = officeReturnPurposeConfig(form.purpose.value);
+  const remarks = form.remarks.value.trim();
+  const submit = document.getElementById("create-office-return-lot");
+  const rollbackSnapshot = captureProductionReturnTransactionState();
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = "Creating Return Lot...";
+  }
+  try {
+    const returnedEntries = [];
+    const sourceGroups = new Map();
+    for (const selected of selectedEntries) {
+      const fresh = findOfficeBillItem(selected.key);
+      if (!fresh) throw new Error(`${selected.item.productionNo || "Selected PR"} is no longer available.`);
+      const found = { ...fresh, order: findById("orders", fresh.item.orderId) || {}, key: selected.key };
+      if (!officeReturnEntryIsEligible(found)) throw new Error(`${found.item.productionNo || "Selected PR"} is no longer eligible for Office return.`);
+      const weights = rows.has(found.key) ? officeReturnWeightsFromRow(rows.get(found.key)) : officeReturnLotDraftWeights.get(found.key);
+      const result = returnBillItemToProductionShelf({
+        ...found,
+        weights,
+        reason: purpose.reason,
+        remarks,
+      });
+      if (!result || result.duplicate) throw new Error(`${found.item.productionNo || "Selected PR"} could not be returned or is already in Production Shelf.`);
+      returnedEntries.push({ found, result });
+      sourceGroups.set(found.lot.id, { lot: found.lot, bill: found.bill });
+    }
+    const returnLot = createOfficeReturnTrackingLot(returnedEntries, purpose, remarks);
+    linkOfficeReturnItemsToLot(returnedEntries, returnLot);
+    sourceGroups.forEach(({ lot, bill }) => finalizeProductionShelfReturnLot(lot, bill));
+    if (!officeReturnLotTransactionIsComplete(returnLot.id)) {
+      throw new Error("Return transaction validation failed. No item was changed.");
+    }
+    const savedLocally = saveState({ alertOnFailure: true, context: `${returnLot.number} Office Return Lot` });
+    if (!savedLocally) throw new Error("The return lot could not be saved on this laptop.");
+    render();
+    let savedToCloud = false;
+    let cloudVerified = false;
+    try {
+      savedToCloud = await saveCurrentStateToCloudNow({ context: `${returnLot.number} Office Return Lot` });
+      cloudVerified = savedToCloud && await verifyOfficeReturnLotInCloud(returnLot.id);
+    } catch (cloudError) {
+      console.warn(`${returnLot.number} is saved locally; immediate cloud confirmation failed.`, cloudError);
+    }
+    if (!cloudVerified) saveState({ alertOnFailure: false, context: `${returnLot.number} Office Return Lot retry` });
+    officeReturnLotSelection.clear();
+    officeReturnLotDraftWeights.clear();
+    closeOfficeReturnLotWorkspace();
+    const totals = `${returnedEntries.length} PR item${returnedEntries.length === 1 ? "" : "s"} / GW ${gram(returnLot.officeReturnGrossWeight)} / Non-Gold ${gram(returnLot.officeReturnNonGoldWeight)} / Net Gold ${gram(returnLot.officeReturnNetWeight)}`;
+    const nextStep = purpose.code === "MELT"
+      ? "The returned items are in Production Shelf. Use Remove Non-Gold / Melt to dismantle them."
+      : "The returned items are in Production Shelf and grouped under this lot for the next repair issue.";
+    alert(`${returnLot.number} created for ${purpose.label}.\n${totals}.\nOriginal PR numbers are unchanged.\n${nextStep}${cloudVerified ? "\nLive cloud sync confirmed." : "\nSaved locally; cloud confirmation is pending and will retry automatically."}`);
+  } catch (error) {
+    restoreProductionReturnTransactionState(rollbackSnapshot);
+    render();
+    alert(error?.message || "The Office return lot could not be created. No data was changed.");
+  } finally {
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = "Create Return Lot";
+    }
+  }
+}
+
 function productionReturnNonGoldBreakdown(item = {}) {
   return normalizeNonGoldBreakdown({
     stone: billNumber(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? item.stoneWt),
@@ -41891,6 +42404,7 @@ function updateProductionReturnTotals() {
 
 function captureProductionReturnTransactionState() {
   return structuredClone({
+    nextLot: state.nextLot,
     safeItems: state.safeItems || [],
     factoryLedger: state.factoryLedger || [],
     bills: state.bills || [],
@@ -41902,6 +42416,7 @@ function captureProductionReturnTransactionState() {
 }
 
 function restoreProductionReturnTransactionState(snapshot = {}) {
+  state.nextLot = Number(snapshot.nextLot || state.nextLot || 1);
   state.safeItems = structuredClone(snapshot.safeItems || []);
   state.factoryLedger = structuredClone(snapshot.factoryLedger || []);
   state.bills = structuredClone(snapshot.bills || []);
