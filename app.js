@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v690";
+const APP_VERSION = "v691";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -16864,6 +16864,84 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
     purityText: purities.length === 1 ? purities[0] : `Mixed ${purities.join(" / ")}`,
     productionNos: entries.map((entry) => entry.productionNo).filter(Boolean),
   };
+}
+
+function billingDepartmentIdentityForLot(lot = {}, source = state) {
+  const billingTransfer = [...(lot.transfers || [])].reverse().find((transfer) =>
+    isBillTransferDestination(
+      { toDepartment: transfer.toDepartment || transfer.toKarigarName || "" },
+      { name: transfer.toKarigarName || "", speciality: transfer.toDepartment || "" },
+    )
+  );
+  const masterDepartment = (source.karigars || []).find((department) => department.id === billingTransfer?.toKarigarId);
+  const departmentName = masterDepartment?.name
+    || billingTransfer?.toKarigarName
+    || (lotIsAtBillingDepartment(lot) ? (lot.karigarName || lot.currentDepartment || lot.billingStage) : "")
+    || "Bill / QC";
+  const processName = billingTransfer?.toDepartment
+    || lot.billingStage
+    || (lotIsAtBillingDepartment(lot) ? lot.currentDepartment : "")
+    || "Bill / QC";
+  return {
+    name: departmentName,
+    process: processName,
+    group: departmentTransferMasterGroupName(departmentName, processName),
+    detail: departmentTransferDetail(departmentName, processName),
+  };
+}
+
+function billFactoryOutMovement(source = state, bill = {}, lot = {}) {
+  if (!bill?.id || !lot?.id || isReferenceOnlyBill(bill) || !isBillFactoryOutPosted(bill)) return null;
+  const totals = billFactoryOutWeightSummary(source, bill, lot);
+  if (!totals.pieces || totals.finalGw <= 0.0005) return null;
+  const billingDepartment = billingDepartmentIdentityForLot(lot, source);
+  const destination = bill.officeDestination || bill.officePartyName || KJPL_OFFICE_VENDOR_NAME || "KJPL OFFICE";
+  const createdAt = bill.factoryOutPostedAt || bill.factoryOutUpdatedAt || "";
+  const createdDate = createdAt ? new Date(createdAt) : null;
+  const date = createdDate && Number.isFinite(createdDate.getTime())
+    ? createdDate.toLocaleDateString("en-GB")
+    : (bill.billDate || today());
+  const nonGoldText = [
+    totals.stoneWeight ? `Stone ${gram(totals.stoneWeight)}` : "",
+    totals.blackBeadsWeight ? `BB ${gram(totals.blackBeadsWeight)}` : "",
+    totals.motiWeight ? `Moti ${gram(totals.motiWeight)}` : "",
+    totals.springWeight ? `Spring ${gram(totals.springWeight)}` : "",
+    totals.otherNonGoldWeight ? `Other ${gram(totals.otherNonGoldWeight)}` : "",
+  ].filter(Boolean).join(" / ");
+  return {
+    id: `bill-factory-out-${bill.id}`,
+    billId: bill.id,
+    lotId: lot.id,
+    movementType: "bill-factory-out",
+    type: "Bill To Factory Out",
+    createdAt,
+    date,
+    department: billingDepartment.group,
+    departmentDetail: billingDepartment.detail,
+    process: billingDepartment.process,
+    counterparty: `Factory Out / ${destination}`,
+    lotNumber: lot.number || "-",
+    jobNumber: lot.orderNumber || bill.jobNumber || "-",
+    billNo: bill.billNo || "Bill",
+    issueGw: totals.finalGw,
+    receiveGw: totals.finalGw,
+    netWeight: totals.netWeight,
+    difference: 0,
+    fineGold: 0,
+    purity: totals.purityText,
+    stoneWeight: totals.stoneWeight,
+    nonGoldWeight: totals.reducedWeight,
+    pieces: totals.pieces,
+    remarks: `${bill.billNo || "Bill"} / ${totals.pieces} pcs / Billing GW ${gram(totals.finalGw)} moved to Factory Out${nonGoldText ? ` / ${nonGoldText}` : ""} / Net ${gram(totals.netWeight)}`,
+    hasLot: true,
+  };
+}
+
+function postedBillFactoryOutMovements(source = state) {
+  return (source.bills || []).map((bill) => {
+    const lot = resolveLotForBillRecord(bill, source);
+    return lot ? billFactoryOutMovement(source, bill, lot) : null;
+  }).filter(Boolean);
 }
 
 function billFactoryOutNonGoldLines(source = state, bill = {}, lot = {}) {
@@ -42716,7 +42794,21 @@ function billLotTraceEntries(lot = {}) {
     netWeight: Number(transfer.receivedWeight || 0),
     difference: Number(transfer.departmentBalance || 0),
   }));
-  return [issueEntry, ...transferEntries].sort((a, b) =>
+  const bill = billForLotRecord(lot) || lot.bill || {};
+  const factoryOutMovement = billFactoryOutMovement(state, bill, lot);
+  const factoryOutEntry = factoryOutMovement ? {
+    step: transferEntries.length + 2,
+    type: factoryOutMovement.type,
+    date: factoryOutMovement.date,
+    createdAt: factoryOutMovement.createdAt,
+    from: factoryOutMovement.departmentDetail,
+    to: factoryOutMovement.counterparty,
+    issueGw: factoryOutMovement.issueGw,
+    receiveGw: factoryOutMovement.receiveGw,
+    netWeight: factoryOutMovement.netWeight,
+    difference: 0,
+  } : null;
+  return [issueEntry, ...transferEntries, factoryOutEntry].filter(Boolean).sort((a, b) =>
     transferHistoryTime(b.createdAt, b.date) - transferHistoryTime(a.createdAt, a.date)
       || b.step - a.step
   );
@@ -48397,11 +48489,16 @@ function onlineTransferHistoryEntries() {
     ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
     goldIssueHistoryEntry(lot),
   ]);
-  return sortTransferHistoryEntries([...safeDepartmentTransferHistoryEntries(), ...lotEntries]);
+  const factoryOutEntries = postedBillFactoryOutMovements().map((factoryOutMovement) => ({
+    type: "bill-factory-out",
+    lot: findById("lots", factoryOutMovement.lotId),
+    factoryOutMovement,
+  }));
+  return sortTransferHistoryEntries([...safeDepartmentTransferHistoryEntries(), ...factoryOutEntries, ...lotEntries]);
 }
 
 function transferHistoryEntryDateKey(entry = {}) {
-  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.lot || {};
+  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.factoryOutMovement || entry.lot || {};
   const createdAt = record.createdAt || entry.lot?.createdAt || "";
   const timestamp = Date.parse(createdAt);
   if (Number.isFinite(timestamp)) return fineSheetLocalDateKey(new Date(timestamp));
@@ -48418,7 +48515,7 @@ function onlineTransferTodayCounts(entries = onlineTransferHistoryEntries(), dat
     dateKey,
     total: todayEntries.length,
     goldIssues: todayEntries.filter((entry) => entry.type === "issue").length,
-    jobTransfers: todayEntries.filter((entry) => entry.type === "transfer").length,
+    jobTransfers: todayEntries.filter((entry) => ["transfer", "bill-factory-out"].includes(entry.type)).length,
     directMovements: todayEntries.filter((entry) => ["safe-department-issue", "safe-department-return"].includes(entry.type)).length,
   };
 }
@@ -48442,7 +48539,7 @@ function renderOnlineTransferTodaySummary(entries = [], visibleCount = entries.l
     <article class="online-transfer-today-card">
       <span>Job Transfers</span>
       <strong>${counts.jobTransfers}</strong>
-      <small>Department to department</small>
+      <small>Department transfer or Bill Factory Out</small>
     </article>
     <article class="online-transfer-today-card">
       <span>Shelf / Department</span>
@@ -48513,7 +48610,7 @@ function transferHistoryDateTime(date = "", createdAt = "") {
 }
 
 function transferHistoryEntryTime(entry = {}) {
-  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.lot || {};
+  const record = entry.issue || entry.departmentReturn || entry.transfer || entry.factoryOutMovement || entry.lot || {};
   return transferHistoryTime(record.createdAt || entry.lot?.createdAt || "", record.date || entry.lot?.issueDate || "");
 }
 
@@ -48545,6 +48642,10 @@ function transferHistorySearchText(entry = {}) {
   if (entry.type === "safe-department-return") {
     const departmentReturn = entry.departmentReturn || {};
     return `${safeDepartmentMovementLabel(true, departmentReturn)} department return transfer ${departmentReturn.returnedItemDescription || ""} ${departmentReturn.sourceItemDescription || ""} ${departmentReturn.departmentName || ""} ${departmentReturn.process || ""} ${departmentReturn.destinationDepartmentName || ""} ${departmentReturn.destinationProcess || ""} ${departmentReturn.locker || ""} ${safeDepartmentReturnLabel(departmentReturn.returnType)} ${departmentReturn.remarks || ""}`.toLowerCase();
+  }
+  if (entry.type === "bill-factory-out") {
+    const movement = entry.factoryOutMovement || {};
+    return `${movement.billNo || ""} ${movement.lotNumber || ""} ${movement.jobNumber || ""} bill factory out billing receive ${movement.departmentDetail || ""} ${movement.counterparty || ""} ${movement.remarks || ""}`.toLowerCase();
   }
   const { lot = {}, transfer = {}, type } = entry;
   return type === "issue"
@@ -48873,6 +48974,13 @@ function departmentTransferEvents() {
       });
     });
   });
+  postedBillFactoryOutMovements().forEach((movement) => {
+    events.push({
+      ...movement,
+      sortIndex: sortIndex++,
+      direction: "out",
+    });
+  });
   const directShelfEvents = [
     ...(state.safeDepartmentIssues || []).flatMap((rawIssue) => {
       const item = rawIssue.safeItemId ? findById("safeItems", rawIssue.safeItemId) || {} : {};
@@ -49146,6 +49254,7 @@ function renderTransferHistoryRow(entry) {
   if (entry.type === "safe-department-issue" || entry.type === "safe-department-return") {
     return renderSafeDepartmentTransferHistoryRow(entry);
   }
+  if (entry.type === "bill-factory-out") return renderBillFactoryOutTransferHistoryRow(entry);
   const { lot, transfer, type } = entry;
   if (type === "issue") {
     const sourceName = lot.issueSourceName || lotIssueSourceName(lot);
@@ -49198,6 +49307,29 @@ function renderTransferHistoryRow(entry) {
           <div class="row-actions transfer-history-actions">${transferHistoryEditButtonHtml(lot, transfer)}${onlineTransferUndoButtonHtml(entry)}</div>
         </div>
       </td>
+    </tr>
+  `;
+}
+
+function renderBillFactoryOutTransferHistoryRow(entry = {}) {
+  const movement = entry.factoryOutMovement || {};
+  const lot = entry.lot || findById("lots", movement.lotId) || {};
+  return `
+    <tr class="online-transfer-row bill-factory-out-row" tabindex="0">
+      <td>${escapeHtml(transferHistoryDateTime(movement.date, movement.createdAt))}</td>
+      <td class="transfer-lot-job-cell">${lot.id ? onlineTransferJobCardCell(lot) : `<strong>${escapeHtml(movement.lotNumber || "-")}</strong><small>${escapeHtml(movement.jobNumber || "-")}</small>`}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(movement.departmentDetail || movement.department || "Billing", "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(movement.counterparty || "Factory Out", "to")}</td>
+      <td>${gram(movement.issueGw)}</td>
+      <td>${gram(movement.receiveGw)}</td>
+      <td>-</td>
+      <td>${gram(movement.nonGoldWeight)}<small>Stone ${gram(movement.stoneWeight)}</small></td>
+      <td>${gram(movement.nonGoldWeight)}</td>
+      <td>${gram(movement.netWeight)}</td>
+      <td>-</td>
+      <td>${escapeHtml(transferPurityLabel(movement.purity || lot.metalPurity || "-"))}</td>
+      <td>${gram(0)}</td>
+      <td class="remark-cell">${transferRemarkCell(movement.remarks || "Bill moved from Billing to Factory Out")}</td>
     </tr>
   `;
 }
@@ -49344,7 +49476,8 @@ function renderLotHistoryTable(lot) {
         || b.step - a.step
     )
     .map(({ transfer, step }) => renderHistoryTableRow(transfer, step, lot.id));
-  const rows = [...transferRows, renderGoldIssueHistoryRow(lot)].join("");
+  const factoryOutRow = renderBillFactoryOutLotHistoryRow(lot);
+  const rows = [factoryOutRow, ...transferRows, renderGoldIssueHistoryRow(lot)].filter(Boolean).join("");
   return `
     <div class="table-wrap lot-history-table">
       <table>
@@ -49352,6 +49485,33 @@ function renderLotHistoryTable(lot) {
         <tbody>${rows}</tbody>
       </table>
     </div>
+  `;
+}
+
+function renderBillFactoryOutLotHistoryRow(lot = {}) {
+  const bill = billForLotRecord(lot) || lot.bill || {};
+  const movement = billFactoryOutMovement(state, bill, lot);
+  if (!movement) return "";
+  const step = (lot.transfers || []).length + 2;
+  return `
+    <tr class="lot-transfer-history-row bill-factory-out-row">
+      <td>${step}</td>
+      <td>${escapeHtml(transferHistoryDateTime(movement.date, movement.createdAt))}</td>
+      <td><strong>${escapeHtml(movement.lotNumber || "-")}</strong><small>${escapeHtml(movement.jobNumber || "-")} / ${escapeHtml(movement.billNo || "Bill")}</small></td>
+      <td class="department-oneline-cell">${transferDirectionCell(movement.departmentDetail || movement.department || "Billing", "from")}</td>
+      <td class="department-oneline-cell">${transferDirectionCell(movement.counterparty || "Factory Out", "to")}</td>
+      <td>${gram(movement.issueGw)}</td>
+      <td>${gram(movement.receiveGw)}</td>
+      <td>-</td>
+      <td><small>Total stone</small>${gram(movement.stoneWeight)}</td>
+      <td>${gram(movement.nonGoldWeight)}</td>
+      <td>${gram(movement.netWeight)}</td>
+      <td>-</td>
+      <td>${escapeHtml(transferPurityLabel(movement.purity || lot.metalPurity || "-"))}</td>
+      <td>${gram(0)}</td>
+      <td class="remark-cell">${transferRemarkCell(movement.remarks)}</td>
+      <td>-</td>
+    </tr>
   `;
 }
 
