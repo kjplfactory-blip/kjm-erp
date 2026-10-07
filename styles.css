@@ -21263,3 +21263,29 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 @media (max-width: 720px) {
   .factory-rejected-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* v693 clearer department history tiles */
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile {
+  border-color: #8fc5e8;
+  background: linear-gradient(180deg, #f8fdff 0%, #dceffa 100%);
+  color: #113954;
+  box-shadow: 0 8px 20px rgba(25, 105, 151, 0.12);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile:hover,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile:focus-visible {
+  border-color: #55a8d8;
+  background: linear-gradient(180deg, #effaff 0%, #cae8f8 100%);
+  box-shadow: 0 12px 26px rgba(25, 105, 151, 0.18);
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile small {
+  border: 1px solid rgba(85, 168, 216, 0.25);
+  background: rgba(255, 255, 255, 0.78);
+  color: #315d72;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile strong,
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode):not(.printing-catalogue) .department-transfer-tile b {
+  color: #075f8d;
+}

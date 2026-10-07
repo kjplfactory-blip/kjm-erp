@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v692";
+const APP_VERSION = "v693";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3584,7 +3584,38 @@ function normalizeStateForRuntime(currentState = {}) {
     normalized = normalizeLoadedState(currentState);
   }
   reconcilePostedBillNonGoldShelfConsumption(normalized);
-  return reconcileBillLotLinks(normalized);
+  reconcileBillLotLinks(normalized);
+  reconcileActiveLotCurrentDepartmentsV693(normalized);
+  return normalized;
+}
+
+function reconcileActiveLotCurrentDepartmentsV693(currentState = {}) {
+  const repaired = [];
+  (currentState.lots || []).forEach((lot) => {
+    if (!lot || lot.status === "Completed" || lot.mergedIntoLotId || isReferenceOnlyBillLot(lot)) return;
+    const latest = (lot.transfers || []).at(-1);
+    if (!latest) return;
+    const nextKarigarId = latest.toKarigarId || lot.karigarId || "";
+    const nextKarigarName = latest.toKarigarName || lot.karigarName || "";
+    const nextDepartment = mergedProductionDepartmentName(
+      latest.toDepartment || nextKarigarName,
+      nextKarigarName,
+    );
+    const changed = lot.karigarId !== nextKarigarId
+      || lot.karigarName !== nextKarigarName
+      || lot.currentDepartment !== nextDepartment;
+    if (!changed) return;
+    repaired.push({
+      lotId: lot.id || "",
+      lotNumber: lot.number || "",
+      fromDepartment: lot.currentDepartment || lot.karigarName || "",
+      toDepartment: nextDepartment,
+    });
+    lot.karigarId = nextKarigarId;
+    lot.karigarName = nextKarigarName;
+    lot.currentDepartment = nextDepartment;
+  });
+  return repaired;
 }
 
 function applyManualWipCombinedBillAllocation(lot = {}, items = [], billNo = "") {
@@ -7978,6 +8009,7 @@ async function loadIncrementalSupabaseState(options = {}) {
     ? applyPendingSyncMutationsToCloud(incoming, pendingSyncMutations)
     : incoming;
   reconcileBillLotLinks(state);
+  reconcileActiveLotCurrentDepartmentsV693(state);
   invalidateUniversalSearchIndex();
   stampCurrentAppVersion(state);
   const stateBeforeLedgerRepair = structuredClone(state);
@@ -26677,13 +26709,22 @@ function activeProductionOpeningNonGoldBreakdown(lot = {}) {
     Number(lotSafeIssuedWaxStoneWeight(lot) || 0),
     Number(transferWaxStoneWeight(lot) || 0),
   );
+  const receivedSettingHandStone = receivedSettingHandStoneWeightForLot(lot);
   return normalizeNonGoldBreakdown({
     stone: Number(weight3(
       Math.max(waxStoneWeight, 0)
-      + Math.max(Number(currentHandStoneWeight(lot) || 0), 0)
+      + Math.max(Number(currentHandStoneWeight(lot) || 0), receivedSettingHandStone, 0)
     )),
     other: Number(weight3(Math.max(currentTransferProvisionalNonGold(lot), 0))),
   });
+}
+
+function receivedSettingHandStoneWeightForLot(lot = {}, sourceState = state) {
+  const entries = (sourceState.settingManagerEntries || [])
+    .filter((entry) => entry.entryType !== "Accessory" && entry.lotId === lot.id && entry.status === "Received")
+    .sort((left, right) => transferHistoryTime(right.updatedAt || right.createdAt, right.receiveDate || right.closeDate)
+      - transferHistoryTime(left.updatedAt || left.createdAt, left.receiveDate || left.closeDate));
+  return Number(weight3(Math.max(Number(entries[0]?.handStoneWeight || 0), 0)));
 }
 
 function activeProductionNonGoldDemandLine(lot = {}) {
@@ -32623,28 +32664,13 @@ function renderDepartmentMetal() {
       return scoreDiff || a[0].localeCompare(b[0]);
     })
     .map(([department, totals]) => {
-      const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
       const reconciliation = reconciliationMap.get(departmentTextKey(department)) || {};
-      const issueReceiveDifference = Number(weight3(totals.gross || 0));
-      const netWeightDifference = Number(weight3(totals.gold || 0));
-      const nonGoldHolding = Number(weight3(
-        Number(totals.waxStone || 0)
-        + Number(totals.handStone || 0)
-        + Number(totals.nonGold || 0)
-      ));
-      const fineGoldHolding = Number(weight3(Number(totals.fineGold || 0) + Number(totals.lossFineGold || 0)));
+      const transferSummary = transferSummaries.get(departmentTextKey(department)) || {};
       return `
       <article class="department-card ${departmentHasHolding(totals) ? "" : "empty-department-card"} ${reconciliation.needsCheck ? "department-card-check-required" : ""}" tabindex="0">
         <span>${escapeHtml(department)}</span>
-        <small class="department-holding-label">GW Diff (Issue - Receive)</small>
+        <small class="department-holding-label">Current GW Holding</small>
         <strong>${gram(totals.gross)}</strong>
-        <div class="department-card-summary">
-          <small><b>Net Wt Diff</b>${gram(netWeightDifference)}</small>
-          <small title="Wax stone + hand stone + moti, black beads, spring and other non-gold"><b>Non-Gold Holding</b>${gram(nonGoldHolding)}</small>
-          <small class="department-fine-holding"><b>Fine Gold Holding</b>${gram(fineGoldHolding)}</small>
-          <small class="transfer-difference" title="Transfer History: issued to department minus received from department"><b>History GW Diff</b>${gram(reconciliation.ledgerGw ?? issueReceiveDifference)}</small>
-        </div>
-        ${reconciliation.needsCheck ? `<div class="department-reconciliation-flag" title="${escapeHtml(reconciliation.reason)}">History variance ${signedFineGram(reconciliation.variance)}</div>` : ""}
         <div class="department-hover-popup" role="tooltip">
           <div class="department-popup-heading">
             <strong>${escapeHtml(department)}</strong>
@@ -32827,7 +32853,16 @@ function departmentMetalInHand() {
     });
 
     if (factoryStockHoldingLot(lot)) {
-      addDepartmentWeight(departments, dashboardDepartmentNameFromId(lot.karigarId) || lot.karigarName || lot.currentDepartment || "Unassigned", departmentCurrentLotTotals(lot));
+      const latestTransfer = (lot.transfers || []).at(-1);
+      const currentDepartmentId = latestTransfer?.toKarigarId || lot.karigarId || "";
+      const currentDepartmentName = latestTransfer
+        ? mergedProductionDepartmentName(latestTransfer.toDepartment || latestTransfer.toKarigarName, latestTransfer.toKarigarName)
+        : lot.currentDepartment || lot.karigarName;
+      addDepartmentWeight(
+        departments,
+        dashboardDepartmentNameFromId(currentDepartmentId) || currentDepartmentName || lot.karigarName || "Unassigned",
+        departmentCurrentLotTotals(lot),
+      );
     }
   });
   productionNonGoldDirectDepartmentBalances().forEach((entry) => {
@@ -35225,6 +35260,19 @@ function recordNonGoldAuditEvent(entry = {}) {
     userName: currentUser?.name || "",
     ...entry,
   });
+  const duplicate = normalized.sourceId && state.nonGoldAuditEvents.find((saved) => {
+    const existing = normalizeNonGoldAuditEvent(saved);
+    return existing.sourceType === normalized.sourceType
+      && existing.sourceId === normalized.sourceId
+      && existing.action === normalized.action
+      && existing.direction === normalized.direction
+      && existing.materialType === normalized.materialType
+      && existing.lotId === normalized.lotId
+      && existing.fromLocation === normalized.fromLocation
+      && existing.toLocation === normalized.toLocation
+      && Math.abs(existing.weight - normalized.weight) < 0.0005;
+  });
+  if (duplicate) return duplicate;
   state.nonGoldAuditEvents.unshift(normalized);
   state.nonGoldAuditEvents = state.nonGoldAuditEvents.slice(0, 10000);
   return normalized;
@@ -46431,8 +46479,13 @@ function fineSheetChangeRows(previousRows = [], currentRows = []) {
     const currentEffect = Number(weight3(after.effect || 0));
     const delta = Number(weight3(currentEffect - previousEffect));
     const location = after.location || before.location || "-";
+    const nonGoldChange = Number(weight3(Number(after.nonGold || 0) - Number(before.nonGold || 0)));
     let reason = "No fine-gold change.";
-    if (source === "Party Adjustment") {
+    if (/central non-gold/i.test(location) && Math.abs(nonGoldChange) > 0.0005) {
+      reason = nonGoldChange > 0
+        ? `${gram(nonGoldChange)} non-gold entered the central factory register; its karat fine equivalent reduced Net Factory Fine.`
+        : `${gram(Math.abs(nonGoldChange))} non-gold left the central factory register; its karat fine equivalent increased Net Factory Fine.`;
+    } else if (source === "Party Adjustment") {
       reason = delta > 0
         ? "Party adjustment increased net factory fine: payable reduced or receivable increased."
         : "Party adjustment reduced net factory fine: payable increased or receivable reduced.";
