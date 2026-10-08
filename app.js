@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v696";
+const APP_VERSION = "v697";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4566,7 +4566,9 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
   const grossReceivedWeight = Number(data.grossReceivedWeight);
   const stoneWeight = Number(data.stoneWeight || 0);
   const waxStoneWeight = Number(data.waxStoneWeight || transferWaxStoneWeight(lot));
-  const provisionalNonGoldBefore = transferProvisionalNonGoldBefore(lot, data.transferId);
+  const provisionalNonGoldBeforeBreakdown = transferProvisionalNonGoldBreakdownBefore(lot, data.transferId);
+  const provisionalNonGoldBefore = Number(weight3(nonGoldBreakdownTotal(provisionalNonGoldBeforeBreakdown)));
+  const nonGoldAddedBreakdown = transferFittingNonGoldBreakdownFromForm(event.target);
   const provisionalNonGoldAddedWeight = transferNonGoldAddedNow(
     lot,
     transferWeight,
@@ -4574,8 +4576,10 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     stoneWeight,
     data.transferId,
     data.fromDepartment,
+    nonGoldAddedBreakdown,
   );
-  const provisionalNonGoldWeight = Number(weight3(provisionalNonGoldBefore + provisionalNonGoldAddedWeight));
+  const provisionalNonGoldBreakdown = addNonGoldBreakdowns(provisionalNonGoldBeforeBreakdown, nonGoldAddedBreakdown);
+  const provisionalNonGoldWeight = Number(weight3(nonGoldBreakdownTotal(provisionalNonGoldBreakdown)));
   const reducedWeight = Number(weight3(waxStoneWeight + stoneWeight + provisionalNonGoldWeight));
   if (stoneWeight < 0 || waxStoneWeight < 0 || reducedWeight > grossReceivedWeight) {
     alert("Wax stone, hand stone, and other non-gold cannot be more than receive gross weight.");
@@ -4631,6 +4635,8 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     handStoneWeight: stoneWeight,
     provisionalNonGoldWeight,
     provisionalNonGoldAddedWeight,
+    nonGoldAddedBreakdown,
+    provisionalNonGoldBreakdown,
     reducedWeight,
     receivedWeight,
     departmentBalance,
@@ -4660,6 +4666,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     lot.transfers.push(transferData);
   }
   rewireLotTransferChain(lot);
+  syncFittingTransferNonGoldShelfEntries(lot, editingTransfer || transferData);
   if (editingTransfer) recordTransferHistoryEdit(lot, transferBeforeEdit, editingTransfer);
   recalculateLotAfterTransferChange(lot);
   state.ledger.unshift({
@@ -4669,7 +4676,7 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     type: editingTransfer ? "Transfer Edit" : "Transfer",
     purity: "-",
     weight: grossReceivedWeight,
-    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, other non-gold ${gram(provisionalNonGoldWeight)}, item net wt ${gram(receivedWeight)}, department ${balanceCalculation.mode === "setting-net-receive" ? "setting metal" : "GW"} balance ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
+    reference: `${lot.number} ${editingTransfer ? "edited" : "issued"} GW ${gram(transferWeight)}, receive GW ${gram(grossReceivedWeight)}, wax stone ${gram(waxStoneWeight)}, hand stone ${gram(stoneWeight)}, non-gold ${nonGoldBreakdownText(provisionalNonGoldBreakdown) || gram(provisionalNonGoldWeight)}, item net wt ${gram(receivedWeight)}, department ${balanceCalculation.mode === "setting-net-receive" ? "setting metal" : "GW"} balance ${gram(departmentBalance)} @ ${transferPurityLabel(differencePurity)}, fine ${gram(differenceFineGold)} in ${data.fromDepartment}`,
     sourceType: editingTransfer ? "transfer-edit" : "transfer",
     sourceId: transferData.id,
     userId: currentUser?.id || "",
@@ -4702,8 +4709,10 @@ document.getElementById("cancel-transfer").addEventListener("click", () => {
 document.getElementById("transfer-form").addEventListener("input", (event) => {
   if (event.target.name === "fromDepartment") {
     applyProductionStoneWeightToTransfer();
+    renderTransferFittingNonGoldPanel(event.currentTarget);
   }
-  if (["transferWeight", "grossReceivedWeight", "stoneWeight"].includes(event.target.name)) {
+  if (["transferWeight", "grossReceivedWeight", "stoneWeight", ...Object.values(TRANSFER_FITTING_NON_GOLD_FIELDS)].includes(event.target.name)) {
+    renderTransferFittingNonGoldPanel(event.currentTarget);
     updateTransferBalance();
   }
 });
@@ -26426,6 +26435,7 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     purity,
     karat: issue.karat || safeLockerForPurity(purity),
     sourceType: openingStockTransfer ? "opening-non-gold-transfer" : sourceType,
+    sourceTransferId: issue.sourceTransferId || "",
     sourceSafeItemId: issue.sourceSafeItemId || "",
     auditEventId: issue.auditEventId || "",
     safeDepartmentIssueId: issue.safeDepartmentIssueId || "",
@@ -26746,6 +26756,11 @@ function legacyLotNonGoldEntries() {
 
 function productionNonGoldIssueInDepartment(issue = {}) {
   if (isMainStockNonGoldRemoval(issue)) return false;
+  if (issue.sourceType === "fitting-transfer-non-gold" && issue.lotId) {
+    const lot = findById("lots", issue.lotId);
+    const bill = lot?.bill || (state.bills || []).find((item) => item.lotId === issue.lotId);
+    return Boolean(lot && !isBillFactoryOutPosted(bill || {}));
+  }
   if (issue.safeDepartmentIssueId) {
     const rawIssue = (state.safeDepartmentIssues || []).find((entry) => entry.id === issue.safeDepartmentIssueId);
     if (!rawIssue) return false;
@@ -26848,13 +26863,19 @@ function activeProductionOpeningNonGoldBreakdown(lot = {}) {
     Number(transferWaxStoneWeight(lot) || 0),
   );
   const receivedSettingHandStone = receivedSettingHandStoneWeightForLot(lot);
-  return normalizeNonGoldBreakdown({
+  const transferBreakdown = currentTransferProvisionalNonGoldBreakdown(lot);
+  const fittingShelfBreakdown = (state.productionNonGoldIssues || [])
+    .filter((issue) => issue.lotId === lot.id && issue.sourceType === "fitting-transfer-non-gold")
+    .reduce((breakdown, issue) => addNonGoldBreakdowns(breakdown, {
+      [normalizeNonGoldControlMaterial(issue.materialType)]: Math.max(Number(issue.weight || 0), 0),
+    }), {});
+  const legacyTransferBreakdown = subtractNonGoldBreakdown(transferBreakdown, fittingShelfBreakdown);
+  return addNonGoldBreakdowns(normalizeNonGoldBreakdown({
     stone: Number(weight3(
       Math.max(waxStoneWeight, 0)
       + Math.max(Number(currentHandStoneWeight(lot) || 0), receivedSettingHandStone, 0)
     )),
-    other: Number(weight3(Math.max(currentTransferProvisionalNonGold(lot), 0))),
-  });
+  }), legacyTransferBreakdown);
 }
 
 function receivedSettingHandStoneWeightForLot(lot = {}, sourceState = state) {
@@ -27448,6 +27469,7 @@ function openTransferLot(lotId) {
   form.receivedWeight.value = weight3(Math.max(issueWeight + handStoneAddedNow - waxStoneWeight - handStoneWeight - provisionalNonGoldWeight, 0));
   form.departmentBalance.value = weight3(0);
   form.fromDepartment.value = lot.currentDepartment || lot.karigarName;
+  setTransferFittingNonGoldBreakdown(form, {});
   form.toDepartment.value = "";
   form.reason.value = "";
   const handStoneSource = plannedHandStoneWeightForLot(lot) > 0 ? "job card" : "manual setting entry";
@@ -27502,6 +27524,7 @@ function openTransferEdit(lotId, transferId) {
   });
   form.departmentBalance.value = weight3(balanceCalculation?.balance ?? Number(transfer.transferWeight || 0) - Number(transfer.grossReceivedWeight || 0));
   form.fromDepartment.value = transfer.fromDepartment || "";
+  setTransferFittingNonGoldBreakdown(form, transferNonGoldAddedBreakdown(transfer));
   form.reason.value = transfer.reason || "";
   setTransferCurrentNote(`
     <span><b>Owner / Manager correction:</b> edit Issue GW or Receive GW for ${escapeHtml(lot.number)}. Original date and time will remain unchanged.</span>
@@ -27622,7 +27645,7 @@ function lotTransferUndoBlockReason(lot = {}, transfer = {}) {
   );
   if (laterSafeIssue) return "A Safe Locker or non-gold issue depends on this transfer. Undo that later issue first.";
   const laterNonGold = (state.productionNonGoldIssues || []).find((entry) =>
-    entry.lotId === lot.id && onlineUndoRecordIsAfter(entry, transfer)
+    entry.lotId === lot.id && entry.sourceTransferId !== transfer.id && onlineUndoRecordIsAfter(entry, transfer)
   );
   if (laterNonGold) return "A later production non-gold entry depends on this transfer. Correct that entry first.";
   const laterSetting = (state.settingManagerEntries || []).find((entry) =>
@@ -27687,6 +27710,7 @@ function rewireLotTransferChain(lot = {}) {
     currentKarigarName = transfer.toKarigarName || currentKarigarName;
     currentDepartment = mergedProductionDepartmentName(transfer.toDepartment || currentKarigarName, currentKarigarName);
   });
+  recalculateCumulativeTransferNonGold(lot);
 }
 
 function undoOnlineLotTransfer(lotId, transferId) {
@@ -27708,6 +27732,7 @@ function undoOnlineLotTransfer(lotId, transferId) {
     : "The remaining transfer chain and current department will be recalculated.";
   if (!confirm(`Delete this transfer entry?\n\n${lot.number}: ${transferLabel}\nGW ${gram(transfer.transferWeight)} / Receive GW ${gram(transfer.grossReceivedWeight)}\n\n${effectText}\nGW, stone, non-gold, and net weight will be restored from the previous movement. This deletion stays in the audit history.`)) return;
   const stateBefore = structuredClone(state);
+  removeFittingTransferNonGoldShelfEntries(transferId);
   lot.transfers = (lot.transfers || []).filter((item) => item.id !== transferId);
   rewireLotTransferChain(lot);
   recalculateLotAfterTransferChange(lot);
@@ -28657,6 +28682,150 @@ function currentTransferProvisionalNonGold(lot = {}) {
   return transferProvisionalNonGoldBefore(lot);
 }
 
+const TRANSFER_FITTING_NON_GOLD_FIELDS = Object.freeze({
+  stone: "fittingNonGoldStoneWeight",
+  "black-beads": "fittingNonGoldBlackBeadsWeight",
+  moti: "fittingNonGoldMotiWeight",
+  spring: "fittingNonGoldSpringWeight",
+  other: "fittingNonGoldOtherWeight",
+});
+
+function transferFittingNonGoldBreakdownFromForm(form = document.getElementById("transfer-form")) {
+  if (!form || !isFittingNonGoldTransferSource(form.fromDepartment?.value || "")) return {};
+  return normalizeNonGoldControlBreakdown(Object.entries(TRANSFER_FITTING_NON_GOLD_FIELDS).reduce((breakdown, [materialType, fieldName]) => {
+    const weight = Math.max(Number(form.elements[fieldName]?.value || 0), 0);
+    if (weight > 0) breakdown[materialType] = Number(weight3(weight));
+    return breakdown;
+  }, {}));
+}
+
+function transferNonGoldAddedBreakdown(transfer = {}) {
+  const exact = normalizeNonGoldControlBreakdown(transfer.nonGoldAddedBreakdown || transfer.fittingNonGoldAddedBreakdown || {});
+  if (nonGoldBreakdownTotal(exact) > 0) return exact;
+  const legacyWeight = Number(weight3(Math.max(Number(transfer.provisionalNonGoldAddedWeight || 0), 0)));
+  return legacyWeight > 0 ? { other: legacyWeight } : {};
+}
+
+function transferProvisionalNonGoldBreakdownBefore(lot = {}, beforeTransferId = "") {
+  const transfers = lot.transfers || [];
+  const transferIndex = beforeTransferId ? transfers.findIndex((transfer) => transfer.id === beforeTransferId) : -1;
+  const priorTransfers = transferIndex >= 0 ? transfers.slice(0, transferIndex) : transfers;
+  return priorTransfers.reduce((carried, transfer) => {
+    const saved = normalizeNonGoldControlBreakdown(transfer.provisionalNonGoldBreakdown || {});
+    return nonGoldBreakdownTotal(saved) > 0
+      ? saved
+      : addNonGoldBreakdowns(carried, transferNonGoldAddedBreakdown(transfer));
+  }, {});
+}
+
+function currentTransferProvisionalNonGoldBreakdown(lot = {}) {
+  const exact = transferProvisionalNonGoldBreakdownBefore(lot);
+  if (nonGoldBreakdownTotal(exact) > 0) return exact;
+  const legacyWeight = currentTransferProvisionalNonGold(lot);
+  return legacyWeight > 0 ? { other: legacyWeight } : {};
+}
+
+function setTransferFittingNonGoldBreakdown(form = document.getElementById("transfer-form"), breakdown = {}) {
+  if (!form) return;
+  const normalized = normalizeNonGoldControlBreakdown(breakdown);
+  Object.entries(TRANSFER_FITTING_NON_GOLD_FIELDS).forEach(([materialType, fieldName]) => {
+    if (form.elements[fieldName]) form.elements[fieldName].value = weight3(normalized[materialType] || 0);
+  });
+  renderTransferFittingNonGoldPanel(form);
+}
+
+function renderTransferFittingNonGoldPanel(form = document.getElementById("transfer-form")) {
+  const panel = document.getElementById("transfer-fitting-non-gold");
+  if (!form || !panel) return;
+  const visible = isFittingNonGoldTransferSource(form.fromDepartment?.value || "");
+  panel.classList.toggle("hidden", !visible);
+  const breakdown = visible ? transferFittingNonGoldBreakdownFromForm(form) : {};
+  const total = Number(weight3(nonGoldBreakdownTotal(breakdown)));
+  const totalOutput = document.getElementById("transfer-fitting-non-gold-total");
+  if (totalOutput) totalOutput.textContent = gram(total);
+  const summary = document.getElementById("transfer-fitting-non-gold-summary");
+  if (summary) {
+    summary.innerHTML = total > 0
+      ? `<strong>Add to this lot and Central Non-Gold Shelf:</strong> ${escapeHtml(nonGoldBreakdownText(breakdown) || "-")} / Total ${gram(total)}. Receive GW must include this material.`
+      : "No new non-gold selected. Receive GW must include every material physically embedded in the lot.";
+  }
+}
+
+function recalculateCumulativeTransferNonGold(lot = {}) {
+  let cumulative = {};
+  (lot.transfers || []).forEach((transfer) => {
+    const added = transferNonGoldAddedBreakdown(transfer);
+    cumulative = addNonGoldBreakdowns(cumulative, added);
+    transfer.nonGoldAddedBreakdown = added;
+    transfer.provisionalNonGoldAddedWeight = Number(weight3(nonGoldBreakdownTotal(added)));
+    transfer.provisionalNonGoldBreakdown = normalizeNonGoldControlBreakdown(cumulative);
+    transfer.provisionalNonGoldWeight = Number(weight3(nonGoldBreakdownTotal(cumulative)));
+  });
+  return cumulative;
+}
+
+function fittingTransferNonGoldIssueId(transferId = "", materialType = "other") {
+  return `fitting-transfer-non-gold-${transferId}-${normalizeNonGoldControlMaterial(materialType)}`;
+}
+
+function removeFittingTransferNonGoldShelfEntries(transferId = "") {
+  if (!transferId) return;
+  const ids = new Set((state.productionNonGoldIssues || [])
+    .filter((issue) => issue.sourceTransferId === transferId || String(issue.id || "").startsWith(`fitting-transfer-non-gold-${transferId}-`))
+    .map((issue) => issue.id));
+  state.productionNonGoldIssues = (state.productionNonGoldIssues || []).filter((issue) => !ids.has(issue.id));
+  state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) => !ids.has(entry.sourceId));
+}
+
+function syncFittingTransferNonGoldShelfEntries(lot = {}, transfer = {}) {
+  removeFittingTransferNonGoldShelfEntries(transfer.id);
+  const breakdown = transferNonGoldAddedBreakdown(transfer);
+  if (!isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName) || nonGoldBreakdownTotal(breakdown) <= 0) return [];
+  const purity = transferPurityLabel(karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"));
+  const createdAt = transfer.createdAt || new Date().toISOString();
+  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+  return Object.entries(breakdown).map(([materialType, weight]) => {
+    const issue = normalizeProductionNonGoldIssue({
+      id: fittingTransferNonGoldIssueId(transfer.id, materialType),
+      date: transfer.date || today(),
+      createdAt,
+      movementType: "issue",
+      materialType,
+      weight,
+      purity,
+      lotId: lot.id || "",
+      lotNumber: lot.number || "",
+      jobNumber: lot.orderNumber || "",
+      departmentId: transfer.fromKarigarId || lot.karigarId || "",
+      department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
+      sourceType: "fitting-transfer-non-gold",
+      sourceTransferId: transfer.id,
+      openingStockTransfer: false,
+      embeddedInOpeningGw: false,
+      remarks: `Embedded in ${lot.number || "lot"} during Fitting transfer`,
+    }, lot);
+    state.productionNonGoldIssues.unshift(issue);
+    const audit = recordNonGoldAuditEvent({
+      action: "Added In Fitting",
+      materialType,
+      weight,
+      purity,
+      fromLocation: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
+      toLocation: `Central Non-Gold Shelf / ${lot.number || "Lot"}`,
+      department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
+      lotId: lot.id || "",
+      lotNumber: lot.number || "",
+      jobNumber: lot.orderNumber || "",
+      status: "Embedded In Lot",
+      reference: `${lot.orderNumber || "Job Card"} / ${transfer.reason || "Fitting transfer"}`,
+      sourceType: "fitting-transfer-non-gold",
+      sourceId: issue.id,
+    });
+    issue.auditEventId = audit.id;
+    return issue;
+  });
+}
+
 function productionNonGoldTransferPoolKey(department = "", purity = "") {
   return `${departmentTextKey(departmentTransferMasterGroupName(department, department))}|${karatPurityKey(purity) || transferPurityLabel(karatLogicPurity(purity || "18K"))}`;
 }
@@ -28691,8 +28860,11 @@ function availableTransferNonGoldWeight(lot = {}, fromDepartment = "", excludeTr
   )));
 }
 
-function transferNonGoldAddedNow(lot = {}, transferWeight = 0, grossReceivedWeight = 0, handStoneWeight = 0, beforeTransferId = "", fromDepartment = "") {
+function transferNonGoldAddedNow(lot = {}, transferWeight = 0, grossReceivedWeight = 0, handStoneWeight = 0, beforeTransferId = "", fromDepartment = "", enteredBreakdown = null) {
   if (!isFittingNonGoldTransferSource(fromDepartment)) return 0;
+  if (enteredBreakdown && typeof enteredBreakdown === "object") {
+    return Number(weight3(nonGoldBreakdownTotal(normalizeNonGoldControlBreakdown(enteredBreakdown))));
+  }
   const existingHandStone = currentHandStoneWeight(lot, beforeTransferId);
   const handStoneAddedNow = Math.max(Number(handStoneWeight || 0) - existingHandStone, 0);
   const unexplainedIncrease = Number(weight3(Math.max(Number(grossReceivedWeight || 0) - Number(transferWeight || 0) - handStoneAddedNow, 0)));
@@ -49984,6 +50156,14 @@ function transferReducedWeight(transfer) {
   ));
 }
 
+function transferNonGoldHistoryHtml(transfer = {}) {
+  const breakdown = normalizeNonGoldControlBreakdown(transfer.provisionalNonGoldBreakdown || {});
+  const weight = Number(weight3(transfer.provisionalNonGoldWeight || nonGoldBreakdownTotal(breakdown)));
+  if (weight <= 0) return "";
+  const detail = nonGoldBreakdownText(breakdown) || `Other ${gram(weight)}`;
+  return `<small>${escapeHtml(detail)}</small>`;
+}
+
 function transferFineGold(transfer, lot = null) {
   const lotPurity = lot ? (lot.metalPurity || getLotOrders(lot)[0]?.purity || 0) : 0;
   return fineGoldWeight(transfer.departmentBalance, karatLogicPurity(transfer.differencePurity || lotPurity));
@@ -50017,7 +50197,7 @@ function renderTransferHistoryRow(entry) {
         <td>${gram(transfer.transferWeight)}</td>
         <td>${gram(transfer.grossReceivedWeight)}</td>
         <td>${gram(transfer.waxStoneWeight)}</td>
-        <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
+        <td>${gram(transfer.stoneWeight)}${transferNonGoldHistoryHtml(transfer)}</td>
         <td>${gram(transferReducedWeight(transfer))}</td>
         <td>${gram(transfer.receivedWeight)}</td>
         <td>-</td>
@@ -50043,7 +50223,7 @@ function renderTransferHistoryRow(entry) {
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
-      <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
+      <td>${gram(transfer.stoneWeight)}${transferNonGoldHistoryHtml(transfer)}</td>
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
@@ -50308,7 +50488,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
       <td>${gram(transfer.transferWeight)}</td>
       <td>${gram(transfer.grossReceivedWeight)}</td>
       <td>${gram(transfer.waxStoneWeight)}</td>
-      <td>${gram(transfer.stoneWeight)}${Number(transfer.provisionalNonGoldWeight || 0) ? `<small>Other ${gram(transfer.provisionalNonGoldWeight)}</small>` : ""}</td>
+      <td>${gram(transfer.stoneWeight)}${transferNonGoldHistoryHtml(transfer)}</td>
       <td>${gram(transferReducedWeight(transfer))}</td>
       <td>${gram(transfer.receivedWeight)}</td>
       <td>${gram(transfer.departmentBalance)}</td>
@@ -50322,7 +50502,7 @@ function renderHistoryTableRow(transfer, step, lotId) {
 
 function transferTitle(transfers) {
   return transfers
-    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, other non-gold ${gram(transfer.provisionalNonGoldWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
+    .map((transfer) => `${transfer.date}: issue GW ${gram(transfer.transferWeight)}, receive GW ${gram(transfer.grossReceivedWeight)}, wax stone ${gram(transfer.waxStoneWeight)}, hand stone ${gram(transfer.stoneWeight)}, non-gold ${nonGoldBreakdownText(transfer.provisionalNonGoldBreakdown || {}) || gram(transfer.provisionalNonGoldWeight)}, reduced ${gram(transferReducedWeight(transfer))}, net wt ${gram(transfer.receivedWeight)}, difference ${gram(transfer.departmentBalance)} in ${transfer.balanceDepartment || transfer.fromDepartment || "-"}; ${transfer.fromKarigarName} (${transfer.fromDepartment || "-"}) to ${transfer.toKarigarName} (${transfer.toDepartment || "-"}) - ${transfer.reason}`)
     .join("\n");
 }
 
@@ -50333,9 +50513,10 @@ function updateTransferBalance() {
   const waxStone = Number(form.waxStoneWeight.value || 0);
   const handStone = Number(form.stoneWeight.value || 0);
   const lot = findById("lots", form.lotId.value);
-  const provisionalBefore = transferProvisionalNonGoldBefore(lot, form.transferId.value);
-  const provisionalAdded = transferNonGoldAddedNow(lot, issued, grossReceived, handStone, form.transferId.value, form.fromDepartment.value);
-  const provisionalNonGold = Number(weight3(provisionalBefore + provisionalAdded));
+  const provisionalBeforeBreakdown = transferProvisionalNonGoldBreakdownBefore(lot, form.transferId.value);
+  const enteredBreakdown = transferFittingNonGoldBreakdownFromForm(form);
+  const provisionalAdded = transferNonGoldAddedNow(lot, issued, grossReceived, handStone, form.transferId.value, form.fromDepartment.value, enteredBreakdown);
+  const provisionalNonGold = Number(weight3(nonGoldBreakdownTotal(addNonGoldBreakdowns(provisionalBeforeBreakdown, enteredBreakdown))));
   if (form.provisionalNonGoldWeight) form.provisionalNonGoldWeight.value = weight3(provisionalNonGold);
   if (form.provisionalNonGoldAddedWeight) form.provisionalNonGoldAddedWeight.value = weight3(provisionalAdded);
   const reducedWeight = waxStone + handStone + provisionalNonGold;

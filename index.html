@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-      <link rel="stylesheet" href="styles.css?v=696.1">
+      <link rel="stylesheet" href="styles.css?v=697.1">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-      <small class="app-version-badge">App v696</small>
+      <small class="app-version-badge">App v697</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v696</span>
+          <span class="app-version-badge">App v697</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2911,6 +2911,24 @@
         <input type="hidden" name="transferId">
         <input type="hidden" name="provisionalNonGoldAddedWeight" value="0">
         <p id="transfer-current" class="dialog-note"></p>
+        <label>From Department <input name="fromDepartment" placeholder="Filing, EP, Pre-Final Polish, Fitting" required></label>
+        <section id="transfer-fitting-non-gold" class="transfer-fitting-non-gold hidden">
+          <div class="transfer-fitting-non-gold-heading">
+            <div>
+              <h3>Non-Gold Added In Fitting</h3>
+              <p>Select every non-gold material embedded in this lot while it was in Fitting.</p>
+            </div>
+            <strong id="transfer-fitting-non-gold-total">0.000 g</strong>
+          </div>
+          <div class="transfer-fitting-non-gold-grid">
+            <label>Stone (g) <input name="fittingNonGoldStoneWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+            <label>Black Beads (g) <input name="fittingNonGoldBlackBeadsWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+            <label>Moti (g) <input name="fittingNonGoldMotiWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+            <label>Spring (g) <input name="fittingNonGoldSpringWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+            <label>Other (g) <input name="fittingNonGoldOtherWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+          </div>
+          <p id="transfer-fitting-non-gold-summary" class="dialog-note">No new non-gold selected. Receive GW must include every material physically embedded in the lot.</p>
+        </section>
         <label>New Department <select name="karigarId" required></select></label>
         <div class="transfer-entry-table">
           <table>
@@ -2939,10 +2957,9 @@
               </tr>
             </tbody>
           </table>
-          <p class="dialog-note">For a new transfer, Issue GW is automatic. Owner or Manager can use Edit in Transfer History to correct Issue GW or Receive GW. Wax and hand stone follow the Job Card. When Fitting increases GW, the available cumulative Black Beads, Moti, Spring or Other non-gold pool is carried automatically as Other Non-Gold, so it is not treated as gold.</p>
+          <p class="dialog-note">For a new transfer, Issue GW is automatic. Owner or Manager can use Edit in Transfer History to correct Issue GW or Receive GW. Wax and hand stone follow the Job Card. Non-gold entered in Fitting is attached to this lot and registered once in the Central Non-Gold Shelf; later department movement remains entirely in GW.</p>
           <p id="transfer-non-gold-pool-status" class="dialog-note transfer-non-gold-pool-status"></p>
         </div>
-        <label>From Department <input name="fromDepartment" placeholder="Filing, EP, Pre-Final Polish, Fitting" required></label>
         <label>Process In New Department <select name="toDepartment" required></select></label>
         <label>Reason / Remarks <input name="reason" placeholder="Next process, repair, balance work" required></label>
         <div class="dialog-actions">
@@ -4011,13 +4028,13 @@
     <!-- OCR and camera-scanner libraries are loaded only when those tools are opened. -->
   <script src="qrcode.min.js?v=1.0.0-491"></script>
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
-  <script src="fine-integrity-v695.js?v=696"></script>
-  <script src="central-non-gold-shelf-v688.js?v=696"></script>
+  <script src="fine-integrity-v695.js?v=697"></script>
+  <script src="central-non-gold-shelf-v688.js?v=697"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
-    <script src="app.js?v=696.2"></script>
+    <script src="app.js?v=697.2"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
-    <script src="department-holdings-v615.js?v=696.3"></script>
+    <script src="department-holdings-v615.js?v=697.3"></script>
   <script src="setting-internal-bill-excel-v616.js?v=666"></script>
   <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
