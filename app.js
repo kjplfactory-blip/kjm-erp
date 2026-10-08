@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v698";
+const APP_VERSION = "v700";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -529,6 +529,7 @@ const demoState = {
   nonGoldAuditEvents: [],
   nonGoldControlVersion: 1,
   centralNonGoldShelfVersion: 2,
+  centralNonGoldFlowVersion: 1,
   settingSetters: [],
   settingManagerEntries: [],
   melting: [],
@@ -4509,6 +4510,23 @@ document.getElementById("production-stone-form").addEventListener("input", (even
   }
 });
 
+function openIssueGoldForJob(jobNumber = "") {
+  const normalizedJobNumber = String(jobNumber || "").trim();
+  if (!normalizedJobNumber) return false;
+  switchView("production");
+  switchProductionPage("issue");
+  const jobSelect = document.querySelector('#production-form select[name="jobNumber"]');
+  if (!jobSelect) return false;
+  const matchingOption = [...jobSelect.options].find((option) => option.value === normalizedJobNumber);
+  if (!matchingOption) return false;
+  jobSelect.value = normalizedJobNumber;
+  applyIssuePurityFromJob();
+  updateProductionCastingItemOptions();
+  updateIssueMetalSummary();
+  jobSelect.focus();
+  return true;
+}
+
 document.getElementById("issue-from-order").addEventListener("click", () => {
   if (isSettingManagerUser()) {
     alert("Setting Manager can edit only item stone details from this Job Card.");
@@ -4522,12 +4540,7 @@ document.getElementById("issue-from-order").addEventListener("click", () => {
     return;
   }
   document.getElementById("order-dialog").close();
-  switchView("production");
-  switchProductionPage("issue");
-  const jobSelect = document.querySelector('#production-form select[name="jobNumber"]');
-  if (order && jobSelect) jobSelect.value = order.jobNumber || order.productionNo || order.number;
-  applyIssuePurityFromJob();
-  updateIssueMetalSummary();
+  openIssueGoldForJob(order?.jobNumber || order?.productionNo || order?.number || "");
 });
 
 document.getElementById("transfer-form").addEventListener("submit", (event) => {
@@ -4656,6 +4669,16 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
       editCount: Number(editingTransfer.editCount || 0) + 1,
     } : {}),
   };
+  if (isSettingDepartment(transferData.fromDepartment || transferData.fromKarigarName)) {
+    transferData.settingHoldingBridge = globalThis.KJMCentralNonGoldFlowV699?.settingHoldingBridge({
+      from: transferData.fromDepartment || transferData.fromKarigarName || "Setting Department",
+      to: transferData.toDepartment || transferData.toKarigarName || "Next Department",
+      issueGw: transferData.transferWeight,
+      receiveGw: transferData.grossReceivedWeight,
+    }) || null;
+  } else {
+    transferData.settingHoldingBridge = null;
+  }
   if (editingTransfer) {
     Object.assign(editingTransfer, {
       ...transferData,
@@ -8751,6 +8774,85 @@ function reconcileManualCombinedBillsV696() {
   return { count, skipped, upgraded };
 }
 
+function migrateCentralNonGoldFlowV699(currentState = state) {
+  const upgraded = Number(currentState.centralNonGoldFlowVersion || 0) < 1;
+  if (!upgraded) return { count: 0, upgraded: false };
+  let count = 0;
+  (currentState.lots || []).forEach((lot) => {
+    (lot.transfers || []).forEach((transfer) => {
+      if (!isSettingDepartment(transfer.fromDepartment || transfer.fromKarigarName) || transfer.settingHoldingBridge?.posted) return;
+      transfer.settingHoldingBridge = globalThis.KJMCentralNonGoldFlowV699?.settingHoldingBridge({
+        from: transfer.fromDepartment || transfer.fromKarigarName || "Setting Department",
+        to: transfer.toDepartment || transfer.toKarigarName || "Next Department",
+        issueGw: transfer.transferWeight,
+        receiveGw: transfer.grossReceivedWeight,
+      }) || null;
+      if (transfer.settingHoldingBridge) count += 1;
+    });
+  });
+  currentState.centralNonGoldFlowVersion = 1;
+  currentState.centralNonGoldFlowV699At = currentState.centralNonGoldFlowV699At || new Date().toISOString();
+  return { count, upgraded };
+}
+
+function repairJob1694IncompleteSplitV700(currentState = state) {
+  if (!currentState || typeof currentState !== "object" || currentState.job1694SplitRepairV700At) {
+    return { count: 0, repaired: false, reason: "already-checked" };
+  }
+  const parentJobNumber = "JOB-1694";
+  const splitJobNumber = "JOB-1694-S1";
+  const splitLot = (currentState.lots || []).find((lot) => (
+    lot.number === "LOT-331"
+    && lot.orderNumber === splitJobNumber
+  ));
+  if (!splitLot) return { count: 0, repaired: false, reason: "split-lot-not-found" };
+
+  const linkedOrderIds = [...new Set([
+    ...(Array.isArray(splitLot.orderIds) ? splitLot.orderIds : []),
+    splitLot.orderId,
+  ].filter(Boolean))];
+  const linkedOrderIdSet = new Set(linkedOrderIds);
+  const linkedOrders = (currentState.orders || []).filter((order) => linkedOrderIdSet.has(order.id));
+  const mismatchedOrders = linkedOrders.filter((order) => order.jobNumber === parentJobNumber);
+  const unexpectedOrders = linkedOrders.filter((order) => ![parentJobNumber, splitJobNumber].includes(order.jobNumber));
+  if (linkedOrders.length !== 7 || !mismatchedOrders.length || unexpectedOrders.length) {
+    return { count: 0, repaired: false, reason: "split-membership-not-safe" };
+  }
+
+  const repairedAt = new Date().toISOString();
+  mismatchedOrders.forEach((order) => {
+    order.jobNumber = splitJobNumber;
+    order.splitFromJobNumber = parentJobNumber;
+    order.splitDate = order.splitDate || splitLot.issueDate || today();
+    order.urgent = true;
+    order.updatedAt = repairedAt;
+    order.lastSplitAt = repairedAt;
+    order.splitRepairVersion = "v700";
+  });
+  splitLot.orderId = linkedOrderIds[0] || splitLot.orderId || "";
+  splitLot.orderIds = linkedOrderIds;
+  splitLot.updatedAt = repairedAt;
+  splitLot.splitRepairVersion = "v700";
+  currentState.ledger = currentState.ledger || [];
+  currentState.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: repairedAt,
+    type: "Job Card Split Repair",
+    purity: splitLot.metalPurity || "18K",
+    weight: 0,
+    jobNumber: splitJobNumber,
+    lotId: splitLot.id || "",
+    lotNumber: splitLot.number || "LOT-331",
+    orderIds: linkedOrderIds,
+    productionNos: linkedOrders.map((order) => order.productionNo || order.number || "").filter(Boolean),
+    reference: `${splitJobNumber} repaired from incomplete ${parentJobNumber} split; ${linkedOrders.length} PR item(s) linked to ${splitLot.number || "LOT-331"}. Existing GW ${gram(splitLot.grossIssuedWeight || currentTransferIssueWeight(splitLot))}, wax stone ${gram(splitLot.waxStoneWeight || 0)}, hand stone ${gram(currentHandStoneWeight(splitLot))}, department, and history preserved without stock movement.`,
+  });
+  currentState.job1694SplitRepairV700At = repairedAt;
+  currentState.job1694SplitRepairV700OrderIds = linkedOrderIds;
+  return { count: mismatchedOrders.length, repaired: true, splitLot, linkedOrders };
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -8767,7 +8869,9 @@ function runPostCloudMigrations() {
     const reconciledSafeSources = reconcileSafeSourceBalancesV687();
     const reconciledDepartmentBalances = reconcileDepartmentTransferBalancesV688();
     const reconciledManualBills = reconcileManualCombinedBillsV696();
+    const reconciledCentralFlow = migrateCentralNonGoldFlowV699(state);
     const completedBilledOrders = reconcileBilledOrdersToCompletedV696(state);
+    const repairedJob1694Split = repairJob1694IncompleteSplitV700(state);
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8783,7 +8887,7 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
@@ -8791,9 +8895,13 @@ function runPostCloudMigrations() {
       if (reconciledSafeSources.count) changedStateKeys.push("safeItems", "ledger", "safeSourceLedgerReconciliationV687At", "safeSourceLedgerReconciliationV687Rows");
       if (reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded) changedStateKeys.push("lots", "ledger", "centralNonGoldShelfVersion", "centralNonGoldShelfV688At");
       if (reconciledManualBills.count || reconciledManualBills.upgraded) changedStateKeys.push("safeDepartmentIssues", "lots", "bills", "orders", "ledger", "manualCombinedBillingVersion", "manualCombinedBillingV696At");
+      if (reconciledCentralFlow.count || reconciledCentralFlow.upgraded) changedStateKeys.push("lots", "centralNonGoldFlowVersion", "centralNonGoldFlowV699At");
       if (completedBilledOrders.count || completedBilledOrders.upgraded) changedStateKeys.push("orders", "billedOrderCompletionVersion", "billedOrderCompletionV696At");
+      if (repairedJob1694Split.count) changedStateKeys.push("orders", "lots", "ledger", "job1694SplitRepairV700At", "job1694SplitRepairV700OrderIds");
       saveState({
-        context: reconciledBillNonGold
+        context: repairedJob1694Split.count
+          ? `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`
+          : (reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
           : (correctedOpeningNonGold
               ? "Confirmed opening non-gold reclassified from 14K to 18K"
@@ -8807,7 +8915,9 @@ function runPostCloudMigrations() {
                           ? `${reconciledManualBills.count} manual Bill duplicate issue correction`
                           : (completedBilledOrders.count
                               ? `${completedBilledOrders.count} billed PR completion correction`
-                              : "Central non-gold shelf and post-cloud production correction")))))),
+                              : (reconciledCentralFlow.count
+                                ? `${reconciledCentralFlow.count} Setting transfer audit bridge update`
+                                : "Central non-gold shelf and post-cloud production correction")))))))),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -14780,6 +14890,20 @@ function activeOrderPurityForState(currentState, lot = {}) {
   return (currentState.orders || []).find((order) => orderIds.includes(order.id))?.purity || "";
 }
 
+function completedFittingDepartmentAllocationBreakdown(issueId = "", currentState = state) {
+  const api = globalThis.KJMCentralNonGoldFlowV699;
+  if (!api || !issueId) return {};
+  const allocations = (currentState.lots || []).flatMap((lot) => {
+    const bill = lot.bill || (currentState.bills || []).find((entry) => entry.lotId === lot.id) || {};
+    const factoryOutPosted = isBillFactoryOutPosted(bill);
+    return (lot.transfers || []).map((transfer) => {
+      const allocation = transfer.fittingNonGoldDepartmentAllocation;
+      return allocation?.posted ? { ...allocation, factoryOutPosted } : null;
+    }).filter(Boolean);
+  });
+  return api.completedIssueAllocation(allocations, issueId);
+}
+
 function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = state) {
   const issuedGrossWeight = Number(weight3(issue.issuedGrossWeight ?? issue.grossWeight ?? item.grossWeight ?? 0));
   const issuedWaxStoneWeight = Number(weight3(issue.issuedWaxStoneWeight ?? issue.waxStoneWeight ?? safeItemWaxStoneWeight(item)));
@@ -14821,12 +14945,17 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
       netWeight: Number(weight3(totals.netWeight + Math.abs(Number(allocation.sourceNetWeight || 0)))),
     };
   }, { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, nonGoldBreakdown: {}, netWeight: 0 });
-  const grossWeight = Number(weight3(Math.max(issuedGrossWeight - returnTotals.grossWeight - manualWipAllocationTotals.grossWeight, 0)));
+  const fittingFactoryOutBreakdown = completedFittingDepartmentAllocationBreakdown(issue.id, currentState);
+  const fittingFactoryOutWeight = nonGoldBreakdownTotal(fittingFactoryOutBreakdown);
+  const grossWeight = Number(weight3(Math.max(issuedGrossWeight - returnTotals.grossWeight - manualWipAllocationTotals.grossWeight - fittingFactoryOutWeight, 0)));
   const waxStoneWeight = Number(weight3(Math.max(issuedWaxStoneWeight - returnTotals.waxStoneWeight - manualWipAllocationTotals.waxStoneWeight, 0)));
-  const nonGoldWeight = Number(weight3(Math.max(issuedNonGoldWeight - returnTotals.nonGoldWeight - manualWipAllocationTotals.nonGoldWeight, 0)));
+  const nonGoldWeight = Number(weight3(Math.max(issuedNonGoldWeight - returnTotals.nonGoldWeight - manualWipAllocationTotals.nonGoldWeight - fittingFactoryOutWeight, 0)));
   const nonGoldBreakdown = subtractNonGoldBreakdown(
-    subtractNonGoldBreakdown(issuedNonGoldBreakdown, returnTotals.nonGoldBreakdown),
-    manualWipAllocationTotals.nonGoldBreakdown,
+    subtractNonGoldBreakdown(
+      subtractNonGoldBreakdown(issuedNonGoldBreakdown, returnTotals.nonGoldBreakdown),
+      manualWipAllocationTotals.nonGoldBreakdown,
+    ),
+    fittingFactoryOutBreakdown,
   );
   const netWeight = Number(weight3(Math.max(issuedNetWeight - returnTotals.netWeight - manualWipAllocationTotals.netWeight, 0)));
   const department = issue.departmentId ? (currentState.karigars || []).find((entry) => entry.id === issue.departmentId) : null;
@@ -14921,6 +15050,8 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     manualWipAllocatedWaxStoneWeight: manualWipAllocationTotals.waxStoneWeight,
     manualWipAllocatedNonGoldWeight: manualWipAllocationTotals.nonGoldWeight,
     manualWipAllocatedNetWeight: manualWipAllocationTotals.netWeight,
+    fittingFactoryOutWeight,
+    fittingFactoryOutBreakdown,
     grossWeight,
     waxStoneWeight,
     nonGoldWeight,
@@ -17451,9 +17582,15 @@ function billEmbeddedNonGoldCreditLines(source = state, bill = {}, lot = {}, dem
     .forEach((issue) => {
       const materialType = normalizeNonGoldControlMaterial(issue.materialType || "other");
       const transfer = (lot.transfers || []).find((entry) => entry.id === issue.sourceTransferId);
+      const legacyShelfAllocation = Boolean(
+        transfer?.fittingNonGoldShelfConsumption?.posted && issue.sourceMode === "shelf"
+      );
+      const departmentAllocation = Boolean(
+        transfer?.fittingNonGoldDepartmentAllocation?.posted && issue.sourceMode === "department"
+      );
       const wasAccountedAtFitting = materialType === "stone"
         ? issue.sourceMode === "direct"
-        : Boolean(transfer?.fittingNonGoldShelfConsumption?.posted && issue.sourceMode === "shelf");
+        : legacyShelfAllocation || departmentAllocation;
       if (!wasAccountedAtFitting || Number(issue.weight || 0) <= 0) return;
       candidates.push({
         purity: issue.purity || lot.metalPurity || "18K",
@@ -20032,7 +20169,7 @@ function splitFittingItemsJobCard(event) {
   alert(`${splitJobNumber} CREATED.\nPRODUCTION NO: ${splitProductionNo}\nLOT: ${splitLotNumber}\nGW: ${gram(splitGw)}\nWAX STONE: ${gram(splitWax)}\nNET GOLD: ${gram(splitLot.issuedWeight)}`);
 }
 
-function splitSelectedJobItems() {
+async function splitSelectedJobItems() {
   if (isSettingManagerUser()) {
     alert("Setting Manager cannot split a Job Card from the stone-details view.");
     return;
@@ -20089,11 +20226,20 @@ function splitSelectedJobItems() {
   const splitJobNumber = nextSplitJobNumber(originalJobNumber);
   const productionSplitText = mixedLiveLot ? `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.` : "";
   if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
+  const rollback = {
+    orders: structuredClone(state.orders || []),
+    lots: structuredClone(state.lots || []),
+    ledger: structuredClone(state.ledger || []),
+    nextLot: state.nextLot,
+  };
+  const splitAt = new Date().toISOString();
   selectedOrders.forEach((order) => {
     order.jobNumber = splitJobNumber;
     order.splitFromJobNumber = originalJobNumber;
     order.splitDate = today();
     order.urgent = true;
+    order.updatedAt = splitAt;
+    order.lastSplitAt = splitAt;
   });
   if (mixedLiveLot) {
     splitProductionLot(mixedLiveLot, selectedIdSet, splitJobNumber, splitGw);
@@ -20106,13 +20252,36 @@ function splitSelectedJobItems() {
       lot.orderNumber = splitJobNumber;
       lot.orderId = ids[0] || lot.orderId;
       lot.orderIds = ids;
+      lot.updatedAt = splitAt;
     }
   });
-  saveState();
+  if (mixedLiveLot) mixedLiveLot.updatedAt = splitAt;
+  const splitLot = state.lots.find((lot) => (
+    lot.orderNumber === splitJobNumber
+    && getLotOrderIds(lot).some((id) => selectedIdSet.has(id))
+  ));
+  if (splitLot) splitLot.updatedAt = splitAt;
+  const savedLocally = saveState({
+    alertOnFailure: true,
+    context: `Split ${originalJobNumber} into ${splitJobNumber}`,
+    changedStateKeys: ["orders", "lots", "ledger", "nextLot"],
+  });
+  if (!savedLocally) {
+    state.orders = rollback.orders;
+    state.lots = rollback.lots;
+    state.ledger = rollback.ledger;
+    state.nextLot = rollback.nextLot;
+    return;
+  }
+  backupRecentJobOrders([
+    ...state.orders.filter((order) => order.jobNumber === originalJobNumber),
+    ...state.orders.filter((order) => order.jobNumber === splitJobNumber),
+  ]);
   render();
   clearSplitJobGw();
   openJobOrder(splitJobNumber, "active");
-  alert(`${splitJobNumber} created with ${selectedOrders.length} urgent item(s).`);
+  const savedToCloud = await saveJobOrderToCloudNow();
+  alert(`${splitJobNumber} created with ${selectedOrders.length} urgent item(s).\n\n${savedToCloud ? "Saved and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically."}`);
 }
 
 function openJobItemDetail(orderId) {
@@ -24828,7 +24997,15 @@ function goldIssueCorrectionButtonHtml(lot = {}) {
   const fullCorrectionReason = goldIssueCorrectionBlockReason(lot);
   const weightCorrectionReason = goldIssueWeightCorrectionBlockReason(lot);
   const reason = fullCorrectionReason && weightCorrectionReason ? weightCorrectionReason : "";
-  return `<button class="ghost-button${reason ? " disabled-action" : ""}" type="button" ${reason ? "disabled" : `onclick="openGoldIssueCorrection('${escapeHtml(lot.id)}')"`} title="${escapeHtml(reason || "Edit or delete this Gold Issue")}">Edit Issue</button>`;
+  const action = reason
+    ? `showGoldIssueCorrectionBlocked('${encodeURIComponent(reason)}')`
+    : `openGoldIssueCorrection('${escapeHtml(lot.id)}')`;
+  return `<button class="ghost-button${reason ? " disabled-action" : ""}" type="button" onclick="${action}" ${reason ? 'aria-disabled="true"' : ""} title="${escapeHtml(reason || "Correct this issue or return the Job Card to Issue Gold")}">Correct Issue</button>`;
+}
+
+function showGoldIssueCorrectionBlocked(encodedReason = "") {
+  const reason = decodeURIComponent(encodedReason || "This Gold Issue has later activity.");
+  alert(`${reason}\n\nUse Delete / Previous Stage on the latest movement first. The ERP will then allow this Gold Issue to be corrected or returned safely.`);
 }
 
 function goldIssueCorrectionTargetGroups(lot = {}) {
@@ -24936,7 +25113,9 @@ function openGoldIssueCorrection(lotId = "") {
   const form = document.getElementById("gold-issue-correction-form");
   if (!dialog || !form) return;
   const safeIssue = goldIssueLinkedSafeIssue(lot);
-  const weightOnly = Boolean(fullCorrectionReason || safeIssue || lot.createdFromSafeIssue);
+  const sourceManaged = Boolean(safeIssue || lot.createdFromSafeIssue);
+  const weightOnly = Boolean(sourceManaged || (fullCorrectionReason && !weightCorrectionReason));
+  const canReturnToIssueGold = !fullCorrectionReason;
   form.dataset.correctionMode = weightOnly ? "weight-only" : "full";
   const targets = goldIssueCorrectionTargetGroups(lot);
   form.lotId.value = lot.id;
@@ -24977,8 +25156,13 @@ function openGoldIssueCorrection(lotId = "") {
   }
   const undoButton = document.getElementById("undo-gold-issue");
   if (undoButton) {
-    undoButton.disabled = weightOnly;
-    undoButton.title = weightOnly ? "Dependent activity exists. Correct Issue GW only; the Gold Issue cannot be deleted." : "Delete this Gold Issue";
+    undoButton.disabled = false;
+    undoButton.classList.toggle("disabled-action", !canReturnToIssueGold);
+    undoButton.setAttribute("aria-disabled", canReturnToIssueGold ? "false" : "true");
+    undoButton.textContent = "Return To Issue Gold";
+    undoButton.title = canReturnToIssueGold
+      ? "Restore the source holding and return this Job Card to the Issue Gold screen"
+      : fullCorrectionReason;
   }
   document.getElementById("gold-issue-correction-summary").textContent = `${lot.number} / ${lot.orderNumber} / GW ${gram(lot.grossIssuedWeight || lot.issuedWeight)} / Wax ${gram(lot.waxStoneWeight)} / Net Gold ${gram(lot.issuedWeight)} / ${lot.currentDepartment || lot.karigarName || "-"}`;
   if (!dialog.open) dialog.showModal();
@@ -25025,20 +25209,21 @@ function restoreGoldIssueSafeStock(lot = {}) {
 
   if (safeIssue) {
     const item = (state.safeItems || []).find((entry) => entry.id === safeIssue.safeItemId);
-    if (!item) return false;
-    if (item.status === "Out" && item.safeDepartmentIssueId === safeIssue.id) {
-      item.status = "In Safe";
-    } else {
-      item.grossWeight = Number(weight3(Number(item.grossWeight || 0) + Number(safeIssue.issuedGrossWeight || 0)));
-      item.waxStoneWeight = Number(weight3(Number(item.waxStoneWeight || 0) + Number(safeIssue.issuedWaxStoneWeight || 0)));
-      item.nonGoldBreakdown = addNonGoldBreakdowns(item.nonGoldBreakdown, safeIssue.issuedNonGoldBreakdown);
-      item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
-      item.netWeight = safeItemNetFromGross(item.grossWeight, item.waxStoneWeight, item.nonGoldWeight);
-      item.status = "In Safe";
+    if (item) {
+      if (item.status === "Out" && item.safeDepartmentIssueId === safeIssue.id) {
+        item.status = "In Safe";
+      } else {
+        item.grossWeight = Number(weight3(Number(item.grossWeight || 0) + Number(safeIssue.issuedGrossWeight || 0)));
+        item.waxStoneWeight = Number(weight3(Number(item.waxStoneWeight || 0) + Number(safeIssue.issuedWaxStoneWeight || 0)));
+        item.nonGoldBreakdown = addNonGoldBreakdowns(item.nonGoldBreakdown, safeIssue.issuedNonGoldBreakdown);
+        item.nonGoldWeight = nonGoldBreakdownTotal(item.nonGoldBreakdown);
+        item.netWeight = safeItemNetFromGross(item.grossWeight, item.waxStoneWeight, item.nonGoldWeight);
+        item.status = "In Safe";
+      }
+      clearSafeIssueLinkFields(item);
+      item.remarks = `Gold Issue ${lot.number} returned for correction`;
+      return true;
     }
-    clearSafeIssueLinkFields(item);
-    item.remarks = `Gold Issue ${lot.number} undone`;
-    return true;
   }
 
   const sourceIds = new Set([String(lot.id || ""), String(lot.number || "")].filter(Boolean));
@@ -25082,7 +25267,33 @@ function restoreGoldIssueSafeStock(lot = {}) {
     item.remarks = `Gold Issue ${lot.number} undone`;
     restored = true;
   });
-  return restored;
+  if (restored) return true;
+
+  const grossWeight = Number(weight3(lot.grossIssuedWeight || lot.issuedWeight || 0));
+  const directEmbeddedWax = Number(weight3((lot.embeddedNonGoldSources || [])
+    .filter((entry) => entry.sourceMode === "direct" && ["stone", "wax"].includes(String(entry.materialType || "").toLowerCase()))
+    .reduce((total, entry) => total + Number(entry.weight || 0), 0)));
+  const restoredWax = Number(weight3(Math.min(Math.max(directEmbeddedWax, 0), grossWeight)));
+  if (grossWeight <= 0) return false;
+  addSafeItem({
+    date: today(),
+    locker: lot.issueSourceLocker || lot.metalPurity || "18K",
+    purity: lot.metalPurity || lot.issueSourceLocker || "18K",
+    description: `${lot.castingSafeItemDescription || lot.issueSourceDetail || "Gold Item"} - Returned From ${lot.number || "Gold Issue"}`,
+    source: `${lot.number || "Gold Issue"} returned for correction`,
+    sourceType: "gold-issue-undo-return",
+    sourceId: lot.id || lot.number || "",
+    colour: lot.rodColour || "",
+    desiredPurity: lot.rodDesiredPurity || lot.metalPurity || "",
+    safeKind: "casting-item",
+    grossWeight,
+    waxStoneWeight: restoredWax,
+    nonGoldWeight: 0,
+    netWeight: safeItemNetFromGross(grossWeight, restoredWax, 0),
+    status: "In Safe",
+    remarks: "Original Safe snapshot was unavailable; ERP created an audited compensating return so the issue can be entered again.",
+  });
+  return true;
 }
 
 function removeGoldIssueLedgerEntries(lot = {}) {
@@ -25120,7 +25331,7 @@ function recordGoldIssueCorrection(lot = {}, action = "", detail = "") {
   });
 }
 
-function undoGoldIssue(lotId = "") {
+async function undoGoldIssue(lotId = "") {
   const lot = findById("lots", lotId);
   if (!lot) return;
   const reason = goldIssueCorrectionBlockReason(lot);
@@ -25128,12 +25339,12 @@ function undoGoldIssue(lotId = "") {
     alert(reason);
     return;
   }
-  if (!confirm(`Delete Gold Issue ${lot.number} for ${lot.orderNumber}?\n\nThe Safe Locker stock will be restored, the production lot will be removed, and the Job Card will return to Gold Pending. The deletion remains in the audit history.`)) return;
+  if (!confirm(`Return ${lot.number} for ${lot.orderNumber} to Issue Gold?\n\nThe Safe Locker source will be restored, this production lot will be removed, and every linked item will return to Gold Pending. An audit record will be kept.`)) return;
   const stateBefore = structuredClone(state);
   const safeIssue = goldIssueLinkedSafeIssue(lot);
   if (!restoreGoldIssueSafeStock(lot)) {
     state = stateBefore;
-    alert("This older Gold Issue does not contain enough Safe Locker source information for an automatic undo. No data was changed.");
+    alert("The source holding could not be restored safely. No data was changed. Open the latest movement first and return each stage in reverse order.");
     return;
   }
   if (safeIssue) {
@@ -25146,17 +25357,28 @@ function undoGoldIssue(lotId = "") {
   removeGoldIssueLedgerEntries(lot);
   resetOrdersAfterGoldIssueRemoval(lot);
   state.lots = (state.lots || []).filter((entry) => entry.id !== lot.id);
-  recordGoldIssueCorrection(lot, "DELETE", `Safe Locker stock restored; ${lot.orderNumber} returned to Gold Pending.`);
-  if (!saveState({ alertOnFailure: true, context: `Delete Gold Issue ${lot.number}` })) {
+  recordGoldIssueCorrection(lot, "RETURN TO ISSUE GOLD", `Safe Locker stock restored; ${lot.orderNumber} returned to Gold Pending for correction.`);
+  backupRecentJobOrders(getLotOrders(lot));
+  if (!saveState({
+    alertOnFailure: true,
+    context: `Return ${lot.number} to Issue Gold`,
+    changedStateKeys: [
+      "orders", "lots", "ledger", "safeItems", "safeDepartmentIssues",
+      "productionNonGoldIssues", "goldIssueCorrections",
+    ],
+  })) {
     state = stateBefore;
     render();
-    alert("Gold Issue could not be deleted on this laptop. No data was changed.");
+    alert("The Gold Issue could not be returned on this laptop. No data was changed.");
     return;
   }
+  const cloudSaved = await saveCurrentStateToCloudNow({ context: `Return ${lot.number} to Issue Gold` });
   closeGoldIssueCorrection();
   document.getElementById("history-dialog")?.close();
+  document.getElementById("online-transfer-history-dialog")?.close();
   render();
-  alert(`${lot.number} Gold Issue was deleted.\n${lot.orderNumber} is Gold Pending again and the Safe Locker stock has been restored.`);
+  alert(`${lot.number} was returned successfully.\n${lot.orderNumber} is Gold Pending again and its Safe Locker source is restored.${cloudSaved ? "\nSaved and synced." : "\nSaved on this laptop; cloud sync will retry automatically."}`);
+  openIssueGoldForJob(lot.orderNumber || "");
 }
 
 function saveGoldIssueWeightOnlyCorrection(lot = {}, form = null) {
@@ -27023,6 +27245,7 @@ function departmentNonGoldStockPools() {
   productionNonGoldLedgerIssues()
     .filter(({ issue }) =>
       !issue.safeDepartmentIssueId
+      && issue.sourceType !== "fitting-transfer-non-gold"
       && Number(issue.weight || 0) !== 0
       && productionNonGoldIssueInDepartment(issue)
       && !(isOpeningNonGoldTransfer(issue) && issue.lotId)
@@ -28781,26 +29004,30 @@ function renderTransferFittingNonGoldPanel(form = document.getElementById("trans
   const editingTransfer = lot && form.transferId?.value
     ? (lot.transfers || []).find((transfer) => transfer.id === form.transferId.value)
     : null;
-  const shelfBreakdown = fittingTransferShelfBreakdown(breakdown);
-  const shelfAvailable = fittingTransferShelfAvailableBreakdown(lot || {}, editingTransfer || {});
-  const shortages = Object.entries(shelfBreakdown).filter(([materialType, weight]) =>
-    Number(weight || 0) > Number(shelfAvailable[materialType] || 0) + 0.0005
+  const issuedBreakdown = fittingTransferShelfBreakdown(breakdown);
+  const issuedAvailable = fittingTransferDepartmentAvailableBreakdown(lot || {}, editingTransfer || {}, form.fromDepartment?.value || "");
+  const legacyShelf = Boolean(editingTransfer?.fittingNonGoldShelfConsumption?.posted && !editingTransfer?.fittingNonGoldDepartmentAllocation?.posted);
+  const shortages = legacyShelf ? [] : Object.entries(issuedBreakdown).filter(([materialType, weight]) =>
+    Number(weight || 0) > Number(issuedAvailable[materialType] || 0) + 0.0005
   );
   summary.classList.toggle("warn", shortages.length > 0);
   if (total <= 0) {
-    summary.textContent = "No fitting non-gold selected. Non-stone material must be available in the matching Loose Non-Gold Shelf.";
+    summary.textContent = "No fitting non-gold selected. First issue BB, Moti, Spring or Other from the Non-Gold Shelf to this Fitting department; the later lot transfer remains GW-only.";
     return;
   }
   const stoneWeight = Number(breakdown.stone || 0);
-  const shelfWeight = nonGoldBreakdownTotal(shelfBreakdown);
+  const issuedWeight = nonGoldBreakdownTotal(issuedBreakdown);
   const details = [
     stoneWeight > 0 ? `Stone ${gram(stoneWeight)} enters directly` : "",
-    shelfWeight > 0 ? `${nonGoldBreakdownText(shelfBreakdown)} consumed from Loose Shelf` : "",
+    issuedWeight > 0 ? `${nonGoldBreakdownText(issuedBreakdown)} allocated from stock already issued to Fitting` : "",
   ].filter(Boolean).join(" / ");
   const shortageText = shortages.length
-    ? ` <strong>Insufficient shelf stock: ${escapeHtml(shortages.map(([materialType, weight]) => `${productionNonGoldMaterialLabel(materialType)} needs ${gram(weight)}, available ${gram(shelfAvailable[materialType] || 0)}`).join(" / "))}</strong>`
+    ? ` <strong>Issue from Non-Gold Shelf first: ${escapeHtml(shortages.map(([materialType, weight]) => `${productionNonGoldMaterialLabel(materialType)} needs ${gram(weight)}, available in Fitting ${gram(issuedAvailable[materialType] || 0)}`).join(" / "))}</strong>`
     : "";
-  summary.innerHTML = `<strong>Assign to this lot:</strong> ${escapeHtml(details)} / Total ${gram(total)}. Total factory non-gold stays unchanged for shelf-consumed material.${shortageText}`;
+  const sourceNote = legacyShelf
+    ? "Legacy v698 entry: original Loose Shelf allocation is preserved until corrected."
+    : "Central non-gold total is unchanged; only its status changes from Issued to Department to Embedded in Lot.";
+  summary.innerHTML = `<strong>Assign to this lot:</strong> ${escapeHtml(details)} / Total ${gram(total)}. ${escapeHtml(sourceNote)}${shortageText}`;
 }
 
 function recalculateCumulativeTransferNonGold(lot = {}) {
@@ -28826,19 +29053,82 @@ function fittingTransferShelfBreakdown(breakdown = {}) {
   return normalizeNonGoldControlBreakdown(shelfBreakdown);
 }
 
-function fittingTransferShelfAvailableBreakdown(lot = {}, transfer = {}) {
+function fittingTransferDepartmentIssueRows(lot = {}, transfer = {}, fromDepartment = "") {
+  const departmentName = fromDepartment || transfer.fromDepartment || transfer.fromKarigarName || lot.currentDepartment || lot.karigarName || "Fitting";
+  const departmentKey = departmentTransferMasterGroupName(transfer.fromKarigarName || lot.karigarName || departmentName, departmentName);
   const purity = transferPurityLabel(karatLogicPurity(
     transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K",
   ));
-  const previousDemand = (transfer.fittingNonGoldShelfConsumption?.demandLines || []).reduce((breakdown, line) => addNonGoldBreakdowns(breakdown, {
-    [normalizeNonGoldControlMaterial(line.materialType)]: Number(line.weight || 0),
-  }), {});
-  return ["black-beads", "moti", "spring", "other"].reduce((available, materialType) => {
-    available[materialType] = Number(weight3(
-      availableLooseNonGoldWeight(state, purity, materialType) + Number(previousDemand[materialType] || 0),
-    ));
-    return available;
-  }, {});
+  return safeDepartmentIssuesInHand()
+    .filter((issue) => nonGoldBreakdownTotal(issue.nonGoldBreakdown) > 0.0005)
+    .filter((issue) => departmentTransferMasterGroupName(issue.departmentName || issue.process, issue.process || issue.departmentName) === departmentKey)
+    .filter((issue) => karatPurityKey(issue.purity || issue.locker) === karatPurityKey(purity))
+    .map((issue) => ({
+      id: issue.id,
+      date: issue.date,
+      createdAt: issue.createdAt,
+      departmentKey,
+      purity,
+      lotId: issue.lotId || "",
+      breakdown: normalizeNonGoldControlBreakdown(issue.nonGoldBreakdown),
+      reference: issue.itemDescription || issue.source || "Fitting non-gold issue",
+    }));
+}
+
+function allFittingTransferDepartmentAllocations(currentState = state) {
+  return (currentState.lots || []).flatMap((savedLot) => (savedLot.transfers || [])
+    .map((savedTransfer) => savedTransfer.fittingNonGoldDepartmentAllocation)
+    .filter((allocation) => allocation?.posted));
+}
+
+function fittingTransferDepartmentContext(lot = {}, transfer = {}, fromDepartment = "") {
+  const departmentName = fromDepartment || transfer.fromDepartment || transfer.fromKarigarName || lot.currentDepartment || lot.karigarName || "Fitting";
+  return {
+    departmentKey: departmentTransferMasterGroupName(transfer.fromKarigarName || lot.karigarName || departmentName, departmentName),
+    purityKey: transferPurityLabel(karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K")),
+  };
+}
+
+function fittingTransferDepartmentAvailableBreakdown(lot = {}, transfer = {}, fromDepartment = "") {
+  const api = globalThis.KJMCentralNonGoldFlowV699;
+  if (!api) return {};
+  const context = fittingTransferDepartmentContext(lot, transfer, fromDepartment);
+  return api.availableDepartmentBreakdown(
+    fittingTransferDepartmentIssueRows(lot, transfer, fromDepartment),
+    allFittingTransferDepartmentAllocations(),
+    { ...context, excludeTransferId: transfer.id || "" },
+  );
+}
+
+function fittingTransferDepartmentAllocation(lot = {}, transfer = {}, breakdown = {}) {
+  const api = globalThis.KJMCentralNonGoldFlowV699;
+  if (!api) throw new Error("Central Non-Gold Flow helper is unavailable. Refresh the latest ERP version.");
+  const context = fittingTransferDepartmentContext(lot, transfer);
+  const allocation = api.allocateDepartmentNonGold({
+    issues: fittingTransferDepartmentIssueRows(lot, transfer),
+    allocations: allFittingTransferDepartmentAllocations(),
+    transferId: transfer.id || "",
+    lotId: lot.id || "",
+    demand: fittingTransferShelfBreakdown(breakdown),
+    ...context,
+  });
+  if (!allocation.posted) {
+    const detail = (allocation.shortages || []).map((line) =>
+      `${productionNonGoldMaterialLabel(line.materialType)} requires ${gram(line.required)}, issued to Fitting ${gram(line.available)}`
+    ).join("\n");
+    throw new Error(`Non-gold must be issued from the matching Non-Gold Shelf to Fitting before it is embedded in this lot.\n\n${detail}`);
+  }
+  return {
+    ...allocation,
+    postedAt: transfer.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sourceType: "fitting-department-allocation",
+    reference: `${lot.orderNumber || "Job Card"} / ${lot.number || "Lot"} / allocated from Fitting issue`,
+  };
+}
+
+function fittingTransferShelfAvailableBreakdown(lot = {}, transfer = {}) {
+  return fittingTransferDepartmentAvailableBreakdown(lot, transfer);
 }
 
 function findFittingTransferById(transferId = "") {
@@ -28855,7 +29145,7 @@ function removeFittingTransferNonGoldShelfEntries(transferOrId = "") {
   const transfer = typeof transferOrId === "object" ? transferOrId : findFittingTransferById(transferId);
   if (transfer?.fittingNonGoldShelfConsumption?.posted) {
     restoreLooseNonGoldConsumption(state, transfer.fittingNonGoldShelfConsumption, {
-      reference: `${transfer.lotNumber || "Lot"} Fitting non-gold reversal`,
+      reference: `${transfer.lotNumber || "Lot"} legacy Fitting non-gold reversal`,
       date: transfer.date || today(),
     });
   }
@@ -28864,35 +29154,50 @@ function removeFittingTransferNonGoldShelfEntries(transferOrId = "") {
     .map((issue) => issue.id));
   state.productionNonGoldIssues = (state.productionNonGoldIssues || []).filter((issue) => !ids.has(issue.id));
   state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) => !ids.has(entry.sourceId));
-  if (transfer) transfer.fittingNonGoldShelfConsumption = null;
+  if (transfer) {
+    transfer.fittingNonGoldShelfConsumption = null;
+    transfer.fittingNonGoldDepartmentAllocation = null;
+  }
 }
 
 function syncFittingTransferNonGoldShelfEntries(lot = {}, transfer = {}) {
   const safeItemsBefore = structuredClone(state.safeItems || []);
   const issuesBefore = structuredClone(state.productionNonGoldIssues || []);
   const auditBefore = structuredClone(state.nonGoldAuditEvents || []);
-  const consumptionBefore = transfer.fittingNonGoldShelfConsumption
+  const shelfConsumptionBefore = transfer.fittingNonGoldShelfConsumption
     ? structuredClone(transfer.fittingNonGoldShelfConsumption)
     : undefined;
+  const departmentAllocationBefore = transfer.fittingNonGoldDepartmentAllocation
+    ? structuredClone(transfer.fittingNonGoldDepartmentAllocation)
+    : undefined;
+  const preserveLegacyShelfMethod = Boolean(shelfConsumptionBefore?.posted && !departmentAllocationBefore?.posted);
   try {
     removeFittingTransferNonGoldShelfEntries(transfer);
     const breakdown = transferNonGoldAddedBreakdown(transfer);
     if (!isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName) || nonGoldBreakdownTotal(breakdown) <= 0) return [];
     const purity = transferPurityLabel(karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"));
     const createdAt = transfer.createdAt || new Date().toISOString();
-    const shelfBreakdown = fittingTransferShelfBreakdown(breakdown);
-    const shelfDemandLines = nonGoldDemandLinesForBreakdown(purity, shelfBreakdown);
-    transfer.fittingNonGoldShelfConsumption = shelfDemandLines.length
-      ? consumeLooseNonGoldDemandLines(state, shelfDemandLines, {
-          sourceType: "fitting-transfer-non-gold",
-          sourceId: transfer.id,
-          reference: `${lot.orderNumber || "Job Card"} / ${lot.number || "Lot"} Fitting non-gold`,
-          date: transfer.date || today(),
-        })
-      : null;
+    const nonStoneBreakdown = fittingTransferShelfBreakdown(breakdown);
+    const demandLines = nonGoldDemandLinesForBreakdown(purity, nonStoneBreakdown);
+    if (preserveLegacyShelfMethod && demandLines.length) {
+      transfer.fittingNonGoldShelfConsumption = consumeLooseNonGoldDemandLines(state, demandLines, {
+        sourceType: "fitting-transfer-non-gold",
+        sourceId: transfer.id,
+        reference: `${lot.orderNumber || "Job Card"} / ${lot.number || "Lot"} legacy Fitting allocation`,
+        date: transfer.date || today(),
+      });
+      transfer.fittingNonGoldDepartmentAllocation = null;
+    } else {
+      transfer.fittingNonGoldShelfConsumption = null;
+      transfer.fittingNonGoldDepartmentAllocation = demandLines.length
+        ? fittingTransferDepartmentAllocation(lot, transfer, breakdown)
+        : null;
+    }
     state.productionNonGoldIssues = state.productionNonGoldIssues || [];
     return Object.entries(breakdown).map(([materialType, weight]) => {
-      const sourceMode = materialType === "stone" ? "direct" : "shelf";
+      const sourceMode = materialType === "stone"
+        ? "direct"
+        : preserveLegacyShelfMethod ? "shelf" : "department";
       const issue = normalizeProductionNonGoldIssue({
         id: fittingTransferNonGoldIssueId(transfer.id, materialType),
         date: transfer.date || today(),
@@ -28911,19 +29216,21 @@ function syncFittingTransferNonGoldShelfEntries(lot = {}, transfer = {}) {
         sourceTransferId: transfer.id,
         openingStockTransfer: false,
         embeddedInOpeningGw: false,
-        remarks: sourceMode === "shelf"
-          ? `Consumed from Loose Non-Gold Shelf and embedded in ${lot.number || "lot"}`
-          : `Stone added directly and embedded in ${lot.number || "lot"}`,
+        remarks: sourceMode === "department"
+          ? `Allocated from non-gold already issued to Fitting and embedded in ${lot.number || "lot"}`
+          : sourceMode === "shelf"
+            ? `Legacy Loose Shelf allocation embedded in ${lot.number || "lot"}`
+            : `Stone added directly and embedded in ${lot.number || "lot"}`,
       }, lot);
       state.productionNonGoldIssues.unshift(issue);
       const audit = recordNonGoldAuditEvent({
-        action: sourceMode === "shelf" ? "Embed From Shelf" : "Direct Stone In Fitting",
+        action: sourceMode === "department" ? "Embed From Department Issue" : sourceMode === "shelf" ? "Legacy Embed From Shelf" : "Direct Stone In Fitting",
         materialType,
         weight,
         purity,
-        fromLocation: sourceMode === "shelf"
-          ? `${purity} Loose Non-Gold Shelf`
-          : (transfer.fromDepartment || transfer.fromKarigarName || "Fitting"),
+        fromLocation: sourceMode === "department"
+          ? (transfer.fromDepartment || transfer.fromKarigarName || "Fitting")
+          : sourceMode === "shelf" ? `${purity} Loose Non-Gold Shelf` : (transfer.fromDepartment || transfer.fromKarigarName || "Fitting"),
         toLocation: `${lot.number || "Lot"} / Embedded In Product`,
         department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
         lotId: lot.id || "",
@@ -28941,8 +29248,10 @@ function syncFittingTransferNonGoldShelfEntries(lot = {}, transfer = {}) {
     state.safeItems = safeItemsBefore;
     state.productionNonGoldIssues = issuesBefore;
     state.nonGoldAuditEvents = auditBefore;
-    if (consumptionBefore === undefined) delete transfer.fittingNonGoldShelfConsumption;
-    else transfer.fittingNonGoldShelfConsumption = consumptionBefore;
+    if (shelfConsumptionBefore === undefined) delete transfer.fittingNonGoldShelfConsumption;
+    else transfer.fittingNonGoldShelfConsumption = shelfConsumptionBefore;
+    if (departmentAllocationBefore === undefined) delete transfer.fittingNonGoldDepartmentAllocation;
+    else transfer.fittingNonGoldDepartmentAllocation = departmentAllocationBefore;
     throw error;
   }
 }
@@ -50056,6 +50365,63 @@ function departmentTransferEvents() {
         purity: transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "",
         remarks: transfer.reason || "-",
       };
+      const holdingBridge = transfer.settingHoldingBridge;
+      if (holdingBridge?.posted) {
+        const holdingName = holdingBridge.holdingName || "Production Holding Shelf";
+        const holdingReceiveGw = Number(holdingBridge.firstLeg?.receiveGw ?? common.receiveGw);
+        events.push({
+          ...common,
+          direction: "out",
+          department: departmentTransferMasterGroupName(fromDepartment, fromProcess),
+          departmentDetail: departmentTransferDetail(fromDepartment, fromProcess),
+          counterparty: holdingName,
+          process: fromProcess,
+          remarks: `${common.remarks} / Setting to Production Holding`,
+        });
+        events.push({
+          ...common,
+          id: `${common.id}-holding-in`,
+          direction: "in",
+          department: holdingName,
+          departmentDetail: holdingName,
+          counterparty: departmentTransferDetail(fromDepartment, fromProcess),
+          process: holdingName,
+          issueGw: holdingReceiveGw,
+          receiveGw: holdingReceiveGw,
+          difference: 0,
+          fineGold: 0,
+          remarks: `${common.remarks} / Received from Setting`,
+        });
+        events.push({
+          ...common,
+          id: `${common.id}-holding-out`,
+          direction: "out",
+          department: holdingName,
+          departmentDetail: holdingName,
+          counterparty: departmentTransferDetail(toDepartment, toProcess),
+          process: holdingName,
+          issueGw: holdingReceiveGw,
+          receiveGw: holdingReceiveGw,
+          difference: 0,
+          fineGold: 0,
+          remarks: `${common.remarks} / Issued from Production Holding`,
+        });
+        events.push({
+          ...common,
+          id: `${common.id}-in`,
+          direction: "in",
+          department: departmentTransferMasterGroupName(toDepartment, toProcess),
+          departmentDetail: departmentTransferDetail(toDepartment, toProcess),
+          counterparty: holdingName,
+          process: toProcess,
+          issueGw: holdingReceiveGw,
+          receiveGw: holdingReceiveGw,
+          difference: 0,
+          fineGold: 0,
+          remarks: `${common.remarks} / Production Holding to destination`,
+        });
+        return;
+      }
       events.push({
         ...common,
         direction: "out",
