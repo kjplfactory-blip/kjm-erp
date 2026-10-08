@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v697";
+const APP_VERSION = "v698";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4666,7 +4666,21 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     lot.transfers.push(transferData);
   }
   rewireLotTransferChain(lot);
-  syncFittingTransferNonGoldShelfEntries(lot, editingTransfer || transferData);
+  try {
+    syncFittingTransferNonGoldShelfEntries(lot, editingTransfer || transferData);
+  } catch (error) {
+    if (editingTransfer && transferBeforeEdit) {
+      Object.keys(editingTransfer).forEach((key) => delete editingTransfer[key]);
+      Object.assign(editingTransfer, transferBeforeEdit);
+    } else {
+      lot.transfers = (lot.transfers || []).filter((transfer) => transfer.id !== transferData.id);
+    }
+    rewireLotTransferChain(lot);
+    recalculateLotAfterTransferChange(lot);
+    renderTransferFittingNonGoldPanel(event.target);
+    alert(error?.message || "The selected Fitting non-gold could not be consumed from the Loose Non-Gold Shelf. No transfer was saved.");
+    return;
+  }
   if (editingTransfer) recordTransferHistoryEdit(lot, transferBeforeEdit, editingTransfer);
   recalculateLotAfterTransferChange(lot);
   state.ledger.unshift({
@@ -17432,6 +17446,23 @@ function billEmbeddedNonGoldCreditLines(source = state, bill = {}, lot = {}, dem
       sourceId: issue.safeDepartmentIssueId || issue.id,
     });
   });
+  (source.productionNonGoldIssues || [])
+    .filter((issue) => issue.lotId === lot.id && issue.sourceType === "fitting-transfer-non-gold")
+    .forEach((issue) => {
+      const materialType = normalizeNonGoldControlMaterial(issue.materialType || "other");
+      const transfer = (lot.transfers || []).find((entry) => entry.id === issue.sourceTransferId);
+      const wasAccountedAtFitting = materialType === "stone"
+        ? issue.sourceMode === "direct"
+        : Boolean(transfer?.fittingNonGoldShelfConsumption?.posted && issue.sourceMode === "shelf");
+      if (!wasAccountedAtFitting || Number(issue.weight || 0) <= 0) return;
+      candidates.push({
+        purity: issue.purity || lot.metalPurity || "18K",
+        materialType,
+        weight: Number(issue.weight || 0),
+        sourceType: "fitting-transfer-non-gold",
+        sourceId: issue.sourceTransferId || issue.id,
+      });
+    });
   const remainingDemand = new Map((demandLines || []).map((line) => [
     `${karatPurityKey(line.purity) || transferPurityLabel(line.purity)}|${normalizeNonGoldControlMaterial(line.materialType)}`,
     Number(weight3(line.weight || 0)),
@@ -26435,6 +26466,7 @@ function normalizeProductionNonGoldIssue(issue = {}, lot = {}, currentState = st
     purity,
     karat: issue.karat || safeLockerForPurity(purity),
     sourceType: openingStockTransfer ? "opening-non-gold-transfer" : sourceType,
+    sourceMode: issue.sourceMode || "",
     sourceTransferId: issue.sourceTransferId || "",
     sourceSafeItemId: issue.sourceSafeItemId || "",
     auditEventId: issue.auditEventId || "",
@@ -26865,7 +26897,7 @@ function activeProductionOpeningNonGoldBreakdown(lot = {}) {
   const receivedSettingHandStone = receivedSettingHandStoneWeightForLot(lot);
   const transferBreakdown = currentTransferProvisionalNonGoldBreakdown(lot);
   const fittingShelfBreakdown = (state.productionNonGoldIssues || [])
-    .filter((issue) => issue.lotId === lot.id && issue.sourceType === "fitting-transfer-non-gold")
+    .filter((issue) => issue.lotId === lot.id && issue.sourceType === "fitting-transfer-non-gold" && issue.sourceMode === "shelf")
     .reduce((breakdown, issue) => addNonGoldBreakdowns(breakdown, {
       [normalizeNonGoldControlMaterial(issue.materialType)]: Math.max(Number(issue.weight || 0), 0),
     }), {});
@@ -28744,11 +28776,31 @@ function renderTransferFittingNonGoldPanel(form = document.getElementById("trans
   const totalOutput = document.getElementById("transfer-fitting-non-gold-total");
   if (totalOutput) totalOutput.textContent = gram(total);
   const summary = document.getElementById("transfer-fitting-non-gold-summary");
-  if (summary) {
-    summary.innerHTML = total > 0
-      ? `<strong>Add to this lot and Central Non-Gold Shelf:</strong> ${escapeHtml(nonGoldBreakdownText(breakdown) || "-")} / Total ${gram(total)}. Receive GW must include this material.`
-      : "No new non-gold selected. Receive GW must include every material physically embedded in the lot.";
+  if (!summary) return;
+  const lot = form.lotId?.value ? findById("lots", form.lotId.value) : null;
+  const editingTransfer = lot && form.transferId?.value
+    ? (lot.transfers || []).find((transfer) => transfer.id === form.transferId.value)
+    : null;
+  const shelfBreakdown = fittingTransferShelfBreakdown(breakdown);
+  const shelfAvailable = fittingTransferShelfAvailableBreakdown(lot || {}, editingTransfer || {});
+  const shortages = Object.entries(shelfBreakdown).filter(([materialType, weight]) =>
+    Number(weight || 0) > Number(shelfAvailable[materialType] || 0) + 0.0005
+  );
+  summary.classList.toggle("warn", shortages.length > 0);
+  if (total <= 0) {
+    summary.textContent = "No fitting non-gold selected. Non-stone material must be available in the matching Loose Non-Gold Shelf.";
+    return;
   }
+  const stoneWeight = Number(breakdown.stone || 0);
+  const shelfWeight = nonGoldBreakdownTotal(shelfBreakdown);
+  const details = [
+    stoneWeight > 0 ? `Stone ${gram(stoneWeight)} enters directly` : "",
+    shelfWeight > 0 ? `${nonGoldBreakdownText(shelfBreakdown)} consumed from Loose Shelf` : "",
+  ].filter(Boolean).join(" / ");
+  const shortageText = shortages.length
+    ? ` <strong>Insufficient shelf stock: ${escapeHtml(shortages.map(([materialType, weight]) => `${productionNonGoldMaterialLabel(materialType)} needs ${gram(weight)}, available ${gram(shelfAvailable[materialType] || 0)}`).join(" / "))}</strong>`
+    : "";
+  summary.innerHTML = `<strong>Assign to this lot:</strong> ${escapeHtml(details)} / Total ${gram(total)}. Total factory non-gold stays unchanged for shelf-consumed material.${shortageText}`;
 }
 
 function recalculateCumulativeTransferNonGold(lot = {}) {
@@ -28768,62 +28820,131 @@ function fittingTransferNonGoldIssueId(transferId = "", materialType = "other") 
   return `fitting-transfer-non-gold-${transferId}-${normalizeNonGoldControlMaterial(materialType)}`;
 }
 
-function removeFittingTransferNonGoldShelfEntries(transferId = "") {
+function fittingTransferShelfBreakdown(breakdown = {}) {
+  const shelfBreakdown = { ...normalizeNonGoldControlBreakdown(breakdown) };
+  delete shelfBreakdown.stone;
+  return normalizeNonGoldControlBreakdown(shelfBreakdown);
+}
+
+function fittingTransferShelfAvailableBreakdown(lot = {}, transfer = {}) {
+  const purity = transferPurityLabel(karatLogicPurity(
+    transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K",
+  ));
+  const previousDemand = (transfer.fittingNonGoldShelfConsumption?.demandLines || []).reduce((breakdown, line) => addNonGoldBreakdowns(breakdown, {
+    [normalizeNonGoldControlMaterial(line.materialType)]: Number(line.weight || 0),
+  }), {});
+  return ["black-beads", "moti", "spring", "other"].reduce((available, materialType) => {
+    available[materialType] = Number(weight3(
+      availableLooseNonGoldWeight(state, purity, materialType) + Number(previousDemand[materialType] || 0),
+    ));
+    return available;
+  }, {});
+}
+
+function findFittingTransferById(transferId = "") {
+  for (const lot of state.lots || []) {
+    const transfer = (lot.transfers || []).find((entry) => entry.id === transferId);
+    if (transfer) return transfer;
+  }
+  return null;
+}
+
+function removeFittingTransferNonGoldShelfEntries(transferOrId = "") {
+  const transferId = typeof transferOrId === "object" ? transferOrId?.id || "" : transferOrId;
   if (!transferId) return;
+  const transfer = typeof transferOrId === "object" ? transferOrId : findFittingTransferById(transferId);
+  if (transfer?.fittingNonGoldShelfConsumption?.posted) {
+    restoreLooseNonGoldConsumption(state, transfer.fittingNonGoldShelfConsumption, {
+      reference: `${transfer.lotNumber || "Lot"} Fitting non-gold reversal`,
+      date: transfer.date || today(),
+    });
+  }
   const ids = new Set((state.productionNonGoldIssues || [])
     .filter((issue) => issue.sourceTransferId === transferId || String(issue.id || "").startsWith(`fitting-transfer-non-gold-${transferId}-`))
     .map((issue) => issue.id));
   state.productionNonGoldIssues = (state.productionNonGoldIssues || []).filter((issue) => !ids.has(issue.id));
   state.nonGoldAuditEvents = (state.nonGoldAuditEvents || []).filter((entry) => !ids.has(entry.sourceId));
+  if (transfer) transfer.fittingNonGoldShelfConsumption = null;
 }
 
 function syncFittingTransferNonGoldShelfEntries(lot = {}, transfer = {}) {
-  removeFittingTransferNonGoldShelfEntries(transfer.id);
-  const breakdown = transferNonGoldAddedBreakdown(transfer);
-  if (!isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName) || nonGoldBreakdownTotal(breakdown) <= 0) return [];
-  const purity = transferPurityLabel(karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"));
-  const createdAt = transfer.createdAt || new Date().toISOString();
-  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
-  return Object.entries(breakdown).map(([materialType, weight]) => {
-    const issue = normalizeProductionNonGoldIssue({
-      id: fittingTransferNonGoldIssueId(transfer.id, materialType),
-      date: transfer.date || today(),
-      createdAt,
-      movementType: "issue",
-      materialType,
-      weight,
-      purity,
-      lotId: lot.id || "",
-      lotNumber: lot.number || "",
-      jobNumber: lot.orderNumber || "",
-      departmentId: transfer.fromKarigarId || lot.karigarId || "",
-      department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
-      sourceType: "fitting-transfer-non-gold",
-      sourceTransferId: transfer.id,
-      openingStockTransfer: false,
-      embeddedInOpeningGw: false,
-      remarks: `Embedded in ${lot.number || "lot"} during Fitting transfer`,
-    }, lot);
-    state.productionNonGoldIssues.unshift(issue);
-    const audit = recordNonGoldAuditEvent({
-      action: "Added In Fitting",
-      materialType,
-      weight,
-      purity,
-      fromLocation: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
-      toLocation: `Central Non-Gold Shelf / ${lot.number || "Lot"}`,
-      department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
-      lotId: lot.id || "",
-      lotNumber: lot.number || "",
-      jobNumber: lot.orderNumber || "",
-      status: "Embedded In Lot",
-      reference: `${lot.orderNumber || "Job Card"} / ${transfer.reason || "Fitting transfer"}`,
-      sourceType: "fitting-transfer-non-gold",
-      sourceId: issue.id,
+  const safeItemsBefore = structuredClone(state.safeItems || []);
+  const issuesBefore = structuredClone(state.productionNonGoldIssues || []);
+  const auditBefore = structuredClone(state.nonGoldAuditEvents || []);
+  const consumptionBefore = transfer.fittingNonGoldShelfConsumption
+    ? structuredClone(transfer.fittingNonGoldShelfConsumption)
+    : undefined;
+  try {
+    removeFittingTransferNonGoldShelfEntries(transfer);
+    const breakdown = transferNonGoldAddedBreakdown(transfer);
+    if (!isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName) || nonGoldBreakdownTotal(breakdown) <= 0) return [];
+    const purity = transferPurityLabel(karatLogicPurity(transfer.differencePurity || lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K"));
+    const createdAt = transfer.createdAt || new Date().toISOString();
+    const shelfBreakdown = fittingTransferShelfBreakdown(breakdown);
+    const shelfDemandLines = nonGoldDemandLinesForBreakdown(purity, shelfBreakdown);
+    transfer.fittingNonGoldShelfConsumption = shelfDemandLines.length
+      ? consumeLooseNonGoldDemandLines(state, shelfDemandLines, {
+          sourceType: "fitting-transfer-non-gold",
+          sourceId: transfer.id,
+          reference: `${lot.orderNumber || "Job Card"} / ${lot.number || "Lot"} Fitting non-gold`,
+          date: transfer.date || today(),
+        })
+      : null;
+    state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+    return Object.entries(breakdown).map(([materialType, weight]) => {
+      const sourceMode = materialType === "stone" ? "direct" : "shelf";
+      const issue = normalizeProductionNonGoldIssue({
+        id: fittingTransferNonGoldIssueId(transfer.id, materialType),
+        date: transfer.date || today(),
+        createdAt,
+        movementType: "issue",
+        materialType,
+        weight,
+        purity,
+        lotId: lot.id || "",
+        lotNumber: lot.number || "",
+        jobNumber: lot.orderNumber || "",
+        departmentId: transfer.fromKarigarId || lot.karigarId || "",
+        department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
+        sourceType: "fitting-transfer-non-gold",
+        sourceMode,
+        sourceTransferId: transfer.id,
+        openingStockTransfer: false,
+        embeddedInOpeningGw: false,
+        remarks: sourceMode === "shelf"
+          ? `Consumed from Loose Non-Gold Shelf and embedded in ${lot.number || "lot"}`
+          : `Stone added directly and embedded in ${lot.number || "lot"}`,
+      }, lot);
+      state.productionNonGoldIssues.unshift(issue);
+      const audit = recordNonGoldAuditEvent({
+        action: sourceMode === "shelf" ? "Embed From Shelf" : "Direct Stone In Fitting",
+        materialType,
+        weight,
+        purity,
+        fromLocation: sourceMode === "shelf"
+          ? `${purity} Loose Non-Gold Shelf`
+          : (transfer.fromDepartment || transfer.fromKarigarName || "Fitting"),
+        toLocation: `${lot.number || "Lot"} / Embedded In Product`,
+        department: transfer.fromDepartment || transfer.fromKarigarName || "Fitting",
+        lotId: lot.id || "",
+        lotNumber: lot.number || "",
+        jobNumber: lot.orderNumber || "",
+        status: "Embedded In Lot",
+        reference: `${lot.orderNumber || "Job Card"} / ${transfer.reason || "Fitting transfer"}`,
+        sourceType: "fitting-transfer-non-gold",
+        sourceId: issue.id,
+      });
+      issue.auditEventId = audit.id;
+      return issue;
     });
-    issue.auditEventId = audit.id;
-    return issue;
-  });
+  } catch (error) {
+    state.safeItems = safeItemsBefore;
+    state.productionNonGoldIssues = issuesBefore;
+    state.nonGoldAuditEvents = auditBefore;
+    if (consumptionBefore === undefined) delete transfer.fittingNonGoldShelfConsumption;
+    else transfer.fittingNonGoldShelfConsumption = consumptionBefore;
+    throw error;
+  }
 }
 
 function productionNonGoldTransferPoolKey(department = "", purity = "") {
@@ -28922,6 +29043,66 @@ function migrateCumulativeNonGoldTransfers(currentState = {}) {
   currentState.cumulativeNonGoldTransferMigration = "v608";
   currentState.cumulativeNonGoldTransferMigrationCount = updated;
   return updated;
+}
+
+function migrateFittingTransferShelfConsumptionV698(currentState = {}) {
+  let migrated = 0;
+  const pending = [];
+  (currentState.lots || []).forEach((lot) => {
+    (lot.transfers || []).forEach((transfer) => {
+      if (!isFittingNonGoldTransferSource(transfer.fromDepartment || transfer.fromKarigarName)) return;
+      const breakdown = transferNonGoldAddedBreakdown(transfer);
+      if (nonGoldBreakdownTotal(breakdown) <= 0.0005) return;
+      const linkedIssues = (currentState.productionNonGoldIssues || []).filter((issue) =>
+        issue.lotId === lot.id
+        && issue.sourceType === "fitting-transfer-non-gold"
+        && issue.sourceTransferId === transfer.id
+      );
+      if (!linkedIssues.length) return;
+      linkedIssues.forEach((issue) => {
+        issue.sourceMode = normalizeNonGoldControlMaterial(issue.materialType) === "stone" ? "direct" : "shelf";
+      });
+      if (transfer.fittingNonGoldShelfConsumption?.posted) return;
+      const shelfBreakdown = fittingTransferShelfBreakdown(breakdown);
+      if (nonGoldBreakdownTotal(shelfBreakdown) <= 0.0005) return;
+      const purity = transferPurityLabel(karatLogicPurity(
+        transfer.differencePurity || lot.metalPurity || lotPurityForStateLot(currentState, lot) || "18K",
+      ));
+      try {
+        transfer.fittingNonGoldShelfConsumption = consumeLooseNonGoldDemandLines(
+          currentState,
+          nonGoldDemandLinesForBreakdown(purity, shelfBreakdown),
+          {
+            sourceType: "fitting-transfer-non-gold",
+            sourceId: transfer.id,
+            reference: `${lot.orderNumber || "Job Card"} / ${lot.number || "Lot"} v697 Fitting migration`,
+            date: transfer.date || today(),
+          },
+        );
+        linkedIssues.forEach((issue) => {
+          const audit = (currentState.nonGoldAuditEvents || []).find((entry) => entry.sourceId === issue.id);
+          if (!audit || issue.sourceMode !== "shelf") return;
+          audit.action = "Embed From Shelf";
+          audit.fromLocation = `${purity} Loose Non-Gold Shelf`;
+          audit.toLocation = `${lot.number || "Lot"} / Embedded In Product`;
+          audit.status = "Embedded In Lot";
+        });
+        migrated += 1;
+      } catch (error) {
+        pending.push({
+          lotId: lot.id || "",
+          lotNumber: lot.number || "",
+          transferId: transfer.id || "",
+          required: shelfBreakdown,
+          reason: error?.message || "Matching Loose Non-Gold Shelf stock is unavailable.",
+        });
+      }
+    });
+  });
+  currentState.fittingTransferShelfConsumptionV698Pending = pending.slice(0, 100);
+  currentState.fittingTransferShelfConsumptionV698Migrated = Number(currentState.fittingTransferShelfConsumptionV698Migrated || 0) + migrated;
+  if (!pending.length) currentState.fittingTransferShelfConsumptionV698CompleteAt = currentState.fittingTransferShelfConsumptionV698CompleteAt || new Date().toISOString();
+  return { migrated, pending };
 }
 
 function isFittingNonGoldTransferSource(value = "") {
@@ -51878,6 +52059,7 @@ function normalizeState(currentState) {
     .slice(0, 10000);
   currentState.nonGoldControlVersion = Math.max(Number(currentState.nonGoldControlVersion || 0), 1);
   migrateCumulativeNonGoldTransfers(currentState);
+  migrateFittingTransferShelfConsumptionV698(currentState);
   migrateLegacySafeShelfGoldIssues(currentState);
   currentState.lots = (currentState.lots || []).map((lot) => normalizeLotIssueWeights(currentState, lot));
   currentState.settingManagerEntries = (currentState.settingManagerEntries || []).map((entry) => normalizeSettingManagerEntry(entry, currentState));
