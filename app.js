@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v700";
+const APP_VERSION = "v701";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -19380,7 +19380,225 @@ function selectedJobSplitIds() {
 }
 
 function splitJobRootNumber(jobNumber = "") {
-  return String(jobNumber || "").replace(/-S\d+$/i, "");
+  let root = String(jobNumber || "").trim();
+  while (/-S\d+$/i.test(root)) root = root.replace(/-S\d+$/i, "");
+  return root;
+}
+
+function jobCardFamilyRootNumber(order = {}) {
+  const explicitRoot = order.jobFamilyRootNumber
+    || order.familyRootJobNumber
+    || order.splitFromFamilyRoot
+    || order.splitFromJobNumber
+    || "";
+  return splitJobRootNumber(explicitRoot || mergeJobNumber(order));
+}
+
+function jobCardFamilyOrders(order = {}) {
+  const root = jobCardFamilyRootNumber(order);
+  if (!root) return getJobOrders(order);
+  return (state.orders || []).filter((candidate) => jobCardFamilyRootNumber(candidate) === root);
+}
+
+function jobCardFamilyMembers(order = {}) {
+  const root = jobCardFamilyRootNumber(order);
+  const groups = new Map();
+  jobCardFamilyOrders(order).forEach((candidate) => {
+    const jobNumber = mergeJobNumber(candidate);
+    if (!groups.has(jobNumber)) groups.set(jobNumber, []);
+    groups.get(jobNumber).push(candidate);
+  });
+  return [...groups.entries()]
+    .map(([jobNumber, orders]) => ({
+      jobNumber,
+      root,
+      orders,
+      role: jobNumber === root ? "Main Job" : (String(jobNumber).match(/-(S\d+)$/i)?.[1]?.toUpperCase() || "Child"),
+    }))
+    .sort((left, right) => {
+      if (left.jobNumber === root) return -1;
+      if (right.jobNumber === root) return 1;
+      return left.jobNumber.localeCompare(right.jobNumber, undefined, { numeric: true, sensitivity: "base" });
+    });
+}
+
+function activeJobCardFamilyLots(orders = []) {
+  const orderIds = new Set(orders.map((item) => item.id).filter(Boolean));
+  return (state.lots || []).filter((lot) => (
+    !lot.mergedIntoLotId
+    && lot.status !== "Merged"
+    && lot.status !== "Completed"
+    && !lot.manualResetHistoricalAt
+    && !lot.inventoryResetArchivedAt
+    && getLotOrderIds(lot).some((orderId) => orderIds.has(orderId))
+  ));
+}
+
+function jobCardFamilyIntegrity(order = {}) {
+  const members = jobCardFamilyMembers(order);
+  const familyOrders = members.flatMap((member) => member.orders);
+  const familyOrderIds = new Set(familyOrders.map((item) => item.id).filter(Boolean));
+  const activeLots = activeJobCardFamilyLots(familyOrders);
+  const lotIdsByOrder = new Map();
+  const warnings = [];
+  activeLots.forEach((lot) => {
+    const linkedIds = getLotOrderIds(lot);
+    linkedIds.forEach((orderId) => {
+      if (!lotIdsByOrder.has(orderId)) lotIdsByOrder.set(orderId, []);
+      lotIdsByOrder.get(orderId).push(lot);
+    });
+    const foreignIds = linkedIds.filter((orderId) => !familyOrderIds.has(orderId));
+    if (foreignIds.length) warnings.push(`${lot.number || "Production lot"} links ${foreignIds.length} item(s) outside this Job Card family.`);
+    const linkedJobNumbers = [...new Set(linkedIds.map((orderId) => mergeJobNumber(findById("orders", orderId) || {})).filter(Boolean))];
+    const displayedNumbers = String(lot.orderNumber || "").split(",").map((value) => value.trim()).filter(Boolean);
+    if (linkedJobNumbers.length && displayedNumbers.length && linkedJobNumbers.some((jobNumber) => !displayedNumbers.includes(jobNumber))) {
+      warnings.push(`${lot.number || "Production lot"} Job Card reference does not match its linked PR item(s).`);
+    }
+  });
+  const duplicatePrGroups = new Map();
+  lotIdsByOrder.forEach((lots, orderId) => {
+    if (lots.length < 2) return;
+    const lotNumbers = [...new Set(lots.map((lot) => lot.number || lot.id).filter(Boolean))].sort();
+    const key = lotNumbers.join(" | ");
+    if (!duplicatePrGroups.has(key)) duplicatePrGroups.set(key, { lotNumbers, productionNos: [] });
+    duplicatePrGroups.get(key).productionNos.push(findById("orders", orderId)?.productionNo || orderId);
+  });
+  duplicatePrGroups.forEach(({ lotNumbers, productionNos }) => {
+    const preview = productionNos.slice(0, 8).join(", ");
+    const remaining = productionNos.length > 8 ? ` +${productionNos.length - 8} more` : "";
+    warnings.push(`${productionNos.length} PR item${productionNos.length === 1 ? "" : "s"} appear in more than one active lot (${lotNumbers.join(", ")}): ${preview}${remaining}.`);
+  });
+  return {
+    root: jobCardFamilyRootNumber(order),
+    members,
+    activeLots,
+    warnings: [...new Set(warnings)],
+    valid: warnings.length === 0,
+  };
+}
+
+function jobCardFamilyLastMovement(lot = {}) {
+  const transfers = lot.transfers || [];
+  const last = transfers[transfers.length - 1];
+  if (!last) return `${lot.issueDate || "-"} / Gold Issue`;
+  const route = [last.fromDepartment || last.fromKarigarName, last.toDepartment || last.toKarigarName].filter(Boolean).join(" to ");
+  return `${loginDateTimeText(last.createdAt || last.date || "")} / ${route || "Transfer"}`;
+}
+
+function jobCardFamilyMemberWeights(member = {}) {
+  const lots = activeJobCardFamilyLots(member.orders || []);
+  const grossWeight = Number(weight3(lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0)));
+  const wax = productionStoneTotalsForOrders(member.orders || [], "wax");
+  const hand = productionStoneTotalsForOrders(member.orders || [], "hand");
+  const nonGoldWeight = Number(weight3(lots.reduce((total, lot) => total + Number(productionNonGoldTotalsForLot(lot).weight || 0), 0)));
+  return {
+    lots,
+    grossWeight,
+    waxWeight: Number(weight3(wax.weight || 0)),
+    handWeight: Number(weight3(hand.weight || 0)),
+    nonGoldWeight,
+    netWeight: Number(weight3(Math.max(grossWeight - Number(wax.weight || 0) - Number(hand.weight || 0), 0))),
+  };
+}
+
+function jobCardFamilyMemberStatus(member = {}) {
+  const weights = jobCardFamilyMemberWeights(member);
+  if (weights.lots.length === 1) return weights.lots[0].currentDepartment || weights.lots[0].karigarName || "Production";
+  if (weights.lots.length > 1) return `${weights.lots.length} Active Lots`;
+  if ((member.orders || []).every(isCompletedOrder)) return "Completed";
+  return "Pending / Gold Not Issued";
+}
+
+function renderJobCardFamilyControl(order = {}, scopedLotId = "") {
+  const holder = document.getElementById("job-family-control");
+  if (!holder) return;
+  const integrity = jobCardFamilyIntegrity(order);
+  const currentJobNumber = mergeJobNumber(order);
+  const isFamily = integrity.members.length > 1;
+  holder.classList.toggle("hidden", !isFamily || Boolean(scopedLotId && isSettingManagerUser()));
+  if (!isFamily || (scopedLotId && isSettingManagerUser())) {
+    holder.innerHTML = "";
+    return;
+  }
+  const memberRows = integrity.members.map((member) => {
+    const weights = jobCardFamilyMemberWeights(member);
+    const status = jobCardFamilyMemberStatus(member);
+    const lotsHtml = weights.lots.length ? weights.lots.map((lot) => {
+      const lotStone = productionStoneTotalsForOrders(getLotOrders(lot));
+      const lotWax = productionStoneTotalsForOrders(getLotOrders(lot), "wax");
+      const lotHand = productionStoneTotalsForOrders(getLotOrders(lot), "hand");
+      const lotGw = Number(weight3(currentTransferIssueWeight(lot)));
+      const lotNet = Number(weight3(Math.max(lotGw - Number(lotWax.weight || 0) - Number(lotHand.weight || 0), 0)));
+      const transferButton = lot.status === "Completed"
+        ? ""
+        : `<button type="button" onclick="openTransferFromOrder('${escapeHtml(lot.id)}')">Transfer Exact Lot</button>`;
+      return `
+        <div class="job-family-lot-row">
+          <div class="job-family-lot-identity">
+            <b>${escapeHtml(lot.number || "Lot")}</b>
+            <span>${escapeHtml(lot.currentDepartment || lot.karigarName || "Production")}</span>
+            <small>${escapeHtml(jobCardFamilyLastMovement(lot))}</small>
+          </div>
+          <div class="job-family-weight-strip">
+            <span><b>GW</b>${gram(lotGw)}</span>
+            <span><b>Wax</b>${gram(lotWax.weight || 0)}</span>
+            <span><b>Hand</b>${gram(lotHand.weight || 0)}</span>
+            <span><b>Stone</b>${gram(lotStone.weight || 0)}</span>
+            <span><b>Net</b>${gram(lotNet)}</span>
+          </div>
+          <div class="row-actions job-family-lot-actions">
+            ${transferButton}
+            <button class="ghost-button" type="button" onclick="openHistoryFromOrder('${escapeHtml(lot.id)}')">History</button>
+          </div>
+        </div>`;
+    }).join("") : `<div class="job-family-empty-lot">No active production lot. ${status === "Completed" ? "All items are completed." : "Open this card to issue gold."}</div>`;
+    return `
+      <article class="job-family-member-card ${member.jobNumber === currentJobNumber ? "current" : ""}">
+        <header>
+          <div>
+            <span>${escapeHtml(member.role === "Main Job" ? "Main Job Card" : `Child ${member.role}`)}</span>
+            <strong>${escapeHtml(member.jobNumber)}</strong>
+            <small>${member.orders.length} PR item${member.orders.length === 1 ? "" : "s"} / ${escapeHtml(status)}</small>
+          </div>
+          <div class="job-family-member-totals">
+            <span><b>Total GW</b>${gram(weights.grossWeight)}</span>
+            <span><b>Net</b>${gram(weights.netWeight)}</span>
+            <span><b>Non-Gold</b>${gram(weights.nonGoldWeight)}</span>
+          </div>
+          <button class="ghost-button" type="button" onclick="openJobOrder('${escapeHtml(member.jobNumber)}', 'all')">Open Card</button>
+        </header>
+        <div class="job-family-lots">${lotsHtml}</div>
+      </article>`;
+  }).join("");
+  const familyTotalGw = Number(weight3(integrity.activeLots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0)));
+  const warningHtml = integrity.valid
+    ? `<div class="job-family-integrity ok"><strong>Family check passed</strong><span>Each PR belongs to only one active lot and every lot reference matches its Job Card.</span></div>`
+    : `<div class="job-family-integrity warning"><strong>Family check required</strong>${integrity.warnings.map((warning) => `<span>${escapeHtml(warning)}</span>`).join("")}</div>`;
+  holder.innerHTML = `
+    <div class="job-family-heading">
+      <div><span>Job Card Family Control</span><h3>${escapeHtml(integrity.root)}</h3><small>${integrity.members.length} cards / ${integrity.activeLots.length} active lots / Family GW ${gram(familyTotalGw)}</small></div>
+      <strong class="job-family-stage-note">Each lot keeps one exact department. Transfer from its own row.</strong>
+    </div>
+    ${warningHtml}
+    <div class="job-family-member-list">${memberRows}</div>`;
+}
+
+function jobCardMergeOperationalCheck(primaryJobNumber = "", sourceJobNumbers = new Set()) {
+  const jobNumbers = [primaryJobNumber, ...sourceJobNumbers];
+  const details = jobNumbers.map((jobNumber) => {
+    const orders = (state.orders || []).filter((order) => mergeJobNumber(order) === jobNumber);
+    const lots = activeJobCardFamilyLots(orders);
+    const departments = [...new Set(lots.map((lot) => mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName) || "Production"))];
+    const stateKey = lots.length ? departments.join(" + ") : (orders.every(isCompletedOrder) ? "Completed" : "Pending / Gold Not Issued");
+    return { jobNumber, lots, departments, stateKey };
+  });
+  const states = [...new Set(details.map((detail) => detail.stateKey))];
+  const ambiguous = details.some((detail) => detail.departments.length > 1);
+  return {
+    valid: !ambiguous && states.length === 1,
+    details,
+    message: details.map((detail) => `${detail.jobNumber}: ${detail.stateKey}`).join("\n"),
+  };
 }
 
 function nextSplitJobNumber(jobNumber = "") {
@@ -20113,6 +20331,7 @@ function splitFittingItemsJobCard(event) {
     status: "In Production",
     remarks: `Fitting Items split from ${order.jobNumber}`,
     splitFromJobNumber: order.jobNumber,
+    jobFamilyRootNumber: jobCardFamilyRootNumber(order),
     splitDate: today(),
     productionStoneItems: [],
   };
@@ -20137,6 +20356,7 @@ function splitFittingItemsJobCard(event) {
     transfers: [],
     splitFromLotId: lot.id,
     splitFromLotNumber: lot.number,
+    jobFamilyRootNumber: jobCardFamilyRootNumber(order),
     splitDate: today(),
     fittingItemsIssuedToFitting: false,
     fittingItemsCompletedDate: "",
@@ -20178,6 +20398,11 @@ async function splitSelectedJobItems() {
   const currentOrder = findById("orders", form.orderId.value);
   if (!currentOrder) {
     alert("Open a job order first.");
+    return;
+  }
+  const familyIntegrity = jobCardFamilyIntegrity(currentOrder);
+  if (!familyIntegrity.valid) {
+    alert(`This Job Card family has an existing lot-link issue and cannot be split again until it is checked.\n\n${familyIntegrity.warnings.join("\n")}`);
     return;
   }
   const jobOrders = getJobOrders(currentOrder);
@@ -20224,6 +20449,7 @@ async function splitSelectedJobItems() {
   }
   const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
   const splitJobNumber = nextSplitJobNumber(originalJobNumber);
+  const familyRootJobNumber = jobCardFamilyRootNumber(currentOrder) || splitJobRootNumber(originalJobNumber);
   const productionSplitText = mixedLiveLot ? `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.` : "";
   if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
   const rollback = {
@@ -20236,6 +20462,7 @@ async function splitSelectedJobItems() {
   selectedOrders.forEach((order) => {
     order.jobNumber = splitJobNumber;
     order.splitFromJobNumber = originalJobNumber;
+    order.jobFamilyRootNumber = familyRootJobNumber;
     order.splitDate = today();
     order.urgent = true;
     order.updatedAt = splitAt;
@@ -20261,6 +20488,7 @@ async function splitSelectedJobItems() {
     && getLotOrderIds(lot).some((id) => selectedIdSet.has(id))
   ));
   if (splitLot) splitLot.updatedAt = splitAt;
+  if (splitLot) splitLot.jobFamilyRootNumber = familyRootJobNumber;
   const savedLocally = saveState({
     alertOnFailure: true,
     context: `Split ${originalJobNumber} into ${splitJobNumber}`,
@@ -25747,6 +25975,7 @@ function renderOrderLots(order, scopedLotId = "") {
   );
   const status = document.getElementById("order-current-status");
   if (status) status.innerHTML = orderCurrentLotStatusHtml(jobOrders, lots);
+  renderJobCardFamilyControl(order, scopedLotId);
   updateIssueGoldFromOrderButton(jobOrders);
   document.getElementById("order-lots-list").innerHTML = lots.length
     ? lots.map(renderOrderLotCard).join("")
@@ -34839,8 +35068,9 @@ function jobOrderSearchQuery(inputId) {
 
 function jobOrderFamilyRoot(job = {}) {
   const jobNumber = job.jobNumber || job.orders?.[0]?.jobNumber || "";
-  const explicitParent = job.orders?.find((order) => order.splitFromJobNumber)?.splitFromJobNumber || "";
-  return splitJobRootNumber(jobNumber || explicitParent) || splitJobRootNumber(explicitParent) || jobNumber;
+  const explicitParent = job.orders?.find((order) => order.jobFamilyRootNumber || order.familyRootJobNumber || order.splitFromJobNumber);
+  const explicitRoot = explicitParent?.jobFamilyRootNumber || explicitParent?.familyRootJobNumber || explicitParent?.splitFromJobNumber || "";
+  return splitJobRootNumber(explicitRoot || jobNumber) || jobNumber;
 }
 
 function jobOrderSearchText(job = {}) {
@@ -35190,6 +35420,16 @@ async function mergeSelectedJobCards(event) {
     alert("The selected Job Cards could not be found. Refresh and try again.");
     return;
   }
+  const familyIntegrity = jobCardFamilyIntegrity(primaryOrders[0]);
+  if (!familyIntegrity.valid) {
+    alert(`This Job Card family has an existing lot-link issue and cannot be merged until it is checked.\n\n${familyIntegrity.warnings.join("\n")}`);
+    return;
+  }
+  const operationalCheck = jobCardMergeOperationalCheck(primaryJobNumber, sourceJobNumbers);
+  if (!operationalCheck.valid) {
+    alert(`These Job Cards cannot be physically merged because they are not in one matching production location.\n\n${operationalCheck.message}\n\nKeep them as separate child cards under the same Main Job and transfer each exact lot from the Job Card Family Control. Merge becomes available when every selected card is in the same department.`);
+    return;
+  }
   const selectedOrderIds = new Set(sourceOrders.map((order) => order.id));
   const familyOrderIds = new Set((family.jobs || []).flatMap((job) => job.orders || []).map((order) => order.id).filter(Boolean));
   const sharedWeightLots = jobCardMergeSharedLots(selectedOrderIds, familyOrderIds, sourceJobNumbers);
@@ -35231,11 +35471,13 @@ async function mergeSelectedJobCards(event) {
     const previousJobNumber = mergeJobNumber(order);
     order.mergedFromJobNumbers = [...new Set([...(order.mergedFromJobNumbers || []), previousJobNumber])];
     order.jobNumber = primaryJobNumber;
+    order.jobFamilyRootNumber = family.root;
     order.lastJobCardMergeAt = mergedAt;
     order.lastJobCardMergeBy = currentUser?.name || currentUser?.id || "ERP User";
   });
   const mergedOrders = [...primaryOrders, ...sourceOrders];
   mergedOrders.forEach((order) => {
+    order.jobFamilyRootNumber = family.root;
     order.mergedJobNumbers = [...new Set([...(order.mergedJobNumbers || []), ...sourceJobNumbers])];
     order.lastJobCardMergeAt = mergedAt;
   });
@@ -35492,7 +35734,7 @@ function jobOrderDeliverySummary(orders = []) {
 function jobCurrentStage(orders = []) {
   const stages = [...new Set(orders.map(orderCurrentStage).filter(Boolean))];
   if (!stages.length) return "Pending";
-  return stages.length === 1 ? stages[0] : `Mixed: ${stages.join(", ")}`;
+  return stages.length === 1 ? stages[0] : `${stages.length} Active Stages`;
 }
 
 function orderCurrentStage(order = {}) {
