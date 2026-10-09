@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V679 DEPLOYMENT
+
+Upload the complete contents of the V679 folder to the existing GitHub repository, replacing the earlier website files.
+
+Required updated files:
+- index.html
+- app.js
+- styles.css
+- app-version.json
+- ERP-AUDIT-v679.txt
+- DEPLOY-v679.txt
+- UPLOAD-INSTRUCTIONS.txt
+
+Keep the complete assets folder and all existing SQL/help files in the repository.
+
+No new Supabase SQL is required for V679.
+
+After GitHub Pages finishes publishing:
+1. Open the ERP and confirm App v679.
+2. Open Factory In / Out > Factory Out.
+3. Search or select the required pending bills.
+4. Review the combined GW, Non-Gold, Net, and Fine totals.
+5. Click Factory Out Selected Bills and confirm once.
+6. Verify every bill appears separately in Factory Ledger and is removed from the pending bill list.

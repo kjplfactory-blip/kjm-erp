@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v684
+
+DEPLOYMENT
+1. Keep the existing Supabase data. Do not run a reset SQL file.
+2. Upload the contents of KHUSHALI-JEWELLS-ERP-v684-LIVE to the existing GitHub repository.
+3. Upload app-version.json last.
+4. Confirm every laptop refreshes to App v684 and shows Saved & Synced.
+
+VERIFY BILL 0050
+- Safe Locker > Non-Gold Shelf: loose Stone 250.036 g and loose Moti 27.289 g.
+- Factory In / Out: Bill 0050 Net 41.289 g, WSTG 1.75%, WSTG Fine 0.723 g, Fine 31.792 g.
+- Vendor Balance: KJPL Office includes the Bill receivable.
+- Net Factory Fine increases only by 0.723 g manufacturing WSTG.
+
+SUPABASE
+- No SQL change is required.
+- SUPABASE-INCREMENTAL-SYNC-v666.sql remains current.

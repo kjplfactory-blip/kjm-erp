@@ -1,0 +1,14 @@
+KHUSHALI JEWELLS MANUFACTURING - DEPLOY v670
+
+1. Open the existing GitHub repository in GitHub Desktop.
+2. Replace the live application files with every file and folder inside KHUSHALI-JEWELLS-ERP-v670-LIVE.
+3. Do not upload the ZIP or rollback backup folder.
+4. Commit and push all files except app-version.json first.
+5. Upload app-version.json last, then commit and push it.
+6. Wait for GitHub Pages to finish publishing.
+7. Open the live ERP and confirm App v670.
+8. Test one duplicated tag, Manager Close Day backup, Setter Issue/Receive, Job Bag and Lot History.
+
+SUPABASE
+- Continue using SUPABASE-INCREMENTAL-SYNC-v666.sql.
+- No new SQL is required for v670.

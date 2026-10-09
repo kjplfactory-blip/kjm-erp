@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP v672 AUDIT
+
+NAMED LOGIN
+- Person Name is mandatory for every login, independent of the selected shared ERP login account.
+- The active-user label and Owner login history retain both the person and account names.
+- Login policy v3 invalidates existing sessions once so unnamed older sessions cannot edit records.
+
+STONE EDIT TRACEABILITY
+- Each saved PR-level stone change stores timestamp, person, login account, action and a compact snapshot of all resulting rows.
+- The latest editor appears in the STONE EDITED badge on the Job Item tile.
+- Production Stone Entry shows full history without changing the Design Master reference.
+- Existing edited items receive a compatible first historical record from their saved latest-editor details.
+
+DATA SAFETY
+- Logout and forced reauthentication persist the current browser state first.
+- The automatic version updater already saves the job-order draft and ERP state before reload.
+- No inventory reset, ERP record deletion or Supabase schema change is included.

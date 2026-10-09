@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP v673 AUDIT
+
+CAUSES FOUND
+- Gold Issue called the general save analyzer, which compared every large ERP collection even though only five operational collections had changed.
+- The post-save render rebuilt Production Lots, Non-Gold tables, department reconciliation and the complete Setting Manager while those pages were hidden.
+- Wax-stone calculation rechecked saved stone rows against the full Stone Library.
+
+REPAIRS
+- Gold Issue supplies a precise changed-record list to the existing incremental sync journal.
+- Production screens render tile by tile and refresh when opened.
+- Saved Job Card stone totals bypass unnecessary master-library lookup while missing weights still retain the existing fallback.
+- The form remains locally saved first and Supabase continues through the normal queued incremental sync.
+
+DATA SAFETY
+- Gold Issue still creates one Lot, changes the selected Job Card items to In Production, records one ledger movement and deducts the same net gold from the selected Safe item.
+- No inventory, Job Card, stone, design, Bill, customer, login or cloud record is reset.
+- No Supabase SQL change is required.
+
+VERIFICATION
+- JavaScript syntax and v673 regression tests pass.
+- All local HTML asset references resolve.
+- The packaged v673 folder matches the verified source.

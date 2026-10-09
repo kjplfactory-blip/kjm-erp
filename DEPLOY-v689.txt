@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS ERP v689 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v689-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after every program file is available.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v689 and Saved & Synced.
+5. Open Safe Locker > Central Non-Gold Shelf.
+6. Confirm active WIP stone is shown under PR / Item and is not treated as a separate department transfer.
+7. Confirm Factory Out Pending shows only a genuine incomplete Bill / Factory Out shelf deduction.
+8. Confirm Department Transfer History continues to show GW Issue and GW Receive only.
+9. Confirm Fine Sheet contains one Central Non-Gold Shelf Adjustment, purity-wise.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v689.

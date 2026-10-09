@@ -1,0 +1,27 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v692 AUDIT
+
+ISSUE
+BILL-0050 had a valid 53.144 g Factory Out movement, but its Combined Manual Bill lot used the fallback identity Bill / QC / Office. The movement therefore did not appear inside the BILLING department tile.
+
+CORRECTION
+1. Added a canonical lookup for the BILLING master department.
+2. Generic Bill, Bill / QC and Office process labels now resolve to the BILLING master's normal process, FINAL BILL.
+3. Combined Manual Billing receipts and their Factory Out movements now share BILLING / FINAL BILL.
+4. Existing standard Bill transfers keep their saved process and behavior.
+5. The correction is derived at runtime, so no stored Bill or transfer entry is duplicated or rewritten.
+
+BILL-0050 EXPECTED RESULT
+- IN To Department: Combined Manual Bill / 53.144 g.
+- OUT From Department: Bill To Factory Out / 53.144 g.
+- Net Billing holding caused by BILL-0050: 0.000 g.
+
+VALIDATION
+- JavaScript syntax check passed.
+- Legacy Combined Manual Bill grouping regression passed.
+- Existing Bill Factory Out reconciliation regression passed after version update.
+- Browser verification confirmed BILL-0050 already has a valid Factory Out marker and 53.144 g movement.
+
+DATA SAFETY
+- Complete v691 source backup was created before editing.
+- No ERP business data was changed.
+- No Supabase SQL or data reset is required.

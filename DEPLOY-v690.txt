@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS ERP v690 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v690-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after every program file is available.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v690 and Saved & Synced.
+5. Open Factory In and confirm Rejected Item With Non-Gold shows five component fields plus Total Non-Gold and Net Gold.
+6. Confirm Casting Item and Rod are separate choices in Factory In, Factory Out, Safe Locker and Department Receive.
+7. Confirm existing stock weights and histories remain unchanged.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v690.

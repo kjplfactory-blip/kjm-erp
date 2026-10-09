@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - v677 AUDIT
+Date: 05-10-2026
+
+PERMANENT NON-GOLD CONTROL
+- Added a single Non-Gold Control screen under Production.
+- Shows Stone, Black Beads, Moti, Spring, and Other by karat and current location.
+- Separates Safe stock, department loose stock, WIP, PR/item allocation, Bill pending, and unmatched weight.
+- Added a permanent movement ledger with source, destination, Job Card, PR, status, and reference.
+- Existing records are read without deleting or resetting historical ERP data.
+
+CONTROL RULES
+- A category is allocated only against the same category and karat.
+- Non-gold issued from Safe must select a real matching Safe item.
+- Existing/opening-balance issue is restricted to Owner and Manager.
+- Commercial Bill stone remains 96% of the item stone weight.
+- Physical factory stock, Factory Out, repair returns, and non-gold movements use 100% actual weight.
+- Completed Safe issues retain their original material breakdown in movement history.
+
+VERIFICATION
+- JavaScript syntax check passed.
+- v677 login and dashboard loaded in the local browser.
+- Non-Gold Control loaded with current ERP data and no browser console errors.
+- Desktop control tables fit without page-level horizontal scrolling.
+- Mobile layout remains within the viewport; wide data stays inside its own table scroller.
+- Material and karat reconciliation detected existing unmatched data instead of silently balancing it.
+
+DATABASE
+- No new Supabase SQL is required. v677 stores the new audit data inside the existing ERP state record.
+- Upload the complete v677 folder so index.html, app.js, styles.css, and app-version.json stay together.

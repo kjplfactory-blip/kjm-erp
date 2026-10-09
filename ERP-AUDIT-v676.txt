@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP AUDIT v676
+
+SCOPE
+- Bill item removal visibility and permission feedback.
+
+RESULT
+- Every Bill item row has a dedicated Action column.
+- Authorized users see a red Remove Item button.
+- Unauthorized or unsafe removal remains visible but disabled with the exact reason.
+- Pending Bill removal and generated Bill Owner / Manager rules remain unchanged.
+- Existing Bill removal confirmation, audit history, rollback and Job Card keep/delete choices remain intact.
+- No data migration, reset or Supabase SQL is required.
+
+VERIFICATION
+- JavaScript syntax check.
+- v676 Bill removal visibility regression test.
+- v675 Bill removal workflow regression checks retained for v676.
+- Bill fitting-accessory regression test.
+- Local browser version and Bill removal dialog markup inspection.

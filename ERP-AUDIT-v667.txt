@@ -1,0 +1,33 @@
+KHUSHALI JEWELLS MANUFACTURING ERP V667 SEARCH AUDIT
+Date: 2026-09-30 IST
+
+PROBLEM CONFIRMED
+- Universal Search previously rebuilt Job, PR, Design, Customer, Bill, Hallmark and Lot results after every 110 ms typing pause.
+- Current-stage calculation repeatedly rebuilt Office items and scanned all Lots and Bills for every Job item.
+- Job item display names also recalculated production stone data and searched Stone Library rows during every query.
+- With approximately 1,780 open order items, JOB-1690 did not return inside the browser interaction window and the test page became unavailable.
+
+V667 REPAIR
+- Added one reusable in-memory Universal Search index.
+- Added direct exact lookup for Job, PR, barcode, Design, Customer, Bill, HUID and Hallmark values.
+- Prepared production stages, Bill relations and Hallmark batches once in linear passes.
+- Removed Stone Library calculations from the typing path.
+- Kept only the best 16 permitted matches without sorting the full result population.
+- Added two-character minimum, 250 ms debounce and stale-request cancellation.
+- Rebuilds are scheduled in idle time after relevant local saves, cloud refreshes, normalized bootstraps and merged cloud updates.
+- Existing role/page permissions filter the indexed results at query time.
+
+REAL-DATA VERIFICATION
+- App version displayed: v667.
+- JOB-1690 result list: 16 results in approximately 312 ms including the 250 ms debounce.
+- Exact JOB-1690 opening: approximately 324 ms.
+- Broad KJPL STOCK search: 16 results in approximately 384 ms including debounce.
+- Browser warnings/errors after search and opening: none.
+- JavaScript syntax: all 14 local JavaScript files passed.
+- HTML IDs: 804 checked, no duplicates.
+- Local JavaScript/CSS references: 16 checked, none missing.
+
+DATA SAFETY
+- No ERP business data was edited, reset or migrated by this search repair.
+- No new Supabase SQL is required.
+- Continue using SUPABASE-INCREMENTAL-SYNC-v666.sql for incremental synchronization.

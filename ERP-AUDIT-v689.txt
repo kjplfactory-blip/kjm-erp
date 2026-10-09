@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v689 AUDIT
+
+PROBLEM CONFIRMED
+1. Department production transfers correctly used GW, but the non-gold reconciliation still expected active WIP stone to have a separate department-level source movement.
+2. This incorrectly labelled 18.231 g of active WIP stone as unmatched.
+3. Department movement must not create a second stone transfer because the product, including stone, moves in GW.
+
+CORRECTION
+1. Active production Stone, Black Beads, Moti, Spring and Other remain visible by Job Card, Lot, PR and department.
+2. A missing department-level non-gold movement no longer creates an unmatched warning for active production.
+3. Only an incomplete Bill / Factory Out central-shelf deduction remains actionable.
+4. Fine Sheet continues to deduct the complete Central Non-Gold Shelf once, purity-wise.
+5. Setting calculation remains Receive Net = Receive GW - Hand Stone.
+
+EXPECTED CURRENT RESULT
+- Active WIP stone reference: 18.231 g, correctly tracked and not unmatched.
+- BILL-0052 pending Factory Out shelf deduction: 0.113 g.
+- Actionable Factory Out Pending: 0.113 g until BILL-0052 is completed or corrected.
+
+DATA SAFETY
+- Complete v688 source and cloud-data backups were created before editing.
+- No synced ERP business data was modified.
+- No Supabase SQL change is required.

@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v702";
+const APP_VERSION = "v703";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -45,6 +45,7 @@ const ERP_STATE_INDEXED_DB_NAME = "khushali-erp-local-state";
 const ERP_STATE_INDEXED_DB_STORE = "states";
 const ERP_STATE_INDEXED_DB_KEY = "latest";
 const ERP_STATE_INDEXED_DB_POINTER_FORMAT = "KJM-ERP-INDEXEDDB-POINTER";
+const ERP_FULL_LOCAL_SNAPSHOT_MIN_INTERVAL_MS = 30 * 1000;
 const LOCAL_SYNC_DIRTY_STORAGE_KEY = "gold-jewellery-erp-local-sync-dirty";
 const LOCAL_COMPACT_MODE_SESSION_KEY = "gold-jewellery-erp-compact-storage-mode";
 const LOCAL_SYNC_MUTATION_STORAGE_KEY = "gold-jewellery-erp-pending-mutations-v1";
@@ -92,8 +93,10 @@ const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
 const SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic_v640";
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-INCREMENTAL-SYNC-v666.sql";
-const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_v666";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v703.sql";
+const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_v703";
+const SUPABASE_SERIAL_RESERVE_FUNCTION = "reserve_erp_serials_v703";
+const SUPABASE_FACTORY_OUT_VERIFY_FUNCTION = "verify_erp_factory_out_v703";
 const SUPABASE_INCREMENTAL_META_TABLE = "erp_entity_meta";
 const SUPABASE_INCREMENTAL_RECORDS_TABLE = "erp_entity_records";
 const SUPABASE_INCREMENTAL_CHANGES_TABLE = "erp_entity_changes";
@@ -397,6 +400,11 @@ let erpStateIndexedDbWritePromise = null;
 let erpStateIndexedDbSchedulePromise = null;
 let erpStateIndexedDbScheduleTimer = null;
 let erpStateIndexedDbFailureReported = false;
+let erpStateIndexedDbLastWriteAt = 0;
+const centralSerialPoolsV703 = { job: [], production: [], lot: [], bill: [] };
+const centralSerialPrefetchV703 = new Map();
+let centralSerialSetupUnavailableV703 = false;
+let factoryOutVerifierUnavailableV703 = false;
 let localStorageCompactMode = (() => {
   if (typeof indexedDB !== "undefined") return true;
   try {
@@ -549,6 +557,9 @@ const demoState = {
 let stateLoadedFromFallback = false;
 let pendingSyncMutations = loadPendingSyncMutations();
 let state = loadState();
+if (pendingSyncMutationsHasChanges()) {
+  state = normalizeStateForRuntime(applyPendingSyncMutationsToCloud(state, pendingSyncMutations));
+}
 let lastLocallyPersistedState = structuredClone(state);
 let localFullStateRecoveryPromise = restoreFullErpStateFromIndexedDb();
 let currentUser = loadCurrentUser();
@@ -1921,6 +1932,13 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     alert(`Selected casting item has only ${gram(castingItemAvailableGross)} GW available. Required for this job card is ${gram(issuedWeight)} GW.`);
     return;
   }
+  const productionTransactionBefore = structuredClone({
+    orders: state.orders || [],
+    lots: state.lots || [],
+    ledger: state.ledger || [],
+    safeItems: state.safeItems || [],
+    nextLot: state.nextLot,
+  });
   const balanceAfterIssue = Number(weight3(castingItemAvailableGross - issuedWeight));
   const issueSourceName = safeIssueSourceName(castingSafeItem);
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
@@ -1932,7 +1950,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     alert(`This ${issueSourceName} entry is stored as GW only, but ${data.jobNumber} already contains ${gram(looseWaxAllocationWeight)} wax stone.\n\nLoose Non-Gold Shelf has only ${gram(looseWaxAvailable)} matching ${transferPurityLabel(metalPurity)} stone. Add or correct the Loose Stone balance before issuing this Job Card.`);
     return;
   }
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const issuedLot = {
     id: crypto.randomUUID(),
     number: lotNumber,
@@ -2000,11 +2018,21 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   });
   state.lots.unshift(issuedLot);
   state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference, sourceType: "gold-issue", sourceId: issuedLot.id });
-  event.target.reset();
-  saveState({
+  const saved = saveState({
+    alertOnFailure: true,
     context: `Issue Gold ${lotNumber}`,
     changedStateKeys: ["orders", "lots", "ledger", "safeItems", "nextLot"],
   });
+  if (!saved) {
+    state.orders = productionTransactionBefore.orders;
+    state.lots = productionTransactionBefore.lots;
+    state.ledger = productionTransactionBefore.ledger;
+    state.safeItems = productionTransactionBefore.safeItems;
+    state.nextLot = productionTransactionBefore.nextLot;
+    render();
+    return;
+  }
+  event.target.reset();
   refreshProductionPage("issue");
   alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
 });
@@ -4023,6 +4051,20 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   if (!lot) return null;
   const existingBill = lot.bill || state.bills?.find((item) => item.lotId === lot.id) || {};
   const existingBillIndex = (state.bills || []).findIndex((item) => item.lotId === lot.id);
+  const normalizedBillNo = String(data.billNo || "").trim().toUpperCase();
+  const duplicateBill = (state.bills || []).find((item) => (
+    item.id !== existingBill.id
+    && String(item.billNo || "").trim().toUpperCase() === normalizedBillNo
+  ));
+  if (normalizedBillNo && duplicateBill) {
+    alert(`${data.billNo} is already used by ${duplicateBill.jobNumber || "another Job Card"}. Enter a unique Bill No.`);
+    return null;
+  }
+  const billTransactionBefore = structuredClone({
+    bills: state.bills || [], lots: state.lots || [], safeItems: state.safeItems || [],
+    safeDepartmentIssues: state.safeDepartmentIssues || [], ledger: state.ledger || [],
+    factoryLedger: state.factoryLedger || [], orders: state.orders || [],
+  });
   const postedBillShelfRollback = isBillFactoryOutPosted(existingBill) && existingBill.nonGoldShelfConsumption?.posted
     ? {
         safeItems: structuredClone(state.safeItems || []),
@@ -4156,12 +4198,13 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     };
   }
   if (!saveState({ alertOnFailure: true, context: `${bill.billNo || lot.number} Bill` })) {
-    if (postedBillShelfRollback) {
-      state.safeItems = postedBillShelfRollback.safeItems;
-      if (existingBillIndex >= 0) state.bills[existingBillIndex] = postedBillShelfRollback.bill;
-      lot.bill = postedBillShelfRollback.bill;
-      syncFactoryOutForBill();
-    }
+    state.bills = billTransactionBefore.bills;
+    state.lots = billTransactionBefore.lots;
+    state.safeItems = billTransactionBefore.safeItems;
+    state.safeDepartmentIssues = billTransactionBefore.safeDepartmentIssues;
+    state.ledger = billTransactionBefore.ledger;
+    state.factoryLedger = billTransactionBefore.factoryLedger;
+    state.orders = billTransactionBefore.orders;
     setBillDraftStatus("Final Bill could not be saved. Your protected draft remains available for retry.", "error");
     return null;
   }
@@ -4562,8 +4605,15 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     return;
   }
   if (editingTransfer && !requireTransferHistoryEditPermission()) return;
-  const stateBeforeEdit = editingTransfer ? structuredClone(state) : null;
   const transferBeforeEdit = editingTransfer ? structuredClone(editingTransfer) : null;
+  const transferTransactionBefore = structuredClone({
+    lot,
+    ledger: state.ledger || [],
+    safeItems: state.safeItems || [],
+    productionNonGoldIssues: state.productionNonGoldIssues || [],
+    nonGoldAuditEvents: state.nonGoldAuditEvents || [],
+    transferEditHistory: state.transferEditHistory || [],
+  });
   const returnToHistory = editingTransfer ? event.target.dataset.returnToHistory || "" : "";
   if (!editingTransfer && lot.karigarId === newKarigar.id) {
     alert("Please select a different department for transfer.");
@@ -4720,21 +4770,27 @@ document.getElementById("transfer-form").addEventListener("submit", (event) => {
     userId: currentUser?.id || "",
     userName: currentUser?.name || currentUserConfig()?.name || "",
   });
+  const saved = saveState({
+    alertOnFailure: true,
+    context: editingTransfer ? `Edit transfer ${lot.number}` : `Transfer ${lot.number}`,
+  });
+  if (!saved) {
+    const lotIndex = state.lots.findIndex((item) => item.id === transferTransactionBefore.lot.id);
+    if (lotIndex >= 0) state.lots[lotIndex] = transferTransactionBefore.lot;
+    state.ledger = transferTransactionBefore.ledger;
+    state.safeItems = transferTransactionBefore.safeItems;
+    state.productionNonGoldIssues = transferTransactionBefore.productionNonGoldIssues;
+    state.nonGoldAuditEvents = transferTransactionBefore.nonGoldAuditEvents;
+    state.transferEditHistory = transferTransactionBefore.transferEditHistory;
+    render();
+    alert("The transfer could not be saved on this laptop. No transfer or stock data was changed.");
+    return;
+  }
   document.getElementById("transfer-dialog").close();
   event.target.reset();
   event.target.transferWeight.readOnly = true;
   event.target.dataset.returnToHistory = "";
   document.getElementById("transfer-form-submit").textContent = "Transfer Job";
-  const saved = saveState({
-    alertOnFailure: Boolean(editingTransfer),
-    context: editingTransfer ? `Edit transfer ${lot.number}` : `Transfer ${lot.number}`,
-  });
-  if (editingTransfer && !saved) {
-    state = stateBeforeEdit;
-    render();
-    alert("The transfer correction could not be saved on this laptop. No transfer data was changed.");
-    return;
-  }
   render();
   if (returnToHistory === "online") openTransferHistoryOperationDialog("history");
   if (returnToHistory === "lot") openLotHistory(lot.id);
@@ -5815,6 +5871,8 @@ function queueFullErpStateToIndexedDb(source = state) {
   if (erpStateIndexedDbSchedulePromise) return erpStateIndexedDbSchedulePromise;
   erpStateIndexedDbSchedulePromise = new Promise((resolve) => {
     clearTimeout(erpStateIndexedDbScheduleTimer);
+    const elapsed = Date.now() - erpStateIndexedDbLastWriteAt;
+    const delay = Math.max(500, ERP_FULL_LOCAL_SNAPSHOT_MIN_INTERVAL_MS - elapsed);
     erpStateIndexedDbScheduleTimer = setTimeout(() => {
       erpStateIndexedDbScheduleTimer = null;
       erpStateIndexedDbSchedulePromise = null;
@@ -5823,6 +5881,7 @@ function queueFullErpStateToIndexedDb(source = state) {
           const record = erpStateIndexedDbPendingRecord;
           erpStateIndexedDbPendingRecord = null;
           await writeErpStateIndexedDbRecord(record);
+          erpStateIndexedDbLastWriteAt = Date.now();
           if (localStorageCompactMode) writeErpStateIndexedDbPointer(record);
         }
         return true;
@@ -5834,7 +5893,7 @@ function queueFullErpStateToIndexedDb(source = state) {
         if (erpStateIndexedDbPendingRecord) queueFullErpStateToIndexedDb(erpStateIndexedDbPendingRecord.state);
       });
       erpStateIndexedDbWritePromise.then(resolve);
-    }, 500);
+    }, delay);
   });
   return erpStateIndexedDbSchedulePromise;
 }
@@ -5847,7 +5906,7 @@ function compactErpStateJson(source = state) {
 }
 
 function releaseOptionalLocalStorageCopies() {
-  [PRE_CLOUD_RECOVERY_STORAGE_KEY, RECENT_JOB_ORDER_BACKUP_KEY, LOCAL_SYNC_MUTATION_STORAGE_KEY].forEach((key) => {
+  [PRE_CLOUD_RECOVERY_STORAGE_KEY, RECENT_JOB_ORDER_BACKUP_KEY].forEach((key) => {
     try {
       localStorage.removeItem(key);
     } catch (error) {
@@ -6166,8 +6225,7 @@ function capturePendingSyncMutations(previousState = {}, currentState = {}, anal
     }
     recordPendingValueMutation(key, previousHasKey, previousValue, currentHasKey, currentValue, serial);
   });
-  persistPendingSyncMutations();
-  return true;
+  return persistPendingSyncMutations();
 }
 
 function syncRecordTimestamp(record = {}) {
@@ -6557,8 +6615,14 @@ function saveState(options = {}) {
     ? false
     : captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
   if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
+  const mutationJournalSaved = capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
+  if (changeAnalysis.changedKeys.size && !mutationJournalSaved) {
+    const detail = "The changed-record recovery journal could not be stored. Keep this form open and free browser storage before retrying.";
+    setSyncStatus("offline", "Save Failed - Recovery Journal", detail);
+    if (options.alertOnFailure) alert(detail);
+    return false;
+  }
   if (!persistStateToBrowser(options)) return false;
-  capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
   lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
   invalidateUniversalSearchIndexForChanges(changeAnalysis);
   markLocalSyncDirty();
@@ -6586,8 +6650,14 @@ function saveStateLocalOnly(options = {}) {
     ? false
     : captureSyncDeletionTombstones(lastLocallyPersistedState, state, changeAnalysis);
   if (tombstonesChanged) changeAnalysis = syncAnalysisWithChangedKey(changeAnalysis, "syncDeletionTombstones");
+  const mutationJournalSaved = capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
+  if (changeAnalysis.changedKeys.size && !mutationJournalSaved) {
+    const detail = "The changed-record recovery journal could not be stored. Keep this form open and free browser storage before retrying.";
+    setSyncStatus("offline", "Save Failed - Recovery Journal", detail);
+    if (options.alertOnFailure) alert(detail);
+    return false;
+  }
   if (!persistStateToBrowser(options)) return false;
-  capturePendingSyncMutations(lastLocallyPersistedState, state, changeAnalysis);
   lastLocallyPersistedState = updatePersistedStateBaseline(lastLocallyPersistedState, state, changeAnalysis);
   invalidateUniversalSearchIndexForChanges(changeAnalysis);
   markLocalSyncDirty();
@@ -8648,6 +8718,7 @@ async function initializeSupabase(options = {}) {
     await validateRestoredLoginSession();
     const connected = await loadSupabaseState({ initial: true });
     if (connected) {
+      primeCentralSerialPoolsV703();
       startSupabaseAutoRefresh();
       runPostCloudMigrations();
     }
@@ -10238,7 +10309,7 @@ function createFittingAccessoriesJobCard(event) {
   }
   const jobNumber = nextJobCardNumber(state);
   const productionNo = nextProductionNumber(state);
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const stockCustomer = (state.customers || []).find((customer) => String(customer.name || "").trim().toUpperCase() === "KJPL-STOCK");
   const orderDate = data.orderDate || isoToday();
   const createdAt = new Date().toISOString();
@@ -14623,7 +14694,7 @@ function ensureSafeIssueProductionLot({
   if (lot || !selection.jobNumber || !selection.orders?.length || !department) return { lot, created: false };
   const orders = selection.orders.filter((order) => !isCompletedOrder(order) && order.status !== "Discarded");
   if (!orders.length) return { lot: null, created: false };
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const issueProcess = mergedProductionDepartmentName(process || primaryDepartmentProcess(department) || department.name, department.name);
   const metalPurity = karatLogicPurity(item.purity || item.locker || orders[0]?.purity || "18K");
   const tracedWaxStone = Number(weight3(stoneAdjustmentParts.wax || 0));
@@ -16534,7 +16605,7 @@ function syncCastingFittingItemsJobCard(melting = {}) {
 
     lot = {
       id: crypto.randomUUID(),
-      number: `LOT-${state.nextLot++}`,
+      number: nextLotNumber(state),
       issueDate: today(),
       createdAt: new Date().toISOString(),
       orderId: order.id,
@@ -20146,7 +20217,7 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
   const originalNetWeight = Number(lot.issuedWeight || splitLotNetWeight(currentGw, lot.waxStoneWeight, currentHand));
   const splitNetWeight = Number(weight3(Math.min(splitLotNetWeight(splitGw, selectedWax, selectedHand), originalNetWeight)));
   const remainingNetWeight = Number(weight3(Math.max(originalNetWeight - splitNetWeight, 0)));
-  const splitLotNumber = `LOT-${state.nextLot++}`;
+  const splitLotNumber = nextLotNumber(state);
   const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "", lot.karigarName);
   const splitReason = `Split ${gram(splitGw)} GW from ${lot.number} to ${splitJobNumber}`;
 
@@ -20308,7 +20379,7 @@ function splitFittingItemsJobCard(event) {
   }
   const splitJobNumber = nextSplitJobNumber(order.jobNumber || lot.orderNumber);
   const splitProductionNo = nextProductionNumber(state);
-  const splitLotNumber = `LOT-${state.nextLot++}`;
+  const splitLotNumber = nextLotNumber(state);
   const splitReason = `Fitting Items split from ${lot.number}; GW ${gram(splitGw)}, Wax Stone ${gram(splitWax)}`;
 
   applyFittingItemsOrderWeights(order, balanceGw, balanceWax);
@@ -35653,7 +35724,7 @@ function renderRepairJobOrderCard({ lot, bill, item, order }) {
 }
 
 function completedJobBillIndex() {
-  return renderCachedValue("completedJobBillIndex:v702", () => {
+  return renderCachedValue("completedJobBillIndex:v703", () => {
     const billsByKey = new Map();
     (state.bills || []).forEach((bill, index) => {
       if (!bill || typeof bill !== "object") return;
@@ -39288,7 +39359,7 @@ function splitSettingLotForSetter(lot, selectedOrderIds = [], splitGw = 0) {
   const remainingHand = Number(weight3(Math.max(currentHand - selectedHand, 0)));
   const splitNetWeight = splitLotNetWeight(splitWeight, selectedWax, selectedHand);
   const remainingNetWeight = splitLotNetWeight(remainingGw, remainingWax, remainingHand);
-  const splitLotNumber = `LOT-${state.nextLot++}`;
+  const splitLotNumber = nextLotNumber(state);
   const currentDepartment = mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName || "Setting", lot.karigarName);
   const splitReason = `Setting split ${selectedIds.length} PR item(s), ${gram(splitWeight)} GW from ${lot.number} to ${splitLotNumber}`;
   const selectedEmbeddedNonGoldSources = [];
@@ -41676,7 +41747,7 @@ function commitManualWipCombinedBill() {
   if (!selectedOrders.length) throw new Error("Select at least one Job Card item for the combined manual Bill.");
   const sources = manualWipBillingSources();
   if (!sources.length) throw new Error("No manual Billing weight is available now. Refresh and check the Billing holdings.");
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const lot = createManualWipCombinedBillLot(selectedOrders, lotNumber);
   state.lots.unshift(lot);
   return { action: "combined-job-bill", source: manualWipCombinedBillingSource(sources), orders: selectedOrders, lot };
@@ -41687,7 +41758,7 @@ function commitManualWipDisposition(data = {}) {
   const source = manualWipSourceByKey(data.sourceKey);
   if (!source) throw new Error("The selected WIP holding is no longer available. Refresh and select it again.");
   const action = data.action === "assign-job" ? "assign-job" : "manual-bill";
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   let order;
   let route;
   let stonePlan = null;
@@ -43132,7 +43203,7 @@ function handleOfficeReturnRecentLotClick(event) {
 
 function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remarks = "") {
   state.nextLot = Number(state.nextLot || 1);
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const orders = returnedEntries.map(({ found }) => found.order).filter((order) => order?.id);
   const uniqueOrders = [...new Map(orders.map((order) => [order.id, order])).values()];
   const sourceLots = [...new Map(returnedEntries.map(({ found }) => [found.lot.id, found.lot])).values()];
@@ -46518,7 +46589,7 @@ function addRepairLossToLot(lot, order, item, additionalLoss) {
 }
 
 function createQcFailedReworkLot(sourceLot, orders, failedItems) {
-  const lotNumber = `LOT-${state.nextLot++}`;
+  const lotNumber = nextLotNumber(state);
   const issueWeight = failedItems.reduce((total, item) => total + Number(item.netWeight || item.finalGw || 0), 0);
   const lot = {
     id: crypto.randomUUID(),
@@ -46573,6 +46644,8 @@ function defaultMakingPercentForPurity(purity) {
 }
 
 function nextBillNumber() {
+  const reserved = consumeCentralSerialV703("bill");
+  if (reserved) return `BILL-${String(reserved).padStart(4, "0")}`;
   const highest = (state.bills || []).reduce((maximum, bill) => {
     const match = String(bill.billNo || "").match(/(\d+)(?!.*\d)/);
     return match ? Math.max(maximum, Number(match[1]) || 0) : maximum;
@@ -47617,26 +47690,50 @@ function reapplyBillFactoryOutTransaction(transaction = {}) {
   return billFactoryOutTransactionIsComplete(billId);
 }
 
+async function verifyFactoryOutNormalizedV703(billIds = []) {
+  if (!supabaseClient || factoryOutVerifierUnavailableV703) return null;
+  const lookupIds = [...new Set((billIds || []).map((billId) => String(billId || "")).filter(Boolean))];
+  if (!lookupIds.length) return false;
+  try {
+    const verification = await withSupabaseTimeout(
+      supabaseClient.rpc(SUPABASE_FACTORY_OUT_VERIFY_FUNCTION, {
+        p_state_id: supabaseStateId,
+        p_bill_ids: lookupIds,
+      }),
+      "Factory Out confirmation timeout.",
+      SUPABASE_REVISION_TIMEOUT_MS,
+    );
+    if (!verification?.error) {
+      const response = Array.isArray(verification?.data) ? verification.data[0] : verification?.data;
+      if (response?.current_updated_at) supabaseLastCloudUpdatedAt = response.current_updated_at;
+      return Boolean(response?.all_verified);
+    }
+    const detail = String(verification.error?.message || verification.error || "").toLowerCase();
+    if (detail.includes(SUPABASE_FACTORY_OUT_VERIFY_FUNCTION.toLowerCase()) || detail.includes("schema cache") || detail.includes("pgrst202")) {
+      factoryOutVerifierUnavailableV703 = true;
+      return null;
+    }
+    console.warn("Factory Out normalized confirmation failed.", verification.error);
+    return false;
+  } catch (error) {
+    console.warn("Factory Out normalized confirmation was interrupted.", error);
+    return false;
+  }
+}
+
 async function verifyBillFactoryOutInCloud(billId = "") {
   if (!supabaseClient) return false;
+  const normalizedVerified = await verifyFactoryOutNormalizedV703([billId]);
+  if (normalizedVerified !== null) return normalizedVerified;
   try {
     const result = await withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .select("data, updated_at")
-        .eq("id", supabaseStateId)
-        .maybeSingle(),
+      supabaseClient.from("erp_state").select("data, updated_at").eq("id", supabaseStateId).maybeSingle(),
       "Factory Out cloud verification timeout."
     );
     if (result?.error || !result?.data?.data) return false;
-    const verified = billFactoryOutTransactionIsComplete(billId, result.data.data);
-    if (verified) {
-      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
-      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
-    }
-    return verified;
+    return billFactoryOutTransactionIsComplete(billId, result.data.data);
   } catch (error) {
-    console.warn("Factory Out cloud read-back could not be completed.", error);
+    console.warn("Factory Out compatibility confirmation could not be completed.", error);
     return false;
   }
 }
@@ -47644,28 +47741,20 @@ async function verifyBillFactoryOutInCloud(billId = "") {
 async function verifyBillsFactoryOutInCloud(billIds = []) {
   const lookupIds = [...new Set((billIds || []).map((billId) => String(billId || "")).filter(Boolean))];
   if (!supabaseClient || !lookupIds.length) return false;
+  const normalizedVerified = await verifyFactoryOutNormalizedV703(lookupIds);
+  if (normalizedVerified !== null) return normalizedVerified;
   try {
     const result = await withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .select("data, updated_at")
-        .eq("id", supabaseStateId)
-        .maybeSingle(),
+      supabaseClient.from("erp_state").select("data, updated_at").eq("id", supabaseStateId).maybeSingle(),
       "Multiple Bill Factory Out cloud verification timeout."
     );
     if (result?.error || !result?.data?.data) return false;
-    const verified = lookupIds.every((billId) => billFactoryOutTransactionIsComplete(billId, result.data.data));
-    if (verified) {
-      supabaseLastCloudUpdatedAt = result.data.updated_at || supabaseLastCloudUpdatedAt;
-      rememberVerifiedCloudBaseline(result.data.data, result.data.updated_at || "");
-    }
-    return verified;
+    return lookupIds.every((billId) => billFactoryOutTransactionIsComplete(billId, result.data.data));
   } catch (error) {
-    console.warn("Multiple Bill Factory Out cloud read-back could not be completed.", error);
+    console.warn("Multiple Bill Factory Out compatibility confirmation could not be completed.", error);
     return false;
   }
 }
-
 function stageBillFactoryOut(record, options = {}) {
   const { bill, lot } = record || {};
   if (!bill?.id || !lot?.id || isBillFactoryOutPosted(bill)) return false;
@@ -50244,7 +50333,32 @@ function renderOnlineTransferHistory() {
   });
 }
 
-function closeManagerDayAndDownloadBackup() {
+async function createNormalizedCloudBackupV703(dateKey = fineSheetLocalDateKey()) {
+  if (!supabaseClient || supabaseIncrementalSyncAvailable !== true) return false;
+  try {
+    const result = await withSupabaseTimeout(
+      supabaseClient.rpc("create_erp_normalized_backup_v703", {
+        p_state_id: supabaseStateId,
+        p_backup_key: `daily-${dateKey}`,
+        p_backup_kind: "daily",
+        p_user_name: currentUser?.name || currentUserConfig()?.name || "Manager",
+        p_app_version: APP_VERSION,
+      }),
+      "Daily normalized cloud backup timeout.",
+      SUPABASE_FULL_LOAD_TIMEOUT_MS,
+    );
+    if (result?.error) {
+      console.warn("The normalized daily cloud backup could not be confirmed.", result.error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn("The normalized daily cloud backup was interrupted.", error);
+    return false;
+  }
+}
+
+async function closeManagerDayAndDownloadBackup() {
   if (!(isOwner() || isManagerUser())) {
     alert("Only Owner or Manager can close the day and download the daily backup.");
     return;
@@ -50268,25 +50382,20 @@ function closeManagerDayAndDownloadBackup() {
     appVersion: APP_VERSION,
     netFine: Number(weight3(snapshot?.netFine || 0)),
   };
-  state.dayCloseHistory = [
-    record,
-    ...(state.dayCloseHistory || []).filter((entry) => entry.dateKey !== dateKey),
-  ].slice(0, 90);
+  state.dayCloseHistory = [record, ...(state.dayCloseHistory || []).filter((entry) => entry.dateKey !== dateKey)].slice(0, 90);
   const saved = saveState({ alertOnFailure: true, context: "Manager Day Close" });
   if (!saved) {
     alert("Day close could not be saved. The backup was not downloaded so an incomplete closing copy is not created.");
     return;
   }
-  const downloaded = downloadErpDataBackup({
-    allowManager: true,
-    filePrefix: `KJM-ERP-DAY-CLOSE-${dateKey}`,
-  });
+  const cloudSaved = await saveCurrentStateToCloudNow({ context: "Manager Day Close" });
+  const cloudBackupSaved = cloudSaved ? await createNormalizedCloudBackupV703(dateKey) : false;
+  const downloaded = downloadErpDataBackup({ allowManager: true, filePrefix: `KJM-ERP-DAY-CLOSE-${dateKey}` });
   renderFineSheetBackupControls();
   if (downloaded) {
-    alert(`Day closed successfully for ${fineSheetBackupDateLabel(dateKey)}.\nComplete ERP backup downloaded.\nNet Factory Fine: ${gram(record.netFine)}.`);
+    alert(`Day closed successfully for ${fineSheetBackupDateLabel(dateKey)}.\nComplete ERP backup downloaded.\nCloud backup: ${cloudBackupSaved ? "Confirmed" : "Pending; local backup is safe"}.\nNet Factory Fine: ${gram(record.netFine)}.`);
   }
 }
-
 function onlineTransferHistoryEntries() {
   const lotEntries = activeOperationalLots().flatMap((lot) => [
     ...(lot.transfers || []).map((transfer) => ({ type: "transfer", lot, transfer })).reverse(),
@@ -53209,7 +53318,8 @@ function normalizeIndependentOrderSerials(currentState) {
 
 function nextJobCardNumber(currentState = state) {
   const usedNumbers = new Set((currentState.orders || []).map((order) => String(order.jobNumber || "").toUpperCase()).filter(Boolean));
-  let serial = Math.max(1001, Number(currentState.nextJob || currentState.nextOrder || 1001));
+  const reserved = consumeCentralSerialV703("job");
+  let serial = Math.max(1001, Number(reserved || currentState.nextJob || currentState.nextOrder || 1001));
   let jobNumber = `JOB-${serial}`;
   while (usedNumbers.has(jobNumber.toUpperCase())) {
     serial += 1;
@@ -53222,7 +53332,8 @@ function nextJobCardNumber(currentState = state) {
 
 function nextProductionNumber(currentState = state, usedCodes = null) {
   const codes = usedCodes || new Set((currentState.orders || []).flatMap((order) => [order.number, order.productionNo, order.barcode]).filter(Boolean));
-  let serial = Math.max(1001, Number(currentState.nextProduction || currentState.nextOrder || 1001));
+  const reserved = consumeCentralSerialV703("production");
+  let serial = Math.max(1001, Number(reserved || currentState.nextProduction || currentState.nextOrder || 1001));
   let productionNo = `PR-${serial}`;
   while (codes.has(productionNo)) {
     serial += 1;
@@ -53232,6 +53343,78 @@ function nextProductionNumber(currentState = state, usedCodes = null) {
   syncLegacyOrderSerial(currentState);
   codes.add(productionNo);
   return productionNo;
+}
+
+function centralSerialBlockSizeV703(kind = "") {
+  return ({ job: 30, production: 250, lot: 120, bill: 40 })[kind] || 20;
+}
+
+function isMissingCentralSerialFunctionV703(error) {
+  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
+  return detail.includes(SUPABASE_SERIAL_RESERVE_FUNCTION.toLowerCase())
+    && (detail.includes("pgrst") || detail.includes("schema cache") || detail.includes("does not exist") || detail.includes("permission"));
+}
+
+async function reserveCentralSerialBlockV703(kind = "", count = centralSerialBlockSizeV703(kind)) {
+  if (!supabaseClient || centralSerialSetupUnavailableV703 || !centralSerialPoolsV703[kind]) return false;
+  if (centralSerialPrefetchV703.has(kind)) return centralSerialPrefetchV703.get(kind);
+  const request = (async () => {
+    const result = await withSupabaseTimeout(
+      supabaseClient.rpc(SUPABASE_SERIAL_RESERVE_FUNCTION, {
+        p_state_id: supabaseStateId,
+        p_kind: kind,
+        p_count: Math.max(1, Math.min(1000, Number(count || 1))),
+        p_device_id: loginDeviceId(),
+        p_app_version: APP_VERSION,
+      }),
+      "Central number reservation timeout.",
+      SUPABASE_REVISION_TIMEOUT_MS,
+    );
+    if (result?.error) {
+      if (isMissingCentralSerialFunctionV703(result.error)) centralSerialSetupUnavailableV703 = true;
+      console.warn(`Central ${kind} numbering is not ready.`, result?.error);
+      return false;
+    }
+    const response = Array.isArray(result?.data) ? result.data[0] : result?.data;
+    const start = Number(response?.start_serial || 0);
+    const end = Number(response?.end_serial || 0);
+    if (!start || end < start) return false;
+    for (let serial = start; serial <= end; serial += 1) centralSerialPoolsV703[kind].push(serial);
+    return true;
+  })().finally(() => centralSerialPrefetchV703.delete(kind));
+  centralSerialPrefetchV703.set(kind, request);
+  return request;
+}
+
+function primeCentralSerialPoolsV703() {
+  if (!supabaseClient || centralSerialSetupUnavailableV703) return;
+  Object.keys(centralSerialPoolsV703).forEach((kind) => {
+    if (!centralSerialPoolsV703[kind].length) reserveCentralSerialBlockV703(kind);
+  });
+}
+
+function consumeCentralSerialV703(kind = "") {
+  const pool = centralSerialPoolsV703[kind];
+  if (!pool?.length) {
+    reserveCentralSerialBlockV703(kind);
+    return 0;
+  }
+  const serial = Number(pool.shift() || 0);
+  if (pool.length < Math.max(5, Math.floor(centralSerialBlockSizeV703(kind) * 0.2))) reserveCentralSerialBlockV703(kind);
+  return serial;
+}
+
+function nextLotNumber(currentState = state) {
+  const usedNumbers = new Set((currentState.lots || []).map((lot) => String(lot.number || "").toUpperCase()).filter(Boolean));
+  const reserved = consumeCentralSerialV703("lot");
+  let serial = Math.max(1, Number(reserved || currentState.nextLot || 1));
+  let number = `LOT-${serial}`;
+  while (usedNumbers.has(number.toUpperCase())) {
+    serial += 1;
+    number = `LOT-${serial}`;
+  }
+  currentState.nextLot = Math.max(Number(currentState.nextLot || 1), serial + 1);
+  return number;
 }
 
 function defaultStoneLibrary() {

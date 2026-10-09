@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP V668
+
+SAFE DEPLOYMENT ORDER
+1. Do not reset, clear or restore ERP data.
+2. Keep KHUSHALI-JEWELLS-ERP-v667-PRE-BILL-VISIBILITY-REPAIR on this laptop.
+3. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v668-LIVE to the existing GitHub repository.
+4. Upload app-version.json last.
+5. Refresh one laptop and confirm App v668.
+6. Open Bill and search BILL-0018 or JOB-1741.
+7. Confirm the Bill opens with 20 saved items and the expected totals.
+8. Confirm Sync Health reports Incremental record sync: Enabled, then refresh the remaining laptops.
+
+DATABASE
+- No new SQL is required for v668.
+- Keep SUPABASE-INCREMENTAL-SYNC-v666.sql in place.
+
+ROLLBACK
+- Restore the v667 pre-bill-visibility application folder only if an application rollback is required.
+- Do not restore or replace Supabase data; BILL-0018 is already present in the live cloud records.

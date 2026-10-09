@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - DEPLOY v677
+
+1. Keep the existing Supabase project and current ERP data.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v677-LIVE to the existing GitHub repository.
+3. Replace the old files when GitHub asks.
+4. Confirm app-version.json, app.js, index.html, and styles.css are all uploaded together.
+5. Wait for GitHub Pages to publish, then refresh every laptop once.
+6. Confirm the login screen shows App v677.
+
+No Supabase SQL needs to be run for this release.
+
+Main new screen:
+Production > Non-Gold Control
+
+Important:
+- Do not upload only app.js. The full v677 folder must be uploaded together.
+- Do not reset ERP data during deployment.

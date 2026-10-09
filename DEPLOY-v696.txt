@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS ERP v696 DEPLOYMENT
+
+1. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v696-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after all v696 files are present.
+3. Keep the existing Supabase data. Do not reset erp_state and do not run a SQL file.
+4. After login, confirm the header shows App v696 and Saved & Synced.
+5. Open Bill 50 / Job 1799 and confirm no second combined Billing issue is posted.
+6. Confirm billed PR items appear in Completed Job Orders and no longer clutter Pending Job Orders.
+7. Confirm each Dashboard department tile shows live GW as Transfer History IN minus OUT.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v696.

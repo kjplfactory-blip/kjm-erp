@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v692 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v692-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after every program file is available.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v692 and Saved & Synced.
+5. Open Dashboard > BILLING > Open.
+6. Confirm BILL-0050 appears as 53.144 g IN and 53.144 g Bill To Factory Out under OUT.
+7. Confirm both entries display BILLING / FINAL BILL.
+8. Confirm Bills 51 onward remain visible under Billing OUT.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v692.

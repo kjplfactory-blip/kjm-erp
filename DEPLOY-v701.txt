@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS ERP v701 DEPLOYMENT
+
+1. Keep the current Supabase project and all existing ERP data unchanged.
+2. Upload every file and folder inside KHUSHALI-JEWELLS-ERP-v701-LIVE to the existing GitHub repository.
+3. Do not upload the ZIP file, rollback folders, or downloaded cloud backups to GitHub.
+4. Upload app-version.json last so active laptops refresh only after every v701 file is available.
+5. Confirm the login/header shows App v701 and then wait for Saved & Synced.
+6. Open a split Job Card such as JOB-1694. The Job Card Family Control must show the main card and every child separately.
+7. Transfer only from the exact lot row. Each row shows its own department, GW, Wax, Hand, Stone, Net and History.
+8. A Family Check Required warning means old data links one PR to multiple live lots or a lot reference does not match its PR items. Do not split or merge that family until the records are checked.
+9. Job Cards in different departments cannot be physically merged. Keep them as child cards under the same main card and transfer each lot separately.
+
+No SQL file needs to be run for v701.

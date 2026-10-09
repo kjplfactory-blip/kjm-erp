@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v686 AUDIT
+
+PROBLEM CONFIRMED
+- Legacy WIP/Shelf rows contain the physical product GW but often have no saved wax-stone composition.
+- Issue Gold calculated the lot as GW minus Job Card Wax Stone, but removed only Net Gold from the source row.
+- The unremoved Wax amount remained in the source and appeared again in Production, duplicating stock and fine calculations.
+
+CORRECTION
+1. Issue Gold validates and removes the full entered GW from the selected source.
+2. Net Gold is GW minus the Job Card Wax Stone.
+3. Missing source composition is allocated from the matching karat Loose Non-Gold Stone balance.
+4. The lot stores source provenance so Bill Factory Out credits the embedded stone and does not deduct it twice.
+5. Sources already carrying wax retain that composition and do not consume Loose Stone again.
+6. Edit Issue and Delete Issue reverse the exact source GW and Loose Stone rows.
+7. Active legacy net-only issues are repaired automatically only when the source snapshots and outgoing rows match the defect exactly.
+8. A shortage blocks the transaction without changing any stock.
+
+EXPECTED MOVEMENT EXAMPLE
+- Issue GW: 35.450 g
+- Wax Stone already inside GW: 8.636 g
+- Net Gold transferred: 26.814 g
+- WIP/Shelf source reduction: 35.450 g
+- Loose Non-Gold Stone reduction: 8.636 g
+- Production holding: GW 35.450 g / Stone 8.636 g / Net Gold 26.814 g
+
+DATA SAFETY
+- No reset is performed.
+- No Supabase SQL change is required.
+- Existing Job Cards, Bills, designs, stone library and moti library are preserved.

@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v682 AUDIT
+
+REQUEST
+Opening non-gold was entered after department GW had already been entered inclusive of Stone, Black Beads, Moti, Spring and Other. Reclassify that non-gold inside GW without adding physical stock again.
+
+IMPLEMENTED
+- Existing / Opening GW non-gold no longer increases department or factory GW.
+- The classified non-gold lowers Net Gold and Fine Gold at the selected karat.
+- Existing saved opening entries are interpreted with the corrected logic without data migration or re-entry.
+- Department and lot-linked opening entries use the same embedded-in-GW treatment.
+- Allocation into production or Bills moves the classification while preserving total physical GW and preventing double fine reduction.
+- Online and department transfer histories show opening classification with zero GW movement.
+- Final Non-Gold Stock Target reconciles with department opening classifications.
+
+CONTROL EXAMPLE
+Department opening GW 100.000 g plus opening non-gold classification 10.000 g results in GW 100.000 g, Non-Gold 10.000 g and Net Gold 90.000 g. Fine Gold is calculated on 90.000 g.
+
+VALIDATION
+- JavaScript syntax check passes.
+- Version and browser-cache markers are aligned to v682.
+- No Supabase schema change or data reset is required.

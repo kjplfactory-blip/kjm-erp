@@ -1,0 +1,40 @@
+KHUSHALI JEWELLS ERP v703 - LIVE DEPLOYMENT
+
+IMPORTANT
+This update preserves all existing ERP data. Do not run any Reset SQL.
+
+STEP 1 - SUPABASE (RUN ONCE)
+1. Open Supabase Dashboard > SQL Editor.
+2. Open SUPABASE-ERP-CORE-v703.sql from this folder.
+3. Copy the complete SQL and press Run once.
+4. Wait for the two result lists: ERP entity meta and serial counters.
+
+STEP 2 - GITHUB DESKTOP
+1. Replace the files in the existing live repository with every file from this v703 folder.
+2. Keep the same repository. Do not create a new repository.
+3. In GitHub Desktop, commit with: KJPL ERP v703 fast multi-device sync
+4. Push origin and wait for GitHub Pages deployment to finish.
+
+STEP 3 - EVERY LAPTOP
+1. Open the live ERP URL.
+2. Press Ctrl+F5 once.
+3. Confirm the header shows App v703.
+4. Confirm sync changes to Saved & Synced / Live Sync: Realtime.
+
+WHAT CHANGED
+- Changed records are saved separately; the complete 20 MB ERP state is no longer rebuilt on every operation.
+- Job Card, PR, Lot and Bill numbers use centrally reserved ranges across laptops.
+- Unsynced changes remain protected locally and are restored after reload.
+- Issue Gold, Transfer and Bill operations roll back completely when a save fails.
+- Factory Out is verified using only the required Bill and ledger records.
+- Close Day confirms cloud save, creates a normalized cloud backup and downloads a local backup.
+- Already-open v702 tabs can finish syncing through the new normalized writer, but all devices should refresh to v703.
+
+DO NOT
+- Do not upload only app.js. Upload the complete folder contents.
+- Do not run an older sync SQL after SUPABASE-ERP-CORE-v703.sql.
+- Do not clear browser storage during deployment.
+- Do not use any inventory reset command for this upgrade.
+
+ROLLBACK FILE
+The pre-upgrade safety ZIP is outside this folder in outputs/safety-backups.

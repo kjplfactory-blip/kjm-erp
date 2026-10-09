@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v681 AUDIT
+
+REQUEST
+Reset every department holding, including Billing, to zero while preserving old Bills only for future reference.
+
+IMPLEMENTED
+- Added a single active-operational-lot boundary used by Dashboard holdings, stock calculations, current reports and transfer histories.
+- Archived Bill lots remain viewable from the Bill archive but cannot contribute GW, net, non-gold, fine gold, loss or transfer differences.
+- Manual Reset C1/C2 clears lots, department issues, department returns, losses, Setting activity, Melting, Casting and XRF activity.
+- Manual Reset audit now records the total absolute department-holding score after reset.
+- The completion message shows the verified department holding after reset.
+- A2 Keep Non-Gold consolidates retained factory non-gold into karat/material Safe Shelf rows before department movements are cleared.
+- Production non-gold department postings are cleared whenever production is reset.
+- C3 remains the explicit option for retaining live production and department holdings.
+
+EXPECTED RESULT AFTER C1 OR C2
+- Every department card remains visible but shows GW 0.000 g, Net 0.000 g, Non-Gold 0.000 g and Fine Gold 0.000 g.
+- Billing also shows 0.000 g.
+- Current Online and Department transfer histories contain no archived Bill movements.
+- Old Bills can still be opened, printed and exported as reference-only records.
+
+VALIDATION
+- JavaScript syntax check passes.
+- Version and cache markers are aligned to v681.
+- No Supabase schema change is required.

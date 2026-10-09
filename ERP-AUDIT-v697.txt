@@ -1,0 +1,20 @@
+KHUSHALI JEWELLS ERP v697 AUDIT
+Date: 2026-10-08 IST
+
+FITTING TRANSFER
+- A categorized non-gold panel is visible only when the lot is being transferred from Fitting.
+- Stone, Black Beads, Moti, Spring and Other can be entered together.
+- Entered material is attached to the lot and registered in the Central Non-Gold Shelf once.
+- Department issue and receive accounting remains GW-to-GW.
+- Net item weight excludes cumulative wax stone, hand stone and categorized fitting non-gold.
+
+CORRECTION SAFETY
+- Editing a transfer replaces the linked non-gold shelf records instead of duplicating them.
+- Deleting a transfer removes its linked shelf and audit entries and recalculates every later cumulative transfer.
+- Legacy fitting additions remain readable as Other until an authorized user categorizes them during Edit.
+- Factory Out removes the fitting addition from live non-gold stock through the linked lot and Bill lifecycle.
+
+DATA SAFETY
+- Existing ERP records are preserved.
+- Safety copy: erp-web-app-v696-before-v697-fitting-non-gold.
+- No Supabase SQL change is required.

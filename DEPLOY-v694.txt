@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v694 DEPLOYMENT
+
+1. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v694-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after all v694 program files are available.
+3. Keep the existing Supabase data. Do not reset erp_state and do not run a SQL file.
+4. After login, confirm the header shows App v694 and Saved & Synced.
+5. Open Office > Return PR Items To Factory.
+6. Search a PR number, add items from one or more Bills, verify returned weights, choose the return purpose, and create the lot.
+7. Confirm the success message shows one new LOT number and the selected PR numbers remain unchanged.
+8. Repair items are placed in the matching Production Shelf under the new lot. Melting items can then use Remove Non-Gold / Melt from the shelf.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v694.

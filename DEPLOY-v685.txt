@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v685 DEPLOYMENT
+
+1. Keep the current Supabase project and data. Do not run a reset SQL file.
+2. Upload all files and folders from KHUSHALI-JEWELLS-ERP-v685-LIVE to the existing GitHub repository.
+3. Upload app-version.json last.
+4. Wait for GitHub Pages deployment to finish.
+5. Open the live ERP and confirm App v685.
+6. Let each open laptop finish its pending save; it will detect v685 and refresh automatically.
+7. Verify one small test in Casting or Setting with Direct Source, and one with Loose Shelf Source.
+8. Verify Factory Out shows Already Embedded plus Loose Shelf At Factory Out equal to Total Non-Gold.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v685.

@@ -1,0 +1,20 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v673
+ISSUE GOLD PERFORMANCE REPAIR
+
+DEPLOYMENT
+1. Keep the v672 folder and ZIP as the rollback copy.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v673-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so all open laptops refresh only after the new files are available.
+4. Hard refresh once if a laptop still shows v672.
+
+SUPABASE
+- Keep using SUPABASE-INCREMENTAL-SYNC-v666.sql.
+- No new SQL is required.
+- No data reset is included.
+
+CHECK AFTER UPLOAD
+- Open Production > Issue Metal.
+- Select one pending Job Card and its matching Safe item.
+- Issue gold and confirm the success message contains the new LOT number.
+- Open Production Lots and confirm the new lot is visible.
+- Confirm the Safe balance, Job Card status and Online Transfer History changed once.

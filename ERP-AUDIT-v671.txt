@@ -1,0 +1,16 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP v671 AUDIT
+
+SETTING SETTLEMENT
+- A fresh Job Lot no longer creates an Issued/pending setter entry.
+- Setting Master selects Lot and Setter, then enters Issue GW and Receive GW in one form.
+- Hand Stone comes from the Job Card and is read-only except for Owner.
+- Receive Net = Receive GW - Hand Stone.
+- Final Setter Metal Balance = Issue GW - Receive Net - Returned Material - Loss.
+- The Lot remains in Setting Master after the settlement is saved.
+- The completed Setter Account History row retains Lot No and Job Card No.
+
+COMPATIBILITY
+- Old pending setter records can still be closed from Previous Pending Entries.
+- Monthly Rawa/WSTG receipt and Setter Loss remain available.
+- Existing v670 duplicated tags, red customer tags, day-close backup and bag traceability remain intact.
+- No database schema change and no data reset.

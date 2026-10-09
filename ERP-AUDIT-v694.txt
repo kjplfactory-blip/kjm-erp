@@ -1,0 +1,33 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v694 AUDIT
+
+OFFICE MULTI-PR RETURN LOT
+- Added Return PR Items To Factory as a dedicated Office tile.
+- The tile opens a full-screen workspace with PR search.
+- PR items from different Bills and Job Cards can be collected into one new return lot.
+- Search accepts a complete or partial PR number and shows Job, Bill, customer, design, current Office location, GW, non-gold and net gold.
+- Returned GW, Stone, Black Beads, Moti, Spring and Other weight can be verified or corrected for every selected item.
+- The live summary shows selected pieces, total return GW, total non-gold and total net gold.
+- Return purpose supports Repair / Rework, Melting / Dismantling, Size Correction, Polish / Finish Correction and Other Factory Work.
+- Recent combined return lots remain visible in the same workspace.
+
+ACCOUNTING AND TRACEABILITY
+- Every selected item uses the existing Office Return / Factory In transaction.
+- Each item receives its own Production Shelf record, Factory In ledger entry and KJPL Office party reversal.
+- Items from multiple Bills are linked to one new LOT number without changing their original PR numbers.
+- The combined lot stores all source Bill numbers, source Job Cards, selected PR numbers, shelf-item links and returned weight totals.
+- The combined lot is a grouping record with zero additional stock weight, preventing duplicate Factory stock.
+- Melting returns first enter the matching Production Shelf so non-gold can be recovered before net gold is sent to Melting.
+
+DATA SAFETY
+- The complete selection is saved as one atomic operation.
+- Invalid weight or any failed item returns the whole selection to its prior state, including the next LOT counter.
+- Local save happens before one combined cloud save and read-back check.
+- Existing Job Cards, Bills, Office records, PR numbers, designs, libraries and stock entries are preserved.
+- No Supabase SQL change is required for v694.
+
+VERIFICATION
+- JavaScript syntax check passed.
+- Focused v694 transaction test passed.
+- Duplicate HTML ID check passed.
+- Live browser test passed at 1280 px with zero horizontal overflow.
+- A real Office PR search and selected-item preview were verified without changing ERP data.

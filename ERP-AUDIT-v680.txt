@@ -1,0 +1,29 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V680 AUDIT
+Date: 05-10-2026
+
+1. MANUAL RESET BILL ARCHIVE
+- F1 preserves every saved Bill and every Bill item for future reference.
+- Retained Bills are clearly labelled Reference Only / No Stock Effect.
+- Reference Bills remain available for view, Bill print, Packing List, tags and Excel export.
+- Reference Bills are locked against editing, QC movement, deletion, draft saving and fitting/stone changes.
+
+2. ZERO CURRENT-STOCK EFFECT
+- Reference Bills and their archived lots are excluded from Factory Stock, Production Completed Stock, non-gold demand and non-gold control calculations.
+- They are excluded from Office, Hallmarking, Sales, repair queues and current Production movement.
+- They cannot create or re-create Factory Out entries.
+- Historical Bill ledger rows are excluded from Factory Ledger totals and vendor/party balances.
+- F1 remains stock-neutral even when another reset section is kept instead of cleared.
+
+3. PARTY BALANCE FRESH START
+- D1 starts a new zero Factory Ledger so party opening balances can be entered directly after reset.
+- The reset preview explains that retained Bills are reference-only and do not affect party balances.
+- D2 remains available only when the user deliberately chooses to carry current vendor balances.
+
+4. DATA SAFETY AND VERIFICATION
+- Master data, designs, images, Stone Library, Moti Library, Catalogue, customers, vendors, departments and users remain protected by Manual Reset.
+- A pre-change v679 folder backup was created before implementation.
+- JavaScript syntax validation passed.
+- All local website assets referenced by index.html exist.
+- App v680 loaded successfully in the local browser with no console errors.
+- No Manual Reset was executed during testing, so existing ERP data was not changed.
+- No Supabase SQL change is required.

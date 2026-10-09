@@ -1,0 +1,37 @@
+ERP AUDIT v699 - CLEAN CENTRAL NON-GOLD AND GW FLOW
+
+ACCOUNTING MODEL
+- Every normal production department transfer remains in Gross Weight (GW).
+- Department holding remains Issue GW minus Receive GW.
+- Setting keeps its special rule: Receive Net = Receive GW minus Hand Stone; setter metal balance remains Issue GW minus Receive Net.
+- Central Non-Gold Shelf is the single factory register for Stone, Black Beads, Moti, Spring and Other.
+
+FITTING
+- Stone may be added directly in Fitting.
+- Black Beads, Moti, Spring and Other must first be issued from Non-Gold Shelf to Fitting.
+- A Fitting transfer assigns that already-issued material to the lot without changing GW or duplicating factory non-gold.
+- New transfers are blocked if Fitting does not hold enough matching material and karat.
+- Existing v698 Fitting entries keep their original shelf allocation method for historical accuracy.
+
+SETTING
+- Setting-to-next-department movement now has a visible audit bridge:
+  Setting -> Production Holding Shelf -> Next Department.
+- The holding shelf receives and issues the same GW, so its balance is always zero.
+- This makes the hand-stone boundary visible without changing the physical lot destination.
+
+FACTORY OUT
+- Factory Out removes the Bill-linked central non-gold once.
+- Non-gold allocated from Fitting department stock closes the matching Fitting issue only when Factory Out is posted.
+- Bill reversal automatically reopens that department allocation.
+
+DATA SAFETY
+- Built from the verified v698 safety copy.
+- No inventory, Job Card, Bill, design, library, customer or vendor data is reset.
+- No Supabase SQL or schema change is required.
+- Existing v698 data is preserved and only Setting audit bridges are added once.
+
+VERIFICATION
+- All ERP JavaScript files pass syntax validation.
+- Central non-gold allocation, shortage, edit-release and Setting bridge tests pass.
+- Central shelf and fine-integrity tests pass.
+- Browser startup passes with App v699, existing local data visible and no horizontal overflow.

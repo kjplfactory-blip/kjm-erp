@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v691 AUDIT
+
+REQUIREMENT
+Every Bill posted through Factory Out must be visible as a Billing outward movement and must reduce Billing GW holding by the same posted Bill GW.
+
+IMPLEMENTATION
+1. Posted Factory Out Bills generate one derived, read-only Bill To Factory Out movement.
+2. The movement originates from the same Billing department identity used by the lot's inward transfer.
+3. Receive GW in Billing OUT equals the Bill final GW; Net Weight equals the Factory Out Bill net weight.
+4. Bill number, Lot, Job Card, pieces and non-gold breakup remain traceable in the movement remarks.
+5. Existing posted Bills appear automatically without adding stored duplicate transactions.
+6. The movement is visible in Department Transfer History, Online Transfer History, Lot History and Bill Lot Movement Trace.
+7. Reversal or deletion remains consistent because visibility is derived from the Factory Out posting marker.
+
+VALIDATION
+- JavaScript syntax check passed.
+- Factory Out movements are keyed uniquely by Bill ID.
+- Department OUT GW is sourced from the same Bill summary used by the Factory Ledger.
+- Version and browser cache markers are aligned to v691.
+
+DATA SAFETY
+- Complete v690 source backup was created before editing.
+- No synced ERP business data was modified during development.
+- No reset and no Supabase SQL change are required.

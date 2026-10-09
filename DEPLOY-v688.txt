@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS ERP v688 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v688-LIVE to the existing GitHub repository.
+2. Upload app-version.json last.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v688 and Saved & Synced.
+5. Confirm Factory Net Fine is close to 4199.394 g and Central Non-Gold is close to 310.176 g for the current synced data.
+6. Ordinary transfer check: Issue GW 10.000 and Receive GW 9.800 must leave 0.200 g in the department.
+7. Setting check: Receive GW 10.000 and Hand Stone 1.000 gives Receive Net 9.000; compare that against Issue GW.
+8. Open Fine Sheet and confirm the Central Non-Gold Shelf Adjustment appears only once, karat-wise.
+9. Confirm Job Cards, Bills, designs, libraries and party balances remain available.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v688.

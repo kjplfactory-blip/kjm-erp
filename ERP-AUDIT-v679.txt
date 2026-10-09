@@ -1,0 +1,20 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V679 AUDIT
+Date: 05-10-2026
+
+1. MULTIPLE BILL FACTORY OUT
+- Factory Out now shows a searchable list of every completed bill waiting to leave the factory.
+- Users can select individual bills, Select All visible bills, or clear the selection.
+- Combined bill count, item count, GW, non-gold, net weight, and fine weight are shown before posting.
+- An optional common WSTG percentage can be applied to the selection; leaving it blank keeps each bill's saved value.
+
+2. LEDGER AND DATA SAFETY
+- Every selected bill creates its own normal Factory Ledger entry and remains independently traceable and reversible.
+- Bills are validated together before saving; a local validation or storage failure rolls back the whole uncommitted batch.
+- Already-posted bills are excluded and cannot be posted twice.
+- The whole batch uses one local save, one Supabase write, and one cloud read-back instead of repeating cloud operations per bill.
+- A cloud delay never removes the confirmed local batch; normal background sync continues retrying.
+
+3. COMPATIBILITY
+- Existing single-bill Factory Out and manual metal / stock Factory Out remain available.
+- Destination remains KJPL Office for bill Factory Out.
+- Existing ERP data is preserved and no Supabase SQL change is required.

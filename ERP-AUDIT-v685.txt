@@ -1,0 +1,32 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v685 AUDIT
+
+SCOPE
+- Loose Non-Gold Shelf stock-in and stock-out
+- Casting Wax Stone source and correction
+- Setting Hand Stone source and correction
+- Issue Gold, Job Card split/rejoin and Issue Gold correction
+- Bill Factory Out, Bill edit and Bill deletion reversal
+- Factory Physical Stock and Fine Sheet calculation
+
+CORRECTED
+1. Removed the second global non-gold fine deduction. Each holding already calculates Gold = GW - embedded non-gold.
+2. Added explicit Shelf or Direct Process source selection for Casting Wax Stone and Setting Hand Stone.
+3. Added exact FIFO loose-shelf consumption by karat and material, with exact source-row reversal.
+4. Added embedded source records to production lots and PR items.
+5. Preserved embedded source records across Setting splits and re-merges.
+6. Reassigned casting source records during Issue Gold correction.
+7. Bill Factory Out now credits material already embedded and consumes only unresolved loose material.
+8. Bill edit reverses and reapplies only its own loose-shelf movement; Bill deletion restores the same source rows.
+9. Casting deletion restores consumed loose material only when no production Job Card has used that casting source.
+10. Added source labels and Factory Out source totals for operator verification.
+
+DATA SAFETY
+- No reset is performed.
+- Existing Job Cards, Bills, designs, stone library, moti library and inventory are preserved.
+- No Supabase SQL change is required.
+- Existing posted Bills retain their saved source-consumption records.
+
+VERIFICATION
+- JavaScript syntax check passes.
+- Automated v685 non-gold flow test passes.
+- Release file/version references are consistent at v685.

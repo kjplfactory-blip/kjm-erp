@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS MANUFACTURING ERP V668 BILL VISIBILITY AUDIT
+Date: 2026-09-30 IST
+
+DATA CHECK
+- JOB-1741, LOT-250 and BILL-0018 are present in the current normalized Supabase records.
+- The protected daily cloud backup also contains the same Bill record and 20 Bill items.
+- BILL-0018 totals: GW 99.448 g, Stone 10.001 g, Moti 12.946 g, Net 76.501 g and Fine 57.568 g.
+- No restore or cloud-data write was required.
+
+ROOT CAUSE
+- The Bill screen was driven only by the Lots collection.
+- A valid saved Bill could be hidden when its top-level Bill record and embedded Lot copy arrived in a different incremental-sync order.
+- Several Bill paths preferred the embedded Lot copy even when the separate saved Bill was newer and complete.
+
+V668 REPAIR
+- Reconciles saved Bills with their Lots after every local load, normalized cloud bootstrap and incremental cloud refresh.
+- Uses the top-level saved Bill as the authoritative record for the linked Lot.
+- Builds the Bill screen from both Lots and saved Bills.
+- Shows a protected saved-record row instead of hiding an orphaned Bill while its Lot link refreshes.
+- Keeps all existing Bill, QC, print, packing-list and tag actions unchanged for properly linked Bills.
+
+DATA SAFETY
+- No Bill, Job Card, stock, weight, QC, Office or Supabase business record is reset or rewritten by this repair.
+- No new Supabase SQL is required. Continue using SUPABASE-INCREMENTAL-SYNC-v666.sql.

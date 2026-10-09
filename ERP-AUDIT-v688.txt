@@ -1,0 +1,28 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v688 AUDIT
+
+PROBLEM CONFIRMED
+1. Non-gold held in the shelf was already included in factory and department GW.
+2. Treating that shelf as another physical GW location counted the same material twice.
+3. Older transfer balances mixed net-weight and gross-weight rules, which made ordinary department holdings difficult to reconcile.
+
+IMPLEMENTED MODEL
+1. Central Non-Gold Shelf tracks Stone, Black Beads, Moti, Spring and Other by karat.
+2. It is a composition register, not an additional physical-GW location.
+3. Ordinary department movement and holding use GW only: Issue GW minus Receive GW.
+4. Setting is the only exception: Receive Net equals Receive GW minus Hand Stone; Metal Balance equals Issue GW minus Receive Net.
+5. Fine Sheet values physical GW at karat first, then deducts central non-gold once at the matching karat.
+6. Existing transfer balances are reconciled automatically. Repeating the reconciliation does not change an already-correct record.
+
+LIVE VERIFICATION
+- App: v688
+- Factory Total Weight: 5188.596 g
+- Central Non-Gold: 310.176 g
+- Factory Net Fine: 4199.394 g
+- Browser console errors: none
+- Central accounting tests: passed
+- JavaScript syntax check: passed
+
+DATA SAFETY
+- A complete v687 source backup was created before editing.
+- No Job Card, Bill, design, stone library, moti library, customer or party balance was reset.
+- No Supabase SQL change is required.

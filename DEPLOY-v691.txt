@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v691 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v691-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after every program file is available.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v691 and Saved & Synced.
+5. Open Transfer History > Department Transfer History > Billing.
+6. Confirm every posted Factory Out Bill is listed under OUT From Department as Bill To Factory Out.
+7. Confirm Billing Balance GW is reduced by each Bill's final GW.
+8. Confirm the same movement appears in Online Transfer History and the individual Lot History.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v691.

@@ -1,0 +1,25 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v690 AUDIT
+
+REQUIREMENT
+1. A vendor Factory In may be a rejected jewellery item containing Stone, Black Beads, Moti, Spring and Other non-gold material.
+2. Casting Item and Rod must remain separate categories throughout the ERP.
+
+IMPLEMENTATION
+1. Factory In has a Rejected Item With Non-Gold material type and separate component-weight fields.
+2. The screen calculates Total Non-Gold and Net Gold before save and blocks non-gold above GW.
+3. The rejected item enters the appropriate karat Safe Locker at full GW with its complete component breakup.
+4. Vendor and Factory Fine calculations use rejected-item Net Gold, while the embedded non-gold is recorded as classification/audit data and not duplicated as another physical holding.
+5. Factory ledger, Fine Sheet and edit screens display GW, component breakup, Total Non-Gold and Net Gold.
+6. Casting Item and Rod have separate types and balances in Factory In/Out, Safe Locker, melting receipt and department receipt.
+7. Existing ambiguous records are classified from saved source line, description and linked shelf record. No weight is changed.
+
+VALIDATION
+- JavaScript syntax check passed.
+- Factory rejected-item form IDs are unique.
+- No combined Casting Item / Rod labels remain in the active program files.
+- Version and cache markers are aligned to v690.
+
+DATA SAFETY
+- Complete v689 source backup was created before editing.
+- No synced ERP business data was modified during development.
+- No reset and no Supabase SQL change are required.

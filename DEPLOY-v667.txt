@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING ERP V667
+
+SAFE DEPLOYMENT ORDER
+1. Do not reset or clear ERP data.
+2. Confirm SUPABASE-INCREMENTAL-SYNC-v666.sql has already been run once.
+3. Upload the complete v667 LIVE folder contents to the existing GitHub repository.
+4. Upload app-version.json last.
+5. Refresh one laptop and confirm App v667.
+6. Test Universal Search with a Job number, PR number, design and customer.
+7. Open Sync Health and confirm Incremental record sync: Enabled.
+8. Refresh the remaining laptops.
+
+SEARCH OPTIMIZATION
+- Search data is indexed locally after ERP load and after relevant local/cloud changes.
+- Typing no longer recalculates Job stages, Bills, Office records and Stone Library matches for every ERP item.
+- Exact Job, PR and barcode values use direct lookup.
+- Search permissions remain controlled by the current login.
+
+ROLLBACK
+- Keep KHUSHALI-JEWELLS-ERP-v666-PRE-SEARCH-OPTIMIZATION on this laptop.
+- No ERP data or Supabase schema is changed by v667.
+- The v666 website can be restored if an application rollback is required.

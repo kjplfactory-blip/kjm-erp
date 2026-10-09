@@ -1,0 +1,29 @@
+ERP AUDIT v701 - JOB CARD FAMILY CONTROL
+
+FAMILY CONTROL
+- The main Job Card is the permanent family reference.
+- Main and child cards are shown together in one full-screen Job Card window.
+- Each child retains its Job Card number, PR items, active production lot, department, GW and transfer history.
+- The family total is calculated from unique active physical lots.
+- Each active lot has direct Transfer Exact Lot and History controls.
+- Pending children remain separate and show Gold Not Issued.
+- A child can be opened directly without losing the family overview.
+
+HUMAN-ERROR PROTECTION
+- A PR linked to more than one active lot is detected and shown as a grouped warning.
+- A lot whose displayed Job Card does not match its linked PR items is detected.
+- A Job Card family with an integrity warning cannot be split or merged again until checked.
+- Cards in different departments, or a pending card and a live production card, cannot be physically merged.
+- Multi-stage cards no longer show an ambiguous Mixed label; they show the number of active stages and the exact lot rows provide the actionable status.
+
+DATA SAFETY
+- No existing Job Card, Bill, lot, transfer, weight, design, library, customer, vendor or inventory record was changed by this upgrade.
+- The v700 code folder and a complete live-cloud JSON copy were saved before implementation.
+- No Supabase SQL or schema change is required.
+
+VERIFICATION
+- JavaScript syntax passed.
+- App v701 loaded successfully in the local browser.
+- JOB-1694 displayed Main, S1 and S2 with LOT-331 at EP and direct transfer/history controls.
+- The Job Card dialog and family panel had no horizontal overflow at the tested desktop width.
+- JOB-1748 correctly exposed its older duplicate-lot links as a compact integrity warning.

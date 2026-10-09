@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS MANUFACTURING
+DEPLOY v674
+
+1. Keep the existing Supabase data. Do not run a reset.
+2. No new Supabase SQL is required.
+3. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v674-LIVE to the existing GitHub repository.
+4. Upload app-version.json last.
+5. Wait for GitHub Pages to finish publishing.
+6. Refresh each laptop and confirm App v674.
+7. Open Bill > Make Bill and confirm Add Fitting Accessory is available on Job Card items.
+8. Do not upload the ZIP file to GitHub.

@@ -1,0 +1,9 @@
+DEPLOY KHUSHALI JEWELLS ERP v676
+
+1. Keep all current Supabase ERP data.
+2. Upload all files and folders from KHUSHALI-JEWELLS-ERP-v676-LIVE to the existing GitHub repository.
+3. No new Supabase SQL is required.
+4. Upload app-version.json last.
+5. Confirm the login page shows App v676.
+6. Open Bill > Make Bill and use the red Remove Item button in the Action column.
+7. Generated Bills require Owner or Manager for item removal.

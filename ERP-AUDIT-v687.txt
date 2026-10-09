@@ -1,0 +1,28 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v687 AUDIT
+
+PROBLEMS CONFIRMED
+1. Several Safe Locker source rows retained stale remaining GW after the same weight had already moved into Gold Issue lots.
+2. The stale branches came from multi-device saves made from different source balances.
+3. Opening loose non-gold was still tracked separately while the same material remained inside product GW, overstating Fine Gold.
+
+REPAIR
+1. Source balance is now calculated as Opening GW minus direct department issues minus linked Gold Issue GW.
+2. Duplicate balance is removed only when child movement rows and their matching lot prove the issue.
+3. Duplicate lot numbers are matched by source item and creation time, so separate lots with the same displayed number remain distinct.
+4. The same reconciliation runs after every incremental cloud update and is idempotent.
+5. Opening loose non-gold is deducted karat-wise from Fine Gold, less active production material already represented by an explicit embedded source.
+6. All corrections are written to the ERP audit ledger.
+
+LIVE CONTROL
+- Before repair snapshot: Net Fine 4662.968 g.
+- Initial audit found 329.889 g duplicate source GW.
+- Three new live Gold Issues arrived during repair; final source replay removed 374.539 g across four proven source rows.
+- Current synced dashboard after those live movements: Net Fine 4198.236 g.
+- This is close to the user's approximate 4199.620 g control; the difference reflects live non-gold and production movements posted after the original snapshot, not a forced balancing entry.
+- A second ledger replay reports zero further source corrections.
+
+DATA SAFETY
+- Pre-repair cloud backup: outputs/live-data-backups/KJM-ERP-before-v687-20261006-140143.json
+- Post-repair cloud backup: outputs/live-data-backups/KJM-ERP-after-v687-20261006.json
+- No Job Card, Bill, design, stone library, moti library, customer or party balance was reset.
+- No Supabase SQL change is required.

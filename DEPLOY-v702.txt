@@ -1,0 +1,16 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v702
+
+DEPLOYMENT
+1. Upload every file and folder in the v702 live folder to the existing GitHub repository.
+2. Preserve the current Supabase ERP data.
+3. Upload app-version.json last.
+4. Confirm App v702 and Saved & Synced after refresh.
+
+CHECKS
+- Job Orders > Completed Job Order shows Bill number and final weight details.
+- Completed Job Order search accepts a Bill number.
+- Split Selected asks whether the new child Job Card is Urgent or Normal.
+- Existing PR numbers, Bills, production lots and inventory remain unchanged.
+
+SUPABASE
+- No SQL change is required for v702.

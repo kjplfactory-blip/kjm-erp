@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v695 DEPLOYMENT
+
+1. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v695-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so open laptops refresh only after all v695 files are present.
+3. Keep the existing Supabase data. Do not reset erp_state and do not run a SQL file.
+4. After login, confirm the header shows App v695 and Saved & Synced.
+5. Open Fine Sheet and verify current Factory Fine Stock.
+6. Open a split Job Card and confirm its split history remains visible with no duplicate department balance.
+7. Open a completed, not-yet-billed lot and confirm its holding uses final GW.
+8. Open Setting Manager and confirm transferred manual receipts no longer remain at their original source.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v695.

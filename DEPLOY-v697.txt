@@ -1,0 +1,9 @@
+KHUSHALI JEWELLS ERP v697 DEPLOYMENT
+
+1. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v697-LIVE to the existing GitHub repository.
+2. Upload app-version.json last.
+3. Keep the existing Supabase data. Do not reset erp_state and do not run a SQL file.
+4. Confirm the header shows App v697 and Saved & Synced.
+5. Transfer one active Fitting lot and verify the categorized non-gold panel, Central Non-Gold Shelf entry and Transfer History breakup.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v697.

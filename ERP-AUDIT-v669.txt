@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v669
+CUSTOMER ORDER TAG COLOUR AUDIT
+
+Scope
+- Bill item tag printing on A4 (40 tags) and A6 (10 tags).
+- Single Bill tag printing and combined multi-Bill tag printing.
+
+Verified behaviour
+- Customer order is detected by the existing manufacturing order rule: every customer except KJPL-STOCK.
+- Each customer-order tag receives the customer-order-tag class independently.
+- Customer-order tag content prints with a light pink fill and pink border.
+- KJPL-STOCK tag content remains white.
+- The barcode area stays white with black barcode lines for scanning contrast.
+- Print colour adjustment is enabled so supported browsers retain the customer colour.
+
+Data safety
+- No ERP business data is migrated, cleared or rewritten.
+- No Supabase schema change is required.
+- Existing permissions, Bill values and tag-printed status logic are unchanged.

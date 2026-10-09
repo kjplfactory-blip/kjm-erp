@@ -1,0 +1,19 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v695 AUDIT
+
+FINE STOCK INTEGRITY
+- Split and child-lot adjustment transfers remain in history but cannot create physical stock or department fine gold.
+- Older split rows with a nonzero balance are reconciled to zero after cloud load.
+- Completed lots waiting for Bill use their final received GW; wax, hand stone and other non-gold remain centrally adjusted once.
+- Manual no-Job-Card Setting material transferred to another department consumes the original source holding exactly once.
+- Existing posted department returns continue to take priority, preventing duplicate source deductions.
+
+MULTI-VERSION SAFETY
+- v695 ignores an invalid split balance immediately, even if an older laptop writes it.
+- The existing incremental cloud reconciliation corrects the old row without deleting its transfer history.
+- No ERP business records are reset or replaced by this release.
+
+VERIFICATION
+- JavaScript syntax checks passed.
+- Focused split, completed-GW, Setting-source and duplicate-deduction tests passed.
+- Existing v687 and v688 reconciliation tests passed.
+- No Supabase SQL change is required.

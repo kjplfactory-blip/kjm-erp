@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS MANUFACTURING - DEPLOY v671
+
+1. Keep the current Supabase project and ERP data unchanged.
+2. Replace the live application files with every file and folder inside KHUSHALI-JEWELLS-ERP-v671-LIVE.
+3. Do not run a reset SQL file.
+4. No new SQL is required. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current.
+5. Upload app-version.json last.
+6. Refresh the live ERP and confirm App v671.
+7. Open Production > Setting > Complete Setter Job and verify one form shows Issue GW, Receive GW, Hand Stone, Receive Net and Final Metal Balance.
+
+ROLLBACK
+Use KHUSHALI-JEWELLS-ERP-v670-LIVE if rollback is required.

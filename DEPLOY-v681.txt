@@ -1,0 +1,14 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v681
+
+DEPLOYMENT
+1. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v681-LIVE to the existing GitHub repository.
+2. Replace the existing files, including index.html, app.js, app-version.json, VERSION.txt and UPLOAD-INSTRUCTIONS.txt.
+3. Keep all assets and support files in their existing folders.
+4. No new Supabase SQL is required. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current.
+5. After GitHub Pages finishes publishing, refresh each laptop. The app-version guard will move clients to v681.
+
+IMPORTANT
+- Do not run Manual Reset until the automatic JSON backup has downloaded and the selection preview is correct.
+- C1/C2 clears all department holdings and GW differences, including Billing.
+- F1 keeps old Bills only as read-only references with zero operational stock effect.
+- C3 deliberately keeps live production and current department holdings.

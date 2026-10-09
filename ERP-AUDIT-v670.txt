@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING - ERP v670 AUDIT
+Date: 2026-10-02 IST
+
+CHECKED
+- JavaScript syntax for every local JavaScript file.
+- Unique HTML element IDs and all local file references.
+- Two physical Bill tags are generated for every selected item on A4 and A6.
+- Customer-order tag colour is red; KJPL-STOCK remains white; barcode panel remains white.
+- Manager/Owner day close saves a closing record before downloading the full ERP backup.
+- Setter Issue and Receive share one full-screen workspace.
+- Job Card Hand Stone is read from production stone data and can be corrected only by Owner.
+- Manual no-Job-Card setter receipts can still enter Hand Stone.
+- Receive Net formula: Receive GW - Hand Stone.
+- Setter balance formula: Issue GW - Receive Net - returned material - booked loss.
+- New transfer records include Lot ID, Lot No and Job Card No.
+- Job Bag, Transfer Bag and individual Lot History expose Lot and Job Card references.
+- App version and browser cache references are v670.
+
+DATA SAFETY
+- No reset, migration or stock rewrite is included.
+- Existing Supabase incremental sync schema v666 remains valid.
+- Protected rollback source: KHUSHALI-JEWELLS-ERP-v669-PRE-RED-CUSTOMER-TAG.

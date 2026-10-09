@@ -1,0 +1,34 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v684 AUDIT
+
+REQUEST
+Bill 0050 Factory Out must remove 10.311 g Moti and 1.544 g Stone from the Non-Gold Shelf, remove 41.289 g Net Gold from factory physical stock, add the Bill fine to KJPL Office party receivable, and increase ERP Net Fine only by manufacturing WSTG received.
+
+IMPLEMENTED
+- Bill Factory Out now consumes exact saved Bill non-gold weights from matching karat-wise loose shelf rows.
+- Stone consumption follows the billed 96% stone weight, not the unchanged Design Master reference weight.
+- Physical Net Gold leaves factory through the existing Bill Factory Out ledger.
+- KJPL-STOCK manufacturing Bills sent to KJPL Office are now included in KJPL Office receivable instead of being excluded as metal sold.
+- Factory Out automatically inherits the saved Bill WSTG percentage when no separate positive Factory Out rate exists.
+- Existing posted operational Bills reconcile once on load; historical reference-only Bills stay excluded.
+- Successful one-time reconciliation is saved to Supabase after cloud loading for consistent multi-device balances.
+- Bill deletion reverses the shelf consumption into the original material categories.
+- Editing a posted Bill atomically reverses the old shelf quantities, consumes the corrected quantities and refreshes its Factory Out WSTG.
+
+BILL 0050 CONTROL
+- GW: 53.144 g
+- Stone: 1.544 g
+- Moti: 10.311 g
+- Total Non-Gold: 11.855 g
+- Net Gold Factory Out: 41.289 g
+- 18K base fine: 31.070 g
+- WSTG: 1.75% / 0.723 g fine
+- Party receivable fine: 31.792 g
+- Net Factory Fine effect: +0.723 g WSTG only
+
+LIVE VALIDATION
+- Loose Stone after posting: 250.036 g.
+- Loose Moti after posting: 27.289 g.
+- Bill pending non-gold: 0.000 g.
+- KJPL Office current receivable includes 751.850 g fine.
+- JavaScript syntax check passes and App v684 loads with Saved & Synced status.
+- No Supabase SQL change or data reset is required.

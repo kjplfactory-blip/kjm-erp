@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v693 DEPLOYMENT
+
+1. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v693-LIVE to the existing GitHub repository.
+2. Upload app-version.json last so other devices refresh only after every program file is available.
+3. Keep the existing Supabase data. Do not reset erp_state and do not run a SQL file.
+4. After login, confirm the page shows App v693 and Saved & Synced.
+5. Open Dashboard and confirm every department tile shows only Current GW Holding on its visible face.
+6. Hover a department to see its detailed karat and reconciliation information.
+7. Open Transfer History > Department Transfer History and confirm all department tiles are light blue.
+8. Open Fine Sheet > Change Audit and confirm central non-gold changes have a specific explanation.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v693.

@@ -1,0 +1,22 @@
+ERP AUDIT v700 - JOB SPLIT AND HUMAN-SAFE GOLD ISSUE CORRECTION
+
+JOB-1694 SPLIT REPAIR
+- LOT-331 is retained as JOB-1694-S1 with its existing seven PR items.
+- Existing GW, wax stone, hand stone, net weight, department and transfer history are preserved.
+- No new stock movement is created and no weight is duplicated.
+- Future Job Card splits save the orders, production lots and ledger together and immediately confirm the cloud save.
+
+GOLD ISSUE CORRECTION
+- Owner and Manager can use Correct Issue for an eligible Gold Issue.
+- Return To Issue Gold restores the Safe Locker source, removes the incorrect production lot and returns linked PR items to Gold Pending.
+- The same Job Card opens directly in Issue Gold after the reversal.
+- Correct Issue GW remains available for a pure weight-entry mistake.
+- If later transfers, Setting work, non-gold activity, a Bill or a child lot depends on the issue, the ERP explains which later movement must be returned first.
+- Old issues without a complete shelf snapshot receive an audited compensating Safe return instead of failing silently.
+- Every correction records user, time, lot, Job Card and reason/history; no correction erases its audit trail.
+- Local saving is confirmed first, followed by an immediate Supabase save; automatic retry remains active during a temporary cloud interruption.
+
+DATA SAFETY
+- A complete live-cloud JSON backup and a v699 code-folder backup were created before repair.
+- Existing Job Cards, Bills, Designs, libraries, inventory, customers and vendors are preserved.
+- No Supabase SQL or schema change is required.

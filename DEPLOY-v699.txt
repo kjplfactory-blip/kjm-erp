@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS ERP v699 DEPLOYMENT
+
+1. Keep the current Supabase project and all existing ERP data unchanged.
+2. Upload every file and folder inside KHUSHALI-JEWELLS-ERP-v699-LIVE to the existing GitHub repository.
+3. Do not upload the ZIP file or the v698 safety-backup folder to GitHub.
+4. Upload app-version.json last so active laptops refresh only after all v699 files are available.
+5. Confirm the login page shows App v699.
+6. Log in and wait for Saved & Synced. If Supabase is waking, keep the page open; the local copy remains available while retrying.
+7. Test a small Fitting transfer. Non-stone material must already be issued from Non-Gold Shelf to Fitting.
+8. Test one Setting transfer and confirm Transfer History shows the Production Holding Shelf bridge.
+9. Confirm Factory Out removes Bill non-gold once and closes its linked Fitting allocation.
+
+No SQL file needs to be run for v699.

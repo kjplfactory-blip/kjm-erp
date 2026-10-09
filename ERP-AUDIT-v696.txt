@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS ERP v696 AUDIT
+Date: 2026-10-07 IST
+
+CORRECTIONS
+- Manual combined Bills use existing Billing holdings first.
+- The combined Bill wrapper does not create a second Gold Issue movement.
+- Only genuinely unlinked manual WIP consumes the manual Billing pool.
+- Existing manual combined Bills are reconciled once after the current cloud state loads.
+- Every normal PR item present in a saved or retained Reference Bill is moved to Completed Job Orders.
+- QC-failed, repair and discarded items keep their operational status.
+- Dashboard department GW is the live Transfer History balance: IN receive GW minus OUT receive GW.
+- The legacy department dashboard helper uses the same live balance and no longer overrides it with reconstructed holding.
+
+VERIFICATION
+- JavaScript syntax validation passed for app.js and department-holdings-v615.js.
+- App v696 loaded successfully in the local browser.
+- JOB-1799 is absent from Pending Job Orders and present in Completed Job Orders.
+- BILL-0050 remains searchable with all 7 JOB-1799 items.
+- Dashboard department cards display Live GW Difference (IN - OUT).
+
+DATA SAFETY
+- Existing ERP data is preserved.
+- Safety copy: erp-web-app-v695-before-v696-billing-dashboard.
+- No Supabase SQL change is required.

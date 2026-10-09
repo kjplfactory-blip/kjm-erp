@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS MANUFACTURING
+DEPLOY v675
+
+1. Keep the existing Supabase data. Do not run a reset.
+2. No new Supabase SQL is required.
+3. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v675-LIVE to the existing GitHub repository.
+4. Upload app-version.json last.
+5. Wait for GitHub Pages to finish publishing.
+6. Refresh each laptop and confirm App v675.
+7. Test Remove Item on a Bill with at least two items.
+8. Add one item to a Job Card already in Bill / QC and confirm it appears in the same lot Bill.
+9. Do not upload the ZIP file to GitHub.

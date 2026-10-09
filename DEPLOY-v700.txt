@@ -1,0 +1,13 @@
+KHUSHALI JEWELLS ERP v700 DEPLOYMENT
+
+1. Keep the current Supabase project and all existing ERP data unchanged.
+2. Upload every file and folder inside KHUSHALI-JEWELLS-ERP-v700-LIVE to the existing GitHub repository.
+3. Do not upload the ZIP file, safety-backup folder, or downloaded cloud backup to GitHub.
+4. Upload app-version.json last so active laptops refresh only after every v700 file is available.
+5. Confirm the login page shows App v700.
+6. Log in and wait for Saved & Synced.
+7. Open JOB-1694 and confirm JOB-1694-S1 contains the seven LOT-331 PR items while the parent contains the remaining items.
+8. To correct a wrong Gold Issue, open Correct Issue and select Return To Issue Gold. The source stock and Job Card status are restored before the Issue Gold screen opens.
+9. If later production activity exists, return the latest movement first. The ERP displays the required step and keeps the audit trail.
+
+No SQL file needs to be run for v700.

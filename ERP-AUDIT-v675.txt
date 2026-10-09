@@ -1,0 +1,34 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT v675 - BILL ITEM REMOVAL + AUTOMATIC LOT INCLUSION
+
+BILL ITEM REMOVAL
+- Every editable Bill with two or more items provides Remove Item on each eligible row.
+- Remove From Bill Only keeps the PR, stone entry and Job Card record.
+- Remove And Delete Job Card Item permanently deletes the PR only for Owner or Manager.
+- Permanent deletion is blocked when another production lot references the PR.
+- Both removal choices are blocked after Office, Hallmarking, Sales, repair, discard, or Factory Out movement.
+- Remaining Bill rows and entered weights are preserved and totals are recalculated.
+- A removal audit is retained on the production lot.
+- The affected state is restored if saving fails.
+
+AUTOMATIC BILL LOT INCLUSION
+- Adding an item from Job Card Edit checks the production lot containing the base PR.
+- If that lot is currently in Bill / QC, the new PR is added to its orderIds and billOrderIds.
+- The item is marked Completed because it enters the existing completed Billing lot.
+- A protected Bill draft adds the new row with blank Final GW and current stone / non-gold details.
+- No additional GW, production transfer, shelf issue, or stock movement is created.
+
+PERMISSIONS
+- Pending Bill removal follows normal Bill creation permission.
+- Generated Bill removal remains Owner / Manager only.
+- Job Card PR deletion remains Owner / Manager only.
+
+DATA SAFETY
+- Existing orders, Bills, inventory, transfers, users and Supabase data are preserved.
+- No Supabase SQL or reset is required.
+
+VERIFICATION
+- JavaScript syntax check passed.
+- Dedicated v675 Bill removal and automatic inclusion regression test passed.
+- v674 Bill fitting-accessory regression test passed.
+- Existing fitting-accessory quantity regression test passed.

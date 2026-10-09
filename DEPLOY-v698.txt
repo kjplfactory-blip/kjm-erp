@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS ERP v698 DEPLOYMENT
+
+1. Upload the complete KHUSHALI-JEWELLS-ERP-v698-LIVE folder contents to the existing GitHub repository.
+2. Keep the current Supabase project and data unchanged.
+3. Upload app-version.json last.
+4. Confirm the login page shows App v698.
+5. Log in and confirm Saved & Synced.
+6. Test one Fitting transfer using a small Moti or Black Beads weight.
+7. Confirm loose shelf stock decreases while total factory non-gold remains unchanged.
+
+No SQL file needs to be run for this version.

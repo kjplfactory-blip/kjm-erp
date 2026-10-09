@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v683 AUDIT
+
+REQUEST
+All opening factory holdings were entered as GW. The separately recorded non-gold shelf is contained inside that GW and must reduce Net/Fine Gold without changing Total GW.
+
+IMPLEMENTED
+- Added a factory-wide karat-wise non-gold reconciliation.
+- Total GW is unchanged.
+- ERP non-gold reduces Net Gold and Fine Gold at the configured karat percentages.
+- Explicit opening non-gold adjustments already deducted elsewhere are excluded to prevent double deduction.
+- Reclassified the confirmed Opening Stock Stone 0.140 g and Black Beads 0.210 g from 14K to 18K through an idempotent one-time migration.
+- Original stock-in history is preserved and deterministic correction audit rows record the move.
+- The reconciliation is visible in Factory Summary, Fine Sheet calculation details and printed Fine Sheet.
+- Existing stock and non-gold entries are retained; no reset or re-entry is required.
+
+CONTROL CALCULATION
+Previous Fine Gold 4438.026 g - (317.780 g x 75.25%) = 4198.897 g.
+
+VALIDATION
+- JavaScript syntax check passes.
+- Version and browser-cache markers are aligned to v683.
+- Live validation: GW 5555.570 g / Non-Gold 317.780 g / Net Factory Fine 4198.897 g / Saved & Synced.
+- No Supabase schema change or data reset is required.

@@ -1,0 +1,22 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V678 DEPLOYMENT
+
+Upload the complete contents of the V678 folder to the existing GitHub repository, replacing the earlier website files.
+
+Required updated files:
+- index.html
+- app.js
+- styles.css
+- app-version.json
+- ERP-AUDIT-v678.txt
+- DEPLOY-v678.txt
+
+Keep the complete assets folder and all existing SQL/help files in the repository.
+
+No new Supabase SQL is required for V678.
+
+After GitHub Pages finishes publishing:
+1. Open the ERP.
+2. Confirm the login page shows App v678.
+3. Hard refresh once if an older version remains cached.
+4. Open Job Order, select an item, and use Transfer Selected Item.
+5. Open Safe Locker > Non-Gold Shelf to verify the new inventory view.

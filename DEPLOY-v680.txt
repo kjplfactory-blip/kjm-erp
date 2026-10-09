@@ -1,0 +1,27 @@
+KHUSHALI JEWELLS MANUFACTURING ERP - V680 DEPLOYMENT
+
+Upload the complete contents of the V680 folder to the existing GitHub repository, replacing the earlier website files.
+
+Required updated files:
+- index.html
+- app.js
+- styles.css
+- app-version.json
+- ERP-AUDIT-v680.txt
+- DEPLOY-v680.txt
+- UPLOAD-INSTRUCTIONS.txt
+
+Keep the complete assets folder and all existing SQL/help files in the repository.
+
+No new Supabase SQL is required for V680.
+
+After GitHub Pages finishes publishing:
+1. Open the ERP and confirm App v680.
+2. Log in as Owner and open Manual Reset.
+3. Under Bills select F1: Keep every bill and item as a read-only reference archive.
+4. Under Factory Ledger select D1 when party opening balances will be entered manually.
+5. Review the other reset selections, download/keep the automatic backup, and confirm the preview before running the reset.
+6. After reset, open Bill and confirm earlier bills show Reference Only / No Stock Effect.
+7. Confirm those bills can still be viewed, printed and exported, but do not appear in current stock, Office, Factory Out, non-gold or party balances.
+
+Do not reset or replace the Supabase erp_state row while deploying V680.

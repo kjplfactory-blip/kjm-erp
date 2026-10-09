@@ -1,0 +1,39 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v693 AUDIT
+
+LIVE FINE-GOLD FINDING
+- 06 October 2026 saved Net Factory Fine: 4192.789 g.
+- 07 October 2026 current Net Factory Fine: 4178.559 g.
+- Difference: -14.230 g.
+- The 18K central non-gold register increased by exactly 18.910 g.
+- 18.910 g x 75.25% = 14.230 g fine, exactly explaining the complete Net Factory Fine change.
+- LOT-313 / JOB-1690-S4 had 11.571 g Hand Stone received in Setting on 06 October.
+- That stone was only entering the central non-gold composition register after the lot moved on 07 October.
+- 11.571 g x 75.25% (18K) = 8.707 g fine, exactly explaining the change.
+- The remaining production-composition activity includes 7.339 g Wax Stone assigned to newly issued LOT-320, LOT-321 and LOT-322.
+- Metal Safe versus KJPL Office changes cancel exactly, and Safe/Production/Transfer movement changes also cancel exactly.
+- The complete -14.230 g is therefore a non-gold composition adjustment, not an unexplained physical gold loss.
+
+CORRECTION
+1. A received Setting entry now contributes its Hand Stone to the central non-gold shelf immediately.
+2. The next department transfer keeps the same stone amount and cannot deduct it twice.
+3. Fine Sheet Change Audit now identifies central non-gold entering or leaving and explains the fine effect.
+4. Exact duplicate non-gold audit events from the same source are suppressed.
+
+DEPARTMENT HOLDING FINDING
+- Nine active lots had a saved current department older than their latest transfer destination.
+- LOT-313 was saved as SETTING although its latest transfer was to FITTING.
+- LOT-316 was saved as FITTING although its latest transfer was to SETTING.
+- LOT-306, LOT-307 and LOT-309 to LOT-312 were saved as FILING although their latest transfers were to EP.
+- LOT-291 was saved as FITTING although its latest transfer was to FINAL POLISH.
+
+CORRECTION
+1. Active lot current department fields are reconciled from the latest transfer during full and incremental cloud load.
+2. Dashboard holdings independently use the latest transfer destination, so a stale top-level label cannot put GW in the wrong tile.
+3. The visible face of each Dashboard department tile shows only Current GW Holding.
+4. Detailed karat, non-gold, fine and transfer information remains available in the hover detail and Open view.
+5. Department Transfer History tiles use a light-blue background with clearer text contrast.
+
+DATA SAFETY
+- Audit was read-only and did not reset or replace Supabase data.
+- No Job Card, Bill, design, library, customer, party or stock entry was deleted.
+- No new Supabase SQL is required.

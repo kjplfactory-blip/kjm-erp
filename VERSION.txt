@@ -1,4 +1,377 @@
 KHUSHALI JEWELLS MANUFACTURING
+App version: v703
+
+V703 FAST MULTI-DEVICE SYNC + TRANSACTION SAFETY
+- Cloud saves now write only changed records instead of rebuilding the full ERP document on every operation.
+- Job Card, PR, Lot and Bill number ranges are reserved centrally to prevent duplicate numbers across laptops.
+- Pending local changes are recovered after reload and full browser snapshots are throttled to reduce page freezing.
+- Issue Gold, Department Transfer and Bill saves restore the previous state automatically if a save fails.
+- Factory Out confirmation uses a small server-side verification instead of downloading the complete ERP state.
+- Close Day confirms the cloud save, creates a normalized cloud backup and downloads a complete local backup.
+- An already-open v702 tab remains compatible with the normalized writer while all laptops move to v703.
+- Existing ERP data is preserved. Run SUPABASE-ERP-CORE-v703.sql once before publishing v703.
+
+PREVIOUS V702
+
+V702 COMPLETED JOB CARD BILL DETAILS + SPLIT PRIORITY
+- Every completed Job Card now shows its Bill number, Final GW, Stone, Black Beads, Moti, Spring, Other, Total Non-Gold and Net Weight.
+- Each completed PR item uses its latest saved Bill line, preventing repair or rebill history from being counted twice.
+- Older cards with missing or partial historical Bill lines clearly show how many item Bills were found.
+- Completed Job Card search now also accepts a Bill number.
+- Splitting a Job Card now requires an explicit Urgent or Normal choice before confirmation.
+- Existing Job Cards, PR numbers, Bills, production lots and inventory are preserved.
+- No Supabase SQL change is required.
+
+PREVIOUS V701
+
+V701 JOB CARD FAMILY CONTROL
+- The main Job Card now shows every child card, active lot, exact department, GW, stone composition, net weight and latest movement together.
+- Each exact lot can be opened, transferred or reviewed from the family control without merging physical holdings.
+- Duplicate active PR ownership and crossed lot references are detected before another split or merge.
+- Job Cards in different operational locations cannot be physically merged.
+- Multi-stage cards show an exact active-stage count instead of an ambiguous Mixed label.
+- Existing ERP data is preserved and no SQL change is required.
+
+PREVIOUS V700
+- JOB-1694 split ownership repair and human-safe Gold Issue correction were introduced.
+
+PREVIOUS V699
+
+V699 CLEAN CENTRAL NON-GOLD AND GW FLOW
+- All normal department movement remains in Gross Weight.
+- The Central Non-Gold Shelf remains the single factory register for Stone, Black Beads, Moti, Spring and Other.
+- Fitting Black Beads, Moti, Spring and Other are allocated from material already issued to Fitting; Stone remains direct.
+- Fitting allocation does not create duplicate non-gold and is closed only when its linked Bill is Factory Out.
+- Setting transfers show a zero-balance Production Holding Shelf bridge before the next department.
+- Existing v698 Fitting entries keep their historical allocation method.
+- No ERP data is reset and no Supabase SQL change is required.
+
+PREVIOUS V698
+KHUSHALI JEWELLS MANUFACTURING
+App version: v698
+
+V698 FITTING NON-GOLD SHELF CONSUMPTION
+- Non-stone material entered during Fitting was consumed from matching loose shelf stock.
+- Stone remained the direct production exception.
+- Existing shelf consumption was reversible on transfer edit or delete.
+
+PREVIOUS V693
+
+V693 FINE GOLD AND DEPARTMENT HOLDING REPAIR
+- Setting Hand Stone is added to the central non-gold register as soon as the Setting lot is received.
+- A later department transfer keeps the same composition without deducting the stone twice.
+- Fine Sheet Change Audit explains the exact central non-gold weight responsible for a fine change.
+- Active lot department fields and Dashboard holdings follow the latest transfer destination.
+- Dashboard department tiles show only Current GW Holding on the visible face.
+- Department Transfer History tiles now use a clear light-blue background.
+- Exact duplicate non-gold audit events from one source are suppressed.
+- No inventory, Job Card, Bill, design, library, customer or party data is reset.
+
+PREVIOUS V692
+KHUSHALI JEWELLS MANUFACTURING
+App version: v692
+
+V692 LEGACY BILLING DEPARTMENT RECONCILIATION
+- Combined Manual Bills and legacy Bill / QC lots now resolve to the actual BILLING master department.
+- Their initial Billing receipt and Bill To Factory Out movement use the same BILLING / FINAL BILL identity.
+- BILL-0050 now appears in Billing Transfer History with Receive GW 53.144 g on both its inward and Factory Out sides.
+- The equal inward and outward Bill 50 weights cancel correctly, so it does not leave a false Billing holding.
+- Existing standard Bills continue to appear under BILLING exactly as before.
+- No inventory, Job Card, Bill, design, library, customer or party data is changed or reset.
+
+PREVIOUS V691
+KHUSHALI JEWELLS MANUFACTURING
+App version: v691
+
+V691 BILLING RECEIVE TO FACTORY OUT RECONCILIATION
+- Every posted Factory Out Bill now appears as a read-only Bill To Factory Out movement from the Billing department.
+- Billing Transfer History OUT GW uses the Bill final GW, so Billing Balance GW reduces by the exact Factory Out amount.
+- Existing posted Bills are included automatically; no data migration, duplicate movement or manual re-entry is required.
+- Bill Factory Out movements are also visible in Online Transfer History, individual Lot History and the Bill Lot Movement Trace.
+- Each row includes Bill number, Lot, Job Card, pieces, GW, total non-gold and net weight.
+- Reversing or deleting the Factory Out posting removes the derived movement automatically.
+- No inventory, Job Card, Bill, design, library, customer or party data is reset.
+
+PREVIOUS V690
+KHUSHALI JEWELLS MANUFACTURING
+App version: v690
+
+V690 REJECTED VENDOR ITEM AND CASTING / ROD CATEGORY SPLIT
+- Factory In now accepts a Rejected Item With Non-Gold from a vendor with separate Stone, Black Beads, Moti, Spring and Other weights.
+- Rejected Item GW, Total Non-Gold and Net Gold are shown clearly in the Factory ledger and Fine Sheet.
+- Rejected-item fine weight is calculated from Net Gold; its embedded non-gold is classified once and is not counted again as physical stock.
+- Rejected items are saved in the matching karat Safe Locker with their complete non-gold breakup for later issue and verification.
+- Casting Item and Rod are now separate categories in Factory In, Factory Out, Safe Locker, melting receipt, department receipt and stock summaries.
+- Existing Casting Item / Rod records are classified from their saved source details without changing their weight or movement history.
+- No inventory, Job Card, Bill, design, library, customer or party data is reset.
+
+PREVIOUS V689
+KHUSHALI JEWELLS MANUFACTURING
+App version: v689
+
+V689 GW-ONLY DEPARTMENT STONE RECONCILIATION
+- Every ordinary department transfer remains GW only; no separate stone transfer is required between departments.
+- Wax Stone and Hand Stone remain visible against their Job Card, Lot, PR and current department as composition references.
+- Active WIP stone is no longer incorrectly labelled as unmatched when no department-level stone source movement exists.
+- The reconciliation warning is now reserved for a Bill / Factory Out non-gold deduction that has not completed.
+- Fine Sheet continues to value physical GW first and deduct the Central Non-Gold Shelf exactly once by karat.
+- No inventory, Job Card, Bill, design, library, customer or party data is reset.
+
+PREVIOUS V688
+KHUSHALI JEWELLS MANUFACTURING
+App version: v688
+
+V688 CENTRAL NON-GOLD SHELF AND GW PRODUCTION FLOW
+- Stone, Black Beads, Moti, Spring and Other are maintained in one central Non-Gold Shelf, grouped by karat and material.
+- The central shelf is a composition register for non-gold already included in factory GW; it is not counted again as a second physical-GW location.
+- Every ordinary department transfer now uses GW only: Department Balance = Issue GW - Receive GW.
+- Setting keeps its required exception: Receive Net = Receive GW - Hand Stone, then Metal Balance = Issue GW - Receive Net.
+- Department holdings and production locations are valued from GW at the applicable karat.
+- Fine Sheet deducts the central non-gold shelf once, karat-wise, after the physical GW holdings are valued.
+- Existing transfers are reconciled automatically and idempotently. Job Cards, Bills, designs, libraries and party balances are preserved.
+- Verified against the current synced data: Factory Net Fine 4199.394 g and Central Non-Gold 310.176 g.
+- No reset and no Supabase SQL change are required.
+
+PREVIOUS V687
+KHUSHALI JEWELLS MANUFACTURING
+App version: v687
+
+V687 FACTORY LEDGER AND NON-GOLD FINE REPAIR
+- Safe Locker source balances are replayed from their immutable opening GW, direct department issues and linked Gold Issue lots.
+- A stale laptop can no longer restore proven duplicate remaining GW: every incremental cloud update rechecks the affected source ledger and saves the corrected balance.
+- The repair is conservative: it only reduces a source when linked movement records prove that weight has already moved. It never invents stock or changes Job Cards, Bills, designs, libraries or party balances.
+- Duplicate source rows found in the live ledger were corrected and recorded in the audit ledger.
+- Opening Loose Non-Gold that is already included inside product GW is deducted karat-wise from Fine Gold while its loose tracking balance remains visible.
+- Explicit embedded stone sources are excluded from the legacy opening adjustment, preventing a second non-gold deduction.
+- The live v687 control is synced and the source replay is idempotent; a second pass finds no duplicate source balance.
+- No reset and no Supabase SQL change are required.
+
+PREVIOUS V686
+KHUSHALI JEWELLS MANUFACTURING
+App version: v686
+
+V686 LEGACY WIP / SHELF WAX COMPOSITION CORRECTION
+- Issue Gold now removes the full entered GW from WIP or Shelf, not only the calculated net gold.
+- When the selected old WIP/Shelf row has no wax metadata but the Job Card has wax stone, that stone is allocated from the matching karat Loose Non-Gold Shelf.
+- The production lot receives one physical GW split into Net Gold and embedded Wax Stone; the stone is not duplicated.
+- New Casting items that already carry wax composition keep their existing source and do not consume Loose Stone again.
+- Edit Issue and Delete Issue restore both the original WIP/Shelf GW and the exact Loose Non-Gold rows.
+- Active legacy lots with the exact old net-only issue signature are corrected automatically when enough matching Loose Stone is available.
+- Fine Stock remains unchanged by an internal move: source GW falls, production GW rises, and Loose Stone becomes embedded Stone.
+- Existing Job Cards, Bills, designs and libraries are preserved. No reset and no Supabase SQL change are required.
+
+PREVIOUS V685
+KHUSHALI JEWELLS MANUFACTURING
+App version: v685
+
+V685 UNIFIED NON-GOLD SHELF AND EMBEDDED ITEM FLOW
+- Every non-gold gram now has one physical position: Loose Non-Gold Shelf, embedded in a casting/job item, or Factory Out.
+- Casting Receive asks whether Wax Stone came from the Loose Shelf or a Direct Casting / Other source.
+- Setting asks the same source question for Hand Stone and records it against the exact lot and PR items.
+- A shelf-sourced entry reduces the matching karat and material once; a direct process entry becomes embedded without reducing unrelated opening shelf stock.
+- Job Card splits move embedded source records with the selected PR items; eligible Setting re-merges bring those records back without duplication.
+- Factory Out credits stone and non-gold already embedded in the product, then deducts only unresolved legacy or loose shelf weight.
+- Bill reversal restores only the exact loose shelf rows consumed by that Bill. Embedded material remains with the returned product.
+- Issue Gold correction reassigns Wax Stone provenance to the corrected casting source.
+- Fine Sheet no longer applies the global non-gold deduction a second time after each holding has already calculated GW less embedded non-gold.
+- Casting and Setting edits replace the previous source allocation safely; deletion restores shelf material only when later production has not consumed it.
+- Existing data, Job Cards, Bills, designs and libraries are preserved. No reset and no Supabase SQL change are required.
+
+PREVIOUS V684
+KHUSHALI JEWELLS MANUFACTURING
+App version: v684
+
+V684 BILL FACTORY OUT STOCK AND FINE RECONCILIATION
+- Factory Out consumes the Bill's final non-gold weights from the matching karat-wise loose Non-Gold Shelf.
+- Bill Stone uses the saved billing weight after the 96% billing adjustment; design-master stone remains unchanged.
+- Bill Moti, Black Beads, Spring and Other weights are consumed from their own shelf categories.
+- Factory Out removes Bill Net Gold from physical factory stock and adds base fine plus Bill WSTG fine to the KJPL Office party receivable.
+- Net Factory Fine therefore changes only by the WSTG fine earned on manufacturing.
+- Existing posted operational Bills are reconciled once; reference-only historical Bills remain excluded.
+- The one-time correction is saved back to Supabase after the current cloud state loads, so all laptops receive the same balances.
+- Deleting a Bill restores the exact consumed Stone, Moti, Black Beads, Spring and Other weights to their original shelf entries.
+- Editing a posted Bill reverses its earlier shelf consumption, applies the corrected values, and updates Factory Out WSTG from the edited Bill.
+- Bill 0050 control: GW 53.144 g - Stone 1.544 g - Moti 10.311 g = Net Gold 41.289 g; 1.75% WSTG adds 0.723 g fine.
+- No Supabase SQL change or data reset is required.
+
+PREVIOUS V683
+KHUSHALI JEWELLS MANUFACTURING
+App version: v683
+
+V683 TOTAL GW LESS ERP NON-GOLD FINE CALCULATION
+- Total Factory GW remains unchanged because all department and shelf opening weights were entered as GW.
+- The complete ERP non-gold balance is deducted karat-wise from GW before Fine Gold is calculated.
+- Current control result: 5555.570 g total GW and 317.780 g 18K non-gold gives 4198.897 g Fine Gold.
+- Confirmed Opening Stock corrections move 0.140 g Stone and 0.210 g Black Beads from 14K to 18K once, preserving the original rows and adding reclassification audit entries.
+- 18K non-gold uses 75.25%; 14K uses 58.75%; 9K uses 37.50%; and 22K uses 91.70%.
+- Opening non-gold adjustments already deducted by the ERP are excluded from this reconciliation to prevent double deduction.
+- Fine Sheet and Factory Summary show the non-gold deduction as a separate, verifiable line.
+- Existing stock entries are retained. No reset, re-entry, or Supabase SQL is required.
+
+PREVIOUS V682
+KHUSHALI JEWELLS MANUFACTURING
+App version: v682
+
+V682 OPENING NON-GOLD INSIDE DEPARTMENT GW
+- Existing / Opening non-gold entered for a department is treated as weight already included in that department's opening GW.
+- Department GW stays unchanged; non-gold holding increases while Net Gold and Fine Gold reduce by the same classified weight.
+- Existing saved opening non-gold entries are recalculated automatically, so they do not need to be deleted or entered again.
+- Moving opening non-gold into production or a Bill transfers its classification without adding or subtracting the physical weight twice.
+- Transfer History shows these records as OPENING NON-GOLD IN GW with zero GW movement and a clear Net/Fine adjustment.
+- Final Non-Gold Stock Target and department opening entries are reconciled together to prevent duplicate fine-gold reduction.
+- No Supabase SQL or data reset is required.
+
+PREVIOUS V681
+KHUSHALI JEWELLS MANUFACTURING
+App version: v681
+
+V681 ZERO DEPARTMENT HOLDINGS DURING MANUAL RESET
+- Manual Reset C1/C2 clears every current department holding, including Billing, to 0.000 g.
+- Gross difference, net difference, non-gold holding, fine-gold holding, department losses and live transfer balances are cleared together.
+- Preserved Bills remain a read-only reference archive and are excluded from Dashboard holdings, Online Transfer History, Department Transfer History, Fine Sheet and reports.
+- A2 retained non-gold is consolidated into the Safe Shelf when production is cleared, preventing hidden department balances.
+- C3 still keeps live production and department holdings when explicitly selected.
+- The reset audit records the final department-holding score for verification.
+- Existing data is unchanged until the Owner confirms Manual Reset. No Supabase SQL change is required.
+
+PREVIOUS V680
+KHUSHALI JEWELLS MANUFACTURING
+App version: v680
+
+V680 REFERENCE-ONLY BILL ARCHIVE DURING MANUAL RESET
+- Manual Reset F1 preserves every saved Bill and item as a read-only archive for future reference.
+- Retained Bills can be viewed, printed and exported, but cannot be edited, deleted, moved through QC, Office or Factory Out, or saved as drafts.
+- Archived Bills and their linked lots are excluded from Factory Stock, Production stock, non-gold calculations, Office stock and vendor/party balances.
+- D1 starts a fresh zero Factory Ledger so party opening balances can be entered manually without old Bills changing those balances.
+- The Manual Reset preview and Bill list clearly show the reference-only status and zero stock effect.
+- Existing ERP data is preserved until the Owner deliberately runs Manual Reset. No Supabase SQL change is required.
+
+PREVIOUS V679
+KHUSHALI JEWELLS MANUFACTURING
+App version: v679
+
+V679 MULTIPLE BILL FACTORY OUT
+- Factory Out now lists every eligible completed bill with searchable multi-selection and Select All.
+- The selected bill count, item count, GW, non-gold, net weight, and fine weight are combined for review before confirmation.
+- The batch uses one local save, one Supabase write, and one cloud verification for faster multi-device operation.
+- Every bill remains a separate Factory Ledger entry and already-posted bills cannot be selected again.
+- Existing single-bill and manual Factory Out remain available.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V676
+KHUSHALI JEWELLS MANUFACTURING
+App version: v676
+
+V676 VISIBLE BILL ITEM REMOVAL
+- Make Bill now has a dedicated Action column on the right side of every item row.
+- The red Remove Item button is no longer buried inside the Design / Item details.
+- The Action column remains visible for every item and explains when removal is blocked by permission, a single-item Bill, Factory Out, Office, Hallmarking, Sales, repair or discard movement.
+- Pending Bill items can be removed by an authorized Bill user. After a Bill is generated, only Owner or Manager can remove an item.
+- Remove Item still asks whether to keep the PR in the Job Card or permanently delete the Job Card item too.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V675
+App version: v675
+
+V675 BILL ITEM REMOVAL + AUTOMATIC LOT INCLUSION
+- Every editable Bill item now has Remove Item when at least one other item remains in the Bill.
+- Removal opens a clear choice: remove only from the Bill and keep the PR in the Job Card, or remove it from the Bill and delete the Job Card PR too.
+- Permanent Job Card deletion remains Owner / Manager only and is blocked when the PR is linked to another production lot or has moved to Office, Hallmarking, Sales, repair, discard, or Factory Out.
+- Bill removal preserves the remaining entered weights, recalculates totals, records an audit entry, and restores the previous state if saving fails.
+- An item added to a Job Card already issued to Bill is attached automatically to the exact Billing lot containing the base item.
+- The late-added item appears in the same Bill with blank Final GW and its current stone / non-gold details, without creating extra production weight.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V674
+App version: v674
+
+V674 BILL FITTING ACCESSORY
+- Bill items linked to a Job Card now include an Add Fitting Accessory button.
+- The existing full-screen Fitting Accessory selector opens directly from Make Bill, including fitting design image, quantity and stone details.
+- Adding a fitting from Bill updates only that production item, refreshes its latest stone and non-gold totals, recalculates Bill Net Weight and preserves the Bill draft, search and scroll position.
+- Pending Bills follow normal Bill permission; generated Bills remain editable only by Owner or Manager.
+- Manual WIP Bill rows remain unchanged because they are not linked to a Job Card production item.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V673
+App version: v673
+
+V673 ISSUE GOLD PERFORMANCE REPAIR
+- Issue Gold now compares and queues only Orders, Lots, Ledger, Safe Locker and lot-counter records changed by that operation.
+- The Production module loads only the tile currently opened; hidden Production Lots, Non-Gold reconciliation and Setting Manager tables are no longer rebuilt after every Gold Issue.
+- Saved Job Card stone totals are used directly, avoiding repeated full Stone Library matching when calculating wax stone.
+- The Issue Metal form refreshes immediately after save and shows the newly generated Lot number.
+- Existing weight formulas, stock deductions, transfer records, permissions and Supabase incremental sync remain unchanged.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V672
+App version: v672
+
+V672 NAMED LOGIN + STONE EDIT AUDIT
+- Every login now requires the personal name of the person using the selected ERP account.
+- The active-user header shows both the person name and the selected login account.
+- Every saved item-level Production Stone change records person, login, time, action and the complete resulting stone rows.
+- Job-item tiles show the latest stone editor beside the STONE EDITED badge.
+- Production Stone Entry includes a collapsed Stone Edit History table for the selected PR item.
+- Existing sessions are signed out once after the update; the automatic updater saves current browser work before reloading.
+- Existing ERP data is preserved. No Supabase SQL or data reset is required.
+
+PREVIOUS V671
+App version: v671
+
+V671 SETTING SETTLEMENT UPDATE
+- Fresh Setting Job work is saved in one operation, not separate Issue and Receive actions.
+- The selected lot remains with Setting Master throughout the setter work.
+- One saved row records Setter, Job Card, Lot, Issue GW, Receive GW, Hand Stone, Receive Net and Final Metal Balance.
+- Job Card Hand Stone is automatic and only Owner can correct it.
+- Previous pending entries and monthly setter balance settlement remain available in a collapsed legacy section.
+- No data reset and no new Supabase SQL are required.
+
+PREVIOUS V670
+Updated: 2026-10-02 IST
+Every Bill item tag now prints as two identical copies: one for the final product and one for the factory Job Bag.
+Customer-order tags use a clear red background and border; KJPL-STOCK tags remain white. Barcode areas remain white for scanning.
+Owner and Manager can use Close Day & Download Backup in Fine Sheet to save the closing record and automatically download a complete ERP JSON backup.
+Setting Manager now opens Issue and Receive together in one full-screen workspace.
+Setter accounting shows Issue GW, Receive GW, Job Card Hand Stone, Receive Net and final metal balance. Normal Job Card Hand Stone is editable only by Owner; manual no-Job-Card receipts retain manual entry.
+New transfers store Lot and Job Card references. Individual transfer history and Job Bag printing show both references, while transfer bags continue to print both.
+No ERP records, weights, stock or Supabase tables are reset by this upgrade.
+Keep using SUPABASE-INCREMENTAL-SYNC-v666.sql; no additional SQL is required for v671.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v669
+Updated: 2026-09-30 IST
+Customer-order Bill tags now print with a light pink background and stronger pink border.
+KJPL-STOCK Bill tags keep the existing white layout, making stock and customer orders easy to separate.
+The colour rule is applied per item, including mixed multi-Bill tag selections on both A4 and A6 layouts.
+Barcode areas remain white and high-contrast for reliable scanning.
+No ERP records, permissions, weights, stock or Supabase data are changed by this upgrade.
+Keep using SUPABASE-INCREMENTAL-SYNC-v666.sql; no additional SQL is required for v669.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v668
+Updated: 2026-09-30 IST
+Saved Bills are now reconciled with their production Lots after local load, normalized cloud bootstrap and every incremental cloud refresh.
+The authoritative Bills collection replaces stale or incomplete embedded Lot copies without changing Bill weights, items or QC data.
+The Bill screen now reads both Lots and saved Bills, so a valid Bill remains visible while a delayed Lot relationship is being refreshed.
+If a saved Bill reaches a device before its Lot, the Bill screen shows a protected saved-record row instead of hiding the Bill.
+BILL-0018 for JOB-1741 was verified in both the current cloud records and the protected daily backup; no data restoration was required.
+No ERP business data or Supabase rows are reset or rewritten by this upgrade.
+Keep using SUPABASE-INCREMENTAL-SYNC-v666.sql; no additional SQL is required for v668.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v667
+Updated: 2026-09-30 IST
+Universal Search now uses one reusable local index instead of recalculating the complete ERP after every typed character.
+Job, PR, barcode, design, customer, Bill, Hallmark batch and production lot text is normalized once after load or a relevant data change.
+Current production stages, Bill relationships and Hallmark locations are prepared in linear time without repeated whole-dataset scans.
+Exact Job, PR and barcode searches use direct lookup, while general search keeps only the best 16 permitted results.
+The index rebuilds in browser idle time after local saves or cloud refreshes and is filtered by the current user's existing page permissions.
+Universal Search waits 250 ms and two characters before searching, preventing stale searches from blocking continued typing.
+No ERP records, permissions, weights, stock or Supabase data are changed by this upgrade.
+Keep using SUPABASE-INCREMENTAL-SYNC-v666.sql; no additional SQL is required for v667.
+
+KHUSHALI JEWELLS MANUFACTURING
 App version: v666
 Updated: 2026-09-30 IST
 Normal multi-device synchronization now sends only changed records instead of uploading and downloading the complete ERP for every action.
@@ -2344,5 +2717,70 @@ Transfer ledger weights and references are refreshed for each affected movement,
 LOT-203 receives the correction automatically after live cloud data loads.
 Repeated refreshes are idempotent and cannot apply the stone correction twice.
 No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v694
+Updated: 2026-10-07 IST
+Office now includes a full-screen Return PR Items To Factory workspace.
+PR items from different Bills can be collected into one new Repair, Melting, Size, Polish, or Other return lot.
+Every original PR number remains unchanged while Factory In, Production Shelf, party balance, non-gold and source Bill links are saved together.
+The transaction is atomic and restores all data plus the LOT counter if any selected item fails validation or local saving.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v695
+Updated: 2026-10-07 IST
+Split and child-lot adjustment rows remain visible in history but always carry zero physical department balance.
+Completed lots waiting for billing now retain final received GW instead of falling back to net weight.
+Manual no-Job-Card Setting receipts transferred onward consume their original source holding exactly once, including older rows without an allocation marker.
+Existing Job Cards, Bills, Designs, stone and moti libraries, stock entries, and cloud data are preserved.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v696
+Updated: 2026-10-07 IST
+Manual combined Bills now use physical weight already held in Billing and no longer create a duplicate Gold Issue.
+PR items present in saved or retained Reference Bills move to Completed Job Orders, while QC-failed, repair and discarded items keep their operational status.
+Dashboard department cards now show the live auditable GW difference from Transfer History: IN minus OUT.
+Existing Job Cards, Bills, Designs, libraries, inventory and cloud data are preserved.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v698
+Build date: 08 October 2026
+
+FITTING NON-GOLD SHELF CONSUMPTION
+- During a transfer from Fitting, Stone can be added directly to the lot.
+- Black Beads, Moti, Spring and Other are consumed from the matching karat Loose Non-Gold Shelf.
+- The consumed weight is reclassified into the lot, so total factory non-gold does not increase or decrease.
+- Transfer edit restores the previous shelf allocation before applying the corrected weights.
+- Transfer delete restores the consumed loose shelf stock.
+- Factory Out recognizes the Fitting allocation and removes it only once.
+- Existing v697 Fitting entries are migrated when matching shelf stock is available.
+
+Previous app version: v697
+Updated: 2026-10-08 IST
+Transfers from Fitting now include a categorized non-gold entry for Stone, Black Beads, Moti, Spring and Other.
+Selected non-gold is embedded in the lot and registered once in the Central Non-Gold Shelf while all department movements remain GW-to-GW.
+Transfer editing updates the linked shelf quantities; deleting the transfer reverses its linked non-gold records.
+Transfer History shows the saved material-wise breakup instead of grouping every fitting addition as Other.
+Existing Job Cards, Bills, Designs, libraries, inventory and cloud data are preserved.
+No Supabase SQL change is required.
+
+KHUSHALI JEWELLS MANUFACTURING
+App version: v700
+Build date: 08 October 2026
+
+JOB-1694 SPLIT REPAIR
+- JOB-1694 retains 103 pending PR items.
+- JOB-1694-S1 contains the seven LOT-331 PR items in Filing.
+- LOT-331 GW, wax stone, net weight, department and history remain unchanged.
+
+HUMAN-SAFE GOLD ISSUE CORRECTION
+- Correct Issue distinguishes a GW typing correction from returning a wrong issue.
+- Return To Issue Gold restores Safe stock, returns PR items to Gold Pending and opens the same Job Card in Issue Gold.
+- Later dependent activity must be returned in reverse order and the ERP explains the required next step.
+- Every correction remains in audit history and receives an immediate cloud-save attempt.
+- Existing ERP data is preserved and no Supabase SQL change is required.
 
 

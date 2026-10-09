@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v686 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v686-LIVE to the existing GitHub repository.
+2. Upload app-version.json last.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v686.
+5. Verify one small WIP/Shelf issue where the Job Card has Wax Stone.
+6. Confirm Source GW falls by full Issue GW and Loose Stone falls by Job Card Wax Stone.
+7. Confirm Production shows the same GW split into Wax Stone and Net Gold.
+8. Confirm Fine Sheet remains stable for this internal reclassification.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v686.

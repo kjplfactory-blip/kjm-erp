@@ -1,0 +1,27 @@
+KHUSHALI JEWELLS MANUFACTURING
+ERP AUDIT v674 - BILL FITTING ACCESSORY
+
+CHANGE
+- Added Add Fitting Accessory to each editable Job Card item in Make Bill.
+- Reused the existing full-screen Fitting Accessory workflow from Job Order.
+- Preserved the current Bill draft, item search, vertical scroll and horizontal scroll while the accessory screen is open.
+- Refreshed only the affected Bill item after save.
+
+CALCULATION
+- Fitting quantity continues to multiply the fitting design stone rows using the existing Job Card formula.
+- The updated production stone total is loaded into Bill using the existing 96 percent Bill stone calculation.
+- Bill Net Weight is recalculated using the existing Bill formula.
+
+PERMISSION
+- A pending Bill follows the normal Bill creation permission.
+- A generated Bill can be changed only by Owner or Manager.
+- Manual WIP rows cannot use the option because they have no linked Job Card item.
+
+DATA SAFETY
+- Existing orders, Bills, inventory, transfers, users and Supabase data are preserved.
+- No Supabase SQL or reset is required.
+
+VERIFICATION
+- JavaScript syntax check passed.
+- Dedicated Bill fitting-accessory regression test passed.
+- Existing fitting-accessory quantity regression test passed.

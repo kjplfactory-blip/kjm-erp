@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS ERP v687 DEPLOYMENT
+
+1. Upload all files from KHUSHALI-JEWELLS-ERP-v687-LIVE to the existing GitHub repository.
+2. Upload app-version.json last.
+3. Do not reset Supabase and do not run a SQL file.
+4. Confirm the live page shows App v687 and Saved & Synced.
+5. Open Fine Sheet and confirm the opening loose non-gold adjustment is listed separately.
+6. Verify one small WIP/Shelf issue on two laptops: full GW must leave the source once and the same GW must enter Production once.
+7. Confirm Job Cards, Bills, designs, libraries and party balances remain available.
+
+NO NEW SUPABASE SQL IS REQUIRED FOR v687.

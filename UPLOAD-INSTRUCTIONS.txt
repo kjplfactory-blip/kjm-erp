@@ -1,12 +1,363 @@
-VERSION v666 - PERFORMANCE AND INCREMENTAL SYNC
-1. Keep the v665 pre-optimization backup folder on this laptop.
-2. In Supabase Dashboard > SQL Editor, run SUPABASE-INCREMENTAL-SYNC-v666.sql once.
-3. Confirm the final result shows khushali-jewells-main with revision 1 or higher.
-4. Upload every file and folder from the v666 LIVE folder to the existing GitHub repository.
-5. Upload app-version.json last so all devices refresh only after every application file is present.
-6. Open the ERP on each laptop and confirm App v666 and Incremental record sync: Enabled in Sync Health.
-7. Older devices remain detectable, but update all working laptops promptly for the full speed improvement.
-8. Do not upload the v665 backup folder or ZIP to GitHub.
+VERSION v702 - COMPLETED JOB CARD BILL DETAILS + SPLIT PRIORITY
+
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v702-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops refresh only after all v702 files are available.
+4. After login, confirm App v702 and Saved & Synced.
+5. Open Job Orders > Completed Job Order and confirm Bill No, Final GW, Non-Gold details and Net Weight are shown.
+6. Search the completed list using a Bill number to confirm the related Job Card opens in the results.
+7. Split a Job Card and choose Urgent or Normal when the priority window appears.
+8. No new Supabase SQL is required. Do not upload ZIP files, rollback folders or data backups to GitHub.
+
+PREVIOUS VERSION v701 - JOB CARD FAMILY CONTROL
+
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v701-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops refresh only after all v701 files are available.
+4. After login, confirm App v701 and Saved & Synced.
+5. Open a split Job Card and confirm Main plus all child cards appear in Job Card Family Control.
+6. Use Transfer Exact Lot for the required child lot. Do not merge cards held in different departments.
+7. If Family Check Required appears, inspect the listed lot history before any further split or merge.
+8. No new Supabase SQL is required. Do not upload ZIP files, rollback folders, or data backups to GitHub.
+
+PREVIOUS VERSION v700 - JOB SPLIT AND GOLD ISSUE CORRECTION
+- JOB-1694 split ownership was restored and Return To Issue Gold was added.
+
+PREVIOUS VERSION v699 - CLEAN CENTRAL NON-GOLD AND GW FLOW
+
+1. Keep the existing Supabase data. No new SQL is required for v699.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v699-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops refresh only after all v699 files are available.
+4. After login, confirm the page shows App v699 and Saved & Synced.
+5. Every normal department transfer remains in GW. Setting keeps Receive GW minus Hand Stone for its metal balance.
+6. Before adding Black Beads, Moti, Spring or Other in Fitting, issue that material from Non-Gold Shelf to Fitting.
+7. Stone may still be entered directly in Fitting. Factory Out removes linked non-gold once.
+8. Setting transfer history shows Setting -> Production Holding Shelf -> Next Department with zero balance at the holding shelf.
+
+PREVIOUS VERSION v698 - FITTING NON-GOLD CONSUMED FROM SHELF
+
+1. Keep the existing Supabase data. No new SQL is required for v698.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v698-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops refresh only after all v698 files are available.
+4. After login, confirm the page shows App v698 and Saved & Synced.
+5. Open a lot currently in Fitting and press Transfer.
+6. Stone may be entered directly. Black Beads, Moti, Spring and Other must be available in the matching Loose Non-Gold Shelf and are consumed from there.
+7. Confirm that the central factory non-gold total stays unchanged for shelf-consumed material while the material becomes linked to the lot.
+
+PREVIOUS VERSION v697 - FITTING NON-GOLD DURING TRANSFER
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v697-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops refresh only after all v697 files are available.
+4. After login, confirm the page shows App v697 and Saved & Synced.
+5. Open a lot currently in Fitting, press Transfer, and confirm the categorized Non-Gold Added In Fitting panel is visible.
+6. Enter Moti, Black Beads, Stone, Spring and/or Other only when that material was physically embedded in the lot; Receive GW must include it.
+7. Confirm Central Non-Gold Shelf and Transfer History show the same material-wise weights.
+8. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v696
+VERSION v696 - MANUAL BILLING AND LIVE DEPARTMENT GW
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v696-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v696 and Saved & Synced.
+5. Confirm a manual Bill uses the weight already present in Billing and does not create a second combined Gold Issue.
+6. Confirm PR items already included in current or Reference Bills appear under Completed Job Orders.
+7. Confirm each Dashboard department tile shows the live Transfer History GW difference: IN minus OUT.
+8. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v695
+VERSION v695 - FINE STOCK INTEGRITY AND MOVEMENT REPAIR
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v695-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v695 and Saved & Synced.
+5. Open Fine Sheet and confirm split child lots do not add a second department balance.
+6. Confirm Completed / Bill Pending uses final received GW, while stone remains in the central non-gold register.
+7. Confirm a received manual Setting item transferred onward is removed from its original source holding exactly once.
+8. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v694
+VERSION v694 - OFFICE MULTI-PR RETURN LOT
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v694-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v694 and Saved & Synced.
+5. Open Office > Return PR Items To Factory.
+6. Search and add PR items from one or more Bills, verify their weights, choose Repair or Melting, and create one new lot.
+7. Confirm every selected PR number remains unchanged and the new LOT number appears in Recent Return Lots.
+8. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v693
+VERSION v693 - FINE GOLD AND DEPARTMENT HOLDING REPAIR
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v693-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v693 and Saved & Synced.
+5. Open Dashboard and confirm each department tile shows only Current GW Holding.
+6. Hover a department to confirm detailed karat, non-gold, fine and transfer data remains available.
+7. Open Transfer History > Department Transfer History and confirm the department tiles are light blue.
+8. Open Fine Sheet > Change Audit and confirm central non-gold changes have an exact explanation.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v692
+VERSION v692 - LEGACY BILLING DEPARTMENT RECONCILIATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v692-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v692 and Saved & Synced.
+5. Open Transfer History > Department Transfer History > Billing.
+6. Confirm BILL-0050 appears under IN as Combined Manual Bill and under OUT as Bill To Factory Out, both at 53.144 g.
+7. Confirm both entries use BILLING / FINAL BILL and therefore cancel without leaving a false Bill 50 holding.
+8. Confirm standard Factory Out Bills remain visible under Billing OUT.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v691
+VERSION v691 - BILLING RECEIVE TO FACTORY OUT RECONCILIATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v691-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v691 and Saved & Synced.
+5. Open Transfer History > Department Transfer History > Billing.
+6. Confirm each posted Factory Out Bill appears under OUT From Department as Bill To Factory Out.
+7. Confirm Billing Balance GW equals IN Receive GW minus all Bill Factory Out GW entries.
+8. Open Online Transfer History and one posted Bill Lot History to confirm the same read-only movement is visible.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v690
+VERSION v690 - REJECTED VENDOR ITEM AND CASTING / ROD CATEGORY SPLIT
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v690-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v690 and Saved & Synced.
+5. In Factory In, select Rejected Item With Non-Gold and verify Stone, Black Beads, Moti, Spring, Other, Total Non-Gold and Net Gold fields.
+6. Save one test only when ready: verify full GW enters the Safe Locker while Factory Fine uses Net Gold.
+7. Confirm Casting Item and Rod appear as separate categories in Factory In/Out, Safe Locker and department receipt.
+8. Existing Casting Item and Rod weights must remain unchanged after the automatic category classification.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v689
+VERSION v689 - GW-ONLY DEPARTMENT STONE RECONCILIATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v689-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v689 and Saved & Synced.
+5. Confirm ordinary department transfers contain GW Issue and GW Receive only; no separate stone transfer is required.
+6. Open Safe Locker > Central Non-Gold Shelf and confirm active WIP stone is shown as a Job/PR reference, not as unmatched.
+7. Factory Out Pending must show only an incomplete Bill / Factory Out shelf deduction.
+8. Fine Sheet must retain one Central Non-Gold Shelf Adjustment by karat.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v688
+VERSION v688 - CENTRAL NON-GOLD SHELF AND GW PRODUCTION FLOW
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v688-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v688 and Saved & Synced.
+5. Confirm Dashboard shows Factory Net Fine close to 4199.394 g and Non-Gold In Factory close to 310.176 g for the current synced data.
+6. Open Fine Sheet and verify Central Non-Gold Shelf Adjustment is deducted once by karat.
+7. Test one ordinary department transfer: balance must be Issue GW minus Receive GW.
+8. Test one Setting return: Receive Net must be Receive GW minus Hand Stone; Setter Metal Balance must use Receive Net.
+9. No new Supabase SQL is required. Do not upload ZIP files, data backups or rollback folders to GitHub.
+
+PREVIOUS v687
+VERSION v687 - FACTORY LEDGER AND NON-GOLD FINE REPAIR
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v687-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v687 and Saved & Synced.
+5. Open Fine Sheet and verify the Opening Loose Non-Gold Still Included In Product GW line is visible.
+6. Issue one small WIP/Shelf lot and confirm Source GW reduces by full Issue GW while Production receives the same GW.
+7. Refresh a second laptop and confirm the same source balance remains; the cloud movement replay prevents stale duplicate GW.
+8. No new Supabase SQL is required.
+9. Do not upload the ZIP, data backups or rollback folders to GitHub.
+
+PREVIOUS v686
+VERSION v686 - LEGACY WIP / SHELF WAX COMPOSITION CORRECTION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v686-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops finish their current save and refresh safely.
+4. After login, confirm the page shows App v686.
+5. Issue Gold from one WIP/Shelf entry and verify: Source GW reduces by full Issue GW, Production gets the same GW, Net Gold is GW minus Wax Stone, and matching Loose Stone reduces once.
+6. Existing active legacy issues are corrected only when their old net-only issue signature is exact and enough matching Loose Stone is available.
+7. Use Edit Issue or Delete Issue to verify both Gold source and Loose Stone reverse together.
+8. No new Supabase SQL is required.
+9. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS v685
+VERSION v685 - UNIFIED NON-GOLD SHELF AND EMBEDDED ITEM FLOW
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v685-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops save current work, refresh and sign out once.
+4. After login, confirm the page shows App v685.
+5. In Casting Receive and Setting, choose whether Stone came from Loose Non-Gold Shelf or Direct Process / Other Source.
+6. Open Safe Locker > Non-Gold Shelf to verify Loose, Embedded, Department, WIP and Bill balances separately.
+7. At Factory Out, confirm Already Embedded plus Loose Shelf At Factory Out equals the Bill's Total Non-Gold.
+8. Open Fine Sheet and confirm non-gold is deducted once within each physical holding; the old second global deduction row is removed.
+9. Existing posted Bills remain unchanged. New or unreconciled Factory Out entries use the unified source ledger.
+10. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required.
+11. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS v684
+VERSION v684 - BILL FACTORY OUT STOCK AND FINE RECONCILIATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v684-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops save current work, refresh and sign out once.
+4. After login, confirm the page shows App v684.
+5. Open Safe Locker > Non-Gold Shelf. Bill 0050 should leave 250.036 g loose Stone and 27.289 g loose Moti.
+6. Open Factory In / Out. Bill 0050 should show Net 41.289 g, WSTG 1.75%, WSTG Fine 0.723 g and total Fine 31.792 g.
+7. KJPL Office party receivable should include the Bill base fine plus WSTG fine; Net Factory Fine increases only by the WSTG fine.
+8. Existing posted operational Bills reconcile automatically. Reference-only Bills are unchanged.
+9. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required.
+10. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS v683
+VERSION v683 - TOTAL GW LESS ERP NON-GOLD FINE CALCULATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v683-LIVE to the existing GitHub repository.
+3. Upload app-version.json last so active laptops save current work, refresh and sign out once.
+4. After login, confirm the page shows App v683.
+5. Open Fine Sheet and confirm Total GW 5555.570 g, ERP Non-Gold 317.780 g and Net Factory Fine approximately 4198.897 g before any later stock movement.
+6. Existing stock and non-gold shelf entries are retained; do not enter them again.
+7. v683 records the confirmed 0.140 g Stone and 0.210 g Black Beads Opening Stock move from 14K to 18K once; original audit rows remain available.
+8. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required.
+9. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS v682
+VERSION v682 - OPENING NON-GOLD INSIDE DEPARTMENT GW
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. Existing saved opening non-gold entries are upgraded automatically; do not enter them again.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v682-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops save current work, refresh and sign out once.
+5. After login, confirm the page shows App v682.
+6. Open Production > Non-Gold Control and verify that opening non-gold does not increase department GW; it reduces Net and Fine Gold.
+7. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required.
+8. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS v681
+VERSION v681 - ZERO DEPARTMENT HOLDINGS DURING MANUAL RESET
+1. Manual Reset C1/C2 now clears every department holding, including Billing, to 0.000 g.
+2. GW difference, net difference, non-gold holding, fine holding, production movement and correction balances are removed from active operations.
+3. F1 Bills remain available as read-only reference records and no longer feed Dashboard, transfer history, Fine Sheet, reports or stock calculations.
+4. If A2 Keep Non-Gold is selected with C1/C2, retained non-gold is consolidated into the Safe Shelf and removed from department holdings.
+5. C3 continues to keep live production and current department holdings only when deliberately selected.
+6. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v681.
+7. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v681-LIVE to the existing GitHub repository.
+
+PREVIOUS v680
+VERSION v680 - REFERENCE-ONLY BILL ARCHIVE DURING MANUAL RESET
+1. Keep the existing Supabase data. Do not reset or replace erp_state during deployment.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v680.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v680-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in as Owner, open Manual Reset and select F1 to keep all Bills as a read-only reference archive.
+6. Select D1 when party opening balances will be entered manually after reset.
+7. Reference Bills remain viewable, printable and exportable but do not affect current stock, non-gold, Office, Factory Out or party balances.
+8. Review every other reset choice carefully and keep the automatic downloaded backup before confirming.
+9. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS INSTRUCTIONS
+VERSION v679 - MULTIPLE BILL FACTORY OUT
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v679.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v679-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in again and confirm the page shows App v679.
+6. Open Factory In / Out > Factory Out. Select bills in Clear Multiple Bills, review combined weights, then use Factory Out Selected Bills.
+7. Every selected bill remains a separate Factory Ledger entry and disappears from the pending list after the local save succeeds.
+8. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS INSTRUCTIONS
+VERSION v676 - VISIBLE BILL ITEM REMOVAL
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v676.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v676-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in again and confirm the page shows App v676.
+6. Open Bill > Make Bill. Every item row now has a red Remove Item button in the right-side Action column.
+7. For a generated Bill, use Owner or Manager. Pending Bills follow the normal Bill permissions.
+8. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS V675 INSTRUCTIONS
+VERSION v675 - BILL ITEM REMOVAL + AUTOMATIC LOT INCLUSION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v675.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v675-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in again on every laptop, entering the selected login, password and the actual Person Name.
+6. Open a Bill containing at least two items. Use Remove Item and verify both Keep In Job Card and Owner / Manager Delete From Job Card choices.
+7. Add an item to a Job Card already issued to Bill. Reopen its Billing lot and confirm the new PR appears automatically with blank Final GW.
+8. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS V674 INSTRUCTIONS
+VERSION v674 - BILL FITTING ACCESSORY
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v674.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v674-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in again on every laptop, entering the selected login, password and the actual Person Name.
+6. Open Bill > Make Bill, select a Job Card Bill item and use Add Fitting Accessory. Confirm the Bill returns to the same item and recalculates its stone and net weight.
+7. Manual WIP rows do not have this option because they are not linked to a Job Card item.
+8. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS V673 INSTRUCTIONS
+VERSION v673 - ISSUE GOLD PERFORMANCE REPAIR
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v673.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v673-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so active laptops first save their current work, refresh and sign out once.
+5. Log in again on every laptop, entering the selected login, password and the actual Person Name.
+6. Open a Job Item > Production Stone Entry and confirm Stone Edit History records the editor after saving.
+7. Do not upload the ZIP or rollback folders to GitHub.
+
+PREVIOUS V671 INSTRUCTIONS
+VERSION v671 - SINGLE SETTER ISSUE / RECEIVE OPERATION
+1. Keep the existing Supabase data. Do not reset or replace erp_state.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v671.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v671-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so all laptops refresh only after every v671 file is present.
+5. Open the ERP on each laptop and confirm App v671.
+
+PREVIOUS V670 INSTRUCTIONS
+1. Keep KHUSHALI-JEWELLS-ERP-v669-PRE-RED-CUSTOMER-TAG as the rollback copy on this laptop.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current; no new SQL is required for v670.
+3. Upload every file and folder from KHUSHALI-JEWELLS-ERP-v670-LIVE to the existing GitHub repository.
+4. Upload app-version.json last so all laptops refresh only after every v670 file is present.
+5. Open the ERP on each laptop and confirm App v670.
+6. Print one stock tag and one customer-order tag. Each selected item must print twice; customer tags must be red and stock tags white.
+7. As Manager, open Fine Sheet and use Close Day & Download Backup. Confirm a KJM-ERP-DAY-CLOSE JSON file downloads.
+8. Open Production > Setting > Setter Issue & Receive. Confirm Issue and Receive are together, Receive Net = Receive GW - Hand Stone, and only Owner can edit Hand Stone for a Job Card lot.
+9. Open a Job Bag, Transfer Bag and individual Lot History. Confirm Lot No and Job Card No are visible.
+10. Do not upload backup folders or ZIP files to GitHub.
+
+VERSION v669 - CUSTOMER ORDER TAG COLOUR
+1. Keep the v668 pre-customer-tag-colour backup folder on this laptop.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains the current database migration; no new SQL is required for v669.
+3. Upload every file and folder from the v669 LIVE folder to the existing GitHub repository.
+4. Upload app-version.json last so all devices refresh only after every application file is present.
+5. Open the ERP on each laptop and confirm App v669.
+6. Print one KJPL-STOCK tag and one customer-order tag in A4 or A6; customer tags must be light pink and stock tags white.
+7. Confirm barcodes remain clear and scan correctly.
+8. Do not upload backup folders or ZIP files to GitHub.
+
+VERSION v668 - SAVED BILL VISIBILITY REPAIR
+1. Keep the v667 pre-bill-visibility backup folder on this laptop.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains the current database migration; no new SQL is required for v668.
+3. Upload every file and folder from the v668 LIVE folder to the existing GitHub repository.
+4. Upload app-version.json last so all devices refresh only after every application file is present.
+5. Open the ERP on each laptop and confirm App v668.
+6. Open Bill, search BILL-0018 or JOB-1741, and confirm the saved Bill is visible with its 20 items.
+7. Confirm Incremental record sync: Enabled in Sync Health.
+8. Do not upload backup folders or ZIP files to GitHub.
+
+VERSION v667 - INDEXED UNIVERSAL SEARCH
+1. Keep the v666 pre-search optimization backup folder on this laptop.
+2. SUPABASE-INCREMENTAL-SYNC-v666.sql remains the current database migration; no new SQL is required for v667.
+3. Upload every file and folder from the v667 LIVE folder to the existing GitHub repository.
+4. Upload app-version.json last so all devices refresh only after every application file is present.
+5. Open the ERP on each laptop and confirm App v667.
+6. Confirm Universal Search returns Job, PR, design, customer, Bill, HM batch and lot results quickly.
+7. Confirm Incremental record sync: Enabled in Sync Health.
+8. Do not upload backup folders or ZIP files to GitHub.
 
 VERSION v665
 - Manual Reset Selection now has a cleaner four-step full-screen decision layout.

@@ -1,0 +1,19 @@
+ERP AUDIT v698 - FITTING NON-GOLD SHELF CONSUMPTION
+
+REQUIREMENT
+- Non-gold embedded during Fitting must not create duplicate stock.
+- Black Beads, Moti, Spring and Other must come from the matching karat Loose Non-Gold Shelf.
+- Stone is the direct production exception.
+
+ACCOUNTING RESULT
+- Non-stone loose shelf decreases by the entered weight.
+- The same weight is assigned to the production lot.
+- Total factory non-gold remains unchanged while the item stays inside the factory.
+- Factory Out removes the lot-linked amount once.
+- Transfer edit reverses the old allocation before applying the replacement.
+- Transfer delete restores the consumed loose shelf stock.
+
+DATA SAFETY
+- v697 entries are migrated only when matching shelf stock is available.
+- A shortage blocks a new transfer without saving partial changes.
+- No Supabase schema change is required.

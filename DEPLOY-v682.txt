@@ -1,0 +1,14 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v682
+
+DEPLOYMENT
+1. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v682-LIVE to the existing GitHub repository.
+2. Replace the existing files, including index.html, app.js, app-version.json, VERSION.txt and UPLOAD-INSTRUCTIONS.txt.
+3. Upload app-version.json last.
+4. Keep the existing Supabase data. Do not run a reset and do not re-enter opening non-gold stock.
+5. No new Supabase SQL is required. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current.
+
+EXPECTED RESULT
+- Department opening GW remains the physical GW originally entered.
+- Opening Stone, Black Beads, Moti, Spring and Other are classified inside that GW.
+- Net Gold equals GW minus non-gold, and Fine Gold is calculated from the corrected Net Gold.
+- Existing saved opening non-gold entries recalculate automatically.

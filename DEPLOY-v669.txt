@@ -1,0 +1,11 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v669
+
+1. Upload all files and folders from KHUSHALI-JEWELLS-ERP-v669-LIVE to the existing GitHub repository.
+2. Upload app-version.json last.
+3. Wait for GitHub Pages deployment to finish.
+4. Open the ERP on each device and confirm App v669.
+5. Print a customer-order tag and confirm it is light pink.
+6. Print a KJPL-STOCK tag and confirm it remains white.
+7. Keep SUPABASE-INCREMENTAL-SYNC-v666.sql; no new SQL is required.
+
+Important: do not upload the backup folder or ZIP file to GitHub.

@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS MANUFACTURING - DEPLOY v672
+
+1. Keep the current Supabase project and ERP data unchanged.
+2. Replace the live application files with every file and folder inside KHUSHALI-JEWELLS-ERP-v672-LIVE.
+3. Do not run a reset SQL file. No new SQL is required.
+4. Upload app-version.json last.
+5. Active laptops save current browser work before the automatic version refresh.
+6. All existing sessions sign out once. Log in again with Login, Password and the actual Person Name.
+7. Save one Production Stone edit and confirm the person name appears on the item badge and in Stone Edit History.
+
+ROLLBACK
+Use KHUSHALI-JEWELLS-ERP-v671-LIVE if rollback is required.

@@ -1,0 +1,21 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v702 AUDIT
+
+IMPLEMENTED
+- Completed Job Cards show Bill No, Final GW, Stone, Black Beads, Moti, Spring, Other, Total Non-Gold and Net Weight.
+- Latest Bill item matching is by Job Item ID, with PR number fallback for older records.
+- An old Bill and a later repair or rebill are not added together.
+- Partial historical Bill coverage is identified in the completed-card row.
+- Completed Job Card search includes Bill numbers.
+- Job Card split requires an Urgent or Normal priority choice.
+- Cancelling the priority choice makes no changes.
+
+VERIFICATION
+- JavaScript syntax check passed.
+- App v702 loaded in the local browser with live ERP data.
+- 73 completed Job Cards rendered Bill summary panels.
+- BILL-0002 search returned JOB-1688 with Final GW 4.466 g, Total Non-Gold 0.465 g and Net Weight 4.001 g.
+- Three older completed cards were correctly marked as partial or missing historical Bill lines.
+- Existing cloud ERP data was not reset or changed by this release work.
+
+DATABASE
+- No Supabase SQL change is required.

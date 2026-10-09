@@ -1,0 +1,18 @@
+KHUSHALI JEWELLS MANUFACTURING ERP v683
+
+DEPLOYMENT
+1. Upload the complete contents of KHUSHALI-JEWELLS-ERP-v683-LIVE to the existing GitHub repository.
+2. Replace the existing files and upload app-version.json last.
+3. Keep the existing Supabase data. Do not reset stock and do not re-enter non-gold.
+4. No new Supabase SQL is required. SUPABASE-INCREMENTAL-SYNC-v666.sql remains current.
+
+ONE-TIME CONFIRMED OPENING STOCK CORRECTION
+- Reclassifies Opening Stock Stone 0.140 g and Black Beads 0.210 g from 14K to 18K.
+- Original stock-in audit rows remain visible; two CORRECTED reclassification rows are added.
+- The migration is ID-based and marked complete, so it cannot run twice and does not affect future genuine 14K stock.
+
+CONTROL RESULT
+- Total GW stays 5555.570 g.
+- ERP Non-Gold is 317.780 g.
+- 18K fine deduction is 317.780 x 75.25% = 239.129 g.
+- 4438.026 g less 239.129 g gives 4198.897 g.
