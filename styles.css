@@ -21926,3 +21926,127 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     flex-wrap: wrap;
   }
 }
+
+/* v702 completed Job Card billing summary and split priority */
+.completed-job-bill-summary {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.35fr) repeat(auto-fit, minmax(92px, 1fr));
+  gap: 6px;
+  width: 100%;
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid #9bc7e5;
+  border-radius: 7px;
+  background: #eef8ff;
+  color: #103b5b;
+}
+
+.completed-job-bill-summary > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #d5e9f7;
+}
+
+.completed-job-bill-summary b {
+  color: #55788f;
+  font-size: 0.68rem;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.completed-job-bill-summary strong {
+  overflow-wrap: anywhere;
+  color: #0b4268;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.completed-job-bill-summary .completed-job-total,
+.completed-job-bill-summary .completed-job-net {
+  background: #dff2ff;
+  box-shadow: inset 0 0 0 1px #8fc9ee;
+}
+
+.completed-job-bill-summary .completed-job-net strong {
+  color: #005a96;
+}
+
+.completed-job-bill-summary > small {
+  grid-column: 1 / -1;
+  color: #55788f;
+  font-size: 0.68rem;
+}
+
+.completed-job-bill-summary.partial {
+  border-color: #e1b865;
+  background: #fff8e8;
+}
+
+.completed-job-bill-summary.partial > small {
+  color: #8a5a00;
+  font-weight: 700;
+}
+
+.split-urgency-card {
+  width: min(620px, calc(100vw - 28px));
+  max-width: 620px;
+}
+
+.split-urgency-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+
+.split-priority-button {
+  display: flex;
+  min-height: 92px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 16px;
+  border: 2px solid transparent;
+  text-align: left;
+}
+
+.split-priority-button strong {
+  font-size: 1rem;
+}
+
+.split-priority-button small {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.split-priority-button.urgent {
+  border-color: #d9485f;
+  background: #fff0f3;
+  color: #a21831;
+}
+
+.split-priority-button.normal {
+  border-color: #4d9bc9;
+  background: #eaf7ff;
+  color: #0b527c;
+}
+
+@media (max-width: 640px) {
+  .completed-job-bill-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .completed-job-bill-summary .completed-job-bill-number {
+    grid-column: 1 / -1;
+  }
+
+  .split-urgency-options {
+    grid-template-columns: 1fr;
+  }
+}

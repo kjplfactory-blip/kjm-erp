@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=701">
+    <link rel="stylesheet" href="styles.css?v=702">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v701</small>
+          <small class="app-version-badge">App v702</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v701</span>
+          <span class="app-version-badge">App v702</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2714,6 +2714,30 @@
       </div>
     </dialog>
 
+    <dialog id="split-urgency-dialog" oncancel="event.preventDefault(); resolveSplitUrgencyChoice('')">
+      <div class="dialog-card split-urgency-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Split Job Card Priority</h2>
+            <p id="split-urgency-summary" class="dialog-note"></p>
+          </div>
+        </div>
+        <div class="split-urgency-options">
+          <button class="split-priority-button urgent" type="button" onclick="resolveSplitUrgencyChoice('urgent')">
+            <strong>Urgent</strong>
+            <small>Mark every selected item as urgent.</small>
+          </button>
+          <button class="split-priority-button normal" type="button" onclick="resolveSplitUrgencyChoice('normal')">
+            <strong>Normal</strong>
+            <small>Keep normal delivery priority.</small>
+          </button>
+        </div>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" onclick="resolveSplitUrgencyChoice('')">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="fitting-items-split-dialog">
       <form id="fitting-items-split-form" class="dialog-card fitting-items-split-card">
         <div class="dialog-header">
@@ -4033,7 +4057,7 @@
   <script src="central-non-gold-shelf-v688.js?v=697"></script>
   <script src="central-non-gold-flow-v699.js?v=699"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
-    <script src="app.js?v=701"></script>
+    <script src="app.js?v=702"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>

@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v701";
+const APP_VERSION = "v702";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -449,6 +449,7 @@ let designThumbnailObserver = null;
 let activeRenderCache = null;
 let billDesignHoverRequest = 0;
 let lastUserInteractionAt = 0;
+let splitUrgencyResolver = null;
 
 const users = {
   owner: { name: "Owner", password: OWNER_CURRENT_PASSWORD, role: "owner", pages: "all" },
@@ -20389,6 +20390,28 @@ function splitFittingItemsJobCard(event) {
   alert(`${splitJobNumber} CREATED.\nPRODUCTION NO: ${splitProductionNo}\nLOT: ${splitLotNumber}\nGW: ${gram(splitGw)}\nWAX STONE: ${gram(splitWax)}\nNET GOLD: ${gram(splitLot.issuedWeight)}`);
 }
 
+function resolveSplitUrgencyChoice(value = "") {
+  const normalized = value === "urgent" || value === "normal" ? value : "";
+  const resolver = splitUrgencyResolver;
+  splitUrgencyResolver = null;
+  document.getElementById("split-urgency-dialog")?.close();
+  if (resolver) resolver(normalized);
+}
+
+function requestSplitUrgencyChoice(splitJobNumber = "", itemCount = 0) {
+  const dialog = document.getElementById("split-urgency-dialog");
+  if (!dialog) return Promise.resolve("normal");
+  if (splitUrgencyResolver) resolveSplitUrgencyChoice("");
+  const summary = document.getElementById("split-urgency-summary");
+  if (summary) {
+    summary.textContent = `${splitJobNumber} will contain ${itemCount} selected item${itemCount === 1 ? "" : "s"}. Choose its delivery priority.`;
+  }
+  return new Promise((resolve) => {
+    splitUrgencyResolver = resolve;
+    if (!dialog.open) dialog.showModal();
+  });
+}
+
 async function splitSelectedJobItems() {
   if (isSettingManagerUser()) {
     alert("Setting Manager cannot split a Job Card from the stone-details view.");
@@ -20450,8 +20473,11 @@ async function splitSelectedJobItems() {
   const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
   const splitJobNumber = nextSplitJobNumber(originalJobNumber);
   const familyRootJobNumber = jobCardFamilyRootNumber(currentOrder) || splitJobRootNumber(originalJobNumber);
+  const splitPriority = await requestSplitUrgencyChoice(splitJobNumber, selectedOrders.length);
+  if (!splitPriority) return;
+  const splitPriorityLabel = splitPriority === "urgent" ? "Urgent" : "Normal";
   const productionSplitText = mixedLiveLot ? `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.` : "";
-  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nCustomer, design, dates, purity, size, stone data and production numbers will remain same. Selected items will be marked Urgent.`)) return;
+  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nPriority: ${splitPriorityLabel}.\nCustomer, design, dates, purity, size, stone data and production numbers will remain same.`)) return;
   const rollback = {
     orders: structuredClone(state.orders || []),
     lots: structuredClone(state.lots || []),
@@ -20464,7 +20490,7 @@ async function splitSelectedJobItems() {
     order.splitFromJobNumber = originalJobNumber;
     order.jobFamilyRootNumber = familyRootJobNumber;
     order.splitDate = today();
-    order.urgent = true;
+    order.urgent = splitPriority === "urgent";
     order.updatedAt = splitAt;
     order.lastSplitAt = splitAt;
   });
@@ -20509,7 +20535,7 @@ async function splitSelectedJobItems() {
   clearSplitJobGw();
   openJobOrder(splitJobNumber, "active");
   const savedToCloud = await saveJobOrderToCloudNow();
-  alert(`${splitJobNumber} created with ${selectedOrders.length} urgent item(s).\n\n${savedToCloud ? "Saved and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically."}`);
+  alert(`${splitJobNumber} created with ${selectedOrders.length} item(s).\nPriority: ${splitPriorityLabel}.\n\n${savedToCloud ? "Saved and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically."}`);
 }
 
 function openJobItemDetail(orderId) {
@@ -35074,6 +35100,9 @@ function jobOrderFamilyRoot(job = {}) {
 }
 
 function jobOrderSearchText(job = {}) {
+  const completedBillNumbers = isCompletedJob(job)
+    ? completedJobBillSummary(job).billNumbers
+    : [];
   const itemDetails = (job.orders || []).flatMap((order) => [
     order.jobNumber,
     order.number,
@@ -35106,6 +35135,7 @@ function jobOrderSearchText(job = {}) {
     job.status,
     job.dueDate,
     jobDetailsText(job),
+    ...completedBillNumbers,
     ...itemDetails,
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -35622,9 +35652,137 @@ function renderRepairJobOrderCard({ lot, bill, item, order }) {
   `;
 }
 
+function completedJobBillIndex() {
+  return renderCachedValue("completedJobBillIndex:v702", () => {
+    const billsByKey = new Map();
+    (state.bills || []).forEach((bill, index) => {
+      if (!bill || typeof bill !== "object") return;
+      const key = String(bill.id || `state:${bill.lotId || ""}:${bill.billNo || ""}:${index}`);
+      const saved = billsByKey.get(key);
+      if (!saved || billRecordModifiedTime(bill) >= billRecordModifiedTime(saved)) billsByKey.set(key, bill);
+    });
+    (state.lots || []).forEach((lot, index) => {
+      const bill = lot?.bill;
+      if (!bill || typeof bill !== "object") return;
+      const key = String(bill.id || `lot:${lot.id || index}:${bill.billNo || ""}`);
+      const saved = billsByKey.get(key);
+      if (!saved || billRecordModifiedTime(bill) >= billRecordModifiedTime(saved)) billsByKey.set(key, bill);
+    });
+    const byOrderId = new Map();
+    const byProductionNo = new Map();
+    let sequence = 0;
+    billsByKey.forEach((bill) => {
+      const modifiedTime = billRecordModifiedTime(bill);
+      (bill.items || []).forEach((item) => {
+        if (!item || typeof item !== "object") return;
+        const candidate = { bill, item, modifiedTime, sequence: sequence += 1 };
+        const orderId = String(item.orderId || "").trim();
+        const productionNo = String(item.productionNo || "").trim().toLowerCase();
+        if (orderId) {
+          if (!byOrderId.has(orderId)) byOrderId.set(orderId, []);
+          byOrderId.get(orderId).push(candidate);
+        }
+        if (productionNo) {
+          if (!byProductionNo.has(productionNo)) byProductionNo.set(productionNo, []);
+          byProductionNo.get(productionNo).push(candidate);
+        }
+      });
+    });
+    return { byOrderId, byProductionNo };
+  });
+}
+
+function latestCompletedBillCandidate(order = {}, index = completedJobBillIndex()) {
+  const orderCandidates = index.byOrderId.get(String(order.id || "")) || [];
+  const productionCandidates = index.byProductionNo.get(String(order.productionNo || "").trim().toLowerCase()) || [];
+  const candidates = orderCandidates.length ? orderCandidates : productionCandidates;
+  return candidates.reduce((latest, candidate) => {
+    if (!latest) return candidate;
+    if (candidate.modifiedTime !== latest.modifiedTime) return candidate.modifiedTime > latest.modifiedTime ? candidate : latest;
+    return candidate.sequence > latest.sequence ? candidate : latest;
+  }, null);
+}
+
+function completedJobBillSummary(job = {}) {
+  const orders = job.orders || [];
+  const index = completedJobBillIndex();
+  const billNumbers = [];
+  const seenBillNumbers = new Set();
+  const totals = {
+    finalGw: 0,
+    stoneWeight: 0,
+    blackBeadsWeight: 0,
+    motiWeight: 0,
+    springWeight: 0,
+    otherNonGoldWeight: 0,
+    nonGoldWeight: 0,
+    netWeight: 0,
+  };
+  let matchedItems = 0;
+  orders.forEach((order) => {
+    const candidate = latestCompletedBillCandidate(order, index);
+    if (!candidate) return;
+    matchedItems += 1;
+    const { bill, item } = candidate;
+    const billNo = String(bill.billNo || item.billNo || "").trim();
+    if (billNo && !seenBillNumbers.has(billNo.toLowerCase())) {
+      seenBillNumbers.add(billNo.toLowerCase());
+      billNumbers.push(billNo);
+    }
+    const nonGold = billItemNonGoldBreakup(item);
+    const finalGw = billNumber(item.finalGw ?? item.grossWeight ?? item.gw);
+    const savedNonGold = billNumber(item.reducedWeight ?? item.nonGoldWeight ?? nonGold.total);
+    const netWeight = billNumber(item.netWeight ?? Math.max(finalGw - savedNonGold, 0));
+    totals.finalGw += finalGw;
+    totals.stoneWeight += nonGold.stoneWeight;
+    totals.blackBeadsWeight += nonGold.blackBeadsWeight;
+    totals.motiWeight += nonGold.motiWeight;
+    totals.springWeight += nonGold.springWeight;
+    totals.otherNonGoldWeight += nonGold.otherNonGoldWeight;
+    totals.nonGoldWeight += savedNonGold;
+    totals.netWeight += netWeight;
+  });
+  Object.keys(totals).forEach((key) => {
+    totals[key] = Number(weight3(totals[key]));
+  });
+  return {
+    billNumbers,
+    matchedItems,
+    missingItems: Math.max(orders.length - matchedItems, 0),
+    itemCount: orders.length,
+    ...totals,
+  };
+}
+
+function completedJobBillSummaryHtml(summary = {}) {
+  const hasBill = Number(summary.matchedItems || 0) > 0;
+  const weightText = (value) => hasBill ? gram(value) : "-";
+  const billText = summary.billNumbers?.length ? summary.billNumbers.join(", ") : "Not available";
+  const matchText = summary.missingItems
+    ? `${summary.matchedItems || 0} of ${summary.itemCount || 0} item Bills found`
+    : `${summary.itemCount || 0} item${Number(summary.itemCount || 0) === 1 ? "" : "s"} billed`;
+  return `
+    <section class="completed-job-bill-summary ${summary.missingItems ? "partial" : ""}">
+      <span class="completed-job-bill-number"><b>Bill No</b><strong>${escapeHtml(billText)}</strong></span>
+      <span><b>Final GW</b><strong>${weightText(summary.finalGw)}</strong></span>
+      <span><b>Stone</b><strong>${weightText(summary.stoneWeight)}</strong></span>
+      <span><b>Black Beads</b><strong>${weightText(summary.blackBeadsWeight)}</strong></span>
+      <span><b>Moti</b><strong>${weightText(summary.motiWeight)}</strong></span>
+      <span><b>Spring</b><strong>${weightText(summary.springWeight)}</strong></span>
+      <span><b>Other</b><strong>${weightText(summary.otherNonGoldWeight)}</strong></span>
+      <span class="completed-job-total"><b>Total Non-Gold</b><strong>${weightText(summary.nonGoldWeight)}</strong></span>
+      <span class="completed-job-net"><b>Net Weight</b><strong>${weightText(summary.netWeight)}</strong></span>
+      <small>${escapeHtml(matchText)}</small>
+    </section>
+  `;
+}
+
 function orderTableRow(job, options = {}) {
   const urgency = job.urgent ? '<span class="job-badge urgent">Urgent</span>' : "";
   const delivery = isCompletedJob(job) ? "" : deliveryBadgeHtml(job.dueDate);
+  const completedBillSummary = isCompletedJob(job)
+    ? completedJobBillSummaryHtml(completedJobBillSummary(job))
+    : "";
   const familyRole = options.familyRole
     ? `<span class="job-badge job-family-role ${options.familyRole === "Main Job" ? "main" : "split"}">${escapeHtml(options.familyRole)}</span>`
     : "";
@@ -35645,6 +35803,7 @@ function orderTableRow(job, options = {}) {
             ${delivery}
           </div>
         </div>
+        ${completedBillSummary}
       </td>
       <td><div class="row-actions"><button onclick="openJobOrder('${job.jobNumber}', '${job.bucket || "all"}')">Open</button><button class="ghost-button" onclick="editJobOrder('${job.jobNumber}', '${job.bucket || "all"}')">Edit</button><button class="delete-btn" onclick="removeJobOrder('${job.jobNumber}')">Delete</button></div></td>
     </tr>
