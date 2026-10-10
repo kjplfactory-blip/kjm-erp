@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v703";
+const APP_VERSION = "v704";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -93,8 +93,9 @@ const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
 const SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic_v640";
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v703.sql";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v704.sql";
 const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_v703";
+const SUPABASE_LEGACY_RECONCILE_FUNCTION = "reconcile_erp_normalized_from_legacy_v704";
 const SUPABASE_SERIAL_RESERVE_FUNCTION = "reserve_erp_serials_v703";
 const SUPABASE_FACTORY_OUT_VERIFY_FUNCTION = "verify_erp_factory_out_v703";
 const SUPABASE_INCREMENTAL_META_TABLE = "erp_entity_meta";
@@ -7974,7 +7975,7 @@ async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS
   const result = await fetchSupabaseTableRow(
     SUPABASE_INCREMENTAL_META_TABLE,
     supabaseStateId,
-    "revision,legacy_revision,minimum_revision,updated_at,app_version",
+    "revision,legacy_revision,minimum_revision,updated_at,app_version,legacy_source_updated_at",
     timeoutMs,
   );
   if (result?.error && isMissingIncrementalSyncError(result.error)) {
@@ -7983,6 +7984,46 @@ async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS
   }
   if (!result?.error && result?.data) supabaseIncrementalSyncAvailable = true;
   return result;
+}
+
+async function reconcileNormalizedStateFromLegacyV704(meta = {}) {
+  const sourceResult = await fetchSupabaseStateRow("updated_at", SUPABASE_REVISION_TIMEOUT_MS);
+  if (sourceResult?.error) return { meta, repaired: false, error: sourceResult.error };
+  const sourceUpdatedAt = sourceResult?.data?.updated_at || "";
+  if (!sourceUpdatedAt) return { meta, repaired: false, error: null };
+
+  const sourceTime = Date.parse(sourceUpdatedAt);
+  const reconciledTime = Date.parse(meta?.legacy_source_updated_at || "");
+  const normalizedTime = Date.parse(meta?.updated_at || "");
+  if (Number.isFinite(reconciledTime) && reconciledTime >= sourceTime) {
+    return { meta, repaired: false, error: null };
+  }
+  if (!meta?.legacy_source_updated_at && Number.isFinite(normalizedTime) && normalizedTime > sourceTime + 250) {
+    return { meta, repaired: false, error: null };
+  }
+
+  let repairResult;
+  try {
+    repairResult = await withSupabaseTimeout(
+      supabaseClient.rpc(SUPABASE_LEGACY_RECONCILE_FUNCTION, {
+        p_state_id: supabaseStateId,
+        p_expected_source_updated_at: sourceUpdatedAt,
+        p_app_version: APP_VERSION,
+      }),
+      "Supabase split-state reconciliation timed out.",
+      SUPABASE_FULL_LOAD_TIMEOUT_MS,
+    );
+  } catch (error) {
+    return { meta, repaired: false, error };
+  }
+  if (repairResult?.error) return { meta, repaired: false, error: repairResult.error };
+
+  const refreshed = await fetchIncrementalSyncMeta(SUPABASE_FULL_LOAD_TIMEOUT_MS);
+  if (refreshed?.error || !refreshed?.data) {
+    return { meta, repaired: false, error: refreshed?.error || new Error("Reconciled ERP metadata could not be reloaded.") };
+  }
+  const response = Array.isArray(repairResult?.data) ? repairResult.data[0] : repairResult?.data;
+  return { meta: refreshed.data, repaired: Boolean(response?.repaired), error: null };
 }
 
 async function fetchIncrementalChanges(afterRevision = 0, throughRevision = 0) {
@@ -8085,11 +8126,15 @@ async function loadFullStateFromIncrementalRecords(meta = {}, options = {}) {
     if (!Array.isArray(rebuilt[row.collection])) rebuilt[row.collection] = [];
     rebuilt[row.collection].push(row.data);
   });
-  state = normalizeStateForRuntime(rebuilt);
+  const cloudState = normalizeStateForRuntime(rebuilt);
+  const localChangesPreserved = pendingSyncMutationsHasChanges();
+  state = localChangesPreserved
+    ? normalizeStateForRuntime(applyPendingSyncMutationsToCloud(cloudState, pendingSyncMutations))
+    : cloudState;
   invalidateUniversalSearchIndex();
   stateLoadedFromFallback = false;
   catalogueItems = state.catalogueItems || [];
-  lastLocallyPersistedState = structuredClone(state);
+  lastLocallyPersistedState = structuredClone(cloudState);
   persistStateToBrowser({ context: "Normalized live ERP" });
   persistEntitySyncRevisions(meta.revision, meta.legacy_revision);
   supabaseInitialReadComplete = true;
@@ -8102,7 +8147,12 @@ async function loadFullStateFromIncrementalRecords(meta = {}, options = {}) {
   supabaseLastSuccessfulContactAt = Date.now();
   render();
   restoreOrderDraftOrReset();
-  setSyncStatus("online", options.initial ? "Live Sync: Ready" : "Live Sync: Rebuilt", `${result.data.length} normalized records loaded safely.`);
+  if (localChangesPreserved) {
+    setSyncStatus("saving", "Live Sync: Rebased Safely", `${result.data.length} live records loaded and this laptop's queued changes were preserved.`);
+    if (!supabaseSaveTimer && !supabaseIsSaving) queueSupabaseSave({ delayMs: 120 });
+  } else {
+    setSyncStatus("online", options.initial ? "Live Sync: Ready" : "Live Sync: Rebuilt", `${result.data.length} normalized records loaded safely.`);
+  }
   return { ok: true };
 }
 
@@ -8171,15 +8221,27 @@ async function loadIncrementalSupabaseState(options = {}) {
   const metaResult = await fetchIncrementalSyncMeta();
   if (metaResult?.missing) return { handled: false, ok: false };
   if (metaResult?.error || !metaResult?.data) return { handled: true, ok: false, error: metaResult?.error };
-  const meta = metaResult.data;
+  const reconciliation = await reconcileNormalizedStateFromLegacyV704(metaResult.data);
+  if (reconciliation.error) return { handled: true, ok: false, error: reconciliation.error };
+  const meta = reconciliation.meta;
   const cloudRevision = Number(meta.revision || 0);
   const cloudLegacyRevision = Number(meta.legacy_revision || 0);
   const minimumRevision = Number(meta.minimum_revision || 0);
   const legacyRevisionMismatch = supabaseEntityRevision
     ? cloudLegacyRevision !== supabaseEntityLegacyRevision
     : cloudLegacyRevision > 1;
-  if (legacyRevisionMismatch || hasUnsyncedLocalState()) {
-    return { handled: false, ok: false, requiresFullLoad: true, meta };
+  const pendingLocalChanges = pendingSyncMutationsHasChanges();
+  if (legacyRevisionMismatch || (pendingLocalChanges && cloudRevision > supabaseEntityRevision)) {
+    const bootstrap = await loadFullStateFromIncrementalRecords(meta, { ...options, preservePending: true });
+    return bootstrap.ok
+      ? { handled: true, ok: true, bootstrapped: true, reconciled: reconciliation.repaired }
+      : { handled: true, ok: false, error: bootstrap.error || new Error("The current normalized ERP copy could not be rebuilt safely.") };
+  }
+  if (pendingLocalChanges) {
+    supabaseInitialReadComplete = true;
+    supabaseCloudBaselineVerified = true;
+    supabaseStartupProtectionActive = false;
+    return { handled: true, ok: true, deferred: true };
   }
   const needsNormalizedBootstrap = !supabaseEntityRevision
     || (minimumRevision && supabaseEntityRevision < minimumRevision - 1)
@@ -8563,7 +8625,7 @@ function syncErrorDetail(error) {
     return `Supabase stopped a large ERP save before it finished. Local entries remain protected. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once in Supabase SQL Editor, then use Refresh Live Data. ${detail}`;
   }
   if (normalized.includes("permission") || normalized.includes("policy") || normalized.includes("row-level security") || normalized.includes("42501")) {
-    return `Run FIX-SUPABASE-PERMISSIONS.sql in Supabase SQL Editor. ${detail}`;
+    return `Run ${SUPABASE_PERFORMANCE_SETUP_FILE} in Supabase SQL Editor. Queued laptop changes remain protected. ${detail}`;
   }
   return detail;
 }
@@ -9346,9 +9408,19 @@ async function syncStateToSupabaseIncremental(options = {}) {
   if (metaResult?.error || !metaResult?.data) {
     return { handled: true, saved: false, error: metaResult?.error || new Error("Incremental sync metadata is unavailable.") };
   }
-  if (!supabaseEntityRevision) persistEntitySyncRevisions(metaResult.data.revision, metaResult.data.legacy_revision);
-  if (Number(metaResult.data.legacy_revision || 0) !== supabaseEntityLegacyRevision) {
-    return { handled: false, saved: false, requiresFullLoad: true };
+  const reconciliation = await reconcileNormalizedStateFromLegacyV704(metaResult.data);
+  if (reconciliation.error) return { handled: true, saved: false, error: reconciliation.error };
+  const currentMeta = reconciliation.meta;
+  if (!supabaseEntityRevision) persistEntitySyncRevisions(currentMeta.revision, currentMeta.legacy_revision);
+  if (Number(currentMeta.legacy_revision || 0) !== supabaseEntityLegacyRevision) {
+    const bootstrap = await loadFullStateFromIncrementalRecords(currentMeta, { conflict: true, preservePending: true });
+    if (!bootstrap.ok) {
+      return {
+        handled: true,
+        saved: false,
+        error: bootstrap.error || new Error("Live ERP data changed and could not be rebased safely yet."),
+      };
+    }
   }
 
   supabaseIncrementalSyncAvailable = true;
@@ -9501,9 +9573,19 @@ async function syncStateToSupabase(options = {}) {
       return false;
     }
   }
-  if (!options.force && pendingSyncMutationsHasChanges() && supabaseIncrementalSyncAvailable !== false) {
+  if (!options.force && pendingSyncMutationsHasChanges()) {
+    if (supabaseIncrementalSyncAvailable === false) {
+      const setupError = new Error(`Normalized live sync is unavailable. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} in Supabase.`);
+      scheduleSupabaseReconnect(setupError);
+      setSyncStatus("offline", "Live Sync: Setup Required", syncErrorDetail(setupError));
+      return false;
+    }
     const incrementalResult = await syncStateToSupabaseIncremental(options);
     if (incrementalResult.handled) return Boolean(incrementalResult.saved);
+    const setupError = incrementalResult.error || new Error(`Normalized live sync could not confirm this save. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} in Supabase.`);
+    scheduleSupabaseReconnect(setupError);
+    setSyncStatus("offline", "Live Sync: Change Queued", syncErrorDetail(setupError));
+    return false;
   }
   attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
