@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v705";
+const APP_VERSION = "v706";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -91,7 +91,7 @@ const SUPABASE_REVISION_TIMEOUT_MS = 15000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
 const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v705.sql";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v706.sql";
 const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_current";
 const SUPABASE_FULL_REPLACE_FUNCTION = "replace_erp_state_snapshot_v705";
 const SUPABASE_SERIAL_RESERVE_FUNCTION = "reserve_erp_serials_v703";
@@ -8185,24 +8185,20 @@ async function loadIncrementalSupabaseState(options = {}) {
     ? cloudLegacyRevision !== supabaseEntityLegacyRevision
     : cloudLegacyRevision > 1;
   const pendingLocalChanges = pendingSyncMutationsHasChanges();
-  if (legacyRevisionMismatch || (pendingLocalChanges && cloudRevision > supabaseEntityRevision)) {
+  if (legacyRevisionMismatch) {
     const bootstrap = await loadFullStateFromIncrementalRecords(meta, { ...options, preservePending: true });
     return bootstrap.ok
       ? { handled: true, ok: true, bootstrapped: true }
       : { handled: true, ok: false, error: bootstrap.error || new Error("The current normalized ERP copy could not be rebuilt safely.") };
-  }
-  if (pendingLocalChanges) {
-    supabaseInitialReadComplete = true;
-    supabaseCloudBaselineVerified = true;
-    supabaseStartupProtectionActive = false;
-    return { handled: true, ok: true, deferred: true };
   }
   const needsNormalizedBootstrap = !supabaseEntityRevision
     || (minimumRevision && supabaseEntityRevision < minimumRevision - 1)
     || stateLoadedFromFallback
     || isEmptyBusinessState(state);
   if (needsNormalizedBootstrap) {
-    const bootstrap = await loadFullStateFromIncrementalRecords(meta, options);
+    const bootstrap = await loadFullStateFromIncrementalRecords(meta, pendingLocalChanges
+      ? { ...options, preservePending: true }
+      : options);
     return bootstrap.ok
       ? { handled: true, ok: true, bootstrapped: true }
       : { handled: false, ok: false, requiresFullLoad: true, meta, error: bootstrap.error };
@@ -9340,7 +9336,10 @@ async function syncStateToSupabaseIncremental(options = {}) {
   supabaseSaveRequested = false;
   const savingLocalRevision = supabaseLocalRevision;
   const operationId = ensurePendingSyncOperationId();
-  const backupKey = pendingCloudVersionBackup?.backupKey || `daily-${cloudSafetySnapshotBucket()}`;
+  // Version checkpoints are prepared by the SQL migration. Routine browser
+  // saves only request the lightweight daily checkpoint, keeping operational
+  // changes out of large snapshot-building transactions.
+  const backupKey = `daily-${cloudSafetySnapshotBucket()}`;
   let response = null;
   let error = null;
   setSyncStatus("saving", options.versionUpgrade ? "Sync: Upgrading Data" : "Sync: Saving Changes");
