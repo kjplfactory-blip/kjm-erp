@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v704";
+const APP_VERSION = "v705";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -90,12 +90,10 @@ const SUPABASE_FULL_LOAD_TIMEOUT_MS = 90000;
 const SUPABASE_REVISION_TIMEOUT_MS = 15000;
 const SUPABASE_WAKE_NOTICE_MS = 8000;
 const SUPABASE_GATEWAY_UNAVAILABLE_STATUSES = new Set([520, 522, 523, 524]);
-const SUPABASE_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic";
-const SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION = "save_erp_state_atomic_v640";
 const SUPABASE_SYNC_SIGNAL_TABLE = "erp_sync_signal";
-const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v704.sql";
-const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_v703";
-const SUPABASE_LEGACY_RECONCILE_FUNCTION = "reconcile_erp_normalized_from_legacy_v704";
+const SUPABASE_PERFORMANCE_SETUP_FILE = "SUPABASE-ERP-CORE-v705.sql";
+const SUPABASE_INCREMENTAL_SAVE_FUNCTION = "apply_erp_entity_changes_current";
+const SUPABASE_FULL_REPLACE_FUNCTION = "replace_erp_state_snapshot_v705";
 const SUPABASE_SERIAL_RESERVE_FUNCTION = "reserve_erp_serials_v703";
 const SUPABASE_FACTORY_OUT_VERIFY_FUNCTION = "verify_erp_factory_out_v703";
 const SUPABASE_INCREMENTAL_META_TABLE = "erp_entity_meta";
@@ -366,8 +364,6 @@ let postCloudMigrationsStarted = false;
 let supabaseLastSafetySnapshotBucket = "";
 let pendingCloudVersionBackup = null;
 let cloudBackupUnavailable = false;
-let supabaseAtomicSaveAvailable = null;
-let supabaseAdvancedAtomicSaveAvailable = null;
 let supabaseIncrementalSyncAvailable = null;
 let supabaseEntityRevision = Number(localStorage.getItem(LOCAL_ENTITY_REVISION_STORAGE_KEY) || 0);
 let supabaseEntityLegacyRevision = Number(localStorage.getItem(LOCAL_ENTITY_LEGACY_REVISION_STORAGE_KEY) || 0);
@@ -7986,46 +7982,6 @@ async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS
   return result;
 }
 
-async function reconcileNormalizedStateFromLegacyV704(meta = {}) {
-  const sourceResult = await fetchSupabaseStateRow("updated_at", SUPABASE_REVISION_TIMEOUT_MS);
-  if (sourceResult?.error) return { meta, repaired: false, error: sourceResult.error };
-  const sourceUpdatedAt = sourceResult?.data?.updated_at || "";
-  if (!sourceUpdatedAt) return { meta, repaired: false, error: null };
-
-  const sourceTime = Date.parse(sourceUpdatedAt);
-  const reconciledTime = Date.parse(meta?.legacy_source_updated_at || "");
-  const normalizedTime = Date.parse(meta?.updated_at || "");
-  if (Number.isFinite(reconciledTime) && reconciledTime >= sourceTime) {
-    return { meta, repaired: false, error: null };
-  }
-  if (!meta?.legacy_source_updated_at && Number.isFinite(normalizedTime) && normalizedTime > sourceTime + 250) {
-    return { meta, repaired: false, error: null };
-  }
-
-  let repairResult;
-  try {
-    repairResult = await withSupabaseTimeout(
-      supabaseClient.rpc(SUPABASE_LEGACY_RECONCILE_FUNCTION, {
-        p_state_id: supabaseStateId,
-        p_expected_source_updated_at: sourceUpdatedAt,
-        p_app_version: APP_VERSION,
-      }),
-      "Supabase split-state reconciliation timed out.",
-      SUPABASE_FULL_LOAD_TIMEOUT_MS,
-    );
-  } catch (error) {
-    return { meta, repaired: false, error };
-  }
-  if (repairResult?.error) return { meta, repaired: false, error: repairResult.error };
-
-  const refreshed = await fetchIncrementalSyncMeta(SUPABASE_FULL_LOAD_TIMEOUT_MS);
-  if (refreshed?.error || !refreshed?.data) {
-    return { meta, repaired: false, error: refreshed?.error || new Error("Reconciled ERP metadata could not be reloaded.") };
-  }
-  const response = Array.isArray(repairResult?.data) ? repairResult.data[0] : repairResult?.data;
-  return { meta: refreshed.data, repaired: Boolean(response?.repaired), error: null };
-}
-
 async function fetchIncrementalChanges(afterRevision = 0, throughRevision = 0) {
   const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
   const headers = {
@@ -8221,9 +8177,7 @@ async function loadIncrementalSupabaseState(options = {}) {
   const metaResult = await fetchIncrementalSyncMeta();
   if (metaResult?.missing) return { handled: false, ok: false };
   if (metaResult?.error || !metaResult?.data) return { handled: true, ok: false, error: metaResult?.error };
-  const reconciliation = await reconcileNormalizedStateFromLegacyV704(metaResult.data);
-  if (reconciliation.error) return { handled: true, ok: false, error: reconciliation.error };
-  const meta = reconciliation.meta;
+  const meta = metaResult.data;
   const cloudRevision = Number(meta.revision || 0);
   const cloudLegacyRevision = Number(meta.legacy_revision || 0);
   const minimumRevision = Number(meta.minimum_revision || 0);
@@ -8234,7 +8188,7 @@ async function loadIncrementalSupabaseState(options = {}) {
   if (legacyRevisionMismatch || (pendingLocalChanges && cloudRevision > supabaseEntityRevision)) {
     const bootstrap = await loadFullStateFromIncrementalRecords(meta, { ...options, preservePending: true });
     return bootstrap.ok
-      ? { handled: true, ok: true, bootstrapped: true, reconciled: reconciliation.repaired }
+      ? { handled: true, ok: true, bootstrapped: true }
       : { handled: true, ok: false, error: bootstrap.error || new Error("The current normalized ERP copy could not be rebuilt safely.") };
   }
   if (pendingLocalChanges) {
@@ -8567,13 +8521,10 @@ function showSyncDiagnostics() {
     ? new Date(supabaseLastSuccessfulContactAt).toLocaleString("en-IN")
     : "Not connected yet";
   const mode = supabaseIncrementalSyncAvailable === true
-    ? (supabaseRealtimeChannel ? "Incremental Realtime + 60-second safety check" : "Incremental 15-second safety check")
-    : (supabaseRealtimeChannel ? "Compatibility Realtime + 60-second safety check" : (supabaseClient ? "Compatibility safety check" : "Local safety mode"));
+    ? (supabaseRealtimeChannel ? "Changed-record Realtime + safety check" : "Changed-record safety check")
+    : (supabaseClient ? `Setup required: run ${SUPABASE_PERFORMANCE_SETUP_FILE}` : "Local safety mode");
   const pendingCount = pendingSyncMutationCount();
   const operation = supabasePendingOperationId ? supabasePendingOperationId.slice(-8).toUpperCase() : "None";
-  const exactSave = supabaseAdvancedAtomicSaveAvailable === true
-    ? "Enabled"
-    : (supabaseAdvancedAtomicSaveAvailable === false ? `Compatibility mode; run ${SUPABASE_PERFORMANCE_SETUP_FILE}` : "Checking");
   alert([
     "MULTI-DEVICE SYNC HEALTH",
     `Status: ${document.getElementById("sync-status")?.textContent || "Checking"}`,
@@ -8582,8 +8533,8 @@ function showSyncDiagnostics() {
     `Last cloud contact: ${lastContact}`,
     `Pending record changes: ${pendingCount}`,
     `Protected save operation: ${operation}`,
-    `Exact-save confirmation: ${exactSave}`,
-    `Incremental record sync: ${supabaseIncrementalSyncAvailable === true ? "Enabled" : `Compatibility mode; run ${SUPABASE_PERFORMANCE_SETUP_FILE}`}`,
+    "Save protection: Normalized transaction + operation ID",
+    `Changed-record sync: ${supabaseIncrementalSyncAvailable === true ? "Enabled" : `Run ${SUPABASE_PERFORMANCE_SETUP_FILE}`}`,
     `Cloud revision: ${supabaseLastSignalRevision || "Checking"}`,
     "",
     "Local data stays protected until Supabase confirms the save.",
@@ -9210,6 +9161,30 @@ function flushSupabaseSave() {
 }
 
 async function prepareSafeCloudOverwrite(localState = state, options = {}) {
+  if (options.force) {
+    const metaResult = await fetchIncrementalSyncMeta(SUPABASE_FULL_LOAD_TIMEOUT_MS);
+    if (metaResult?.error || !metaResult?.data) {
+      return {
+        ok: false,
+        error: metaResult?.error || new Error("Live ERP revision could not be verified before full replacement."),
+      };
+    }
+    const stateToSave = structuredClone(localState);
+    stampCurrentAppVersion(stateToSave, options.updatedAt || "");
+    normalizeIndependentOrderSerials(stateToSave);
+    repairDuplicateMeltingBatchNames(stateToSave.melting || []);
+    syncFactoryOutLedgerForState(stateToSave);
+    return {
+      ok: true,
+      row: {
+        data: null,
+        updated_at: metaResult.data.updated_at || "",
+        normalizedRevision: Number(metaResult.data.revision || 0),
+      },
+      stateToSave,
+      mergedConcurrentData: false,
+    };
+  }
   const baselineUpdatedAt = supabaseVerifiedCloudUpdatedAt || supabaseLastCloudUpdatedAt || "";
   const baselineAvailable = Boolean(baselineUpdatedAt && supabaseVerifiedCloudState);
   const needsFullPreflight = Boolean(options.force || !baselineAvailable);
@@ -9272,130 +9247,69 @@ async function prepareSafeCloudOverwrite(localState = state, options = {}) {
   return { ok: true, row, stateToSave, mergedConcurrentData };
 }
 
-function isMissingAtomicSaveFunctionError(error) {
+function isMissingFullReplaceFunctionError(error) {
   const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
-  return detail.includes(SUPABASE_ATOMIC_SAVE_FUNCTION)
-    && (detail.includes("pgrst202") || detail.includes("could not find the function") || detail.includes("schema cache"));
-}
-
-function isMissingAdvancedAtomicSaveFunctionError(error) {
-  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
-  return detail.includes(SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION)
+  return detail.includes(SUPABASE_FULL_REPLACE_FUNCTION.toLowerCase())
     && (detail.includes("pgrst202") || detail.includes("could not find the function") || detail.includes("schema cache"));
 }
 
 async function writeCloudStateAtomically(stateToSave, updatedAt, currentRow = null, metadata = {}) {
-  if (!currentRow) return { handled: false };
-  const bucket = cloudSafetySnapshotBucket();
-  const pendingVersion = pendingCloudVersionBackup;
-  const needsBackup = Boolean(pendingVersion || supabaseLastSafetySnapshotBucket !== bucket);
-  const currentCloudState = currentRow.data || supabaseVerifiedCloudState || {};
-  const sourceVersion = pendingVersion?.sourceVersion || cloudBackupVersionLabel(currentCloudState);
-  const isVersionUpgrade = needsBackup && Boolean(pendingVersion || cloudStateNeedsCurrentVersionSave(currentCloudState));
-  const backupKey = needsBackup
-    ? (pendingVersion?.backupKey || (isVersionUpgrade
-      ? `version-${cloudBackupKeyPart(sourceVersion)}-before-${cloudBackupKeyPart(APP_VERSION)}`
-      : `daily-${bucket}`))
-    : null;
-  const baseParams = {
-    p_state_id: supabaseStateId,
-    p_data: stateToSave,
-    p_expected_updated_at: currentRow.updated_at,
-    p_updated_at: updatedAt,
-    p_backup_key: backupKey,
-    p_backup_kind: isVersionUpgrade ? "version-upgrade" : "daily",
-    p_source_version: sourceVersion,
-    p_target_version: APP_VERSION,
-    p_profile: stateBusinessProfile(currentCloudState),
-  };
-
-  if (supabaseAdvancedAtomicSaveAvailable !== false) {
-    let advancedResult;
-    try {
-      advancedResult = await withSupabaseTimeout(
-        supabaseClient.rpc(SUPABASE_ADVANCED_ATOMIC_SAVE_FUNCTION, {
-          ...baseParams,
-          p_operation_id: metadata.operationId || ensurePendingSyncOperationId(),
-          p_device_id: loginDeviceId(),
-          p_user_name: currentUser?.name || currentUser?.id || "ERP User",
-        }),
-        "Supabase exact-save confirmation timeout.",
-        SUPABASE_REQUEST_TIMEOUT_MS,
-      );
-    } catch (error) {
-      if (isMissingAdvancedAtomicSaveFunctionError(error)) {
-        supabaseAdvancedAtomicSaveAvailable = false;
-      } else {
-        return { handled: true, data: null, error };
-      }
-    }
-    if (advancedResult?.error) {
-      if (isMissingAdvancedAtomicSaveFunctionError(advancedResult.error)) {
-        supabaseAdvancedAtomicSaveAvailable = false;
-      } else {
-        return { handled: true, data: null, error: advancedResult.error };
-      }
-    } else if (advancedResult) {
-      supabaseAdvancedAtomicSaveAvailable = true;
-      const response = Array.isArray(advancedResult.data) ? advancedResult.data[0] : advancedResult.data;
-      if (response?.backup_ready) supabaseLastSafetySnapshotBucket = bucket;
-      return {
-        handled: true,
-        data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null,
-        error: null,
-        revision: Number(response?.signal_revision || 0),
-        duplicateOperation: Boolean(response?.duplicate_operation),
-      };
-    }
+  if (!metadata.force) {
+    return {
+      handled: true,
+      data: null,
+      error: new Error("A routine ERP save attempted the protected full-state path. The change remains queued for normalized sync."),
+    };
   }
-
-  if (supabaseAtomicSaveAvailable === false) return { handled: false };
-  let result;
+  const bucket = cloudSafetySnapshotBucket();
+  let expectedRevision = Number(currentRow?.normalizedRevision || supabaseEntityRevision || 0);
+  if (!expectedRevision) {
+    const metaResult = await fetchIncrementalSyncMeta(SUPABASE_FULL_LOAD_TIMEOUT_MS);
+    if (metaResult?.error || !metaResult?.data) {
+      return { handled: true, data: null, error: metaResult?.error || new Error("Live ERP revision could not be verified before full replacement.") };
+    }
+    expectedRevision = Number(metaResult.data.revision || 0);
+  }
+  const operationId = metadata.operationId || ensurePendingSyncOperationId();
+  let replaceResult;
   try {
-    result = await withSupabaseTimeout(
-      supabaseClient.rpc(SUPABASE_ATOMIC_SAVE_FUNCTION, baseParams),
-      "Supabase atomic save timeout.",
-      SUPABASE_REQUEST_TIMEOUT_MS,
+    replaceResult = await withSupabaseTimeout(
+      supabaseClient.rpc(SUPABASE_FULL_REPLACE_FUNCTION, {
+        p_state_id: supabaseStateId,
+        p_expected_revision: expectedRevision,
+        p_operation_id: operationId,
+        p_device_id: loginDeviceId(),
+        p_user_name: currentUser?.name || currentUser?.id || "ERP User",
+        p_app_version: APP_VERSION,
+        p_data: stateToSave,
+        p_backup_key: `full-replace-${operationId}`,
+      }),
+      "Supabase protected full replacement timed out.",
+      SUPABASE_FULL_LOAD_TIMEOUT_MS,
     );
   } catch (error) {
-    if (isMissingAtomicSaveFunctionError(error)) {
-      supabaseAtomicSaveAvailable = false;
-      return { handled: false };
+    return { handled: true, data: null, error };
+  }
+  if (replaceResult?.error) {
+    const error = replaceResult.error;
+    if (isMissingFullReplaceFunctionError(error)) {
+      return { handled: true, data: null, error: new Error(`Protected full replacement is not installed. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once in Supabase.`) };
     }
     return { handled: true, data: null, error };
   }
-  if (result?.error) {
-    if (isMissingAtomicSaveFunctionError(result.error)) {
-      supabaseAtomicSaveAvailable = false;
-      return { handled: false };
-    }
-    return { handled: true, data: null, error: result.error };
+  const response = Array.isArray(replaceResult?.data) ? replaceResult.data[0] : replaceResult?.data;
+  if (!response?.saved && !response?.duplicate_operation) {
+    return { handled: true, data: null, error: new Error("Live ERP changed on another laptop before full replacement. Refresh Live Data and try again.") };
   }
-  supabaseAtomicSaveAvailable = true;
-  const response = Array.isArray(result?.data) ? result.data[0] : result?.data;
+  persistEntitySyncRevisions(response.current_revision, response.legacy_revision);
   if (response?.backup_ready) supabaseLastSafetySnapshotBucket = bucket;
-  return { handled: true, data: response?.saved ? { updated_at: response.current_updated_at || updatedAt } : null, error: null };
-}
-
-async function writeCloudStateConditionally(stateToSave, updatedAt, currentRow = null) {
-  if (!currentRow) {
-    return withSupabaseTimeout(
-      supabaseClient
-        .from("erp_state")
-        .upsert({ id: supabaseStateId, data: stateToSave, updated_at: updatedAt }),
-      "Supabase save timeout."
-    );
-  }
-  return withSupabaseTimeout(
-    supabaseClient
-      .from("erp_state")
-      .update({ data: stateToSave, updated_at: updatedAt })
-      .eq("id", supabaseStateId)
-      .eq("updated_at", currentRow.updated_at)
-      .select("updated_at")
-      .maybeSingle(),
-    "Supabase save timeout."
-  );
+  return {
+    handled: true,
+    data: { updated_at: response.current_updated_at || updatedAt },
+    error: null,
+    revision: Number(response?.signal_revision || 0),
+    duplicateOperation: Boolean(response?.duplicate_operation),
+  };
 }
 
 async function syncStateToSupabaseIncremental(options = {}) {
@@ -9408,9 +9322,7 @@ async function syncStateToSupabaseIncremental(options = {}) {
   if (metaResult?.error || !metaResult?.data) {
     return { handled: true, saved: false, error: metaResult?.error || new Error("Incremental sync metadata is unavailable.") };
   }
-  const reconciliation = await reconcileNormalizedStateFromLegacyV704(metaResult.data);
-  if (reconciliation.error) return { handled: true, saved: false, error: reconciliation.error };
-  const currentMeta = reconciliation.meta;
+  const currentMeta = metaResult.data;
   if (!supabaseEntityRevision) persistEntitySyncRevisions(currentMeta.revision, currentMeta.legacy_revision);
   if (Number(currentMeta.legacy_revision || 0) !== supabaseEntityLegacyRevision) {
     const bootstrap = await loadFullStateFromIncrementalRecords(currentMeta, { conflict: true, preservePending: true });
@@ -9587,6 +9499,11 @@ async function syncStateToSupabase(options = {}) {
     setSyncStatus("offline", "Live Sync: Change Queued", syncErrorDetail(setupError));
     return false;
   }
+  if (!options.force) {
+    clearLocalSyncDirty();
+    setSyncStatus("online", "Live Sync: No Changes", "This laptop has no changed records waiting to upload.");
+    return true;
+  }
   attachLocalFactoryResetMarkerToState();
   clearTimeout(supabaseSaveTimer);
   supabaseSaveTimer = null;
@@ -9626,36 +9543,14 @@ async function syncStateToSupabase(options = {}) {
       };
       const atomicResult = await writeCloudStateAtomically(stateToSave, updatedAt, preflight.row, {
         operationId: savingOperationId,
+        force: Boolean(options.force),
       });
       savedSignalRevision = Math.max(savedSignalRevision, Number(atomicResult?.revision || 0));
       duplicateOperationConfirmed = duplicateOperationConfirmed || Boolean(atomicResult?.duplicateOperation);
-      let result = atomicResult;
+      const result = atomicResult;
       if (atomicResult.handled && !atomicResult.error && atomicResult.data) pendingCloudVersionBackup = null;
       if (!atomicResult.handled) {
-        if (attempt === 0) {
-          if (pendingCloudVersionBackup) {
-            const versionBackup = pendingCloudVersionBackup;
-            const versionBackupResult = await saveCloudBackupRecord(versionBackup.data, {
-              kind: "version-upgrade",
-              backupKey: versionBackup.backupKey,
-              sourceVersion: versionBackup.sourceVersion,
-              targetVersion: APP_VERSION,
-              sourceUpdatedAt: versionBackup.updatedAt,
-            });
-            if (versionBackupResult.ok) {
-              pendingCloudVersionBackup = null;
-              supabaseLastSafetySnapshotBucket = cloudSafetySnapshotBucket();
-            } else {
-              console.warn("The optional version backup could not be added, so the main conditional ERP save continued.", versionBackupResult.error);
-            }
-          } else {
-            const dailyBackupResult = await saveCloudSafetySnapshotForRow(preflight.row);
-            if (!dailyBackupResult.ok) {
-              console.warn("The optional daily cloud backup could not be added, so the main conditional ERP save continued.", dailyBackupResult.error);
-            }
-          }
-        }
-        result = await writeCloudStateConditionally(stateToSave, updatedAt, preflight.row);
+        throw new Error("Protected full replacement could not start. No cloud data was changed.");
       }
       error = result?.error || null;
       const resultData = Array.isArray(result?.data) ? result.data[0] : result?.data;
@@ -9716,8 +9611,6 @@ async function syncStateToSupabase(options = {}) {
     if (duplicateOperationConfirmed) {
       setSyncStatus("online", "Live Sync: Save Confirmed", "A previously timed-out operation was confirmed by Supabase without writing it twice. Verifying the latest cloud copy now.");
       await loadSupabaseState({ manual: true, duplicateConfirm: true, signalRevision: savedSignalRevision });
-    } else if (supabaseAdvancedAtomicSaveAvailable === false) {
-      setSyncStatus("online", "Live Sync: Compatibility Mode", `Saved successfully using the existing sync method. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} once to enable exact-save confirmation.`);
     } else {
       setSyncStatus("online", `${mergedConcurrentData ? "Live Sync: Merged" : "Live Sync: Saved"} ${new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`);
     }
@@ -15158,6 +15051,8 @@ function normalizeSafeDepartmentIssue(issue = {}, item = {}, currentState = stat
     createdAt: issue.createdAt || "",
     createdAtInferred: Boolean(issue.createdAtInferred),
     safeItemId: issue.safeItemId || item.id || "",
+    sourcePurity: issue.sourcePurity || item.purity || item.locker || "",
+    sourceLocker: issue.sourceLocker || item.locker || item.purity || "",
     itemDescription: issue.itemDescription || item.description || "",
     itemKind: issue.itemKind || safeKindLabel(item),
     colour: issue.colour || item.colour || safeItemColour(item),
@@ -15236,8 +15131,10 @@ function createSafeDepartmentIssue(item, department, process = "", remarks = "",
     itemKind: safeKindLabel(item),
     source: item.source || "",
     sourceLine: item.sourceLine || "",
-    locker: item.locker || item.purity,
-    purity: item.purity || item.locker || "",
+    locker: issueWeights.locker || item.locker || item.purity,
+    purity: issueWeights.purity || item.purity || item.locker || "",
+    sourcePurity: issueWeights.sourcePurity || item.purity || item.locker || "",
+    sourceLocker: issueWeights.sourceLocker || item.locker || item.purity || "",
     departmentId: department.id,
     departmentName: department.name,
     process: process || primaryDepartmentProcess(department),
@@ -27143,6 +27040,17 @@ function productionNonGoldAvailableForSelection({ lotId = "", departmentId = "",
   };
 }
 
+function planProductionNonGoldShelfIssue({ materialType = "other", purity = "18K", weight = 0, preferredItemId = "" } = {}) {
+  const api = globalThis.KJMNonGoldIssueV705;
+  if (!api?.planShelfIssue) throw new Error("Non-gold shelf allocator could not load. Refresh the latest ERP version and try again.");
+  return api.planShelfIssue(state.safeItems || [], {
+    materialType: normalizeNonGoldControlMaterial(materialType),
+    destinationPurity: purity,
+    weight,
+    preferredItemId,
+  });
+}
+
 function saveProductionNonGoldMovement(event, movementType = "issue") {
   const form = event.target;
   const data = getFormData(form);
@@ -27169,79 +27077,105 @@ function saveProductionNonGoldMovement(event, movementType = "issue") {
   }
   const sourceMode = isRemove ? "department" : (data.sourceMode || "safe");
   if (!isRemove && sourceMode === "safe") {
-    const sourceItem = findById("safeItems", data.sourceSafeItemId);
     const materialType = normalizeNonGoldControlMaterial(data.materialType || "other");
-    if (!sourceItem || sourceItem.status === "Out" || safeItemKind(sourceItem) !== "non-gold") {
-      alert("Select an available Non-Gold Safe stock item.");
-      return;
-    }
-    const sourcePurity = transferPurityLabel(karatLogicPurity(safeItemDesiredPurity(sourceItem) || sourceItem.locker || sourceItem.purity || "18K"));
     const issuePurity = transferPurityLabel(karatLogicPurity(data.purity || lot?.metalPurity || "18K"));
-    if (karatPurityKey(sourcePurity) !== karatPurityKey(issuePurity)) {
-      alert(`Selected Safe stock is ${sourcePurity}, but this issue is ${issuePurity}.`);
+    let allocationPlan;
+    try {
+      allocationPlan = planProductionNonGoldShelfIssue({
+        materialType,
+        purity: issuePurity,
+        weight,
+        preferredItemId: data.sourceSafeItemId || "",
+      });
+    } catch (error) {
+      alert(error?.message || "Non-gold shelf stock could not be checked.");
       return;
     }
-    const sourceBreakdown = normalizeNonGoldControlBreakdown(safeItemNonGoldBreakdown(sourceItem));
-    const availableWeight = Number(sourceBreakdown[materialType] || 0);
-    if (weight > availableWeight + 0.0005) {
-      alert(`${productionNonGoldMaterialLabel(materialType)} available in the selected Safe stock is only ${gram(availableWeight)}.`);
+    if (!allocationPlan.sufficient) {
+      alert(`${productionNonGoldMaterialLabel(materialType)} available across the complete Non-Gold Shelf is only ${gram(allocationPlan.totalAvailable)}. Required ${gram(weight)}.`);
       return;
     }
     const departmentName = primaryDepartmentProcess(department) || department.name;
-    const sourceItemBefore = structuredClone(sourceItem);
-    const issueBreakdown = { [materialType]: Number(weight3(weight)) };
     const destinationMode = lot ? "both" : "department";
-    const safeIssue = createSafeDepartmentIssue(sourceItem, department, departmentName, String(data.remarks || "").trim(), {
-      grossWeight: weight,
-      waxStoneWeight: 0,
-      nonGoldWeight: weight,
-      nonGoldBreakdown: issueBreakdown,
-      nonGoldCategory: materialType,
-      nonGoldWeightKnown: true,
-      netWeight: 0,
-      destinationMode,
-      lotId: lot?.id || "",
-      lotNumber: lot?.number || "",
-      jobNumber: lot?.orderNumber || "",
-      sourceSafeItemBefore,
-    });
-    const remainingBreakdown = subtractNonGoldBreakdown(sourceBreakdown, issueBreakdown);
-    sourceItem.nonGoldBreakdown = remainingBreakdown;
-    sourceItem.nonGoldWeight = nonGoldBreakdownTotal(remainingBreakdown);
-    sourceItem.nonGoldCategory = nonGoldBreakdownCategory(remainingBreakdown, materialType);
-    sourceItem.grossWeight = Number(weight3(Math.max(Number(sourceItem.grossWeight || 0) - weight, 0)));
-    sourceItem.netWeight = Number(weight3(safeItemNetFromGross(sourceItem.grossWeight, safeItemWaxStoneWeight(sourceItem), sourceItem.nonGoldWeight)));
-    sourceItem.updatedAt = new Date().toISOString();
-    if (sourceItem.grossWeight <= 0.0005) {
-      sourceItem.status = "Out";
-      sourceItem.outDate = today();
+    const transactionBackup = {
+      safeItems: structuredClone(state.safeItems || []),
+      safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+      nonGoldAuditEvents: structuredClone(state.nonGoldAuditEvents || []),
+    };
+    const sourceLabels = [];
+    try {
+      state.safeDepartmentIssues = state.safeDepartmentIssues || [];
+      allocationPlan.allocations.forEach((allocation) => {
+        const sourceItem = findById("safeItems", allocation.itemId);
+        if (!sourceItem || sourceItem.status === "Out") throw new Error("One selected Non-Gold Shelf batch is no longer available.");
+        const sourceItemBefore = structuredClone(sourceItem);
+        const sourceBreakdown = normalizeNonGoldControlBreakdown(safeItemNonGoldBreakdown(sourceItem));
+        const availableWeight = Number(sourceBreakdown[materialType] || 0);
+        if (allocation.weight > availableWeight + 0.0005) throw new Error("Non-gold shelf balance changed before this issue could be saved.");
+        const issueBreakdown = { [materialType]: Number(weight3(allocation.weight)) };
+        const safeIssue = createSafeDepartmentIssue(sourceItem, department, departmentName, String(data.remarks || "").trim(), {
+          grossWeight: allocation.weight,
+          waxStoneWeight: 0,
+          nonGoldWeight: allocation.weight,
+          nonGoldBreakdown: issueBreakdown,
+          nonGoldCategory: materialType,
+          nonGoldWeightKnown: true,
+          netWeight: 0,
+          purity: issuePurity,
+          locker: safeLockerForPurity(issuePurity),
+          sourcePurity: allocation.sourcePurity,
+          sourceLocker: safeLockerForPurity(allocation.sourcePurity),
+          destinationMode,
+          lotId: lot?.id || "",
+          lotNumber: lot?.number || "",
+          jobNumber: lot?.orderNumber || "",
+          sourceSafeItemBefore,
+        });
+        const remainingBreakdown = subtractNonGoldBreakdown(sourceBreakdown, issueBreakdown);
+        sourceItem.nonGoldBreakdown = remainingBreakdown;
+        sourceItem.nonGoldWeight = nonGoldBreakdownTotal(remainingBreakdown);
+        sourceItem.nonGoldCategory = nonGoldBreakdownCategory(remainingBreakdown, materialType);
+        sourceItem.grossWeight = Number(weight3(Math.max(Number(sourceItem.grossWeight || 0) - allocation.weight, 0)));
+        sourceItem.netWeight = Number(weight3(safeItemNetFromGross(sourceItem.grossWeight, safeItemWaxStoneWeight(sourceItem), sourceItem.nonGoldWeight)));
+        sourceItem.updatedAt = new Date().toISOString();
+        if (sourceItem.grossWeight <= 0.0005) {
+          sourceItem.status = "Out";
+          sourceItem.outDate = today();
+        }
+        state.safeDepartmentIssues.unshift(safeIssue);
+        const audit = recordNonGoldAuditEvent({
+          action: "Issue",
+          materialType,
+          weight: allocation.weight,
+          purity: issuePurity,
+          fromLocation: `${safeLockerForPurity(allocation.sourcePurity)} Non-Gold Shelf`,
+          toLocation: lot ? `${departmentName} / ${lot.number}` : departmentName,
+          department: departmentName,
+          lotId: lot?.id || "",
+          lotNumber: lot?.number || "",
+          jobNumber: lot?.orderNumber || "",
+          status: "In Department",
+          reference: `${sourceItemBefore.description || "Non-Gold Shelf stock"}${data.remarks ? ` / ${data.remarks}` : ""}`,
+          sourceType: "safe-department-issue",
+          sourceId: safeIssue.id,
+        });
+        safeIssue.auditEventId = audit.id;
+        sourceLabels.push(`${safeLockerForPurity(allocation.sourcePurity)} ${gram(allocation.weight)}`);
+      });
+    } catch (error) {
+      state.safeItems = transactionBackup.safeItems;
+      state.safeDepartmentIssues = transactionBackup.safeDepartmentIssues;
+      state.nonGoldAuditEvents = transactionBackup.nonGoldAuditEvents;
+      alert(error?.message || "Non-gold issue could not be saved. No stock was changed.");
+      return;
     }
-    state.safeDepartmentIssues = state.safeDepartmentIssues || [];
-    state.safeDepartmentIssues.unshift(safeIssue);
-    const audit = recordNonGoldAuditEvent({
-      action: "Issue",
-      materialType,
-      weight,
-      purity: issuePurity,
-      fromLocation: `${safeLockerForPurity(sourceItemBefore.locker || sourceItemBefore.purity)} Non-Gold Safe`,
-      toLocation: lot ? `${departmentName} / ${lot.number}` : departmentName,
-      department: departmentName,
-      lotId: lot?.id || "",
-      lotNumber: lot?.number || "",
-      jobNumber: lot?.orderNumber || "",
-      status: "In Department",
-      reference: `${sourceItemBefore.description || "Non-Gold Safe stock"}${data.remarks ? ` / ${data.remarks}` : ""}`,
-      sourceType: "safe-department-issue",
-      sourceId: safeIssue.id,
-    });
-    safeIssue.auditEventId = audit.id;
     form.reset();
     saveState({
       context: `Issue ${productionNonGoldMaterialLabel(materialType)} from Safe`,
       changedStateKeys: ["safeItems", "safeDepartmentIssues", "nonGoldAuditEvents"],
     });
     refreshProductionPage("non-gold");
-    alert(`${productionNonGoldMaterialLabel(materialType)} ${gram(weight)} issued from Non-Gold Safe to ${departmentName}.${lot ? `\n${lot.number} / ${lot.orderNumber || "Job Card"}` : ""}`);
+    alert(`${productionNonGoldMaterialLabel(materialType)} ${gram(weight)} issued from the Non-Gold Shelf to ${departmentName}.${lot ? `\n${lot.number} / ${lot.orderNumber || "Job Card"}` : ""}\nShelf allocation: ${sourceLabels.join(" + ")}.`);
     return;
   }
   if (!isRemove && sourceMode === "opening" && !["owner", "manager"].includes(currentUser?.role || "")) {
@@ -27927,9 +27861,12 @@ function applyProductionNonGoldLotDefaults(form = document.getElementById("produ
     const lot = findById("lots", form.lotId.value);
     if (lot) {
       form.purity.value = lot.metalPurity || getLotOrders(lot)[0]?.purity || "18K";
-      if (form.departmentId && state.karigars.some((karigar) => karigar.id === lot.karigarId)) {
-        form.departmentId.value = lot.karigarId;
-      }
+      const lotDepartment = (state.karigars || []).find((karigar) => karigar.id === lot.karigarId)
+        || (state.karigars || []).find((karigar) =>
+          departmentTextKey(karigar.name) === departmentTextKey(lot.currentDepartment || lot.karigarName)
+          || departmentProcesses(karigar).some((process) => departmentTextKey(process) === departmentTextKey(lot.currentDepartment || lot.karigarName))
+        );
+      if (form.departmentId && lotDepartment) form.departmentId.value = lotDepartment.id;
     }
   }
   if (form?.id === "production-non-gold-form") renderProductionNonGoldSafeSourceOptions(form);
@@ -27938,16 +27875,18 @@ function applyProductionNonGoldLotDefaults(form = document.getElementById("produ
 function productionNonGoldSafeSourceItems(form = document.getElementById("production-non-gold-form")) {
   if (!form) return [];
   const materialType = normalizeNonGoldControlMaterial(form.materialType?.value || "other");
-  const purityKey = karatPurityKey(form.purity?.value || "18K");
   return (state.safeItems || [])
     .filter((item) => item.status !== "Out" && safeItemKind(item) === "non-gold")
     .map((item) => ({
       item,
       breakdown: normalizeNonGoldControlBreakdown(safeItemNonGoldBreakdown(item)),
-      purityKey: karatPurityKey(safeItemDesiredPurity(item) || item.locker || item.purity || "18K"),
+      purity: transferPurityLabel(karatLogicPurity(safeItemDesiredPurity(item) || item.locker || item.purity || "18K")),
     }))
-    .filter((entry) => entry.purityKey === purityKey && Number(entry.breakdown[materialType] || 0) > 0.0005)
-    .sort((left, right) => String(left.item.description || "").localeCompare(String(right.item.description || ""), undefined, { numeric: true, sensitivity: "base" }));
+    .filter((entry) => Number(entry.breakdown[materialType] || 0) > 0.0005)
+    .sort((left, right) => {
+      const purityOrder = puritySortValue(right.purity) - puritySortValue(left.purity);
+      return purityOrder || String(left.item.description || "").localeCompare(String(right.item.description || ""), undefined, { numeric: true, sensitivity: "base" });
+    });
 }
 
 function renderProductionNonGoldSafeSourceOptions(form = document.getElementById("production-non-gold-form")) {
@@ -27955,7 +27894,7 @@ function renderProductionNonGoldSafeSourceOptions(form = document.getElementById
   const openingMode = form.sourceMode?.value === "opening";
   const field = form.querySelector("[data-non-gold-safe-source-field]");
   if (field) field.hidden = openingMode;
-  form.sourceSafeItemId.required = !openingMode;
+  form.sourceSafeItemId.required = false;
   if (openingMode) {
     form.sourceSafeItemId.innerHTML = '<option value="">Opening / existing balance</option>';
     return;
@@ -27963,8 +27902,9 @@ function renderProductionNonGoldSafeSourceOptions(form = document.getElementById
   const selected = form.sourceSafeItemId.value;
   const materialType = normalizeNonGoldControlMaterial(form.materialType?.value || "other");
   const items = productionNonGoldSafeSourceItems(form);
+  const totalAvailable = items.reduce((total, entry) => total + Number(entry.breakdown[materialType] || 0), 0);
   form.sourceSafeItemId.innerHTML = items.length
-    ? `<option value="">Select Safe stock</option>${items.map(({ item, breakdown }) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`${item.description || "Non-Gold Stock"} / ${transferPurityLabel(safeItemDesiredPurity(item) || item.locker || item.purity)} / ${productionNonGoldMaterialLabel(materialType)} ${gram(breakdown[materialType])}`)}</option>`).join("")}`
+    ? `<option value="">Automatic across ${items.length} batch${items.length === 1 ? "" : "es"} / ${gram(totalAvailable)}</option>${items.map(({ item, breakdown, purity }) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`${item.description || "Non-Gold Stock"} / ${purity} / ${productionNonGoldMaterialLabel(materialType)} ${gram(breakdown[materialType])}`)}</option>`).join("")}`
     : '<option value="">No matching Safe non-gold stock</option>';
   if (items.some(({ item }) => item.id === selected)) form.sourceSafeItemId.value = selected;
 }
@@ -27989,14 +27929,23 @@ function updateProductionNonGoldSummary() {
   const linkText = lot ? ` and linked with ${lot.number} / ${lot.orderNumber || "-"}` : "";
   renderProductionNonGoldSafeSourceOptions(form);
   const sourceMode = form.sourceMode?.value || "safe";
-  const sourceItem = sourceMode === "safe" ? findById("safeItems", form.sourceSafeItemId?.value) : null;
-  const sourceAvailable = sourceItem
-    ? Number(normalizeNonGoldControlBreakdown(safeItemNonGoldBreakdown(sourceItem))[normalizeNonGoldControlMaterial(form.materialType.value)] || 0)
-    : 0;
+  let allocationPlan = null;
+  if (sourceMode === "safe") {
+    try {
+      allocationPlan = planProductionNonGoldShelfIssue({
+        materialType: form.materialType.value,
+        purity: form.purity.value || lot?.metalPurity || "18K",
+        weight,
+        preferredItemId: form.sourceSafeItemId?.value || "",
+      });
+    } catch {
+      allocationPlan = null;
+    }
+  }
   const sourceText = sourceMode === "safe"
-    ? sourceItem
-      ? `Source ${sourceItem.description || "Non-Gold Safe"}; available ${gram(sourceAvailable)}.`
-      : "Select matching Non-Gold Safe stock."
+    ? allocationPlan
+      ? `Complete shelf available ${gram(allocationPlan.totalAvailable)}; same-karat stock ${gram(allocationPlan.exactPurityAvailable)}. ${weight > 0 ? (allocationPlan.sufficient ? `${allocationPlan.allocations.length} shelf batch${allocationPlan.allocations.length === 1 ? "" : "es"} will be used automatically.` : `Short by ${gram(allocationPlan.remaining)}.`) : "Enter issue weight."}`
+      : "Non-gold shelf availability could not be calculated. Refresh the latest ERP version."
     : "Existing/opening non-gold is already inside department GW: GW stays unchanged, while Net Gold and Fine Gold reduce by this weight. Owner or Manager only.";
   summary.textContent = `${sourceText} ${material} ${pcs ? `${pcs} pcs / ` : ""}${gram(weight)} will move to ${departmentName}${linkText} in ${karat}. Department non-gold ${gram(existingTotal)}, after save ${gram(afterIssue)}.`;
 }

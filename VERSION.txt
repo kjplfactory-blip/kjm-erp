@@ -1,5 +1,25 @@
 KHUSHALI JEWELLS MANUFACTURING
-App version: v703
+App version: v705
+
+V705 CLEAN ONE-SOURCE SYNC + NON-GOLD ISSUE REPAIR
+- Routine saves now use only changed-record sync; the old full erp_state browser write is no longer called.
+- Owner reset/import uses one protected full-replacement RPC with a normalized cloud backup.
+- The v705 SQL locks direct erp_state writes and obsolete full-state RPCs after preserving current data.
+- Live polling no longer performs an extra legacy reconciliation read on every cycle.
+- Non-gold can be issued to a department, a job card, or both using stock pooled across shelf batches.
+- Same-karat stock is used first; another shelf karat can supply the balance while destination karat remains correct.
+- A failed multi-batch issue restores every affected shelf balance and ledger entry.
+- Existing ERP data is preserved. Deploy v705, then run SUPABASE-ERP-CORE-v705.sql once.
+
+V704 BILL RECOVERY + PERMISSION-SAFE LIVE SYNC
+- The newer main Supabase copy and normalized records are reconciled automatically without deleting either cloud backup.
+- Queued laptop changes are rebased on the complete cloud copy, so newer Bills and pending local work are both preserved.
+- Routine changed-record saves no longer fall through to the blocked full-state v640 writer.
+- Permission errors now point to SUPABASE-ERP-CORE-v704.sql instead of the obsolete permissions file.
+- Existing v703 tabs may drain their queued work through the compatibility writer after the v704 SQL migration is run.
+- Existing ERP data is preserved. Run SUPABASE-ERP-CORE-v704.sql once before publishing v704.
+
+PREVIOUS V703
 
 V703 FAST MULTI-DEVICE SYNC + TRANSACTION SAFETY
 - Cloud saves now write only changed records instead of rebuilding the full ERP document on every operation.

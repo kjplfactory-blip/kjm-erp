@@ -1,0 +1,37 @@
+KHUSHALI JEWELLS ERP v704 - BILL RECOVERY AND LIVE SYNC REPAIR
+
+IMPORTANT
+- Keep the laptop showing queued changes open.
+- Do not clear browser data, reset ERP data, or use Owner Upload Data.
+- A local pre-repair backup is already stored in the supplied recovery folder.
+
+STEP 1 - SUPABASE
+1. Open Supabase Dashboard for project okjwzonpiwiwfctbikcm.
+2. Open SQL Editor and create a new query.
+3. Open SUPABASE-ERP-CORE-v704.sql from this folder.
+4. Copy the entire SQL file into the query and press Run once.
+5. The last permission result must show TRUE for all four columns.
+
+STEP 2 - DRAIN THE CURRENT QUEUE
+1. Return to the original v703 laptop that shows queued changes.
+2. Keep that tab open with internet connected for up to two minutes.
+3. Its queued count should reduce to zero after the restored compatibility permission is detected.
+
+STEP 3 - PUBLISH v704
+1. Replace the live repository files with every file from this v704 folder.
+2. Commit and push with: KJPL ERP v704 bill recovery and sync repair
+3. Wait for GitHub Pages deployment to finish.
+
+STEP 4 - REFRESH ALL DEVICES
+1. Open the live ERP and press Ctrl+F5 once on every laptop.
+2. Confirm the header shows App v704.
+3. Confirm Bills 0062, 0063, 0064, 0223 and 0225 are visible.
+4. Confirm the sync status reaches Live Sync: Ready, Updated, or Changes Saved.
+
+WHAT v704 FIXES
+- Reconciles the newer main cloud state into the normalized tables.
+- Preserves both normalized and main-state cloud backups before reconciliation.
+- Preserves queued laptop changes while loading the complete cloud copy.
+- Prevents routine edits from silently falling back to the blocked v640 writer.
+- Points future permission errors to the correct v704 SQL migration.
+

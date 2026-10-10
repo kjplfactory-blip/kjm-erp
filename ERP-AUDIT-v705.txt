@@ -1,0 +1,17 @@
+KHUSHALI JEWELLS ERP v705 - REPAIR AUDIT
+
+SYNC FINDINGS REPAIRED
+- Removed routine fallback writes to the large erp_state JSON row.
+- Removed browser calls that reconciled legacy state during every poll and save.
+- Added a stable normalized changed-record RPC name.
+- Added a protected, backed-up full replacement path for Owner reset/import only.
+- Revoked direct erp_state writes and obsolete full-state RPC execution.
+- Kept local queued changes intact across automatic version reloads.
+
+NON-GOLD FINDINGS REPAIRED
+- The old form required one exact shelf row and one exact purity to cover the complete issue.
+- v705 pools the requested material across all available non-gold shelf batches.
+- Preferred batch and same-karat stock are consumed first.
+- Department and optional Job Card / Lot links are recorded for every allocated source row.
+- Source shelf purity and destination production purity are both retained.
+- Multi-row issue is rolled back completely if any source balance changes before save.

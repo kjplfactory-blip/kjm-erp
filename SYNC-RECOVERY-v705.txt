@@ -1,0 +1,12 @@
+KHUSHALI JEWELLS ERP v705 - SYNC RECOVERY
+
+If a laptop shows queued changes:
+1. Keep that browser open and do not clear its site data.
+2. Confirm the website shows App v705.
+3. Confirm SUPABASE-ERP-CORE-v705.sql completed with all six final checks TRUE.
+4. Press Ctrl+F5 once and log in again.
+5. Leave the ERP open until QUEUE CLEAR appears.
+
+If Supabase is temporarily unavailable, v705 keeps the changed-record journal on that laptop and retries with backoff. It does not replace newer cloud data with an older complete browser copy.
+
+If the final SQL checks are not all TRUE, do not run older repair scripts. Run SUPABASE-ERP-CORE-v705.sql again in the same Supabase project and capture the exact failing message.

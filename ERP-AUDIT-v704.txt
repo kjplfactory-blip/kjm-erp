@@ -1,0 +1,23 @@
+KHUSHALI JEWELLS ERP v704 - SYNC INCIDENT AUDIT
+
+LIVE FINDINGS ON 10 OCTOBER 2026
+- public.erp_state is current to 9 October 2026 and contains 72 Bills.
+- The normalized Bills collection exposed only 23 Bills and stopped at 30 September 2026.
+- The newer main state contains Bills 0062, 0063, 0064, 0223 and 0225 dated 9 October.
+- apply_erp_entity_changes_v703 exists and is callable by the browser role.
+- save_erp_state_atomic_v640 exists but EXECUTE is currently denied to the browser role.
+- v703 treated a normalized revision mismatch as a reason to fall back to v640, causing the reported permission error.
+
+DATA SAFETY
+- No live ERP row was modified during diagnosis.
+- A complete read-only local copy of the 9 October Supabase state was downloaded before repair work.
+- The v704 SQL creates cloud backups of both normalized data and the compatibility state before reconciliation.
+- The 10 queued browser changes remain in the affected laptop's mutation journal until Supabase confirms them.
+
+V704 CORRECTIONS
+- Adds an idempotent normalized-from-main-state reconciliation function.
+- Tracks which compatibility-row timestamp has already been reconciled.
+- Rebases queued local mutations on the complete normalized cloud copy.
+- Blocks unsafe routine fallback to the full-document writer.
+- Restores v640 EXECUTE only as a temporary compatibility drain for already-open v703 tabs.
+

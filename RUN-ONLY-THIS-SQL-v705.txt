@@ -1,0 +1,6 @@
+RUN ONLY THIS FILE IN SUPABASE:
+
+SUPABASE-ERP-CORE-v705.sql
+
+Do not remove old database objects manually and do not run an older ERP SQL file.
+The v705 migration preserves current data, creates a backup, and safely disables obsolete browser write paths.

@@ -1,0 +1,8 @@
+DO NOT CLEAR BROWSER DATA OR RESET ERP DATA.
+
+The missing Bills are present in the newer Supabase main state. The problem is an older normalized Bills copy, not deleted Bill data.
+
+Run SUPABASE-ERP-CORE-v704.sql once in the same Supabase project used by the ERP. Then leave the affected v703 tab open until its queued count becomes zero. Publish v704 and refresh every laptop with Ctrl+F5.
+
+If any permission result at the bottom of the SQL output is FALSE, take a screenshot of that result and stop before using Owner Upload Data.
+

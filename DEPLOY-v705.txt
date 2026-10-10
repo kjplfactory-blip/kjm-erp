@@ -1,0 +1,24 @@
+KHUSHALI JEWELLS ERP v705 - CLEAN DEPLOYMENT
+
+IMPORTANT
+1. Do not clear browser storage on any laptop.
+2. Do not run an older SQL file again.
+3. Do not manually delete Supabase tables, functions, or old ERP data.
+
+DEPLOYMENT ORDER
+1. Upload every file from the v705 LIVE folder to the existing GitHub repository.
+2. Wait until every open ERP laptop shows App v705. Queued work remains stored on that laptop during the update.
+3. In the correct Supabase project, open SQL Editor and run only SUPABASE-ERP-CORE-v705.sql.
+4. The final result row must show TRUE for all six checks.
+5. On each laptop press Ctrl+F5 once, log in, and wait for SAVED & SYNCED / QUEUE CLEAR.
+
+WHAT THE SQL DOES
+- Preserves and backs up the current cloud data.
+- Keeps normalized changed-record sync as the only normal write path.
+- Adds one stable save function for future app versions.
+- Adds one protected Owner full-replacement function for reset/import only.
+- Blocks direct writes to erp_state and obsolete full-state save functions.
+
+OLD SQL FILES
+They may remain in the folder as historical records, but never run them after v705.
+The v705 script safely revokes old browser write permissions, so manual deletion is not required.
