@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v710";
+const APP_VERSION = "v711";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -47739,23 +47739,62 @@ function restoreBillFactoryOutTransactionState(snapshot = {}) {
   state.safeItems = structuredClone(snapshot.safeItems || []);
 }
 
-function billFactoryOutTransactionIsComplete(billId = "", source = state) {
-  const lookupId = String(billId || "");
-  const bill = (source.bills || []).find((item) => String(item.id || "") === lookupId);
-  if (!bill || !isBillFactoryOutPosted(bill)) return false;
-  const lot = (source.lots || []).find((item) => String(item.id || "") === String(bill.lotId || ""));
-  const expectedNonGold = lot ? billFactoryOutWeightSummary(source, bill, lot).reducedWeight : 0;
-  const consumedNonGold = Number(
+function billFactoryOutNonGoldDemandTotal(source = state, bill = {}, lot = {}) {
+  return Number(weight3(billFactoryOutNonGoldLines(source, bill, lot)
+    .reduce((total, line) => total + Number(line.weight || 0), 0)));
+}
+
+function billFactoryOutConsumedNonGoldTotal(bill = {}) {
+  return Number(weight3(
     bill.nonGoldShelfConsumption?.accountedTotal
     ?? (Number(bill.nonGoldShelfConsumption?.total || 0) + Number(bill.nonGoldShelfConsumption?.embeddedCreditTotal || 0)),
-  );
-  const nonGoldComplete = expectedNonGold <= 0.0005
-    || (bill.nonGoldShelfConsumption?.posted && Math.abs(consumedNonGold - expectedNonGold) <= 0.0015);
-  if (!nonGoldComplete) return false;
+  ));
+}
+
+function billFactoryOutNonGoldConsumptionIsCurrent(source = state, bill = {}, lot = {}) {
+  const expected = billFactoryOutNonGoldDemandTotal(source, bill, lot);
+  const consumed = billFactoryOutConsumedNonGoldTotal(bill);
+  if (expected <= 0.0005) return !bill.nonGoldShelfConsumption?.posted || consumed <= 0.0005;
+  if (!bill.nonGoldShelfConsumption?.posted) return false;
+  const savedExpected = Number(weight3(bill.nonGoldShelfConsumption?.expectedTotal ?? expected));
+  return Math.abs(consumed - expected) <= 0.0015
+    && Math.abs(savedExpected - expected) <= 0.0015;
+}
+
+function billFactoryOutTransactionValidation(billId = "", source = state) {
+  const lookupId = String(billId || "");
+  const bill = (source.bills || []).find((item) => String(item.id || "") === lookupId);
+  const result = {
+    complete: false,
+    billId: lookupId,
+    billNo: bill?.billNo || "Selected Bill",
+    reasons: [],
+  };
+  if (!bill) {
+    result.reasons.push("Bill record is missing");
+    return result;
+  }
+  if (!isBillFactoryOutPosted(bill)) result.reasons.push("Factory Out posting marker is missing");
+  const lot = (source.lots || []).find((item) => String(item.id || "") === String(bill.lotId || ""));
+  if (!lot) {
+    result.reasons.push("linked production lot is missing");
+    return result;
+  }
+  const expectedNonGold = billFactoryOutNonGoldDemandTotal(source, bill, lot);
+  const consumedNonGold = billFactoryOutConsumedNonGoldTotal(bill);
+  if (!billFactoryOutNonGoldConsumptionIsCurrent(source, bill, lot)) {
+    result.reasons.push(`non-gold requires ${gram(expectedNonGold)}, accounted ${gram(consumedNonGold)}`);
+  }
   const linkedEntries = (source.factoryLedger || []).filter((entry) => (
     entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === lookupId
   ));
-  return linkedEntries.length === 1;
+  if (linkedEntries.length !== 1) result.reasons.push(`${linkedEntries.length} linked Factory Ledger entries found`);
+  result.complete = result.reasons.length === 0;
+  return result;
+}
+
+function billFactoryOutTransactionIsComplete(billId = "", source = state) {
+  return billFactoryOutTransactionValidation(billId, source).complete;
 }
 
 function reapplyBillFactoryOutTransaction(transaction = {}) {
@@ -47845,6 +47884,9 @@ function stageBillFactoryOut(record, options = {}) {
   const { bill, lot } = record || {};
   if (!bill?.id || !lot?.id || isBillFactoryOutPosted(bill)) return false;
   const postedAt = options.postedAt || new Date().toISOString();
+  if (bill.nonGoldShelfConsumption?.posted && !billFactoryOutNonGoldConsumptionIsCurrent(state, bill, lot)) {
+    reverseBillNonGoldShelfConsumption(state, bill);
+  }
   const wstgPercent = factoryWstgPercent(options.wstgPercent ?? billFactoryOutWstgPercent(bill));
   bill.factoryOutWstgPercent = wstgPercent;
   bill.factoryOutPostingId = bill.factoryOutPostingId || crypto.randomUUID();
@@ -47908,8 +47950,15 @@ async function saveSelectedBillsFactoryOut() {
     });
     syncFactoryOutForBill();
     const billIds = records.map(({ bill }) => String(bill.id || ""));
-    if (!billIds.every((billId) => billFactoryOutTransactionIsComplete(billId))) {
-      throw new Error("Batch validation failed before saving. No selected bill was posted.");
+    const failedValidations = billIds
+      .map((billId) => billFactoryOutTransactionValidation(billId))
+      .filter((validation) => !validation.complete);
+    if (failedValidations.length) {
+      const detail = failedValidations
+        .slice(0, 5)
+        .map((validation) => `${validation.billNo}: ${validation.reasons.join("; ")}`)
+        .join("\n");
+      throw new Error(`Batch validation failed before saving. No selected bill was posted.\n\n${detail}`);
     }
     const intendedTransactions = records.map(({ bill, lot }) => ({
       bill: structuredClone(bill),
