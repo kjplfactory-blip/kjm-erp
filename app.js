@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v708";
+const APP_VERSION = "v709";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4127,6 +4127,8 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     jobNumber: lot.orderNumber,
     billNo: data.billNo,
     billDate: data.billDate,
+    createdAt: existingBill.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     makingRate: 0,
     officeMakingRate: 0,
     otherCharges: 0,
@@ -35289,11 +35291,23 @@ function searchedJobOrderFamilies(query = "") {
 function compareJobOrderFamilyMembers(left = {}, right = {}) {
   const leftRoot = jobOrderFamilyRoot(left);
   const rightRoot = jobOrderFamilyRoot(right);
-  const rootComparison = leftRoot.localeCompare(rightRoot, undefined, { numeric: true, sensitivity: "base" });
+  const rootComparison = compareJobCardNumbersNewestFirst(leftRoot, rightRoot);
   if (rootComparison) return rootComparison;
   if (left.jobNumber === leftRoot && right.jobNumber !== rightRoot) return -1;
   if (right.jobNumber === rightRoot && left.jobNumber !== leftRoot) return 1;
-  return String(left.jobNumber || "").localeCompare(String(right.jobNumber || ""), undefined, { numeric: true, sensitivity: "base" });
+  return String(right.jobNumber || "").localeCompare(String(left.jobNumber || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareJobCardNumbersNewestFirst(leftValue = "", rightValue = "") {
+  const left = String(leftValue || "");
+  const right = String(rightValue || "");
+  const leftSerial = serialFromNumber(splitJobRootNumber(left), "JOB");
+  const rightSerial = serialFromNumber(splitJobRootNumber(right), "JOB");
+  if (leftSerial !== rightSerial) return rightSerial - leftSerial;
+  const leftIsMain = left === splitJobRootNumber(left);
+  const rightIsMain = right === splitJobRootNumber(right);
+  if (leftIsMain !== rightIsMain) return leftIsMain ? -1 : 1;
+  return right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function jobOrderFamilyRole(job = {}) {
@@ -35975,7 +35989,7 @@ function groupedJobOrdersUncached(orderFilter = null, bucket = "all") {
       status: statuses.length === 1 ? statuses[0] : "Mixed",
       bucket,
     };
-  }).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+  }).sort((a, b) => compareJobCardNumbersNewestFirst(a.jobNumber, b.jobNumber));
 }
 
 function deliveryBadgeHtml(dueDate) {
@@ -41982,7 +41996,21 @@ function billScreenEntries() {
     if (lot?.id) representedLotIds.add(String(lot.id));
     if (bill?.id) representedBillIds.add(String(bill.id));
   });
-  return entries;
+  return entries.sort(compareBillScreenEntriesNewestFirst);
+}
+
+function compareBillScreenEntriesNewestFirst(left = {}, right = {}) {
+  const leftHasBill = Boolean(left.bill);
+  const rightHasBill = Boolean(right.bill);
+  if (leftHasBill !== rightHasBill) return leftHasBill ? -1 : 1;
+  const leftBillSerial = serialFromNumber(left.bill?.billNo || "", "BILL");
+  const rightBillSerial = serialFromNumber(right.bill?.billNo || "", "BILL");
+  if (leftBillSerial !== rightBillSerial) return rightBillSerial - leftBillSerial;
+  const leftTime = Date.parse(left.bill?.updatedAt || left.bill?.createdAt || left.bill?.savedAt || left.bill?.billDate || left.lot?.createdAt || left.lot?.issueDate || "") || 0;
+  const rightTime = Date.parse(right.bill?.updatedAt || right.bill?.createdAt || right.bill?.savedAt || right.bill?.billDate || right.lot?.createdAt || right.lot?.issueDate || "") || 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return serialFromNumber(right.lot?.number || right.bill?.lotNumber || "", "LOT")
+    - serialFromNumber(left.lot?.number || left.bill?.lotNumber || "", "LOT");
 }
 
 function openSavedBillFromList(billId) {
@@ -53334,10 +53362,10 @@ function repairDuplicateProductionNumbers(currentState = {}) {
       return leftJob - rightJob || leftSplit - rightSplit || String(left.id || "").localeCompare(String(right.id || ""));
     });
     rows.slice(1).forEach((order) => {
-      let replacement = `PR-${serial}`;
+      let replacement = `PR-${String(serial).padStart(6, "0")}`;
       while (used.has(replacement.toUpperCase())) {
         serial += 1;
-        replacement = `PR-${serial}`;
+        replacement = `PR-${String(serial).padStart(6, "0")}`;
       }
       serial += 1;
       used.add(replacement.toUpperCase());
@@ -53392,10 +53420,10 @@ function nextProductionNumber(currentState = state, usedCodes = null) {
   const codes = usedCodes || new Set((currentState.orders || []).flatMap((order) => [order.number, order.productionNo, order.barcode]).filter(Boolean));
   const reserved = consumeCentralSerialV703("production");
   let serial = Math.max(1001, Number(reserved || currentState.nextProduction || currentState.nextOrder || 1001));
-  let productionNo = `PR-${serial}`;
+  let productionNo = `PR-${String(serial).padStart(6, "0")}`;
   while (codes.has(productionNo)) {
     serial += 1;
-    productionNo = `PR-${serial}`;
+    productionNo = `PR-${String(serial).padStart(6, "0")}`;
   }
   currentState.nextProduction = serial + 1;
   syncLegacyOrderSerial(currentState);
