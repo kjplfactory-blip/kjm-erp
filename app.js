@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v706";
+const APP_VERSION = "v707";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -7961,10 +7961,19 @@ function persistEntitySyncRevisions(revision = supabaseEntityRevision, legacyRev
 }
 
 function isMissingIncrementalSyncError(error) {
-  const detail = `${error?.code || ""} ${error?.message || error || ""}`.toLowerCase();
-  return [SUPABASE_INCREMENTAL_META_TABLE, SUPABASE_INCREMENTAL_CHANGES_TABLE, SUPABASE_INCREMENTAL_SAVE_FUNCTION]
-    .some((name) => detail.includes(String(name).toLowerCase()))
-    && (detail.includes("pgrst") || detail.includes("42p01") || detail.includes("does not exist") || detail.includes("schema cache"));
+  if (!error || isTransientSupabaseError(error)) return false;
+  const code = String(error?.code || "").toLowerCase();
+  const detail = `${code} ${error?.message || error || ""}`.toLowerCase();
+  const namesSyncObject = [
+    SUPABASE_INCREMENTAL_META_TABLE,
+    SUPABASE_INCREMENTAL_CHANGES_TABLE,
+    SUPABASE_INCREMENTAL_SAVE_FUNCTION,
+  ].some((name) => detail.includes(String(name).toLowerCase()));
+  const definiteMissingCode = ["42p01", "42883", "pgrst202", "pgrst204", "pgrst205"].includes(code);
+  const definiteMissingMessage = detail.includes("does not exist")
+    || detail.includes("could not find the table")
+    || detail.includes("could not find the function");
+  return namesSyncObject && (definiteMissingCode || definiteMissingMessage);
 }
 
 async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS) {
@@ -9486,10 +9495,27 @@ async function syncStateToSupabase(options = {}) {
   }
   if (!options.force && pendingSyncMutationsHasChanges()) {
     if (supabaseIncrementalSyncAvailable === false) {
-      const setupError = new Error(`Normalized live sync is unavailable. Run ${SUPABASE_PERFORMANCE_SETUP_FILE} in Supabase.`);
-      scheduleSupabaseReconnect(setupError);
-      setSyncStatus("offline", "Live Sync: Setup Required", syncErrorDetail(setupError));
-      return false;
+      const probe = await fetchIncrementalSyncMeta();
+      if (probe?.data) {
+        supabaseIncrementalSyncAvailable = true;
+      } else {
+        const probeError = probe?.error || new Error("Normalized live sync could not be checked yet.");
+        scheduleSupabaseReconnect(probeError);
+        if (probe?.missing) {
+          setSyncStatus(
+            "offline",
+            "Live Sync: Setup Required",
+            `Run ${SUPABASE_PERFORMANCE_SETUP_FILE} in Supabase SQL Editor. Queued laptop changes remain protected.`,
+          );
+        } else {
+          setSyncStatus(
+            "connecting",
+            "Live Sync: Rechecking",
+            "The normalized cloud connection will be checked again automatically. Queued laptop changes remain protected.",
+          );
+        }
+        return false;
+      }
     }
     const incrementalResult = await syncStateToSupabaseIncremental(options);
     if (incrementalResult.handled) return Boolean(incrementalResult.saved);
@@ -9729,7 +9755,7 @@ async function loadSupabaseState(options = {}) {
   if (supabaseIsLoading || supabaseIsSaving || supabaseSaveTimer) return false;
   const isAuto = Boolean(options.auto);
   if (isAuto && Date.now() - supabaseLastLocalChangeAt < 1500) return false;
-  if (!options.forceFull && supabaseIncrementalSyncAvailable !== false) {
+  if (!options.forceFull && (supabaseIncrementalSyncAvailable !== false || options.manual || options.retry)) {
     supabaseIsLoading = true;
     let incrementalResult;
     try {
