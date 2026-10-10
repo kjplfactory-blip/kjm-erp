@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v707";
+const APP_VERSION = "v708";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -7866,12 +7866,13 @@ function handleSupabaseVersionWriteBlock(error) {
   return true;
 }
 
-async function fetchSupabaseTableRow(table, rowId, columns = "*", timeoutMs = SUPABASE_FULL_LOAD_TIMEOUT_MS) {
+async function fetchSupabaseTableRow(table, rowId, columns = "*", timeoutMs = SUPABASE_FULL_LOAD_TIMEOUT_MS, keyColumn = "id") {
   if (!window.fetch) return { data: null, error: new Error("Browser fetch is not available.") };
   const baseUrl = normalizeSupabaseUrl(supabaseSettings.url);
+  const rowKey = keyColumn === "state_id" ? "state_id" : "id";
   const params = new URLSearchParams({
     select: columns,
-    id: `eq.${rowId}`,
+    [rowKey]: `eq.${rowId}`,
     limit: "1",
   });
   const controller = new AbortController();
@@ -7982,6 +7983,7 @@ async function fetchIncrementalSyncMeta(timeoutMs = SUPABASE_REVISION_TIMEOUT_MS
     supabaseStateId,
     "revision,legacy_revision,minimum_revision,updated_at,app_version,legacy_source_updated_at",
     timeoutMs,
+    "state_id",
   );
   if (result?.error && isMissingIncrementalSyncError(result.error)) {
     supabaseIncrementalSyncAvailable = false;
