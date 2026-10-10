@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v709";
+const APP_VERSION = "v710";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -42002,7 +42002,7 @@ function billScreenEntries() {
 function compareBillScreenEntriesNewestFirst(left = {}, right = {}) {
   const leftHasBill = Boolean(left.bill);
   const rightHasBill = Boolean(right.bill);
-  if (leftHasBill !== rightHasBill) return leftHasBill ? -1 : 1;
+  if (leftHasBill !== rightHasBill) return leftHasBill ? 1 : -1;
   const leftBillSerial = serialFromNumber(left.bill?.billNo || "", "BILL");
   const rightBillSerial = serialFromNumber(right.bill?.billNo || "", "BILL");
   if (leftBillSerial !== rightBillSerial) return rightBillSerial - leftBillSerial;
