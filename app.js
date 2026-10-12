@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v713";
+const APP_VERSION = "v714";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -53607,9 +53607,7 @@ async function reserveCentralSerialBlockV703(kind = "", count = centralSerialBlo
 
 function primeCentralSerialPoolsV703() {
   if (!supabaseClient || centralSerialSetupUnavailableV703) return;
-  Object.keys(centralSerialPoolsV703).forEach((kind) => {
-    if (!centralSerialPoolsV703[kind].length) reserveCentralSerialBlockV703(kind);
-  });
+  if (!centralSerialPoolsV703.lot.length) reserveCentralSerialBlockV703("lot");
 }
 
 function consumeCentralSerialV703(kind = "") {
