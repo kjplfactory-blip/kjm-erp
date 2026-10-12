@@ -7173,6 +7173,70 @@ dialog::backdrop {
   text-align: center;
 }
 
+#bill-dialog .bill-item-remark-trigger {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px solid #7aaee8;
+  border-radius: 6px;
+  background: #eaf4ff;
+  color: #164e86;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#bill-dialog .bill-item-remark-trigger.has-remark:hover,
+#bill-dialog .bill-item-remark-trigger.has-remark:focus-visible {
+  border-color: #2563a8;
+  background: #d8ebff;
+  color: #0d3d70;
+}
+
+#bill-dialog .bill-item-remark-trigger.no-remark {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.bill-item-remark-preview {
+  position: fixed;
+  z-index: 130;
+  display: grid;
+  gap: 6px;
+  padding: 11px 13px;
+  border: 2px solid #70aee8;
+  border-radius: 8px;
+  background: #fff;
+  color: #17253a;
+  box-shadow: 0 18px 44px rgba(18, 73, 122, 0.24);
+  pointer-events: none;
+}
+
+.bill-item-remark-preview strong {
+  color: #174f82;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.bill-item-remark-preview p {
+  max-height: min(260px, 42vh);
+  margin: 0;
+  overflow: auto;
+  color: #17253a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.bill-item-remark-preview.is-empty p {
+  color: #64748b;
+  font-style: italic;
+}
+
 #bill-dialog .bill-item-table small {
   color: #6b7d7a;
   margin-top: 1px;

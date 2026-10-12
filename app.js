@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v711";
+const APP_VERSION = "v713";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3382,23 +3382,30 @@ document.getElementById("combined-bill-add-clear")?.addEventListener("click", cl
 document.getElementById("save-combined-bill-add-items")?.addEventListener("click", addPendingItemsToCombinedBill);
 
 document.getElementById("bill-form").addEventListener("pointerover", (event) => {
+  const remarkTrigger = event.target.closest?.("[data-bill-item-remark]");
+  if (remarkTrigger && !remarkTrigger.contains(event.relatedTarget)) showBillItemRemarkPreview(remarkTrigger);
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button || button.contains(event.relatedTarget)) return;
   showBillDesignHoverPreview(button);
 });
 
 document.getElementById("bill-form").addEventListener("pointerout", (event) => {
+  const remarkTrigger = event.target.closest?.("[data-bill-item-remark]");
+  if (remarkTrigger && !remarkTrigger.contains(event.relatedTarget)) hideBillItemRemarkPreview();
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (!button || button.contains(event.relatedTarget)) return;
   hideBillDesignHoverPreview();
 });
 
 document.getElementById("bill-form").addEventListener("focusin", (event) => {
+  const remarkTrigger = event.target.closest?.("[data-bill-item-remark]");
+  if (remarkTrigger) showBillItemRemarkPreview(remarkTrigger);
   const button = event.target.closest?.("[data-bill-design-preview]");
   if (button) showBillDesignHoverPreview(button);
 });
 
 document.getElementById("bill-form").addEventListener("focusout", (event) => {
+  if (event.target.closest?.("[data-bill-item-remark]")) hideBillItemRemarkPreview();
   if (event.target.closest?.("[data-bill-design-preview]")) hideBillDesignHoverPreview();
 });
 
@@ -3441,6 +3448,7 @@ document.getElementById("bill-form").addEventListener("submit", (event) => {
 
 document.getElementById("bill-dialog").addEventListener("close", () => {
   hideBillDesignHoverPreview();
+  hideBillItemRemarkPreview();
   if (suppressBillDraftSaveOnClose) {
     suppressBillDraftSaveOnClose = false;
     cancelBillDraftSaveTimer();
@@ -17798,8 +17806,47 @@ function isBillFactoryOutPosted(bill = {}) {
   return Boolean(isReferenceOnlyBill(bill) || bill.factoryOutPostedAt || bill.factoryOutUpdatedAt);
 }
 
+function billFactoryOutRecordModifiedTime(bill = {}) {
+  return new Date(
+    bill.factoryOutUpdatedAt
+    || bill.factoryOutPostedAt
+    || bill.updatedAt
+    || bill.savedAt
+    || bill.createdAt
+    || bill.billDate
+    || 0
+  ).getTime() || 0;
+}
+
+function canonicalBillRecordsForFactoryOut(source = state) {
+  const billsById = new Map();
+  (source.bills || []).forEach((bill) => {
+    const billId = String(bill?.id || "").trim();
+    if (!billId) return;
+    const saved = billsById.get(billId);
+    if (!saved) {
+      billsById.set(billId, bill);
+      return;
+    }
+    const candidatePosted = isBillFactoryOutPosted(bill);
+    const savedPosted = isBillFactoryOutPosted(saved);
+    if ((candidatePosted && !savedPosted)
+      || (candidatePosted === savedPosted
+        && billFactoryOutRecordModifiedTime(bill) > billFactoryOutRecordModifiedTime(saved))) {
+      billsById.set(billId, bill);
+    }
+  });
+  return [...billsById.values()];
+}
+
+function canonicalBillRecordForFactoryOut(billId = "", source = state) {
+  const lookupId = String(billId || "");
+  return canonicalBillRecordsForFactoryOut(source)
+    .find((bill) => String(bill.id || "") === lookupId) || null;
+}
+
 function completedBillFactoryOutRecords(source = state, options = {}) {
-  return (source.bills || []).map((bill) => {
+  return canonicalBillRecordsForFactoryOut(source).map((bill) => {
     if (isReferenceOnlyBill(bill)) return null;
     const lot = (source.lots || []).find((item) => item.id === bill.lotId);
     if (!bill?.id || !lot) return null;
@@ -17902,7 +17949,7 @@ function syncFactoryOutLedgerForState(source) {
     }
   });
   source.factoryLedger = (source.factoryLedger || []).filter((entry) => entry.sourceType !== "bill" || isReferenceOnlyFactoryLedgerEntry(entry));
-  (source.bills || []).forEach((bill) => {
+  canonicalBillRecordsForFactoryOut(source).forEach((bill) => {
     if (!bill?.id) return;
     if (isReferenceOnlyBill(bill)) return;
     bill.officeDestination = KJPL_OFFICE_VENDOR_NAME;
@@ -46100,6 +46147,39 @@ function hideBillDesignHoverPreview() {
   delete preview.dataset.orderId;
 }
 
+function positionBillItemRemarkPreview(trigger, preview) {
+  const rect = trigger.getBoundingClientRect();
+  const margin = 10;
+  const gap = 8;
+  const width = Math.min(420, Math.max(window.innerWidth - (margin * 2), 240));
+  preview.style.width = `${width}px`;
+  let left = Math.max(margin, Math.min(rect.left, window.innerWidth - preview.offsetWidth - margin));
+  let top = rect.bottom + gap;
+  if (top + preview.offsetHeight > window.innerHeight - margin) top = rect.top - preview.offsetHeight - gap;
+  top = Math.max(margin, Math.min(top, window.innerHeight - preview.offsetHeight - margin));
+  preview.style.left = `${left}px`;
+  preview.style.top = `${top}px`;
+}
+
+function showBillItemRemarkPreview(trigger) {
+  const preview = document.getElementById("bill-item-remark-preview");
+  const text = document.getElementById("bill-item-remark-preview-text");
+  if (!preview || !text || !trigger) return;
+  const remark = String(trigger.dataset.billItemRemark || "").trim() || "No Remark";
+  text.textContent = remark;
+  preview.classList.toggle("is-empty", remark === "No Remark");
+  preview.classList.remove("hidden");
+  preview.setAttribute("aria-hidden", "false");
+  positionBillItemRemarkPreview(trigger, preview);
+}
+
+function hideBillItemRemarkPreview() {
+  const preview = document.getElementById("bill-item-remark-preview");
+  if (!preview) return;
+  preview.classList.add("hidden");
+  preview.setAttribute("aria-hidden", "true");
+}
+
 async function openBillDesignImage(orderId = "") {
   const order = billOrderForPreview(orderId);
   const design = billDesignForOrder(order || {});
@@ -46153,6 +46233,7 @@ function renderBillItems(lot, bill = {}) {
     ].filter(Boolean).join(" / ");
     const fittingAccessories = manualWip ? [] : jobItemFittingAccessoryLinks(order);
     const fittingAccessoryPcs = fittingAccessories.reduce((total, accessory) => total + Number(accessory.quantity || 0), 0);
+    const itemRemark = String(order.remarks || saved.remarks || "").trim();
     const removeBlockedReason = !canManageBillItems
       ? (generatedBill.id ? "Only Owner or Manager can change a generated Bill." : "This login cannot change Bill items.")
       : billableOrders.length <= 1
@@ -46166,6 +46247,7 @@ function renderBillItems(lot, bill = {}) {
           <strong>${escapeHtml(itemLabel)}</strong>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
+          <button type="button" class="bill-item-remark-trigger ${itemRemark ? "has-remark" : "no-remark"}" data-bill-item-remark="${escapeHtml(itemRemark)}" aria-label="${escapeHtml(itemRemark ? `Item remark: ${itemRemark}` : "No Remark")}">${itemRemark ? "Remark" : "No Remark"}</button>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-item-stone-open-button" data-open-bill-stone="${escapeHtml(order.id)}" aria-label="Open stone entry for ${escapeHtml(itemLabel)}">Open Stone Entry</button>`}
           ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-fitting-accessory-button" data-add-bill-fitting="${escapeHtml(order.id)}" aria-label="Add fitting accessory to ${escapeHtml(itemLabel)}">Add Fitting Accessory</button>` : ""}
@@ -47763,7 +47845,7 @@ function billFactoryOutNonGoldConsumptionIsCurrent(source = state, bill = {}, lo
 
 function billFactoryOutTransactionValidation(billId = "", source = state) {
   const lookupId = String(billId || "");
-  const bill = (source.bills || []).find((item) => String(item.id || "") === lookupId);
+  const bill = canonicalBillRecordForFactoryOut(lookupId, source);
   const result = {
     complete: false,
     billId: lookupId,
@@ -47786,7 +47868,9 @@ function billFactoryOutTransactionValidation(billId = "", source = state) {
     result.reasons.push(`non-gold requires ${gram(expectedNonGold)}, accounted ${gram(consumedNonGold)}`);
   }
   const linkedEntries = (source.factoryLedger || []).filter((entry) => (
-    entry.sourceType === "bill" && String(entry.sourceId || entry.billId || "") === lookupId
+    entry.sourceType === "bill"
+    && !isReferenceOnlyFactoryLedgerEntry(entry)
+    && String(entry.sourceId || entry.billId || "") === lookupId
   ));
   if (linkedEntries.length !== 1) result.reasons.push(`${linkedEntries.length} linked Factory Ledger entries found`);
   result.complete = result.reasons.length === 0;
