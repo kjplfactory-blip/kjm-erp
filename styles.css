@@ -12,6 +12,64 @@
   font-family: Inter, Segoe UI, Arial, sans-serif;
 }
 
+/* v715: archived Bill items remain traceable in Office without entering live stock. */
+.office-reference-archive {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.office-reference-heading {
+  align-items: end;
+  border-bottom: 1px solid #c8dcf4;
+  padding-bottom: 10px;
+}
+
+.office-reference-heading .search {
+  width: min(440px, 100%);
+}
+
+.office-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.office-library-item.reference,
+.office-return-search-result.reference,
+.reference-office-row {
+  border-color: #9fc5ef;
+  background: #f2f8ff;
+}
+
+.office-library-item.reference {
+  margin: 0;
+  box-shadow: 0 5px 16px rgba(20, 88, 160, 0.08);
+}
+
+.office-library-item.reference .office-tile-select span,
+.reference-office-note {
+  color: #185a9d;
+  font-weight: 800;
+}
+
+.office-library-item.reference .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .office-reference-heading {
+    display: grid;
+    gap: 8px;
+  }
+
+  .office-reference-heading .search {
+    width: 100%;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
