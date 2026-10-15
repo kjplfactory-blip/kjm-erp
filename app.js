@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v715";
+const APP_VERSION = "v716";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -8974,6 +8974,9 @@ function runPostCloudMigrations() {
     const reconciledCentralFlow = migrateCentralNonGoldFlowV699(state);
     const completedBilledOrders = reconcileBilledOrdersToCompletedV696(state);
     const repairedJob1694Split = repairJob1694IncompleteSplitV700(state);
+    const repairedOldMergedLots = globalThis.KJM_JOB_CARD_LOT_MERGE_V716?.repairAllOldMerges
+      ? globalThis.KJM_JOB_CARD_LOT_MERGE_V716.repairAllOldMerges()
+      : { repairedJobs: [], blockedJobs: [], consolidatedLots: 0, relinkedRecords: 0, upgraded: false };
     if (repairedMergedSettingLots.count) {
       state.ledger = state.ledger || [];
       state.ledger.unshift({
@@ -8989,7 +8992,7 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count || repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
@@ -9000,10 +9003,13 @@ function runPostCloudMigrations() {
       if (reconciledCentralFlow.count || reconciledCentralFlow.upgraded) changedStateKeys.push("lots", "centralNonGoldFlowVersion", "centralNonGoldFlowV699At");
       if (completedBilledOrders.count || completedBilledOrders.upgraded) changedStateKeys.push("orders", "billedOrderCompletionVersion", "billedOrderCompletionV696At");
       if (repairedJob1694Split.count) changedStateKeys.push("orders", "lots", "ledger", "job1694SplitRepairV700At", "job1694SplitRepairV700OrderIds");
+      if (repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) changedStateKeys.push("orders", "lots", "ledger", "settingManagerEntries", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "safeItems", "jobCardLotMergeRepairV716At", "jobCardLotMergeRepairV716");
       saveState({
-        context: repairedJob1694Split.count
-          ? `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`
-          : (reconciledBillNonGold
+        context: repairedOldMergedLots.repairedJobs.length
+          ? `${repairedOldMergedLots.repairedJobs.length} old merged Job Card production lot repair`
+          : (repairedJob1694Split.count
+            ? `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`
+            : (reconciledBillNonGold
           ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
           : (correctedOpeningNonGold
               ? "Confirmed opening non-gold reclassified from 14K to 18K"
@@ -9019,7 +9025,7 @@ function runPostCloudMigrations() {
                               ? `${completedBilledOrders.count} billed PR completion correction`
                               : (reconciledCentralFlow.count
                                 ? `${reconciledCentralFlow.count} Setting transfer audit bridge update`
-                                : "Central non-gold shelf and post-cloud production correction")))))))),
+                                : "Central non-gold shelf and post-cloud production correction"))))))))),
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -20281,6 +20287,7 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
   lot.orderNumber = lotOrderNumberFromIds(remainingIds, lot.orderNumber);
   lot.grossIssuedWeight = Number(weight3(Math.max(Number(lot.grossIssuedWeight || currentGw) - splitGw, 0)));
   lot.waxStoneWeight = remainingWax;
+  lot.physicalWaxStoneWeight = remainingWax;
   lot.issuedWeight = remainingNetWeight;
   lot.transfers = lot.transfers || [];
   lot.transfers.push(splitLotAdjustmentTransfer(lot, currentGw, remainingGw, remainingWax, remainingHand, `${splitReason}; balance remains in original job card`));
@@ -20303,6 +20310,7 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
     metalPurity: lot.metalPurity || selectedOrders[0]?.purity || "",
     grossIssuedWeight: Number(weight3(splitGw)),
     waxStoneWeight: selectedWax,
+    physicalWaxStoneWeight: selectedWax,
     issuedWeight: splitNetWeight,
     expectedWastage: Number(lot.expectedWastage || 0),
     finishedWeight: 0,
@@ -20549,6 +20557,7 @@ async function splitSelectedJobItems() {
     alert("Open a job order first.");
     return;
   }
+  const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
   const familyIntegrity = jobCardFamilyIntegrity(currentOrder);
   if (!familyIntegrity.valid) {
     alert(`This Job Card family has an existing lot-link issue and cannot be split again until it is checked.\n\n${familyIntegrity.warnings.join("\n")}`);
@@ -20571,24 +20580,36 @@ async function splitSelectedJobItems() {
     alert("Completed item cannot be split.");
     return;
   }
+  const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
+  const splitLotPlan = lotMergeTool?.plan(jobOrders, originalJobNumber, {
+    preferredOrderIds: new Set(jobOrders.map((order) => order.id)),
+  }) || { lots: [], targetLot: null, grossWeight: 0, blockedReason: "", previouslyMerged: false, canConsolidate: false };
+  const shouldConsolidateMergedLots = splitLotPlan.lots.length > 1 && splitLotPlan.previouslyMerged;
+  if (shouldConsolidateMergedLots && splitLotPlan.blockedReason) {
+    alert(`This merged Job Card still has separate production lots, but they cannot be consolidated safely.\n\n${splitLotPlan.blockedReason}`);
+    return;
+  }
   const mixedLiveLots = state.lots.filter((lot) => {
-    if (lot.status === "Completed") return false;
+    if (lot.status === "Completed" || lot.status === "Merged" || lot.mergedIntoLotId || lot.manualResetHistoricalAt || lot.inventoryResetArchivedAt) return false;
     const ids = getLotOrderIds(lot);
     const hasSelected = ids.some((id) => selectedIdSet.has(id));
     const hasRemaining = ids.some((id) => !selectedIdSet.has(id));
     return hasSelected && hasRemaining;
   });
-  if (mixedLiveLots.length > 1) {
+  if (mixedLiveLots.length > 1 && !shouldConsolidateMergedLots) {
     alert("Selected items are in more than one live production lot. Split one production lot at a time.");
     return;
   }
-  const mixedLiveLot = mixedLiveLots[0] || null;
+  let mixedLiveLot = shouldConsolidateMergedLots ? splitLotPlan.targetLot : (mixedLiveLots[0] || null);
   let splitGw = 0;
   if (mixedLiveLot) {
-    const availableGw = Number(weight3(currentTransferIssueWeight(mixedLiveLot)));
+    const availableGw = Number(weight3(shouldConsolidateMergedLots ? splitLotPlan.grossWeight : currentTransferIssueWeight(mixedLiveLot)));
     splitGw = Number(weight3(splitJobGwValue()));
     if (!splitGw) {
-      const entered = prompt(`Selected item is already in production lot ${mixedLiveLot.number}.\n\nEnter GW to move to the split job card.\nAvailable current GW: ${gram(availableGw)}`, "");
+      const lotDescription = shouldConsolidateMergedLots
+        ? `${splitLotPlan.lots.length} merged production lots (${splitLotPlan.lots.map((lot) => lot.number || lot.id).join(", ")})`
+        : `production lot ${mixedLiveLot.number}`;
+      const entered = prompt(`Selected item is already in ${lotDescription}.\n\nEnter GW to move to the split job card.\nAvailable combined current GW: ${gram(availableGw)}`, "");
       splitGw = Number(weight3(Number(entered || 0)));
     }
     if (splitGw <= 0 || splitGw >= availableGw) {
@@ -20596,21 +20617,43 @@ async function splitSelectedJobItems() {
       return;
     }
   }
-  const originalJobNumber = currentOrder.jobNumber || currentOrder.productionNo || currentOrder.number;
   const splitJobNumber = nextSplitJobNumber(originalJobNumber);
   const familyRootJobNumber = jobCardFamilyRootNumber(currentOrder) || splitJobRootNumber(originalJobNumber);
   const splitPriority = await requestSplitUrgencyChoice(splitJobNumber, selectedOrders.length);
   if (!splitPriority) return;
   const splitPriorityLabel = splitPriority === "urgent" ? "Urgent" : "Normal";
-  const productionSplitText = mixedLiveLot ? `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.` : "";
+  const productionSplitText = mixedLiveLot
+    ? (shouldConsolidateMergedLots
+      ? `\n\nThe old merged production lots will first become one lot, then GW ${gram(splitGw)} will move to the split Job Card.`
+      : `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.`)
+    : "";
   if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nPriority: ${splitPriorityLabel}.\nCustomer, design, dates, purity, size, stone data and production numbers will remain same.`)) return;
   const rollback = {
     orders: structuredClone(state.orders || []),
     lots: structuredClone(state.lots || []),
     ledger: structuredClone(state.ledger || []),
+    settingManagerEntries: structuredClone(state.settingManagerEntries || []),
+    productionNonGoldIssues: structuredClone(state.productionNonGoldIssues || []),
+    safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+    safeDepartmentReturns: structuredClone(state.safeDepartmentReturns || []),
+    safeItems: structuredClone(state.safeItems || []),
     nextLot: state.nextLot,
   };
   const splitAt = new Date().toISOString();
+  let lotConsolidationResult = { ok: true, count: 0, targetLot: mixedLiveLot, sourceLots: [] };
+  if (shouldConsolidateMergedLots) {
+    lotConsolidationResult = lotMergeTool.consolidate(
+      splitLotPlan,
+      originalJobNumber,
+      splitAt,
+      `Previous Job Card merge repaired before split to ${splitJobNumber}`,
+    );
+    if (!lotConsolidationResult.ok || !lotConsolidationResult.targetLot) {
+      alert(`The merged production lots could not be consolidated.\n\n${lotConsolidationResult.blockedReason || "No safe target lot was found."}`);
+      return;
+    }
+    mixedLiveLot = lotConsolidationResult.targetLot;
+  }
   selectedOrders.forEach((order) => {
     order.jobNumber = splitJobNumber;
     order.splitFromJobNumber = originalJobNumber;
@@ -20641,15 +20684,36 @@ async function splitSelectedJobItems() {
   ));
   if (splitLot) splitLot.updatedAt = splitAt;
   if (splitLot) splitLot.jobFamilyRootNumber = familyRootJobNumber;
+  if (lotConsolidationResult.count) {
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: splitAt,
+      type: "Merged Job Production Lot Consolidation",
+      purity: mixedLiveLot?.metalPurity || "-",
+      weight: 0,
+      jobNumber: originalJobNumber,
+      targetLotId: mixedLiveLot?.id || "",
+      targetLotNumber: mixedLiveLot?.number || "",
+      mergedLotIds: lotConsolidationResult.sourceLots.map((lot) => lot.id),
+      mergedLotNumbers: lotConsolidationResult.sourceLots.map((lot) => lot.number).filter(Boolean),
+      reference: `${lotConsolidationResult.count + 1} previous live lots consolidated into ${mixedLiveLot?.number || "one production lot"} before splitting ${splitJobNumber}. No stock movement booked.`,
+    });
+  }
   const savedLocally = saveState({
     alertOnFailure: true,
     context: `Split ${originalJobNumber} into ${splitJobNumber}`,
-    changedStateKeys: ["orders", "lots", "ledger", "nextLot"],
+    changedStateKeys: ["orders", "lots", "ledger", "settingManagerEntries", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "safeItems", "nextLot"],
   });
   if (!savedLocally) {
     state.orders = rollback.orders;
     state.lots = rollback.lots;
     state.ledger = rollback.ledger;
+    state.settingManagerEntries = rollback.settingManagerEntries;
+    state.productionNonGoldIssues = rollback.productionNonGoldIssues;
+    state.safeDepartmentIssues = rollback.safeDepartmentIssues;
+    state.safeDepartmentReturns = rollback.safeDepartmentReturns;
+    state.safeItems = rollback.safeItems;
     state.nextLot = rollback.nextLot;
     return;
   }
@@ -21528,8 +21592,18 @@ function cataloguePrintHtml(orderData = {}, items = []) {
   `;
 }
 
+function currentLotsFirst(lots = []) {
+  return [...lots].sort((left, right) => {
+    const leftArchived = left?.mergedIntoLotId || left?.status === "Merged" || left?.manualResetHistoricalAt || left?.inventoryResetArchivedAt ? 1 : 0;
+    const rightArchived = right?.mergedIntoLotId || right?.status === "Merged" || right?.manualResetHistoricalAt || right?.inventoryResetArchivedAt ? 1 : 0;
+    if (leftArchived !== rightArchived) return leftArchived - rightArchived;
+    return transferHistoryTime(right?.updatedAt || right?.createdAt, right?.issueDate)
+      - transferHistoryTime(left?.updatedAt || left?.createdAt, left?.issueDate);
+  });
+}
+
 function lotsForOrder(order) {
-  if (!activeRenderCache) return state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id));
+  if (!activeRenderCache) return currentLotsFirst(state.lots.filter((lot) => getLotOrderIds(lot).includes(order.id)));
   const lotsByOrder = renderCachedValue("lotsByOrder", () => {
     const index = new Map();
     state.lots.forEach((lot) => {
@@ -21538,6 +21612,7 @@ function lotsForOrder(order) {
         index.get(orderId).push(lot);
       });
     });
+    index.forEach((lots, orderId) => index.set(orderId, currentLotsFirst(lots)));
     return index;
   });
   return lotsByOrder.get(order.id) || [];
@@ -29407,6 +29482,9 @@ function transferProvisionalNonGoldBreakdownBefore(lot = {}, beforeTransferId = 
 }
 
 function currentTransferProvisionalNonGoldBreakdown(lot = {}) {
+  if (settingMergedSnapshotIsCurrent(lot) && lot.settingMergedProvisionalNonGoldBreakdown) {
+    return normalizeNonGoldControlBreakdown(lot.settingMergedProvisionalNonGoldBreakdown);
+  }
   const exact = transferProvisionalNonGoldBreakdownBefore(lot);
   if (nonGoldBreakdownTotal(exact) > 0) return exact;
   const legacyWeight = currentTransferProvisionalNonGold(lot);
@@ -35650,6 +35728,23 @@ async function mergeSelectedJobCards(event) {
     alert(`These Job Cards cannot be physically merged because they are not in one matching production location.\n\n${operationalCheck.message}\n\nKeep them as separate child cards under the same Main Job and transfer each exact lot from the Job Card Family Control. Merge becomes available when every selected card is in the same department.`);
     return;
   }
+  const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
+  if (!lotMergeTool) {
+    alert("The latest production-lot merge control is not loaded. Refresh App v716 and try again.");
+    return;
+  }
+  const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
+  const mergeLotPlan = lotMergeTool.plan(mergeOrdersBeforeUpdate, primaryJobNumber, {
+    preferredOrderIds: new Set(primaryOrders.map((order) => order.id)),
+  });
+  if (mergeLotPlan.blockedReason) {
+    alert(`These Job Cards cannot become one production lot.\n\n${mergeLotPlan.blockedReason}`);
+    return;
+  }
+  if (mergeLotPlan.lots.length > 1 && weightMode !== "add") {
+    alert(`These Job Cards currently have ${mergeLotPlan.lots.length} live production lots. A completed merge must leave one lot.\n\nChoose Yes - Add GW, Stone And Non-Gold so the live weights can be consolidated safely.`);
+    return;
+  }
   const selectedOrderIds = new Set(sourceOrders.map((order) => order.id));
   const familyOrderIds = new Set((family.jobs || []).flatMap((job) => job.orders || []).map((order) => order.id).filter(Boolean));
   const sharedWeightLots = jobCardMergeSharedLots(selectedOrderIds, familyOrderIds, sourceJobNumbers);
@@ -35665,13 +35760,18 @@ async function mergeSelectedJobCards(event) {
   const weightDecision = weightMode === "add"
     ? `ADD TO ${primaryJobNumber}: ${jobCardMergeWeightSummaryText(sourceWeightSummary)}`
     : `DO NOT ADD WEIGHTS: ${jobCardMergeWeightSummaryText(sourceWeightSummary)}`;
-  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the ${keepDescription} with ${finalItemCount} total items.\n${weightDecision}\n\nProduction stock will not be duplicated. All PR numbers, lots, departments, transfers, bills, and item statuses will be preserved.${parentDescription}`)) return;
+  const lotDecision = mergeLotPlan.lots.length > 1
+    ? `\n${lotMergeTool.lotSummary(mergeLotPlan)} will be consolidated into ${mergeLotPlan.targetLot?.number || "one surviving lot"}.`
+    : "";
+  if (!confirm(`Merge ${sourceSummary} into ${primaryJobNumber}?\n\n${primaryJobNumber} will remain as the ${keepDescription} with ${finalItemCount} total items.\n${weightDecision}${lotDecision}\n\nProduction stock will not be duplicated. All PR numbers, lots, departments, transfers, bills, and item statuses will be preserved.${parentDescription}`)) return;
 
   const rollback = {
     orders: structuredClone(state.orders || []),
     lots: structuredClone(state.lots || []),
     bills: structuredClone(state.bills || []),
     safeItems: structuredClone(state.safeItems || []),
+    safeDepartmentIssues: structuredClone(state.safeDepartmentIssues || []),
+    safeDepartmentReturns: structuredClone(state.safeDepartmentReturns || []),
     productionNonGoldIssues: structuredClone(state.productionNonGoldIssues || []),
     settingManagerEntries: structuredClone(state.settingManagerEntries || []),
     factoryLedger: structuredClone(state.factoryLedger || []),
@@ -35711,6 +35811,20 @@ async function mergeSelectedJobCards(event) {
     lot.jobCardMergedAt = mergedAt;
     if (lot.bill) updateMergedJobReference(lot.bill, sourceJobNumbers, primaryJobNumber, mergedAt);
   });
+  const productionLotConsolidation = mergeLotPlan.lots.length > 1
+    ? lotMergeTool.consolidate(
+      mergeLotPlan,
+      primaryJobNumber,
+      mergedAt,
+      `Job Cards ${sourceSummary} merged into ${primaryJobNumber}`,
+    )
+    : { ok: true, count: 0, targetLot: mergeLotPlan.targetLot, sourceLots: [] };
+  if (!productionLotConsolidation.ok) {
+    Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+    alert(`The Job Cards were not merged because their production lots could not be consolidated safely.\n\n${productionLotConsolidation.blockedReason || "No safe target lot was found."}`);
+    renderMergeJobCandidates();
+    return;
+  }
   (state.bills || []).forEach((bill) => updateMergedJobReference(bill, sourceJobNumbers, primaryJobNumber, mergedAt));
   [
     state.safeItems,
@@ -35742,8 +35856,11 @@ async function mergeSelectedJobCards(event) {
     settingLotsRejoined: settingLotRejoinResult.count,
     settingLotsRejoinedFrom: settingLotRejoinResult.sourceLotNumbers,
     settingLotsRejoinedInto: settingLotRejoinResult.targetLotNumbers,
+    productionLotsConsolidated: productionLotConsolidation.count,
+    productionLotsConsolidatedFrom: productionLotConsolidation.sourceLots.map((lot) => lot.number || lot.id),
+    productionLotKept: productionLotConsolidation.targetLot?.number || "",
     settingWeightSyncCount,
-    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${settingLotRejoinResult.count} eligible Setting sub-lot(s) rejoined; ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock preserved.`,
+    reference: `${sourceSummary} merged into ${primaryJobNumber}; ${sourceOrders.length} item(s) moved; ${finalItemCount} total item(s); ${jobCardMergeWeightModeLabel(weightMode)} (${jobCardMergeWeightSummaryText(appliedWeightSummary)}); ${productionLotConsolidation.count} live production lot(s) consolidated into ${productionLotConsolidation.targetLot?.number || "the kept lot"}; ${settingLotRejoinResult.count} eligible Setting sub-lot(s) rejoined; ${settingWeightSyncCount} Setting lot/entry weight record(s) synchronized; ${childMode ? `parent ${family.root} unchanged; ` : ""}physical production stock preserved.`,
   });
 
   if (submitButton) {
@@ -35778,7 +35895,10 @@ async function mergeSelectedJobCards(event) {
   const settingPendingMessage = settingLotRejoinResult.skipped
     ? `${settingLotRejoinResult.skipped} Setting sub-lot(s) remain separate because they are still with a setter or cannot be safely combined.\n`
     : "";
-  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${settingRejoinMessage}${settingPendingMessage}${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} All PR numbers and production history were preserved.\n\n${cloudMessage}`);
+  const productionLotMessage = productionLotConsolidation.count
+    ? `${productionLotConsolidation.count + 1} live production lots were consolidated into ${productionLotConsolidation.targetLot?.number || "one lot"}.\n`
+    : "";
+  alert(`${sourceJobNumbers.size} ${childMode ? "child" : "split"} Job Card${sourceJobNumbers.size === 1 ? "" : "s"} merged into ${primaryJobNumber}.\n\n${jobCardMergeWeightModeLabel(weightMode)}: ${jobCardMergeWeightSummaryText(appliedWeightSummary)}.\n${productionLotMessage}${settingRejoinMessage}${settingPendingMessage}${settingWeightSyncCount ? `${settingWeightSyncCount} active or recorded Setting lot weight record(s) were updated for stone, non-gold, and net gold.\n` : ""}${finalItemCount} items retained.${childMode ? ` Parent ${family.root} was not changed.` : ""} All PR numbers and production history were preserved.\n\n${cloudMessage}`);
 }
 
 function renderRepairJobOrders() {
