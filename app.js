@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v716";
+const APP_VERSION = "v717";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -20261,9 +20261,29 @@ function splitLotAdjustmentTransfer(lot, transferWeight, grossReceivedWeight, wa
   };
 }
 
+function selectedSplitOrdersWithoutLiveLot(lot = {}, selectedIdSet = new Set()) {
+  const currentLotIds = new Set(getLotOrderIds(lot));
+  return [...selectedIdSet].filter((orderId) => {
+    if (!orderId || currentLotIds.has(orderId) || !findById("orders", orderId)) return false;
+    return !(state.lots || []).some((candidate) => (
+      candidate.id !== lot.id
+      && candidate.status !== "Completed"
+      && candidate.status !== "Merged"
+      && !candidate.mergedIntoLotId
+      && !candidate.manualResetHistoricalAt
+      && !candidate.inventoryResetArchivedAt
+      && getLotOrderIds(candidate).includes(orderId)
+    ));
+  });
+}
+
 function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
   const lotIds = getLotOrderIds(lot);
-  const selectedLotIds = lotIds.filter((id) => selectedIdSet.has(id));
+  const attachedUnlinkedOrderIds = selectedSplitOrdersWithoutLiveLot(lot, selectedIdSet);
+  const selectedLotIds = [...new Set([
+    ...lotIds.filter((id) => selectedIdSet.has(id)),
+    ...attachedUnlinkedOrderIds,
+  ])];
   const remainingIds = lotIds.filter((id) => !selectedIdSet.has(id));
   const selectedOrders = selectedLotIds.map((id) => findById("orders", id)).filter(Boolean);
   const remainingOrders = remainingIds.map((id) => findById("orders", id)).filter(Boolean);
@@ -20330,7 +20350,17 @@ function splitProductionLot(lot, selectedIdSet, splitJobNumber, splitGw) {
     splitFromLotId: lot.id,
     splitFromLotNumber: lot.number,
     splitDate: today(),
+    splitAttachedUnlinkedOrderIds: attachedUnlinkedOrderIds,
+    splitAttachedUnlinkedOrderCount: attachedUnlinkedOrderIds.length,
   };
+  if (attachedUnlinkedOrderIds.length) {
+    selectedOrders.forEach((order) => {
+      if (!attachedUnlinkedOrderIds.includes(order.id) || isCompletedOrder(order) || order.status === "Discarded") return;
+      order.status = "In Production";
+      order.productionLotAttachedAt = splitLot.createdAt;
+      order.productionLotAttachedTo = splitLot.number;
+    });
+  }
   state.lots.unshift(splitLot);
   state.ledger.unshift({
     id: crypto.randomUUID(),
@@ -20663,9 +20693,8 @@ async function splitSelectedJobItems() {
     order.updatedAt = splitAt;
     order.lastSplitAt = splitAt;
   });
-  if (mixedLiveLot) {
-    splitProductionLot(mixedLiveLot, selectedIdSet, splitJobNumber, splitGw);
-  }
+  let createdSplitLot = null;
+  if (mixedLiveLot) createdSplitLot = splitProductionLot(mixedLiveLot, selectedIdSet, splitJobNumber, splitGw);
   state.lots.forEach((lot) => {
     if (mixedLiveLot && lot.id === mixedLiveLot.id) return;
     const ids = getLotOrderIds(lot);
@@ -20678,10 +20707,19 @@ async function splitSelectedJobItems() {
     }
   });
   if (mixedLiveLot) mixedLiveLot.updatedAt = splitAt;
-  const splitLot = state.lots.find((lot) => (
+  const splitLot = createdSplitLot || state.lots.find((lot) => (
     lot.orderNumber === splitJobNumber
     && getLotOrderIds(lot).some((id) => selectedIdSet.has(id))
   ));
+  if (mixedLiveLot) {
+    const linkedSplitIds = new Set(getLotOrderIds(splitLot || {}));
+    const missingSelectedOrders = selectedOrders.filter((order) => !linkedSplitIds.has(order.id));
+    if (!splitLot || missingSelectedOrders.length) {
+      Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+      alert(`The split was stopped safely because ${missingSelectedOrders.length || selectedOrders.length} selected PR item(s) could not be attached to the new production lot. No Job Card or weight was changed.`);
+      return;
+    }
+  }
   if (splitLot) splitLot.updatedAt = splitAt;
   if (splitLot) splitLot.jobFamilyRootNumber = familyRootJobNumber;
   if (lotConsolidationResult.count) {
@@ -35730,7 +35768,7 @@ async function mergeSelectedJobCards(event) {
   }
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
-    alert("The latest production-lot merge control is not loaded. Refresh App v716 and try again.");
+    alert("The latest production-lot merge control is not loaded. Refresh App v717 and try again.");
     return;
   }
   const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
