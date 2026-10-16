@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v717";
+const APP_VERSION = "v718";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4300,7 +4300,8 @@ document.getElementById("close-job-item-detail").addEventListener("click", () =>
   closeJobItemDetail();
 });
 
-document.getElementById("split-job-items").addEventListener("click", splitSelectedJobItems);
+document.getElementById("split-job-items").addEventListener("click", () => splitSelectedJobItems());
+document.getElementById("send-selected-job-items-to-bill")?.addEventListener("click", () => splitSelectedJobItems({ sendToBill: true }));
 document.getElementById("move-job-items")?.addEventListener("click", openMoveSelectedJobItemsDialog);
 document.getElementById("add-job-card-item").addEventListener("click", openJobCardAddItem);
 document.getElementById("order-items-detail")?.addEventListener("input", (event) => {
@@ -19340,6 +19341,7 @@ function applySettingManagerJobCardMode() {
       "add-job-card-item",
       "standard-split-job-gw",
       "split-job-items",
+      "send-selected-job-items-to-bill",
       "move-job-items",
       "split-fitting-items-card",
       "standard-split-job-picker",
@@ -20387,6 +20389,7 @@ function updateFittingItemsJobToolbar(order = {}) {
   document.getElementById("add-job-card-item")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("standard-split-job-gw")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("split-job-items")?.classList.toggle("hidden", isSpecialCard || restricted);
+  document.getElementById("send-selected-job-items-to-bill")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("move-job-items")?.classList.toggle("hidden", isSpecialCard || restricted || !canMergeSplitJobCards());
   document.getElementById("standard-split-job-picker")?.classList.toggle("hidden", isSpecialCard || restricted);
   document.getElementById("split-fitting-items-card")?.classList.toggle("hidden", !canSplit || restricted);
@@ -20576,7 +20579,99 @@ function requestSplitUrgencyChoice(splitJobNumber = "", itemCount = 0) {
   });
 }
 
-async function splitSelectedJobItems() {
+function billReissueSourceLotsForOrders(orders = []) {
+  const selectedIds = new Set(orders.map((order) => order.id).filter(Boolean));
+  const explicitLotIds = new Set(orders.map((order) => order.billRemovedFromLotId).filter(Boolean));
+  return (state.lots || []).filter((lot) => {
+    if (!lot?.id || lot.mergedIntoLotId || !lotIsAtBillingDepartment(lot)) return false;
+    const lotIds = new Set(getLotOrderIds(lot));
+    const excludedIds = new Set(lot.billExcludedOrderIds || []);
+    const linkedSelectedIds = [...selectedIds].filter((id) => lotIds.has(id));
+    if (!linkedSelectedIds.length) return false;
+    return explicitLotIds.has(lot.id) || linkedSelectedIds.every((id) => excludedIds.has(id));
+  });
+}
+
+function billReissueSavedGw(orders = []) {
+  return Number(weight3(orders.reduce((total, order) => {
+    const snapshot = order.billRemovedItemSnapshot || {};
+    return total + Number(snapshot.finalGw || order.billRemovedFinalGw || 0);
+  }, 0)));
+}
+
+function prepareSplitLotForBillReissue(splitLot = {}, sourceLot = {}, selectedOrders = [], splitAt = "") {
+  const selectedIds = selectedOrders.map((order) => order.id).filter(Boolean);
+  const selectedSet = new Set(selectedIds);
+  splitLot.billOrderIds = selectedIds;
+  splitLot.billExcludedOrderIds = [];
+  splitLot.bill = null;
+  splitLot.billDraft = null;
+  splitLot.billingStage = sourceLot.billingStage || "Bill / QC";
+  splitLot.currentDepartment = sourceLot.currentDepartment || sourceLot.karigarName || "Bill / QC";
+  splitLot.karigarId = sourceLot.karigarId || splitLot.karigarId || "";
+  splitLot.karigarName = sourceLot.karigarName || "Bill / QC";
+  splitLot.status = "Completed";
+  splitLot.finishedGrossWeight = Number(weight3(splitLot.grossIssuedWeight || currentTransferIssueWeight(splitLot)));
+  splitLot.finishedWeight = Number(weight3(splitLot.issuedWeight || splitLot.finishedGrossWeight));
+  splitLot.productionStockWeight = splitLot.finishedGrossWeight;
+  splitLot.billReissueSplit = true;
+  splitLot.billReissueCreatedAt = splitAt || new Date().toISOString();
+  splitLot.billReissueSourceLotId = sourceLot.id || "";
+  splitLot.billReissueSourceLotNumber = sourceLot.number || "";
+  sourceLot.billExcludedOrderIds = (sourceLot.billExcludedOrderIds || []).filter((id) => !selectedSet.has(id));
+  sourceLot.billOrderIds = (sourceLot.billOrderIds || getLotOrderIds(sourceLot)).filter((id) => !selectedSet.has(id));
+  selectedOrders.forEach((order) => {
+    order.status = "Completed";
+    order.billReissueReady = false;
+    order.billReissuedAt = splitLot.billReissueCreatedAt;
+    order.billReissuedLotId = splitLot.id || "";
+    order.billReissuedLotNumber = splitLot.number || "";
+    delete order.billRemovedAt;
+    delete order.billRemovedFromLotId;
+    delete order.billRemovedFromLotNumber;
+    delete order.billRemovedBy;
+  });
+}
+
+function applyBillingTransferDefaults(lot = {}) {
+  const form = document.getElementById("transfer-form");
+  if (!form || !lot?.id) return false;
+  const department = (state.karigars || []).find((candidate) => isBillTransferDestination(
+    { toDepartment: departmentProcessText(candidate) },
+    candidate,
+  ));
+  if (!department || department.id === lot.karigarId) return false;
+  const processes = departmentProcesses(department);
+  const process = processes.find((entry) => String(entry || "").toLowerCase().includes("bill"))
+    || processes.find((entry) => String(entry || "").toLowerCase().includes("final"))
+    || primaryDepartmentProcess(department)
+    || department.speciality
+    || "FINAL BILL";
+  form.karigarId.value = department.id;
+  renderTransferProcessOptions(department.id, process);
+  form.toDepartment.value = process;
+  form.reason.value = "Selected Job Card items sent for final Bill";
+  updateTransferBalance();
+  return true;
+}
+
+function openSplitLotBillingStep(lot = {}) {
+  document.getElementById("order-dialog")?.close();
+  if (lot.status === "Completed" && lotIsAtBillingDepartment(lot)) {
+    switchView("billing");
+    openBill(lot.id);
+    return "bill";
+  }
+  openTransferLot(lot.id);
+  return applyBillingTransferDefaults(lot) ? "transfer" : "manual-transfer";
+}
+
+async function splitSelectedJobItems(options = {}) {
+  const sendToBill = Boolean(options?.sendToBill);
+  if (isReadOnlyUser()) {
+    alert("This login can view Job Cards but cannot split or send items to Bill.");
+    return;
+  }
   if (isSettingManagerUser()) {
     alert("Setting Manager cannot split a Job Card from the stone-details view.");
     return;
@@ -20597,7 +20692,7 @@ async function splitSelectedJobItems() {
   const jobOrderIds = new Set(jobOrders.map((order) => order.id));
   const selectedIds = selectedJobSplitIds().filter((id) => jobOrderIds.has(id));
   if (!selectedIds.length) {
-    alert("Select one or more item to split.");
+    alert(sendToBill ? "Select one or more items to send to Bill." : "Select one or more item to split.");
     return;
   }
   if (selectedIds.length >= jobOrders.length) {
@@ -20606,7 +20701,7 @@ async function splitSelectedJobItems() {
   }
   const selectedIdSet = new Set(selectedIds);
   const selectedOrders = jobOrders.filter((order) => selectedIdSet.has(order.id));
-  if (selectedOrders.some(isCompletedOrder)) {
+  if (selectedOrders.some((order) => isCompletedOrder(order) && !(sendToBill && (order.billReissueReady || order.billRemovedFromLotId)))) {
     alert("Completed item cannot be split.");
     return;
   }
@@ -20631,10 +20726,18 @@ async function splitSelectedJobItems() {
     return;
   }
   let mixedLiveLot = shouldConsolidateMergedLots ? splitLotPlan.targetLot : (mixedLiveLots[0] || null);
+  const reissueSourceLots = sendToBill ? billReissueSourceLotsForOrders(selectedOrders) : [];
+  if (!mixedLiveLot && reissueSourceLots.length > 1) {
+    alert("The selected removed Bill items belong to more than one Billing lot. Send items from one Billing lot at a time.");
+    return;
+  }
+  const reissueSourceLot = !mixedLiveLot && reissueSourceLots.length === 1 ? reissueSourceLots[0] : null;
+  if (reissueSourceLot) mixedLiveLot = reissueSourceLot;
   let splitGw = 0;
   if (mixedLiveLot) {
     const availableGw = Number(weight3(shouldConsolidateMergedLots ? splitLotPlan.grossWeight : currentTransferIssueWeight(mixedLiveLot)));
-    splitGw = Number(weight3(splitJobGwValue()));
+    const savedReissueGw = reissueSourceLot ? billReissueSavedGw(selectedOrders) : 0;
+    splitGw = Number(weight3(splitJobGwValue() || savedReissueGw));
     if (!splitGw) {
       const lotDescription = shouldConsolidateMergedLots
         ? `${splitLotPlan.lots.length} merged production lots (${splitLotPlan.lots.map((lot) => lot.number || lot.id).join(", ")})`
@@ -20657,7 +20760,10 @@ async function splitSelectedJobItems() {
       ? `\n\nThe old merged production lots will first become one lot, then GW ${gram(splitGw)} will move to the split Job Card.`
       : `\n\nProduction lot ${mixedLiveLot.number} will also be split with GW ${gram(splitGw)}.`)
     : "";
-  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\nPriority: ${splitPriorityLabel}.\nCustomer, design, dates, purity, size, stone data and production numbers will remain same.`)) return;
+  const targetText = sendToBill
+    ? "The selected items will form a child Job Card and continue to Billing. All unselected items will remain in the main Job Card."
+    : "The selected items will form a child Job Card. All unselected items will remain in the main Job Card.";
+  if (!confirm(`Move ${selectedOrders.length} selected item(s) from ${originalJobNumber} to ${splitJobNumber}?${productionSplitText}\n\n${targetText}\nPriority: ${splitPriorityLabel}.\nCustomer, design, dates, purity, size, stone data and production numbers will remain same.`)) return;
   const rollback = {
     orders: structuredClone(state.orders || []),
     lots: structuredClone(state.lots || []),
@@ -20720,8 +20826,28 @@ async function splitSelectedJobItems() {
       return;
     }
   }
+  if (sendToBill) {
+    const linkedSplitIds = new Set(getLotOrderIds(splitLot || {}));
+    const missingSelectedOrders = selectedOrders.filter((order) => !linkedSplitIds.has(order.id));
+    if (!splitLot || missingSelectedOrders.length) {
+      Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+      alert(`The Billing split was stopped safely because ${missingSelectedOrders.length || selectedOrders.length} selected PR item(s) were not together in the new child lot. Send items from one production lot at a time. No Job Card or weight was changed.`);
+      return;
+    }
+  }
   if (splitLot) splitLot.updatedAt = splitAt;
   if (splitLot) splitLot.jobFamilyRootNumber = familyRootJobNumber;
+  if (sendToBill && !splitLot) {
+    Object.entries(rollback).forEach(([key, value]) => { state[key] = value; });
+    alert("The selected items could not be linked to one production lot for Billing. No Job Card or weight was changed.");
+    return;
+  }
+  if (sendToBill && reissueSourceLot && splitLot) {
+    prepareSplitLotForBillReissue(splitLot, reissueSourceLot, selectedOrders, splitAt);
+  } else if (sendToBill && splitLot) {
+    splitLot.sendToBillRequestedAt = splitAt;
+    splitLot.sendToBillRequestedBy = currentUser?.name || currentUser?.id || "User";
+  }
   if (lotConsolidationResult.count) {
     state.ledger.unshift({
       id: crypto.randomUUID(),
@@ -20740,7 +20866,7 @@ async function splitSelectedJobItems() {
   }
   const savedLocally = saveState({
     alertOnFailure: true,
-    context: `Split ${originalJobNumber} into ${splitJobNumber}`,
+    context: `${sendToBill ? "Split for Billing" : "Split"} ${originalJobNumber} into ${splitJobNumber}`,
     changedStateKeys: ["orders", "lots", "ledger", "settingManagerEntries", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "safeItems", "nextLot"],
   });
   if (!savedLocally) {
@@ -20761,8 +20887,16 @@ async function splitSelectedJobItems() {
   ]);
   render();
   clearSplitJobGw();
-  openJobOrder(splitJobNumber, "active");
   const savedToCloud = await saveJobOrderToCloudNow();
+  if (sendToBill && splitLot) {
+    alert(`${splitJobNumber} created with ${selectedOrders.length} item(s).\nThe remaining ${jobOrders.length - selectedOrders.length} item(s) stay in ${originalJobNumber}.\n\n${savedToCloud ? "Saved and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically."}`);
+    const opened = openSplitLotBillingStep(splitLot);
+    if (opened === "manual-transfer") {
+      alert("The child Job Card is ready, but no Billing department was found in Department Master. Select the Billing department manually in the open Transfer form.");
+    }
+    return;
+  }
+  openJobOrder(splitJobNumber, "active");
   alert(`${splitJobNumber} created with ${selectedOrders.length} item(s).\nPriority: ${splitPriorityLabel}.\n\n${savedToCloud ? "Saved and confirmed in Supabase cloud." : "Saved safely on this laptop; cloud sync will retry automatically."}`);
 }
 
@@ -35768,7 +35902,7 @@ async function mergeSelectedJobCards(event) {
   }
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
-    alert("The latest production-lot merge control is not loaded. Refresh App v717 and try again.");
+    alert("The latest production-lot merge control is not loaded. Refresh App v718 and try again.");
     return;
   }
   const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
@@ -45838,6 +45972,9 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
     return;
   }
   const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
+  const removedItemSnapshot = structuredClone(existingItems.find((item) =>
+    item.orderId === order.id || (order.productionNo && item.productionNo === order.productionNo)
+  ) || billItem || {});
   const remainingItems = billDraftItemsFromForm(existingItems).filter((item) =>
     item.orderId !== order.id && (!order.productionNo || item.productionNo !== order.productionNo)
   );
@@ -45856,6 +45993,7 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
         designNo: billOrderDesignCode(order),
         action: deleteFromJobCard ? "Removed From Bill And Job Card" : "Removed From Bill Only",
         removedBy: currentUser?.name || currentUser?.id || "User",
+        billItemSnapshot: removedItemSnapshot,
       },
       ...(lot.billItemRemovalHistory || []),
     ];
@@ -45874,6 +46012,11 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
       order.billRemovedFromLotId = lot.id;
       order.billRemovedFromLotNumber = lot.number || "";
       order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
+      order.billRemovedItemSnapshot = removedItemSnapshot;
+      order.billRemovedFinalGw = Number(weight3(removedItemSnapshot.finalGw || 0));
+      order.billReissueReady = true;
+      order.status = "Bill Removed";
+      order.completedDate = "";
     }
     closeBillItemRemoveDialog();
     renderBillItems(lot, { ...workingBillRecord(lot, bill), items: remainingItems });
@@ -45895,7 +46038,7 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
     if (!saved) throw new Error("The Bill item removal could not be saved.");
     const message = deleteFromJobCard
       ? `${request.label} removed from the Bill and deleted from the Job Card.`
-      : `${request.label} removed from this Bill and kept in the Job Card.`;
+      : `${request.label} removed from this Bill and kept in the Job Card. Select it in the Job Card and use Send Selected To Bill when it is ready again.`;
     restoreBillItemRemovalView(lot.id, message);
     const search = document.getElementById("bill-item-search");
     if (search) search.value = searchValue;
