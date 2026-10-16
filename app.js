@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v718";
+const APP_VERSION = "v719";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -35902,7 +35902,7 @@ async function mergeSelectedJobCards(event) {
   }
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
-    alert("The latest production-lot merge control is not loaded. Refresh App v718 and try again.");
+    alert("The latest production-lot merge control is not loaded. Refresh App v719 and try again.");
     return;
   }
   const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
@@ -45902,10 +45902,10 @@ function openBillItemRemoveDialog(orderId = "") {
   const permission = document.getElementById("bill-item-remove-permission");
   if (permission) {
     permission.textContent = canDeleteJobItem
-      ? "Choose whether to keep this PR in the Job Card or permanently delete the PR item as well."
+      ? "Remove From Bill Only creates a Pending child Job Card for this PR. Delete permanently removes the PR item."
       : otherLots.length
-        ? `Delete From Job Card is blocked because this PR is linked to ${otherLots.length} other production lot${otherLots.length === 1 ? "" : "s"}. You can still remove it from this Bill only.`
-        : "Delete From Job Card is available only to Owner or Manager. You can still remove it from this Bill only.";
+        ? `Delete From Job Card is blocked because this PR is linked to ${otherLots.length} other production lot${otherLots.length === 1 ? "" : "s"}. Remove From Bill Only will create a Pending child Job Card.`
+        : "Delete From Job Card is available only to Owner or Manager. Remove From Bill Only will create a Pending child Job Card.";
   }
   document.getElementById("bill-item-remove-dialog")?.showModal();
 }
@@ -45937,6 +45937,98 @@ function restoreBillItemRemovalView(lotId = "", message = "") {
   updateBillAmount();
   applyBillAccessMode();
   if (message) setBillDraftStatus(message, "saved");
+}
+
+function splitRemovedBillItemToPendingJob(lot = {}, order = {}, removedItemSnapshot = {}, currentIds = []) {
+  const originalJobNumber = order.jobNumber || order.productionNo || order.number || lot.orderNumber || "JOB";
+  const splitJobNumber = nextSplitJobNumber(originalJobNumber);
+  const splitAt = new Date().toISOString();
+  const familyRootJobNumber = jobCardFamilyRootNumber(order) || splitJobRootNumber(originalJobNumber);
+  const remainingLotOrderIds = getLotOrderIds(lot).filter((id) => id !== order.id);
+  if (!remainingLotOrderIds.length) {
+    throw new Error("The last Bill item cannot be returned as a split. Delete the complete Bill instead.");
+  }
+
+  const sourceGw = Number(weight3(currentTransferIssueWeight(lot)));
+  const removedGw = Number(weight3(Math.max(Number(removedItemSnapshot.finalGw || 0), 0)));
+  const canAdjustBillingGw = removedGw > 0.0005 && removedGw < sourceGw - 0.0005;
+  const remainingGw = canAdjustBillingGw ? Number(weight3(sourceGw - removedGw)) : sourceGw;
+
+  lot.orderIds = remainingLotOrderIds;
+  lot.orderId = remainingLotOrderIds[0] || "";
+  if (!lot.manualWipCombinedBill) lot.orderNumber = lotOrderNumberFromIds(remainingLotOrderIds, lot.orderNumber);
+  lot.billOrderIds = currentIds.filter((id) => id !== order.id);
+  lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => id !== order.id);
+
+  if (canAdjustBillingGw) {
+    const remainingOrders = remainingLotOrderIds.map((id) => findById("orders", id)).filter(Boolean);
+    const remainingWax = Number(weight3(productionStoneTotalsForOrders(remainingOrders, "wax").weight));
+    const currentHand = Number(weight3(currentHandStoneWeight(lot)));
+    const removedHand = Number(weight3(productionStoneTotalsForOrders([order], "hand").weight));
+    const remainingHand = Number(weight3(Math.max(currentHand - removedHand, 0)));
+    const remainingNet = splitLotNetWeight(remainingGw, remainingWax, remainingHand);
+    lot.grossIssuedWeight = Number(weight3(Math.max(Number(lot.grossIssuedWeight || sourceGw) - removedGw, 0)));
+    lot.waxStoneWeight = remainingWax;
+    lot.physicalWaxStoneWeight = remainingWax;
+    lot.issuedWeight = remainingNet;
+    lot.transfers = lot.transfers || [];
+    lot.transfers.push(splitLotAdjustmentTransfer(
+      lot,
+      sourceGw,
+      remainingGw,
+      remainingWax,
+      remainingHand,
+      `${order.productionNo || order.number || "PR"} removed from Bill to ${splitJobNumber}; Billing balance retained for the remaining items`,
+    ));
+    recalculateLotAfterTransferChange(lot);
+  }
+
+  order.jobNumber = splitJobNumber;
+  order.splitFromJobNumber = originalJobNumber;
+  order.jobFamilyRootNumber = familyRootJobNumber;
+  order.splitDate = today();
+  order.lastSplitAt = splitAt;
+  order.updatedAt = splitAt;
+  order.status = "Pending";
+  order.completedDate = "";
+  order.completionReason = "";
+  delete order.completedByBillId;
+  delete order.completedByBillNo;
+  delete order.completedByBillAt;
+  delete order.billReissuedAt;
+  delete order.billReissuedLotId;
+  delete order.billReissuedLotNumber;
+  order.lastProductionLotId = lot.id || "";
+  order.lastProductionLotNumber = lot.number || "";
+  delete order.productionLotAttachedAt;
+  delete order.productionLotAttachedTo;
+  order.billRemovedAt = splitAt;
+  order.billRemovedFromJobNumber = originalJobNumber;
+  order.billRemovedFromLotId = lot.id || "";
+  order.billRemovedFromLotNumber = lot.number || "";
+  order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
+  order.billRemovedItemSnapshot = removedItemSnapshot;
+  order.billRemovedFinalGw = removedGw;
+  order.billReissueReady = false;
+  order.goldReissueRequired = true;
+  order.goldReissuePendingSince = splitAt;
+
+  state.ledger = state.ledger || [];
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: splitAt,
+    type: "Bill Item Returned To Pending",
+    purity: order.purity || lot.metalPurity || "-",
+    weight: 0,
+    jobNumber: splitJobNumber,
+    lotNumber: lot.number || "",
+    sourceType: "bill-item-pending-split",
+    sourceId: order.id,
+    reference: `${order.productionNo || order.number || "PR"} removed from ${originalJobNumber} Bill lot ${lot.number || "-"} and moved to pending child ${splitJobNumber}. ${canAdjustBillingGw ? `Billing GW reduced by ${gram(removedGw)}.` : "No Bill GW was available for automatic balance adjustment."}`,
+  });
+
+  return { originalJobNumber, splitJobNumber, removedGw, billingGwAdjusted: canAdjustBillingGw };
 }
 
 function commitBillItemRemoval(deleteFromJobCard = false) {
@@ -45972,10 +46064,11 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
     return;
   }
   const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
-  const removedItemSnapshot = structuredClone(existingItems.find((item) =>
+  const currentFormItems = billDraftItemsFromForm(existingItems);
+  const removedItemSnapshot = structuredClone(currentFormItems.find((item) =>
     item.orderId === order.id || (order.productionNo && item.productionNo === order.productionNo)
   ) || billItem || {});
-  const remainingItems = billDraftItemsFromForm(existingItems).filter((item) =>
+  const remainingItems = currentFormItems.filter((item) =>
     item.orderId !== order.id && (!order.productionNo || item.productionNo !== order.productionNo)
   );
   const snapshot = billItemRemovalStateSnapshot();
@@ -45983,7 +46076,11 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
   const billTable = document.querySelector("#bill-dialog .bill-item-table");
   const scrollTop = billTable?.scrollTop || 0;
   const scrollLeft = billTable?.scrollLeft || 0;
+  let pendingSplit = null;
   try {
+    if (!deleteFromJobCard) {
+      pendingSplit = splitRemovedBillItemToPendingJob(lot, order, removedItemSnapshot, currentIds);
+    }
     lot.billItemRemovalHistory = [
       {
         id: crypto.randomUUID(),
@@ -45994,29 +46091,20 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
         action: deleteFromJobCard ? "Removed From Bill And Job Card" : "Removed From Bill Only",
         removedBy: currentUser?.name || currentUser?.id || "User",
         billItemSnapshot: removedItemSnapshot,
+        originalJobNumber: pendingSplit?.originalJobNumber || order.jobNumber || lot.orderNumber || "",
+        pendingSplitJobNumber: pendingSplit?.splitJobNumber || "",
       },
       ...(lot.billItemRemovalHistory || []),
     ];
-    lot.billExcludedOrderIds = [...new Set([...(lot.billExcludedOrderIds || []), order.id])];
-    lot.billOrderIds = currentIds.filter((id) => id !== order.id);
     if (deleteFromJobCard) {
       const remainingLotOrderIds = getLotOrderIds(lot).filter((id) => id !== order.id);
       lot.orderIds = remainingLotOrderIds;
       lot.orderId = remainingLotOrderIds[0] || "";
+      lot.billOrderIds = currentIds.filter((id) => id !== order.id);
       lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => id !== order.id);
       if (!lot.manualWipCombinedBill) lot.orderNumber = lotOrderNumberFromIds(remainingLotOrderIds, lot.orderNumber);
       forgetRecentJobOrderBackups([order.id]);
       state.orders = (state.orders || []).filter((entry) => entry.id !== order.id);
-    } else {
-      order.billRemovedAt = new Date().toISOString();
-      order.billRemovedFromLotId = lot.id;
-      order.billRemovedFromLotNumber = lot.number || "";
-      order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
-      order.billRemovedItemSnapshot = removedItemSnapshot;
-      order.billRemovedFinalGw = Number(weight3(removedItemSnapshot.finalGw || 0));
-      order.billReissueReady = true;
-      order.status = "Bill Removed";
-      order.completedDate = "";
     }
     closeBillItemRemoveDialog();
     renderBillItems(lot, { ...workingBillRecord(lot, bill), items: remainingItems });
@@ -46032,13 +46120,19 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
       saved = saveState({
         alertOnFailure: true,
         context: `${lot.number || "Bill"} remove item`,
-        changedStateKeys: ["orders", "lots"],
+        changedStateKeys: ["orders", "lots", "ledger"],
       });
     }
     if (!saved) throw new Error("The Bill item removal could not be saved.");
     const message = deleteFromJobCard
       ? `${request.label} removed from the Bill and deleted from the Job Card.`
-      : `${request.label} removed from this Bill and kept in the Job Card. Select it in the Job Card and use Send Selected To Bill when it is ready again.`;
+      : `${request.label} removed from this Bill. ${pendingSplit.splitJobNumber} was created as Pending and is ready for Issue Gold.`;
+    if (pendingSplit) {
+      backupRecentJobOrders([
+        ...state.orders.filter((item) => item.jobNumber === pendingSplit.originalJobNumber),
+        ...state.orders.filter((item) => item.jobNumber === pendingSplit.splitJobNumber),
+      ]);
+    }
     restoreBillItemRemovalView(lot.id, message);
     const search = document.getElementById("bill-item-search");
     if (search) search.value = searchValue;
@@ -46582,7 +46676,7 @@ function renderBillItems(lot, bill = {}) {
         </td>
         <td class="bill-item-actions">
           <button type="button" class="danger-button bill-item-remove-button" data-remove-bill-item="${escapeHtml(order.id)}"${removeBlockedReason ? " disabled" : ""} title="${escapeHtml(removeBlockedReason || `Remove ${itemLabel} from this Bill`)}">Remove Item</button>
-          <small>${escapeHtml(removeBlockedReason || "Choose whether to keep or delete the Job Card item.")}</small>
+          <small>${escapeHtml(removeBlockedReason || "Remove to a Pending child Job Card, or permanently delete the PR item.")}</small>
         </td>
       </tr>
     `;
