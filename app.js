@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v719";
+const APP_VERSION = "v720";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3365,6 +3365,13 @@ document.getElementById("cancel-production-return")?.addEventListener("click", (
 document.getElementById("bill-form").addEventListener("input", handleBillAmountChange);
 document.getElementById("bill-form").addEventListener("change", handleBillAmountChange);
 document.getElementById("clear-bill-item-search")?.addEventListener("click", clearBillItemSearch);
+document.getElementById("bill-select-zero-gw-items")?.addEventListener("click", selectEmptyOrZeroGwBillItems);
+document.getElementById("bill-select-visible-items")?.addEventListener("click", selectVisibleBillItems);
+document.getElementById("bill-unselect-all-items")?.addEventListener("click", unselectAllBillItems);
+document.getElementById("bill-remove-selected-items")?.addEventListener("click", commitBulkBillItemRemoval);
+document.getElementById("bill-item-table")?.addEventListener("change", (event) => {
+  if (event.target.matches(".bill-item-remove-check")) updateBillItemRemovalSelectionUi();
+});
 document.getElementById("add-pending-combined-bill-items")?.addEventListener("click", openCombinedBillAddItemsDialog);
 document.getElementById("save-bill-draft")?.addEventListener("click", () => saveBillDraftNow());
 document.getElementById("delete-bill")?.addEventListener("click", deleteBillFromDialog);
@@ -4309,6 +4316,22 @@ document.getElementById("order-items-detail")?.addEventListener("input", (event)
   if (event.target.matches(".job-split-check")) updateJobSplitSelectionUi();
 });
 document.getElementById("order-items-detail")?.addEventListener("click", (event) => {
+  const selectAllButton = event.target.closest("[data-job-select-all-items]");
+  if (selectAllButton) {
+    document.querySelectorAll("#order-items-detail .job-split-select:not(.hidden) .job-split-check").forEach((checkbox) => {
+      checkbox.checked = true;
+    });
+    updateJobSplitSelectionUi();
+    return;
+  }
+  const unselectAllButton = event.target.closest("[data-job-unselect-all-items]");
+  if (unselectAllButton) {
+    document.querySelectorAll("#order-items-detail .job-split-check").forEach((checkbox) => {
+      checkbox.checked = false;
+    });
+    updateJobSplitSelectionUi();
+    return;
+  }
   const removeButton = event.target.closest("[data-remove-job-split-item]");
   if (!removeButton) return;
   const checkbox = [...document.querySelectorAll("#order-items-detail .job-split-check")]
@@ -19393,6 +19416,10 @@ function renderJobItemsDetail(orders) {
           <input id="job-split-search" type="search" placeholder="PR no, design, sub item, category or item" autocomplete="off">
         </label>
         <span id="job-split-search-summary">${orders.length} item${orders.length === 1 ? "" : "s"} shown</span>
+        <div class="job-split-search-actions">
+          <button class="ghost-button" type="button" data-job-select-all-items>Select All Items</button>
+          <button class="ghost-button" type="button" data-job-unselect-all-items>Unselect All</button>
+        </div>
       </div>
       <div class="job-split-selected-panel">
         <div class="job-split-selected-heading">
@@ -35902,7 +35929,7 @@ async function mergeSelectedJobCards(event) {
   }
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
-    alert("The latest production-lot merge control is not loaded. Refresh App v719 and try again.");
+    alert("The latest production-lot merge control is not loaded. Refresh App v720 and try again.");
     return;
   }
   const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
@@ -45177,6 +45204,7 @@ function applyBillAccessMode() {
   const transferFailed = document.getElementById("bill-qc-failed");
   const bulkQcToolbar = document.getElementById("bill-qc-bulk-toolbar");
   const bulkQcOk = document.getElementById("bill-qc-all-ok");
+  const bulkRemoveToolbar = document.getElementById("bill-item-bulk-remove-toolbar");
   const addPendingItems = document.getElementById("add-pending-combined-bill-items");
   const saveDraftButton = document.getElementById("save-bill-draft");
   const deleteBillButton = document.getElementById("delete-bill");
@@ -45185,6 +45213,13 @@ function applyBillAccessMode() {
   if (transferFailed) transferFailed.classList.toggle("hidden", referenceOnly || !canSendQcFailedItems());
   if (bulkQcToolbar) bulkQcToolbar.classList.toggle("hidden", referenceOnly || !canChangeQc);
   if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
+  const canManageBillItems = Boolean(!referenceOnly && !qcOnlyMode && !lockedForUser && !isReadOnlyUser()
+    && (bill.id ? canEditGeneratedBill() : canCreateBill()));
+  if (bulkRemoveToolbar) bulkRemoveToolbar.classList.toggle("hidden", !canManageBillItems);
+  form.querySelectorAll(".bill-item-remove-check").forEach((checkbox) => {
+    checkbox.disabled = !canManageBillItems || checkbox.dataset.removalBlocked === "true";
+  });
+  updateBillItemRemovalSelectionUi();
   const canAddPending = Boolean(!referenceOnly && lot?.manualWipCombinedBill && (bill.id ? canEditGeneratedBill() : canCreateBill()));
   if (addPendingItems) {
     addPendingItems.classList.toggle("hidden", !canAddPending);
@@ -45717,6 +45752,61 @@ function filterBillItems() {
   return rows.filter((row) => !row.classList.contains("bill-item-search-hidden"));
 }
 
+function billItemRemovalCheckboxes() {
+  return Array.from(document.querySelectorAll("#bill-item-table .bill-item-remove-check"));
+}
+
+function selectedBillItemRemovalOrderIds() {
+  return billItemRemovalCheckboxes()
+    .filter((checkbox) => checkbox.checked && !checkbox.disabled)
+    .map((checkbox) => checkbox.value)
+    .filter(Boolean);
+}
+
+function updateBillItemRemovalSelectionUi() {
+  const selectedIds = new Set(selectedBillItemRemovalOrderIds());
+  document.querySelectorAll("#bill-item-table tr[data-order-id]").forEach((row) => {
+    row.classList.toggle("bill-item-remove-selected", selectedIds.has(row.dataset.orderId));
+  });
+  const count = document.getElementById("bill-item-remove-selection-count");
+  const removeButton = document.getElementById("bill-remove-selected-items");
+  if (count) count.textContent = `${selectedIds.size} item${selectedIds.size === 1 ? "" : "s"} selected`;
+  if (removeButton) removeButton.disabled = selectedIds.size === 0;
+}
+
+function selectEmptyOrZeroGwBillItems() {
+  let selected = 0;
+  billItemRemovalCheckboxes().forEach((checkbox) => {
+    const row = checkbox.closest("tr[data-order-id]");
+    const finalGwInput = row?.querySelector('[name="billItemFinalGw"]');
+    const rawValue = String(finalGwInput?.value || "").trim();
+    const shouldSelect = !checkbox.disabled && (!rawValue || Number(rawValue) <= 0);
+    checkbox.checked = shouldSelect;
+    if (shouldSelect) selected += 1;
+  });
+  updateBillItemRemovalSelectionUi();
+  if (!selected) alert("No removable item has an empty or zero Final GW.");
+}
+
+function selectVisibleBillItems() {
+  let selected = 0;
+  filterBillItems().forEach((row) => {
+    const checkbox = row.querySelector(".bill-item-remove-check");
+    if (!checkbox || checkbox.disabled) return;
+    checkbox.checked = true;
+    selected += 1;
+  });
+  updateBillItemRemovalSelectionUi();
+  if (!selected) alert("No removable Bill item is currently shown.");
+}
+
+function unselectAllBillItems() {
+  billItemRemovalCheckboxes().forEach((checkbox) => {
+    checkbox.checked = false;
+  });
+  updateBillItemRemovalSelectionUi();
+}
+
 function focusFirstBillSearchMatch() {
   const matches = filterBillItems();
   const finalGwInput = matches[0]?.querySelector('[name="billItemFinalGw"]');
@@ -45939,32 +46029,61 @@ function restoreBillItemRemovalView(lotId = "", message = "") {
   if (message) setBillDraftStatus(message, "saved");
 }
 
-function splitRemovedBillItemToPendingJob(lot = {}, order = {}, removedItemSnapshot = {}, currentIds = []) {
-  const originalJobNumber = order.jobNumber || order.productionNo || order.number || lot.orderNumber || "JOB";
-  const splitJobNumber = nextSplitJobNumber(originalJobNumber);
+function splitRemovedBillItemsToPendingJobs(lot = {}, selections = [], currentIds = []) {
+  const selectedEntries = selections.filter((entry) => entry?.order?.id);
+  if (!selectedEntries.length) throw new Error("Select one or more Bill items to remove.");
+  const selectedOrderIds = new Set(selectedEntries.map((entry) => entry.order.id));
   const splitAt = new Date().toISOString();
-  const familyRootJobNumber = jobCardFamilyRootNumber(order) || splitJobRootNumber(originalJobNumber);
-  const remainingLotOrderIds = getLotOrderIds(lot).filter((id) => id !== order.id);
+  const remainingLotOrderIds = getLotOrderIds(lot).filter((id) => !selectedOrderIds.has(id));
   if (!remainingLotOrderIds.length) {
-    throw new Error("The last Bill item cannot be returned as a split. Delete the complete Bill instead.");
+    throw new Error("The Bill must keep at least one item. Delete the complete Bill instead.");
   }
 
   const sourceGw = Number(weight3(currentTransferIssueWeight(lot)));
-  const removedGw = Number(weight3(Math.max(Number(removedItemSnapshot.finalGw || 0), 0)));
+  const removedGw = Number(weight3(selectedEntries.reduce(
+    (total, entry) => total + Math.max(Number(entry.item?.finalGw || 0), 0),
+    0,
+  )));
   const canAdjustBillingGw = removedGw > 0.0005 && removedGw < sourceGw - 0.0005;
   const remainingGw = canAdjustBillingGw ? Number(weight3(sourceGw - removedGw)) : sourceGw;
+
+  const reservedJobNumbers = new Set((state.orders || [])
+    .map((candidate) => candidate.jobNumber || candidate.productionNo || candidate.number)
+    .filter(Boolean));
+  const groups = new Map();
+  selectedEntries.forEach((entry) => {
+    const order = entry.order;
+    const originalJobNumber = order.jobNumber || order.productionNo || order.number || lot.orderNumber || "JOB";
+    if (!groups.has(originalJobNumber)) {
+      const root = splitJobRootNumber(originalJobNumber) || originalJobNumber;
+      let index = 1;
+      let splitJobNumber = `${root}-S${index}`;
+      while (reservedJobNumbers.has(splitJobNumber)) {
+        index += 1;
+        splitJobNumber = `${root}-S${index}`;
+      }
+      reservedJobNumbers.add(splitJobNumber);
+      groups.set(originalJobNumber, {
+        originalJobNumber,
+        splitJobNumber,
+        familyRootJobNumber: jobCardFamilyRootNumber(order) || root,
+        entries: [],
+      });
+    }
+    groups.get(originalJobNumber).entries.push(entry);
+  });
 
   lot.orderIds = remainingLotOrderIds;
   lot.orderId = remainingLotOrderIds[0] || "";
   if (!lot.manualWipCombinedBill) lot.orderNumber = lotOrderNumberFromIds(remainingLotOrderIds, lot.orderNumber);
-  lot.billOrderIds = currentIds.filter((id) => id !== order.id);
-  lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => id !== order.id);
+  lot.billOrderIds = currentIds.filter((id) => !selectedOrderIds.has(id));
+  lot.billExcludedOrderIds = (lot.billExcludedOrderIds || []).filter((id) => !selectedOrderIds.has(id));
 
   if (canAdjustBillingGw) {
     const remainingOrders = remainingLotOrderIds.map((id) => findById("orders", id)).filter(Boolean);
     const remainingWax = Number(weight3(productionStoneTotalsForOrders(remainingOrders, "wax").weight));
     const currentHand = Number(weight3(currentHandStoneWeight(lot)));
-    const removedHand = Number(weight3(productionStoneTotalsForOrders([order], "hand").weight));
+    const removedHand = Number(weight3(productionStoneTotalsForOrders(selectedEntries.map((entry) => entry.order), "hand").weight));
     const remainingHand = Number(weight3(Math.max(currentHand - removedHand, 0)));
     const remainingNet = splitLotNetWeight(remainingGw, remainingWax, remainingHand);
     lot.grossIssuedWeight = Number(weight3(Math.max(Number(lot.grossIssuedWeight || sourceGw) - removedGw, 0)));
@@ -45978,57 +46097,92 @@ function splitRemovedBillItemToPendingJob(lot = {}, order = {}, removedItemSnaps
       remainingGw,
       remainingWax,
       remainingHand,
-      `${order.productionNo || order.number || "PR"} removed from Bill to ${splitJobNumber}; Billing balance retained for the remaining items`,
+      `${selectedEntries.length} PR item${selectedEntries.length === 1 ? "" : "s"} removed from Bill to ${[...groups.values()].map((group) => group.splitJobNumber).join(", ")}; Billing balance retained for the remaining items`,
     ));
     recalculateLotAfterTransferChange(lot);
   }
 
-  order.jobNumber = splitJobNumber;
-  order.splitFromJobNumber = originalJobNumber;
-  order.jobFamilyRootNumber = familyRootJobNumber;
-  order.splitDate = today();
-  order.lastSplitAt = splitAt;
-  order.updatedAt = splitAt;
-  order.status = "Pending";
-  order.completedDate = "";
-  order.completionReason = "";
-  delete order.completedByBillId;
-  delete order.completedByBillNo;
-  delete order.completedByBillAt;
-  delete order.billReissuedAt;
-  delete order.billReissuedLotId;
-  delete order.billReissuedLotNumber;
-  order.lastProductionLotId = lot.id || "";
-  order.lastProductionLotNumber = lot.number || "";
-  delete order.productionLotAttachedAt;
-  delete order.productionLotAttachedTo;
-  order.billRemovedAt = splitAt;
-  order.billRemovedFromJobNumber = originalJobNumber;
-  order.billRemovedFromLotId = lot.id || "";
-  order.billRemovedFromLotNumber = lot.number || "";
-  order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
-  order.billRemovedItemSnapshot = removedItemSnapshot;
-  order.billRemovedFinalGw = removedGw;
-  order.billReissueReady = false;
-  order.goldReissueRequired = true;
-  order.goldReissuePendingSince = splitAt;
-
   state.ledger = state.ledger || [];
-  state.ledger.unshift({
-    id: crypto.randomUUID(),
-    date: today(),
-    createdAt: splitAt,
-    type: "Bill Item Returned To Pending",
-    purity: order.purity || lot.metalPurity || "-",
-    weight: 0,
-    jobNumber: splitJobNumber,
-    lotNumber: lot.number || "",
-    sourceType: "bill-item-pending-split",
-    sourceId: order.id,
-    reference: `${order.productionNo || order.number || "PR"} removed from ${originalJobNumber} Bill lot ${lot.number || "-"} and moved to pending child ${splitJobNumber}. ${canAdjustBillingGw ? `Billing GW reduced by ${gram(removedGw)}.` : "No Bill GW was available for automatic balance adjustment."}`,
+  const resultEntries = [];
+  groups.forEach((group) => {
+    group.entries.forEach(({ order, item }) => {
+      order.jobNumber = group.splitJobNumber;
+      order.splitFromJobNumber = group.originalJobNumber;
+      order.jobFamilyRootNumber = group.familyRootJobNumber;
+      order.splitDate = today();
+      order.lastSplitAt = splitAt;
+      order.updatedAt = splitAt;
+      order.status = "Pending";
+      order.completedDate = "";
+      order.completionReason = "";
+      delete order.completedByBillId;
+      delete order.completedByBillNo;
+      delete order.completedByBillAt;
+      delete order.billReissuedAt;
+      delete order.billReissuedLotId;
+      delete order.billReissuedLotNumber;
+      order.lastProductionLotId = lot.id || "";
+      order.lastProductionLotNumber = lot.number || "";
+      delete order.productionLotAttachedAt;
+      delete order.productionLotAttachedTo;
+      order.billRemovedAt = splitAt;
+      order.billRemovedFromJobNumber = group.originalJobNumber;
+      order.billRemovedFromLotId = lot.id || "";
+      order.billRemovedFromLotNumber = lot.number || "";
+      order.billRemovedBy = currentUser?.name || currentUser?.id || "User";
+      order.billRemovedItemSnapshot = item || {};
+      order.billRemovedFinalGw = Number(weight3(Math.max(Number(item?.finalGw || 0), 0)));
+      order.billReissueReady = false;
+      order.goldReissueRequired = true;
+      order.goldReissuePendingSince = splitAt;
+      resultEntries.push({
+        order,
+        item: item || {},
+        originalJobNumber: group.originalJobNumber,
+        splitJobNumber: group.splitJobNumber,
+      });
+    });
+    const productionNumbers = group.entries
+      .map(({ order }) => order.productionNo || order.number || "PR")
+      .join(", ");
+    const groupRemovedGw = Number(weight3(group.entries.reduce(
+      (total, entry) => total + Math.max(Number(entry.item?.finalGw || 0), 0),
+      0,
+    )));
+    state.ledger.unshift({
+      id: crypto.randomUUID(),
+      date: today(),
+      createdAt: splitAt,
+      type: "Bill Items Returned To Pending",
+      purity: group.entries[0]?.order?.purity || lot.metalPurity || "-",
+      weight: 0,
+      jobNumber: group.splitJobNumber,
+      lotNumber: lot.number || "",
+      sourceType: "bill-items-pending-split",
+      sourceId: group.entries[0]?.order?.id || "",
+      reference: `${productionNumbers} removed from ${group.originalJobNumber} Bill lot ${lot.number || "-"} and moved to pending child ${group.splitJobNumber}. ${canAdjustBillingGw ? `Billing GW share reduced by ${gram(groupRemovedGw)}.` : "No positive Final GW was available for automatic balance adjustment."}`,
+    });
   });
 
-  return { originalJobNumber, splitJobNumber, removedGw, billingGwAdjusted: canAdjustBillingGw };
+  return {
+    entries: resultEntries,
+    groups: [...groups.values()].map((group) => ({
+      originalJobNumber: group.originalJobNumber,
+      splitJobNumber: group.splitJobNumber,
+      orderIds: group.entries.map(({ order }) => order.id),
+    })),
+    removedGw,
+    billingGwAdjusted: canAdjustBillingGw,
+  };
+}
+
+function splitRemovedBillItemToPendingJob(lot = {}, order = {}, removedItemSnapshot = {}, currentIds = []) {
+  const result = splitRemovedBillItemsToPendingJobs(lot, [{ order, item: removedItemSnapshot }], currentIds);
+  return {
+    ...result.entries[0],
+    removedGw: result.removedGw,
+    billingGwAdjusted: result.billingGwAdjusted,
+  };
 }
 
 function commitBillItemRemoval(deleteFromJobCard = false) {
@@ -46147,6 +46301,123 @@ function commitBillItemRemoval(deleteFromJobCard = false) {
     render();
     restoreBillItemRemovalView(request.lotId);
     alert(error?.message || "The Bill item was not removed.");
+  }
+}
+
+function commitBulkBillItemRemoval() {
+  const form = document.getElementById("bill-form");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!lot) {
+    alert("The open Bill lot could not be found.");
+    return;
+  }
+  if (isReadOnlyUser() || (bill.id ? !canEditGeneratedBill() : !canCreateBill())) {
+    alert(bill.id
+      ? "Only Owner or Manager can remove items after the Bill is generated."
+      : "This login cannot remove items from this pending Bill.");
+    return;
+  }
+  if (bill.id && isBillFactoryOutPosted(bill)) {
+    alert("This Bill is already Factory Out. Reverse Factory Out before removing its items.");
+    return;
+  }
+
+  const selectedOrderIds = selectedBillItemRemovalOrderIds();
+  if (!selectedOrderIds.length) {
+    alert("Select one or more Bill items first.");
+    return;
+  }
+  const currentIds = billableOrderIdsForLot(lot, workingBillRecord(lot, bill));
+  const selectedSet = new Set(selectedOrderIds.filter((orderId) => currentIds.includes(orderId)));
+  if (!selectedSet.size) {
+    alert("The selected Bill items are no longer available. Refresh the Bill and try again.");
+    return;
+  }
+  if (selectedSet.size >= currentIds.length) {
+    alert("The Bill must keep at least one item. Unselect one item, or delete the complete Bill instead.");
+    return;
+  }
+
+  const existingItems = billDraftForLot(lot, bill)?.items || bill.items || [];
+  const currentFormItems = billDraftItemsFromForm(existingItems);
+  const selections = [...selectedSet].map((orderId) => {
+    const order = findById("orders", orderId);
+    const item = currentFormItems.find((candidate) => (
+      candidate.orderId === orderId || (order?.productionNo && candidate.productionNo === order.productionNo)
+    )) || {};
+    return { order, item: structuredClone(item) };
+  }).filter((entry) => entry.order);
+  const advancedItem = selections.find(({ item }) => billItemHasAdvancedMovement(item));
+  if (advancedItem) {
+    alert(`${advancedItem.order.productionNo || advancedItem.order.number || "One selected item"} has already moved beyond Bill / QC. Reverse that later movement first.`);
+    return;
+  }
+  if (!confirm(`Remove ${selections.length} selected item${selections.length === 1 ? "" : "s"} from this Bill?\n\nThey will be grouped into Pending child Job Card${new Set(selections.map(({ order }) => order.jobNumber)).size === 1 ? "" : "s"} and can receive a fresh Gold Issue.`)) return;
+
+  const snapshot = billItemRemovalStateSnapshot();
+  const searchValue = document.getElementById("bill-item-search")?.value || "";
+  const billTable = document.querySelector("#bill-dialog .bill-item-table");
+  const scrollTop = billTable?.scrollTop || 0;
+  const scrollLeft = billTable?.scrollLeft || 0;
+  try {
+    const splitResult = splitRemovedBillItemsToPendingJobs(lot, selections, currentIds);
+    lot.billItemRemovalHistory = [
+      ...splitResult.entries.map((entry) => ({
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        orderId: entry.order.id,
+        productionNo: entry.order.productionNo || entry.order.number || "",
+        designNo: billOrderDesignCode(entry.order),
+        action: "Bulk Removed From Bill Only",
+        removedBy: currentUser?.name || currentUser?.id || "User",
+        billItemSnapshot: entry.item,
+        originalJobNumber: entry.originalJobNumber,
+        pendingSplitJobNumber: entry.splitJobNumber,
+      })),
+      ...(lot.billItemRemovalHistory || []),
+    ];
+    const remainingItems = currentFormItems.filter((item) => !selectedSet.has(item.orderId));
+    renderBillItems(lot, { ...workingBillRecord(lot, bill), items: remainingItems });
+    filterBillItems();
+    updateBillAmount();
+    applyBillAccessMode();
+    let saved = false;
+    if (bill.id) {
+      saved = Boolean(saveBillFromForm(false));
+    } else {
+      lot.billDraft = buildBillDraftRecord(lot, bill, remainingItems);
+      lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
+      saved = saveState({
+        alertOnFailure: true,
+        context: `${lot.number || "Bill"} bulk remove items`,
+        changedStateKeys: ["orders", "lots", "ledger"],
+      });
+    }
+    if (!saved) throw new Error("The selected Bill items could not be removed.");
+    const splitNumbers = splitResult.groups.map((group) => group.splitJobNumber);
+    const backupOrders = splitResult.groups.flatMap((group) => [
+      ...state.orders.filter((order) => order.jobNumber === group.originalJobNumber),
+      ...state.orders.filter((order) => order.jobNumber === group.splitJobNumber),
+    ]);
+    backupRecentJobOrders(backupOrders);
+    restoreBillItemRemovalView(
+      lot.id,
+      `${splitResult.entries.length} item${splitResult.entries.length === 1 ? "" : "s"} removed. Pending child Job Card${splitNumbers.length === 1 ? "" : "s"}: ${splitNumbers.join(", ")}.`,
+    );
+    const search = document.getElementById("bill-item-search");
+    if (search) search.value = searchValue;
+    filterBillItems();
+    const refreshedTable = document.querySelector("#bill-dialog .bill-item-table");
+    if (refreshedTable) {
+      refreshedTable.scrollTop = scrollTop;
+      refreshedTable.scrollLeft = scrollLeft;
+    }
+  } catch (error) {
+    restoreBillItemRemovalState(snapshot);
+    render();
+    restoreBillItemRemovalView(lot.id);
+    alert(error?.message || "The selected Bill items were not removed.");
   }
 }
 
@@ -46639,7 +46910,10 @@ function renderBillItems(lot, bill = {}) {
     return `
       <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
-          <strong>${escapeHtml(itemLabel)}</strong>
+          <div class="bill-item-select-line">
+            <input type="checkbox" class="bill-item-remove-check" value="${escapeHtml(order.id)}" data-removal-blocked="${removeBlockedReason ? "true" : "false"}" ${removeBlockedReason ? "disabled" : ""} aria-label="Select ${escapeHtml(itemLabel)} for removal">
+            <strong>${escapeHtml(itemLabel)}</strong>
+          </div>
           <small>${escapeHtml(order.customer || "")}${order.color ? ` / ${escapeHtml(order.color)}` : ""}</small>
           <small>${manualWip ? "NON-JOB-CARD WIP / WEIGHTS OPEN FOR VERIFICATION" : `${escapeHtml(manufacturingOrderTypeLabel(order.customer || ""))} / To ${escapeHtml(manufacturingOfficeDestinationLabel(order.customer || ""))}`}</small>
           <button type="button" class="bill-item-remark-trigger ${itemRemark ? "has-remark" : "no-remark"}" data-bill-item-remark="${escapeHtml(itemRemark)}" aria-label="${escapeHtml(itemRemark ? `Item remark: ${itemRemark}` : "No Remark")}">${itemRemark ? "Remark" : "No Remark"}</button>
@@ -46682,6 +46956,7 @@ function renderBillItems(lot, bill = {}) {
     `;
   }).join("");
   body.innerHTML = rows || tableEmpty(9, "No item details found for this job card.");
+  updateBillItemRemovalSelectionUi();
 }
 
 function billItemRows(existingItems = [], options = {}) {

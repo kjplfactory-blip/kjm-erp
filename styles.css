@@ -6528,6 +6528,69 @@ dialog::backdrop {
   font-size: 10px;
 }
 
+.bill-item-bulk-remove-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid #b9d8eb;
+  border-radius: 8px;
+  background: #f5faff;
+}
+
+.bill-item-bulk-remove-toolbar > div {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.bill-item-bulk-remove-toolbar strong {
+  color: #174e73;
+  font-size: 12px;
+}
+
+.bill-item-bulk-remove-toolbar span {
+  color: #4f7188;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.bill-item-bulk-remove-toolbar button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.bill-item-select-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.bill-item-select-line input[type="checkbox"] {
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  margin-top: 1px;
+}
+
+#bill-dialog .bill-item-table tbody tr.bill-item-remove-selected td {
+  background: #e7f4ff;
+  border-color: #7abbe5;
+}
+
+.job-split-search-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.job-split-search-actions button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
 #bill-item-table tr.bill-item-search-hidden {
   display: none;
 }
@@ -6539,6 +6602,14 @@ dialog::backdrop {
 @media (max-width: 700px) {
   .bill-item-search-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .bill-item-bulk-remove-toolbar {
+    align-items: stretch;
+  }
+
+  .bill-item-bulk-remove-toolbar > div {
+    flex-basis: 100%;
   }
 
   .bill-item-search-toolbar > strong,

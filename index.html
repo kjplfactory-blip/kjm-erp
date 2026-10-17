@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=715">
+    <link rel="stylesheet" href="styles.css?v=720">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v719</small>
+          <small class="app-version-badge">App v720</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v719</span>
+          <span class="app-version-badge">App v720</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -3206,7 +3206,17 @@
           <button class="ghost-button hidden" type="button" id="add-pending-combined-bill-items">Add Pending Items</button>
           <button class="ghost-button" type="button" id="clear-bill-item-search">Clear</button>
           <strong id="bill-item-search-count">Showing all items</strong>
-          <small>Type a PR or design number. Press Enter to enter Final GW. Use the red Remove Item button in the Action column to remove an item.</small>
+          <small>Type a PR or design number. Press Enter to enter Final GW. Select multiple rows below to return them together to a Pending child Job Card.</small>
+        </div>
+        <div id="bill-item-bulk-remove-toolbar" class="bill-item-bulk-remove-toolbar">
+          <div>
+            <strong>Bulk Remove From Bill</strong>
+            <span id="bill-item-remove-selection-count">0 items selected</span>
+          </div>
+          <button class="ghost-button" type="button" id="bill-select-zero-gw-items">Select Empty / Zero GW</button>
+          <button class="ghost-button" type="button" id="bill-select-visible-items">Select All Shown</button>
+          <button class="ghost-button" type="button" id="bill-unselect-all-items">Unselect All</button>
+          <button class="danger-button" type="button" id="bill-remove-selected-items" disabled>Remove Selected</button>
         </div>
         <div class="bill-item-table">
           <table>
@@ -4068,7 +4078,7 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-    <script src="app.js?v=719"></script>
+    <script src="app.js?v=720"></script>
     <script src="office-reference-bills-v715.js?v=715.1"></script>
   <script src="sequential-numbering-v714.js?v=714"></script>
   <script src="setting-split-v611.js?v=611"></script>
