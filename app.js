@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v724";
+const APP_VERSION = "v725";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -574,6 +574,7 @@ let transferHistoryRenderLimit = 200;
 let selectedStoneChartFiles = [];
 let stoneEntryReturnContext = null;
 let stoneCropReturnContext = null;
+let fittingAccessoriesJobDraftItems = [];
 let productionStoneReturnContext = null;
 let billFittingAccessoryReturnContext = null;
 const stoneCropState = {
@@ -1168,9 +1169,26 @@ document.getElementById("close-fitting-accessories-job")?.addEventListener("clic
 document.getElementById("cancel-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
 document.getElementById("fitting-accessories-job-form")?.addEventListener("change", (event) => {
   if (event.target.name === "departmentId") renderFittingAccessoriesProcessOptions();
+  if (event.target.name === "fittingDesignId") renderFittingJobDesignItemOptions();
+  if (event.target.name === "fittingItemKey") updateFittingJobItemPreview();
+});
+document.getElementById("fitting-accessories-job-form")?.addEventListener("input", (event) => {
+  if (["fittingName", "fittingQuantity", "fittingStoneWeight"].includes(event.target.name)) {
+    updateFittingJobItemPreview(event.target.name === "fittingQuantity");
+  }
+});
+document.getElementById("add-fitting-job-item")?.addEventListener("click", addFittingJobDraftItem);
+document.getElementById("fitting-job-draft-items")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-fitting-job-item]");
+  if (button) removeFittingJobDraftItem(button.dataset.removeFittingJobItem || "");
 });
 document.getElementById("fitting-accessories-job-form")?.addEventListener("submit", createFittingAccessoriesJobCard);
 document.getElementById("fitting-accessories-narration-form")?.addEventListener("submit", updateFittingAccessoriesNarration);
+document.getElementById("close-fitting-accessory-allocation")?.addEventListener("click", closeFittingAccessoryAllocationDialog);
+document.getElementById("cancel-fitting-accessory-allocation")?.addEventListener("click", closeFittingAccessoryAllocationDialog);
+document.getElementById("fitting-accessory-allocation-form")?.addEventListener("input", updateFittingAccessoryAllocationPreview);
+document.getElementById("fitting-accessory-allocation-form")?.addEventListener("change", updateFittingAccessoryAllocationPreview);
+document.getElementById("fitting-accessory-allocation-form")?.addEventListener("submit", allocateFittingAccessoryToPr);
 
 document.getElementById("order-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3662,11 +3680,64 @@ function normalizeStateForRuntime(currentState = {}) {
   } else {
     normalized = normalizeLoadedState(currentState);
   }
+  normalizeFittingAccessoryJobCardsV725(normalized);
   reconcilePostedBillNonGoldShelfConsumption(normalized);
   reconcileBillLotLinks(normalized);
   normalizeProductionItemSequenceOrdering(normalized);
   reconcileActiveLotCurrentDepartmentsV693(normalized);
   return normalized;
+}
+
+function normalizeFittingAccessoryJobCardsV725(currentState = {}) {
+  (currentState.orders || []).forEach((order) => {
+    const isSpecial = order.specialJobType === "fitting-accessories" || Boolean(order.fittingAccessoriesJobCard);
+    if (!isSpecial) return;
+    order.specialJobType = "fitting-accessories";
+    order.fittingAccessoriesJobCard = true;
+    order.noProductionNumber = true;
+    order.finalDestination = order.finalDestination || "Chain Fitting Department";
+    order.legacyProductionNo = order.legacyProductionNo || order.productionNo || order.number || "";
+    if (!Array.isArray(order.fittingAccessoryItems) || !order.fittingAccessoryItems.length) {
+      order.fittingAccessoryItems = [{
+        id: crypto.randomUUID(),
+        name: order.itemNarration || order.item || "Fitting Accessories",
+        sourceDesignId: "",
+        sourceDesignNumber: "Legacy Fitting Job Card",
+        sourceItemKey: "",
+        quantity: Math.max(1, Number(order.itemPcs || order.orderedPcs || 1)),
+        totalStoneWeight: Number(productionStoneTotals(order.productionStoneItems || []).weight || 0),
+        sourceStoneRows: [],
+        allocations: [],
+        createdAt: order.createdAt || "",
+      }];
+    }
+    order.fittingAccessoryItems = order.fittingAccessoryItems.map((item) => ({
+      ...item,
+      id: item.id || crypto.randomUUID(),
+      name: item.name || "Fitting Accessory",
+      sourceDesignId: item.sourceDesignId || "",
+      sourceDesignNumber: item.sourceDesignNumber || "Manual Fitting",
+      sourceItemKey: item.sourceItemKey ? normalizeStoneItemKey(item.sourceItemKey) : "",
+      quantity: Math.max(1, Math.floor(Number(item.quantity || 1))),
+      totalStoneWeight: Number(Math.max(Number(item.totalStoneWeight || 0), 0).toFixed(5)),
+      sourceStoneRows: Array.isArray(item.sourceStoneRows) ? item.sourceStoneRows : [],
+      allocations: (Array.isArray(item.allocations) ? item.allocations : []).map((allocation) => ({
+        ...allocation,
+        id: allocation.id || crypto.randomUUID(),
+        quantity: Math.max(0, Math.floor(Number(allocation.quantity || 0))),
+        stoneWeight: Number(Math.max(Number(allocation.stoneWeight || 0), 0).toFixed(5)),
+      })),
+    }));
+    order.productionNo = "";
+    order.number = "";
+    order.barcode = order.jobNumber || order.barcode || "";
+  });
+  (currentState.lots || []).forEach((lot) => {
+    if (!lot.fittingAccessoriesJobCard) return;
+    lot.finalDestination = lot.finalDestination || "Chain Fitting Department";
+  });
+  currentState.fittingAccessoryJobVersion = 1;
+  return currentState;
 }
 
 function reconcileActiveLotCurrentDepartmentsV693(currentState = {}) {
@@ -10307,20 +10378,155 @@ function renderFittingAccessoriesProcessOptions(selectedProcess = "") {
     : (processes.length === 1 ? processes[0] : "");
 }
 
+function renderFittingJobDesignOptions(selectedId = "") {
+  const form = document.getElementById("fitting-accessories-job-form");
+  if (!form?.fittingDesignId) return;
+  const designs = fittingAccessorySourceDesigns();
+  form.fittingDesignId.innerHTML = `
+    <option value="">Manual fitting / no Design Master</option>
+    ${designs.map(fittingAccessoryDesignOptionHtml).join("")}
+  `;
+  form.fittingDesignId.value = selectedId && designs.some((design) => design.id === selectedId) ? selectedId : "";
+  renderFittingJobDesignItemOptions();
+}
+
+function fittingJobSelectedStoneRows(form = document.getElementById("fitting-accessories-job-form")) {
+  const design = form?.fittingDesignId?.value ? findById("designs", form.fittingDesignId.value) : null;
+  const itemKey = normalizeStoneItemKey(form?.fittingItemKey?.value || "");
+  return design && itemKey
+    ? (design.stoneItems || []).filter((item) => designDetailStoneItemKey(item, design) === itemKey)
+    : [];
+}
+
+function renderFittingJobDesignItemOptions() {
+  const form = document.getElementById("fitting-accessories-job-form");
+  if (!form?.fittingItemKey) return;
+  const design = form.fittingDesignId.value ? findById("designs", form.fittingDesignId.value) : null;
+  const groups = design
+    ? designDetailStoneGroups(design, design.stoneItems || []).filter((group) => group.items.length)
+    : [];
+  form.fittingItemKey.innerHTML = design
+    ? groups.length
+      ? groups.map((group) => `<option value="${escapeHtml(group.itemKey)}">${escapeHtml(stoneItemInputValue(group.itemKey))} / ${group.items.length} stone row${group.items.length === 1 ? "" : "s"}</option>`).join("")
+      : '<option value="">NO STONE YET</option>'
+    : '<option value="">Manual fitting</option>';
+  form.fittingItemKey.disabled = !groups.length;
+  if (design) form.fittingName.value = String(design.number || design.name || "Fitting").trim();
+  updateFittingJobItemPreview(true);
+}
+
+function updateFittingJobItemPreview(syncStoneFromDesign = false) {
+  const form = document.getElementById("fitting-accessories-job-form");
+  const preview = document.getElementById("fitting-job-item-preview");
+  if (!form || !preview) return;
+  const design = form.fittingDesignId.value ? findById("designs", form.fittingDesignId.value) : null;
+  const rows = fittingJobSelectedStoneRows(form);
+  const quantity = Math.max(Math.floor(Number(form.fittingQuantity.value || 0)), 0);
+  if (design && rows.length && syncStoneFromDesign) {
+    form.fittingStoneWeight.value = weight5(fittingAccessoryStoneTotals(rows, quantity || 1).weight);
+  }
+  const stoneWeight = Math.max(Number(form.fittingStoneWeight.value || 0), 0);
+  const name = String(form.fittingName.value || design?.number || design?.name || "").trim();
+  if (!name) {
+    preview.textContent = "Select a fitting design or enter a manual fitting name.";
+    return;
+  }
+  preview.innerHTML = `
+    <strong>${escapeHtml(name)}</strong>
+    <span>${escapeHtml(quantity || 0)} fitting pcs / ${escapeHtml(rows.length)} stone row${rows.length === 1 ? "" : "s"} / ${escapeHtml(weight5(stoneWeight))} g total stone</span>
+  `;
+}
+
+function addFittingJobDraftItem() {
+  const form = document.getElementById("fitting-accessories-job-form");
+  if (!form) return;
+  const design = form.fittingDesignId.value ? findById("designs", form.fittingDesignId.value) : null;
+  const sourceItemKey = normalizeStoneItemKey(form.fittingItemKey.value || "");
+  const name = String(form.fittingName.value || design?.number || design?.name || "").trim();
+  const quantity = Math.floor(Number(form.fittingQuantity.value || 0));
+  const totalStoneWeight = Number(Number(form.fittingStoneWeight.value || 0).toFixed(5));
+  const sourceRows = fittingJobSelectedStoneRows(form);
+  if (!name) {
+    alert("Enter the fitting name or select a fitting design.");
+    form.fittingName.focus();
+    return;
+  }
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
+    alert("Enter No. of Fitting Pcs from 1 to 10000.");
+    form.fittingQuantity.focus();
+    return;
+  }
+  if (!Number.isFinite(totalStoneWeight) || totalStoneWeight < 0) {
+    alert("Total Stone Weight cannot be less than zero.");
+    form.fittingStoneWeight.focus();
+    return;
+  }
+  fittingAccessoriesJobDraftItems.push({
+    id: crypto.randomUUID(),
+    name,
+    sourceDesignId: design?.id || "",
+    sourceDesignNumber: design ? designText(design) : "Manual Fitting",
+    sourceItemKey,
+    quantity,
+    totalStoneWeight,
+    sourceStoneRows: sourceRows.map((item) => structuredClone(item)),
+    allocations: [],
+    createdAt: new Date().toISOString(),
+  });
+  renderFittingJobDraftItems();
+  form.fittingQuantity.value = "1";
+  form.fittingStoneWeight.value = "0";
+  if (!design) form.fittingName.value = "";
+  updateFittingJobItemPreview(Boolean(design));
+}
+
+function removeFittingJobDraftItem(itemId = "") {
+  fittingAccessoriesJobDraftItems = fittingAccessoriesJobDraftItems.filter((item) => item.id !== itemId);
+  renderFittingJobDraftItems();
+}
+
+function renderFittingJobDraftItems() {
+  const container = document.getElementById("fitting-job-draft-items");
+  if (!container) return;
+  if (!fittingAccessoriesJobDraftItems.length) {
+    container.innerHTML = '<div class="empty">No fitting item added yet.</div>';
+    return;
+  }
+  const totalQuantity = fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const totalStone = fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.totalStoneWeight || 0), 0);
+  container.innerHTML = `
+    <div class="fitting-job-draft-total"><strong>${fittingAccessoriesJobDraftItems.length} fitting rows / ${totalQuantity} pcs</strong><span>Total fitting stone ${weight5(totalStone)} g</span></div>
+    ${fittingAccessoriesJobDraftItems.map((item, index) => `
+      <article>
+        <b>${index + 1}</b>
+        <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</small></div>
+        <span>${escapeHtml(item.quantity)} pcs</span>
+        <span>${escapeHtml(weight5(item.totalStoneWeight))} g stone</span>
+        <button class="delete-btn" type="button" data-remove-fitting-job-item="${escapeHtml(item.id)}">Remove</button>
+      </article>
+    `).join("")}
+  `;
+}
+
 function openFittingAccessoriesJobDialog() {
   if (!requireFittingAccessoriesManager("create fitting accessories job cards")) return;
   const form = document.getElementById("fitting-accessories-job-form");
   form.reset();
+  fittingAccessoriesJobDraftItems = [];
   form.orderDate.value = isoToday();
   form.purity.value = "18K";
   form.color.value = "Pink";
   renderFittingAccessoriesDepartmentOptions();
   renderFittingAccessoriesProcessOptions();
+  renderFittingJobDesignOptions();
+  renderFittingJobDraftItems();
   document.getElementById("fitting-accessories-job-dialog").showModal();
   form.jobCardNarration.focus();
 }
 
 function closeFittingAccessoriesJobDialog() {
+  fittingAccessoriesJobDraftItems = [];
+  renderFittingJobDraftItems();
   document.getElementById("fitting-accessories-job-dialog")?.close();
 }
 
@@ -10347,21 +10553,24 @@ function createFittingAccessoriesJobCard(event) {
     return;
   }
   if (!jobCardNarration || !itemNarration) {
-    alert("Enter both Job Card Narration and Item Narration.");
+    alert("Enter both Job Card Narration and Lot Description.");
+    return;
+  }
+  if (!fittingAccessoriesJobDraftItems.length) {
+    alert("Add at least one fitting item before creating the Special Fitting Job Card.");
     return;
   }
   const jobNumber = nextJobCardNumber(state);
-  const productionNo = nextProductionNumber(state);
   const lotNumber = nextLotNumber(state);
   const stockCustomer = (state.customers || []).find((customer) => String(customer.name || "").trim().toUpperCase() === "KJPL-STOCK");
   const orderDate = data.orderDate || isoToday();
   const createdAt = new Date().toISOString();
   const order = {
     id: crypto.randomUUID(),
-    number: productionNo,
+    number: "",
     jobNumber,
-    productionNo,
-    barcode: productionNo,
+    productionNo: "",
+    barcode: jobNumber,
     customerId: stockCustomer?.id || "",
     customer: stockCustomer?.name || "KJPL-STOCK",
     designId: "",
@@ -10371,9 +10580,9 @@ function createFittingAccessoriesJobCard(event) {
     size: "",
     color: data.color || "Pink",
     purity: data.purity || "18K",
-    itemPcs: 1,
-    orderedPcs: 1,
-    pieceIndex: 1,
+    itemPcs: fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.quantity || 0), 0),
+    orderedPcs: fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.quantity || 0), 0),
+    pieceIndex: 0,
     targetWeight: 0,
     remarks: jobCardNarration,
     jobCardNarration,
@@ -10387,6 +10596,9 @@ function createFittingAccessoriesJobCard(event) {
     specialJobType: "fitting-accessories",
     fittingAccessoriesJobCard: true,
     fittingAccessoriesNarration: jobCardNarration,
+    fittingAccessoryItems: fittingAccessoriesJobDraftItems.map((item) => structuredClone(item)),
+    noProductionNumber: true,
+    finalDestination: "Chain Fitting Department",
     createdAt,
     createdBy: currentUser?.name || currentUser?.id || "Manager",
   };
@@ -10425,19 +10637,32 @@ function createFittingAccessoriesJobCard(event) {
   state.ledger.unshift({
     id: crypto.randomUUID(),
     date: today(),
+    createdAt,
     type: "Fitting Accessories Card",
     purity: lot.metalPurity,
     weight: 0,
-    reference: `${jobNumber} / ${productionNo} / ${lotNumber} created in ${department.name} / ${data.process}; GW ${gram(grossWeight)}; ${jobCardNarration}. No Safe Locker stock movement booked.`,
+    sourceType: "special-fitting-job-create",
+    sourceId: lot.id,
+    reference: `${jobNumber} / ${lotNumber} Special Fitting Job Card created in ${department.name} / ${data.process}; ${fittingAccessoriesJobDraftItems.length} fitting rows; GW ${gram(grossWeight)}; ${jobCardNarration}. No PR number and no Safe Locker stock movement booked.`,
   });
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `${jobNumber} Special Fitting Job Card`,
+    changedStateKeys: ["orders", "lots", "ledger"],
+  });
+  if (!saved) {
+    state.orders = state.orders.filter((item) => item.id !== order.id);
+    state.lots = state.lots.filter((item) => item.id !== lot.id);
+    state.ledger = state.ledger.filter((item) => item.sourceId !== lot.id);
+    return;
+  }
   backupRecentJobOrders([order]);
   form.reset();
   closeFittingAccessoriesJobDialog();
-  saveState();
   render();
   switchOrderPage("active");
   openOrderDetail(order.id, false, "active");
-  alert(`Fitting Accessories Job Card created.\n${jobNumber} / ${productionNo} / ${lotNumber}\nGW ${gram(grossWeight)} in ${department.name} / ${data.process}.`);
+  alert(`Special Fitting Job Card created.\n${jobNumber} / ${lotNumber}\nNo PR number generated.\n${order.fittingAccessoryItems.length} fitting rows / GW ${gram(grossWeight)} in ${department.name} / ${data.process}.`);
 }
 
 function switchDesignPage(page) {
@@ -19341,6 +19566,8 @@ function openOrderDetailCached(orderId, editMode = false, bucket = "all", prefer
   if (!order) return;
   const form = document.getElementById("update-order-form");
   const dialog = document.getElementById("order-dialog");
+  const fittingAccessoryCard = isFittingAccessoriesOrder(order);
+  dialog?.classList.toggle("special-fitting-job-dialog", fittingAccessoryCard);
   const settingLot = isSettingManagerUser() ? settingManagerLotForOrder(order, preferredLotId) : null;
   if (isSettingManagerUser() && !settingLot) {
     alert("Setting Manager can open only a live Job Card currently in the Setting Department.");
@@ -19360,12 +19587,15 @@ function openOrderDetailCached(orderId, editMode = false, bucket = "all", prefer
     .filter((jobOrder) => !settingLot || scopedOrderIds.has(jobOrder.id));
   document.getElementById("order-dialog-summary").textContent = [
     order.jobNumber || order.number,
-    `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
+    fittingAccessoryCard
+      ? `${fittingAccessoryItemsForOrder(order).length} fitting row${fittingAccessoryItemsForOrder(order).length === 1 ? "" : "s"} / No PR`
+      : `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
     `${order.color || "Pink"} Colour`,
     isFittingAccessoriesOrder(order) ? order.jobCardNarration || order.fittingAccessoriesNarration || "Fitting Accessories" : "",
     jobCurrentStage(jobOrders),
     jobOrderDeliverySummary(jobOrders),
   ].filter(Boolean).join(" / ");
+  document.getElementById("order-dialog-title").textContent = fittingAccessoryCard ? "Special Fitting Job Card" : "Open Job Order";
   renderJobItemsDetail(jobOrders);
   renderFittingAccessoriesNarrationForm(order);
   closeJobItemDetail();
@@ -19392,7 +19622,11 @@ function applySettingManagerJobCardMode() {
   const dialog = document.getElementById("order-dialog");
   dialog?.classList.toggle("setting-manager-job-card", restricted);
   const title = document.getElementById("order-dialog-title");
-  if (title) title.textContent = restricted ? "Setting Job Card" : "Open Job Order";
+  if (title) title.textContent = restricted
+    ? "Setting Job Card"
+    : dialog?.classList.contains("special-fitting-job-dialog")
+      ? "Special Fitting Job Card"
+      : "Open Job Order";
   [
     "edit-order-details",
     "print-order",
@@ -19450,8 +19684,445 @@ function filterJobOrdersForBucket(orders = [], bucket = "all") {
   return orders;
 }
 
+function fittingAccessoryItemsForOrder(order = {}) {
+  return Array.isArray(order.fittingAccessoryItems) ? order.fittingAccessoryItems : [];
+}
+
+function fittingAccessoryAllocationTotals(item = {}) {
+  const allocations = Array.isArray(item.allocations) ? item.allocations : [];
+  return allocations.reduce((totals, allocation) => ({
+    quantity: totals.quantity + Number(allocation.quantity || 0),
+    stoneWeight: totals.stoneWeight + Number(allocation.stoneWeight || 0),
+  }), { quantity: 0, stoneWeight: 0 });
+}
+
+function fittingAccessoryAvailability(item = {}) {
+  const allocated = fittingAccessoryAllocationTotals(item);
+  return {
+    totalQuantity: Number(item.quantity || 0),
+    totalStoneWeight: Number(item.totalStoneWeight || 0),
+    allocatedQuantity: allocated.quantity,
+    allocatedStoneWeight: Number(Number(allocated.stoneWeight || 0).toFixed(5)),
+    availableQuantity: Math.max(Number(item.quantity || 0) - allocated.quantity, 0),
+    availableStoneWeight: Number(Math.max(Number(item.totalStoneWeight || 0) - allocated.stoneWeight, 0).toFixed(5)),
+  };
+}
+
+function fittingAccessoryJobLot(order = {}) {
+  return lotsForOrder(order).find((lot) => lot.fittingAccessoriesJobCard && lot.status !== "Completed")
+    || lotsForOrder(order).find((lot) => lot.fittingAccessoriesJobCard)
+    || null;
+}
+
+function isChainFittingLocation(value = "") {
+  const text = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  return (text.includes("chain") && text.includes("fitting"))
+    || text === "fitting"
+    || text === "fitting department"
+    || text.includes("vinod fitting");
+}
+
+function fittingAccessoryJobAtChainFitting(order = {}) {
+  const lot = fittingAccessoryJobLot(order);
+  const latest = lot?.transfers?.at(-1);
+  return Boolean(lot && [
+    lot.currentDepartment,
+    lot.karigarName,
+    latest?.toDepartment,
+    latest?.toKarigarName,
+    latest?.toProcessRaw,
+  ].some(isChainFittingLocation));
+}
+
+function fittingAccessoryJobTotals(order = {}) {
+  return fittingAccessoryItemsForOrder(order).reduce((totals, item) => {
+    const availability = fittingAccessoryAvailability(item);
+    totals.rows += 1;
+    totals.quantity += availability.totalQuantity;
+    totals.allocatedQuantity += availability.allocatedQuantity;
+    totals.availableQuantity += availability.availableQuantity;
+    totals.stoneWeight += availability.totalStoneWeight;
+    totals.allocatedStoneWeight += availability.allocatedStoneWeight;
+    totals.availableStoneWeight += availability.availableStoneWeight;
+    return totals;
+  }, { rows: 0, quantity: 0, allocatedQuantity: 0, availableQuantity: 0, stoneWeight: 0, allocatedStoneWeight: 0, availableStoneWeight: 0 });
+}
+
+function fittingAccessoryAllocationHistoryHtml(sourceOrder = {}, item = {}) {
+  const allocations = [...(item.allocations || [])].sort((left, right) =>
+    String(right.allocatedAt || "").localeCompare(String(left.allocatedAt || ""))
+  );
+  if (!allocations.length) return '<div class="empty">No PR allocation yet.</div>';
+  return allocations.map((allocation) => `
+    <article class="fitting-allocation-history-row">
+      <div><strong>${escapeHtml(allocation.targetProductionNo || "PR")}</strong><small>${escapeHtml(allocation.targetJobNumber || "Job Card")} / ${escapeHtml(allocation.targetDesign || "-")}</small></div>
+      <span>${escapeHtml(allocation.quantity)} fitting pcs</span>
+      <span>${escapeHtml(weight5(allocation.stoneWeight))} g stone</span>
+      <small>${escapeHtml(transferHistoryDateTime(allocation.date || "", allocation.allocatedAt || ""))}<br>${escapeHtml(allocation.allocatedBy || "ERP User")}</small>
+      ${canManageFittingAccessoriesJobCards() && !isReadOnlyUser() && !sourceOrder.fittingAccessoriesAbsorbedAt ? `<button class="delete-btn" type="button" onclick="undoFittingAccessoryAllocation('${escapeHtml(sourceOrder.id)}','${escapeHtml(item.id)}','${escapeHtml(allocation.id)}')">Undo</button>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderFittingAccessoryJobDetail(order = {}) {
+  const container = document.getElementById("order-items-detail");
+  if (!container) return;
+  const lot = fittingAccessoryJobLot(order);
+  const atChainFitting = fittingAccessoryJobAtChainFitting(order);
+  const totals = fittingAccessoryJobTotals(order);
+  const canManage = canManageFittingAccessoriesJobCards() && !isReadOnlyUser();
+  const absorbed = Boolean(order.fittingAccessoriesAbsorbedAt || lot?.fittingAccessoriesAbsorbedAt);
+  const currentLocation = lot
+    ? mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName, lot.karigarName)
+    : "No active production lot";
+  container.innerHTML = `
+    <section class="special-fitting-job-summary ${absorbed ? "absorbed" : ""}">
+      <div><span>Job Card</span><strong>${escapeHtml(order.jobNumber || "-")}</strong><small>No PR numbers</small></div>
+      <div><span>Current Department</span><strong>${escapeHtml(currentLocation || "-")}</strong><small>Final destination: Chain Fitting</small></div>
+      <div><span>Lot GW</span><strong>${escapeHtml(lot ? gram(currentTransferIssueWeight(lot)) : "-")}</strong><small>Transferred only as one complete lot</small></div>
+      <div><span>Fitting Quantity</span><strong>${escapeHtml(totals.availableQuantity)} available</strong><small>${escapeHtml(totals.allocatedQuantity)} of ${escapeHtml(totals.quantity)} allocated</small></div>
+      <div><span>Fitting Stone</span><strong>${escapeHtml(weight5(totals.availableStoneWeight))} g available</strong><small>${escapeHtml(weight5(totals.allocatedStoneWeight))} of ${escapeHtml(weight5(totals.stoneWeight))} g allocated</small></div>
+      <div><span>Status</span><strong>${escapeHtml(absorbed ? "Absorbed In Chain Fitting" : atChainFitting ? "Ready For PR Allocation" : "Moving To Chain Fitting")}</strong><small>${escapeHtml(order.jobCardNarration || order.fittingAccessoriesNarration || "Special fitting lot")}</small></div>
+    </section>
+    ${!atChainFitting && !absorbed ? '<p class="special-fitting-guidance">Move this complete lot through normal department transfers. Send-to-PR actions become available after the lot reaches Chain Fitting.</p>' : ""}
+    <section class="special-fitting-items">
+      ${fittingAccessoryItemsForOrder(order).length ? fittingAccessoryItemsForOrder(order).map((item, index) => {
+        const availability = fittingAccessoryAvailability(item);
+        return `
+          <article class="special-fitting-item-card ${availability.availableQuantity ? "" : "fully-allocated"}">
+            <header>
+              <div><span>Fitting ${index + 1}</span><strong>${escapeHtml(item.name || "Fitting Accessory")}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</small></div>
+              <div class="special-fitting-item-actions">
+                ${canManage && atChainFitting && !absorbed && availability.availableQuantity > 0 ? `<button type="button" onclick="openFittingAccessoryAllocationDialog('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Send To PR Item</button>` : ""}
+              </div>
+            </header>
+            <div class="special-fitting-item-metrics">
+              <span><b>Total Qty</b>${escapeHtml(availability.totalQuantity)} pcs</span>
+              <span><b>Allocated</b>${escapeHtml(availability.allocatedQuantity)} pcs</span>
+              <span><b>Available</b>${escapeHtml(availability.availableQuantity)} pcs</span>
+              <span><b>Total Stone</b>${escapeHtml(weight5(availability.totalStoneWeight))} g</span>
+              <span><b>Shifted Stone</b>${escapeHtml(weight5(availability.allocatedStoneWeight))} g</span>
+              <span><b>Available Stone</b>${escapeHtml(weight5(availability.availableStoneWeight))} g</span>
+            </div>
+            <div class="fitting-allocation-history">${fittingAccessoryAllocationHistoryHtml(order, item)}</div>
+          </article>
+        `;
+      }).join("") : '<div class="empty">No fitting rows are saved in this legacy card.</div>'}
+    </section>
+    ${canManage && atChainFitting && !absorbed && totals.rows > 0 && totals.availableQuantity === 0 ? `
+      <div class="special-fitting-close-row"><button type="button" onclick="closeFittingAccessoryJobAsAbsorbed('${escapeHtml(order.id)}')">Close As Absorbed In Chain Fitting</button><small>Use this after the completed PR items have been weighed in Chain Fitting.</small></div>
+    ` : ""}
+    ${canManage && absorbed ? `
+      <div class="special-fitting-close-row"><button class="ghost-button" type="button" onclick="reopenFittingAccessoryJob('${escapeHtml(order.id)}')">Reopen Fitting Lot</button><small>Use only to correct an allocation or closure mistake.</small></div>
+    ` : ""}
+  `;
+}
+
+function fittingAccessoryPrTargets(sourceOrderId = "") {
+  return sortByProductionItemSequence((state.orders || []).filter((order) =>
+    order.id !== sourceOrderId
+    && !isFittingAccessoriesOrder(order)
+    && Boolean(String(order.productionNo || order.number || "").trim())
+    && order.status !== "Discarded"
+    && !isCompletedOrder(order)
+  ));
+}
+
+function findFittingAccessoryTargetPr(value = "", sourceOrderId = "") {
+  const key = String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!key) return null;
+  return fittingAccessoryPrTargets(sourceOrderId).find((order) =>
+    [order.productionNo, order.number, order.barcode]
+      .some((entry) => String(entry || "").trim().toLowerCase().replace(/\s+/g, "") === key)
+  ) || null;
+}
+
+function openFittingAccessoryAllocationDialog(sourceOrderId = "", accessoryId = "") {
+  if (!requireFittingAccessoriesManager("allocate fitting accessories to PR items")) return;
+  const sourceOrder = findById("orders", sourceOrderId);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === accessoryId);
+  const availability = fittingAccessoryAvailability(item);
+  if (!sourceOrder || !item || availability.availableQuantity <= 0) return;
+  if (!fittingAccessoryJobAtChainFitting(sourceOrder)) {
+    alert("This fitting lot must reach Chain Fitting before an accessory can be sent to a PR item.");
+    return;
+  }
+  const form = document.getElementById("fitting-accessory-allocation-form");
+  form.reset();
+  form.sourceOrderId.value = sourceOrder.id;
+  form.accessoryId.value = item.id;
+  form.quantity.max = String(availability.availableQuantity);
+  form.quantity.value = "1";
+  document.getElementById("fitting-accessory-pr-list").innerHTML = fittingAccessoryPrTargets(sourceOrder.id).map((order) =>
+    `<option value="${escapeHtml(order.productionNo || order.number)}">${escapeHtml(order.jobNumber || "-")} / ${escapeHtml(jobItemDisplayName(order))} / ${escapeHtml(orderCurrentStage(order))}</option>`
+  ).join("");
+  document.getElementById("fitting-accessory-allocation-summary").textContent = `${sourceOrder.jobNumber} / ${item.name} / Available ${availability.availableQuantity} pcs / ${weight5(availability.availableStoneWeight)} g fitting stone`;
+  updateFittingAccessoryAllocationPreview();
+  document.getElementById("fitting-accessory-allocation-dialog").showModal();
+  form.productionNo.focus();
+}
+
+function closeFittingAccessoryAllocationDialog() {
+  document.getElementById("fitting-accessory-allocation-dialog")?.close();
+}
+
+function fittingAccessoryShiftWeight(item = {}, requestedQuantity = 0) {
+  const availability = fittingAccessoryAvailability(item);
+  const quantity = Math.max(Math.min(Math.floor(Number(requestedQuantity || 0)), availability.availableQuantity), 0);
+  if (!quantity || !availability.totalQuantity) return 0;
+  if (quantity === availability.availableQuantity) return Number(availability.availableStoneWeight.toFixed(5));
+  return Number(((availability.totalStoneWeight / availability.totalQuantity) * quantity).toFixed(5));
+}
+
+function updateFittingAccessoryAllocationPreview() {
+  const form = document.getElementById("fitting-accessory-allocation-form");
+  const preview = document.getElementById("fitting-accessory-target-preview");
+  if (!form || !preview) return;
+  const sourceOrder = findById("orders", form.sourceOrderId.value);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === form.accessoryId.value);
+  const quantity = Math.max(Math.floor(Number(form.quantity.value || 0)), 0);
+  form.stoneWeight.value = weight5(fittingAccessoryShiftWeight(item, quantity));
+  const target = findFittingAccessoryTargetPr(form.productionNo.value, sourceOrder?.id || "");
+  preview.innerHTML = target
+    ? `<strong>${escapeHtml(target.productionNo || target.number)} / ${escapeHtml(jobItemDisplayName(target))}</strong><span>${escapeHtml(target.jobNumber || "-")} / ${escapeHtml(orderCurrentStage(target))} / ${escapeHtml(target.purity || "-")} / ${escapeHtml(target.color || "-")}</span>`
+    : "Enter an exact active PR number from the list.";
+}
+
+function fittingAccessoryStoneRowsForTarget(item = {}, quantity = 0, stoneWeight = 0, targetOrder = {}, allocationId = "") {
+  const targetItemKey = normalizeStoneItemKey(orderStoneItemKeys(targetOrder)[0] || "ITEM");
+  const sourceRows = Array.isArray(item.sourceStoneRows) ? item.sourceStoneRows : [];
+  const rawRows = sourceRows.map((row) => {
+    const pcs = Number(row.pcs || 0) * quantity;
+    const rawWeight = Number(row.totalWeight || 0) * quantity;
+    return { row, pcs, rawWeight };
+  });
+  const rawTotal = rawRows.reduce((total, row) => total + row.rawWeight, 0);
+  if (rawRows.length && rawTotal > 0) {
+    let assigned = 0;
+    return rawRows.map((entry, index) => {
+      const rowWeight = index === rawRows.length - 1
+        ? Number(Math.max(stoneWeight - assigned, 0).toFixed(5))
+        : Number(((entry.rawWeight / rawTotal) * stoneWeight).toFixed(5));
+      assigned = Number((assigned + rowWeight).toFixed(5));
+      const copied = productionStoneItemFromDesignStone({
+        ...entry.row,
+        pcs: entry.pcs,
+        weightPerPc: entry.pcs > 0 ? Number((rowWeight / entry.pcs).toFixed(5)) : 0,
+        totalWeight: rowWeight,
+        itemKey: targetItemKey,
+      });
+      return {
+        ...copied,
+        id: crypto.randomUUID(),
+        settingType: "fitting",
+        manufacturingStage: "Chain Fitting",
+        fittingAccessoryId: allocationId,
+        fittingAccessoryName: item.name || "Fitting Accessory",
+        fittingAccessoryQuantity: quantity,
+        jobFittingAccessoryId: allocationId,
+        jobFittingAccessoryName: item.name || "Fitting Accessory",
+        sourceFittingDesignId: item.sourceDesignId || "",
+        sourceFittingItemKey: item.sourceItemKey || "",
+        sourceFittingStoneId: entry.row.id || "",
+        sourceFittingAllocationId: allocationId,
+        sourceFittingJobItemId: item.id || "",
+        isFittingAccessory: true,
+      };
+    });
+  }
+  const pcs = Math.max(quantity, 1);
+  return [{
+    id: crypto.randomUUID(),
+    date: today(),
+    settingType: "fitting",
+    manufacturingStage: "Chain Fitting",
+    itemKey: targetItemKey,
+    stoneType: "FITTING STONE",
+    shape: "",
+    size: item.name || "Fitting Accessory",
+    code: `FIT-${String(item.name || "STONE").replace(/[^A-Za-z0-9]+/g, "-").toUpperCase()}`,
+    pcs,
+    weightPerPc: pcs > 0 ? Number((stoneWeight / pcs).toFixed(5)) : 0,
+    totalWeight: Number(stoneWeight.toFixed(5)),
+    fittingAccessoryId: allocationId,
+    fittingAccessoryName: item.name || "Fitting Accessory",
+    fittingAccessoryQuantity: quantity,
+    jobFittingAccessoryId: allocationId,
+    jobFittingAccessoryName: item.name || "Fitting Accessory",
+    sourceFittingDesignId: item.sourceDesignId || "",
+    sourceFittingItemKey: item.sourceItemKey || "",
+    sourceFittingAllocationId: allocationId,
+    sourceFittingJobItemId: item.id || "",
+    isFittingAccessory: true,
+  }];
+}
+
+function allocateFittingAccessoryToPr(event) {
+  event.preventDefault();
+  if (!requireFittingAccessoriesManager("allocate fitting accessories to PR items")) return;
+  const form = event.currentTarget;
+  const sourceOrder = findById("orders", form.sourceOrderId.value);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === form.accessoryId.value);
+  const targetOrder = findFittingAccessoryTargetPr(form.productionNo.value, sourceOrder?.id || "");
+  const availability = fittingAccessoryAvailability(item);
+  const quantity = Math.floor(Number(form.quantity.value || 0));
+  if (!sourceOrder || !item || !targetOrder) {
+    alert("Select an exact active destination PR number.");
+    return;
+  }
+  if (!fittingAccessoryJobAtChainFitting(sourceOrder)) {
+    alert("This fitting lot is no longer available in Chain Fitting.");
+    return;
+  }
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > availability.availableQuantity) {
+    alert(`Enter a fitting quantity from 1 to ${availability.availableQuantity}.`);
+    return;
+  }
+  const stoneWeight = fittingAccessoryShiftWeight(item, quantity);
+  const targetStage = orderCurrentStage(targetOrder);
+  if (!isChainFittingLocation(targetStage) && !confirm(`${targetOrder.productionNo || targetOrder.number} currently shows ${targetStage || "another production stage"}, not Chain Fitting.\n\nAllocate the fitting stone to this PR anyway?`)) return;
+  const sourceBefore = structuredClone(sourceOrder);
+  const targetBefore = structuredClone(targetOrder);
+  const ledgerBefore = structuredClone(state.ledger || []);
+  const allocationId = crypto.randomUUID();
+  const copiedRows = fittingAccessoryStoneRowsForTarget(item, quantity, stoneWeight, targetOrder, allocationId);
+  targetOrder.productionStoneItems = [
+    ...productionStoneItemsForOrder(targetOrder).map((row) => ({ ...row, id: row.id || crypto.randomUUID() })),
+    ...copiedRows,
+  ];
+  stampProductionStoneEdit(targetOrder, "Fitting Stone Allocated From Special Job Card");
+  item.allocations = item.allocations || [];
+  item.allocations.push({
+    id: allocationId,
+    targetOrderId: targetOrder.id,
+    targetProductionNo: targetOrder.productionNo || targetOrder.number || "",
+    targetJobNumber: targetOrder.jobNumber || "",
+    targetDesign: jobItemDisplayName(targetOrder),
+    quantity,
+    stoneWeight,
+    date: today(),
+    allocatedAt: new Date().toISOString(),
+    allocatedByUserId: currentUser?.id || "",
+    allocatedBy: currentUser?.name || currentUserConfig()?.name || "ERP User",
+  });
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    type: "Fitting Stone Allocation",
+    purity: targetOrder.purity || sourceOrder.purity || "-",
+    weight: 0,
+    stoneWeight,
+    sourceType: "fitting-stone-allocation",
+    sourceId: allocationId,
+    reference: `${sourceOrder.jobNumber} ${item.name}: ${quantity} fitting pcs / ${weight5(stoneWeight)} g stone assigned to ${targetOrder.productionNo || targetOrder.number} / ${targetOrder.jobNumber}. GW movement 0.000 g; global non-gold unchanged.`,
+  });
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `${sourceOrder.jobNumber} fitting allocation to ${targetOrder.productionNo || targetOrder.number}`,
+    changedStateKeys: ["orders", "ledger"],
+  });
+  if (!saved) {
+    Object.keys(sourceOrder).forEach((key) => delete sourceOrder[key]);
+    Object.assign(sourceOrder, sourceBefore);
+    Object.keys(targetOrder).forEach((key) => delete targetOrder[key]);
+    Object.assign(targetOrder, targetBefore);
+    state.ledger = ledgerBefore;
+    return;
+  }
+  backupRecentJobOrders([sourceOrder, targetOrder]);
+  closeFittingAccessoryAllocationDialog();
+  render();
+  openOrderDetail(sourceOrder.id, false, document.getElementById("order-dialog")?.dataset.bucket || "all");
+  alert(`${quantity} ${item.name} fitting pcs assigned to ${targetOrder.productionNo || targetOrder.number}.\nStone shifted: ${weight5(stoneWeight)} g.\nGW movement: 0.000 g.`);
+}
+
+function undoFittingAccessoryAllocation(sourceOrderId = "", itemId = "", allocationId = "") {
+  if (!requireFittingAccessoriesManager("undo fitting accessory allocations")) return;
+  const sourceOrder = findById("orders", sourceOrderId);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === itemId);
+  const allocation = (item?.allocations || []).find((entry) => entry.id === allocationId);
+  const targetOrder = allocation ? findById("orders", allocation.targetOrderId) : null;
+  if (!sourceOrder || !item || !allocation) return;
+  if (!confirm(`Undo ${allocation.quantity} ${item.name} fitting pcs and ${weight5(allocation.stoneWeight)} g stone from ${allocation.targetProductionNo || "the destination PR"}?\n\nNo GW movement will be created.`)) return;
+  item.allocations = (item.allocations || []).filter((entry) => entry.id !== allocationId);
+  if (targetOrder) {
+    targetOrder.productionStoneItems = (targetOrder.productionStoneItems || []).filter((row) => row.sourceFittingAllocationId !== allocationId);
+    stampProductionStoneEdit(targetOrder, "Fitting Stone Allocation Reversed");
+  }
+  state.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: new Date().toISOString(),
+    type: "Fitting Stone Allocation Undo",
+    purity: targetOrder?.purity || sourceOrder.purity || "-",
+    weight: 0,
+    stoneWeight: -Number(allocation.stoneWeight || 0),
+    sourceType: "fitting-stone-allocation-undo",
+    sourceId: allocationId,
+    reference: `${sourceOrder.jobNumber} ${item.name}: fitting allocation to ${allocation.targetProductionNo || "PR"} reversed. Quantity ${allocation.quantity}; stone ${weight5(allocation.stoneWeight)} g; GW movement 0.000 g.`,
+  });
+  saveState({ changedStateKeys: ["orders", "ledger"] });
+  backupRecentJobOrders([sourceOrder, targetOrder].filter(Boolean));
+  render();
+  openOrderDetail(sourceOrder.id, false, "all");
+}
+
+function closeFittingAccessoryJobAsAbsorbed(orderId = "") {
+  if (!requireFittingAccessoriesManager("close fitting accessory job cards")) return;
+  const order = findById("orders", orderId);
+  const lot = fittingAccessoryJobLot(order);
+  const totals = fittingAccessoryJobTotals(order);
+  if (!order || !lot || totals.availableQuantity > 0) {
+    alert("Every fitting quantity must be allocated before this lot can be closed.");
+    return;
+  }
+  if (!fittingAccessoryJobAtChainFitting(order)) {
+    alert("The fitting lot must be in Chain Fitting before it can be closed as absorbed.");
+    return;
+  }
+  if (!confirm(`Close ${order.jobNumber} as completely absorbed in Chain Fitting?\n\nUse this after the destination PR items have been physically weighed. The fitting lot GW will stop appearing as a separate department holding.`)) return;
+  const closedAt = new Date().toISOString();
+  order.status = "Completed";
+  order.completedDate = today();
+  order.completionReason = "Fitting Accessories Absorbed In Chain Fitting";
+  order.fittingAccessoriesAbsorbedAt = closedAt;
+  lot.status = "Completed";
+  lot.finishedGrossWeight = currentTransferIssueWeight(lot);
+  lot.finishedWeight = lot.finishedGrossWeight;
+  lot.fittingAccessoriesAbsorbedAt = closedAt;
+  lot.fittingAccessoriesAbsorbedBy = currentUser?.name || currentUserConfig()?.name || "ERP User";
+  saveState({ changedStateKeys: ["orders", "lots"] });
+  render();
+  openOrderDetail(order.id, false, "completed");
+}
+
+function reopenFittingAccessoryJob(orderId = "") {
+  if (!requireFittingAccessoriesManager("reopen fitting accessory job cards")) return;
+  const order = findById("orders", orderId);
+  const lot = fittingAccessoryJobLot(order);
+  if (!order || !lot || !order.fittingAccessoriesAbsorbedAt) return;
+  if (!confirm(`Reopen ${order.jobNumber} for fitting allocation corrections?`)) return;
+  order.status = "In Production";
+  order.completedDate = "";
+  order.completionReason = "";
+  order.fittingAccessoriesAbsorbedAt = "";
+  lot.status = "Issued";
+  lot.finishedGrossWeight = 0;
+  lot.finishedWeight = 0;
+  lot.fittingAccessoriesAbsorbedAt = "";
+  lot.fittingAccessoriesAbsorbedBy = "";
+  saveState({ changedStateKeys: ["orders", "lots"] });
+  render();
+  openOrderDetail(order.id, false, "active");
+}
+
 function renderJobItemsDetail(orders) {
   orders = sortByProductionItemSequence(orders);
+  if (orders.length === 1 && isFittingAccessoriesOrder(orders[0])) {
+    renderFittingAccessoryJobDetail(orders[0]);
+    return;
+  }
   const settingManagerMode = isSettingManagerUser();
   document.getElementById("order-items-detail").innerHTML = `
     <section class="job-split-picker ${settingManagerMode ? "hidden" : ""}" id="standard-split-job-picker">
@@ -21995,7 +22666,7 @@ function productionStoneAuditRows(items = []) {
       pcs: Number(item.pcs || 0),
       weightPerPc: formatStoneWeight(item.weightPerPc || ""),
       totalWeight: formatStoneWeight(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || ""),
-      settingType: item.settingType === "hand" || item.isAdditionalStone ? "hand" : "wax",
+      settingType: item.settingType === "fitting" ? "fitting" : item.settingType === "hand" || item.isAdditionalStone ? "hand" : "wax",
       manufacturingStage: String(item.manufacturingStage || ""),
       isAdditionalStone: Boolean(item.isAdditionalStone),
     }));
@@ -22149,7 +22820,7 @@ function productionStoneHistoryRowsHtml(rows = []) {
   return rows.map((row) => {
     const item = stoneItemInputValue(row.itemKey) || "GENERAL";
     const identity = [row.stoneType, row.shape, row.size].filter(Boolean).join(" / ") || "Additional stone";
-    const setting = row.settingType === "hand" ? "HAND" : "WAX";
+    const setting = row.settingType === "fitting" ? "FITTING" : row.settingType === "hand" ? "HAND" : "WAX";
     return `
       <div class="production-stone-history-row">
         <strong>${escapeHtml(item)}${row.code ? ` / ${escapeHtml(row.code)}` : ""}</strong>
@@ -22892,6 +23563,7 @@ function productionStoneTotals(items = [], settingType = "") {
 }
 
 function productionStoneSettingLabel(value) {
+  if (value === "fitting") return "Fitting Accessory Stone";
   return value === "hand" ? "Hand Stone Setting" : "Wax Stone Setting";
 }
 
@@ -22902,7 +23574,7 @@ function automaticProductionStoneSetting(item = {}) {
 }
 
 function manufacturingStageForSettingType(settingType = "") {
-  return settingType === "wax" ? "Wax" : settingType === "hand" ? "Setting" : "";
+  return settingType === "wax" ? "Wax" : settingType === "hand" ? "Setting" : settingType === "fitting" ? "Chain Fitting" : "";
 }
 
 function syncProductionStoneStageForSettingType(row) {
@@ -22924,6 +23596,7 @@ function productionSettingOptions(selected = "wax") {
   return [
     ["wax", "Wax Stone Setting"],
     ["hand", "Hand Stone Setting"],
+    ["fitting", "Fitting Accessory Stone"],
   ].map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
 }
 
@@ -26608,7 +27281,9 @@ function renderOrderLotCard(lot) {
     ? '<span class="status transfer">Stone details only</span>'
     : lot.status === "Completed"
     ? `<button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
-    : lot.fittingItemsJobCard
+    : lot.fittingAccessoriesJobCard
+      ? `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer Complete Fitting Lot</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
+      : lot.fittingItemsJobCard
       ? `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer To Fitting</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`
       : `<button type="button" onclick="openTransferFromOrder('${lot.id}')">Transfer</button><button type="button" onclick="openCompleteFromOrder('${lot.id}')">Complete</button><button class="ghost-button" type="button" onclick="openNonGoldIssueForLot('${lot.id}')">Non-Gold</button><button class="danger-button" type="button" onclick="openNonGoldRemoveForLot('${lot.id}')">Remove NG</button><button class="ghost-button" type="button" onclick="openHistoryFromOrder('${lot.id}')">History</button>`;
   const actions = `${primaryActions}${goldIssueCorrectionButtonHtml(lot)}${jobLotPreviousStageButtonHtml(lot, "Return Previous")}`;
@@ -36365,6 +37040,11 @@ function orderTableRow(job, options = {}) {
 
 function jobDetailsText(job) {
   const dueText = isCompletedJob(job) ? "" : ` / Due ${job.dueDate}`;
+  const firstOrder = job.orders?.[0] || {};
+  if (isFittingAccessoriesOrder(firstOrder)) {
+    const totals = fittingAccessoryJobTotals(firstOrder);
+    return `${job.jobNumber} / Special Fitting Lot / ${totals.rows} fitting row${totals.rows === 1 ? "" : "s"} / No PR / ${totals.availableQuantity} pcs available / ${job.status}`;
+  }
   return `${job.jobNumber} / ${job.orders.length} item${job.orders.length > 1 ? "s" : ""} / ${job.categories}${dueText} / ${job.status}`;
 }
 
@@ -39693,7 +40373,7 @@ function settingEntryStoneHistoryHtml(entry = {}) {
   const stone = settingEntryStoneAccount(entry);
   if (!stone.rows.length && stone.totalWeight <= 0.0005) return '<span class="setter-stone-empty">No stone details</span>';
   const rows = stone.rows.map((item) => {
-    const settingType = item.settingType === "hand" || item.isAdditionalStone ? "HAND" : "WAX";
+    const settingType = item.settingType === "fitting" ? "FITTING" : item.settingType === "hand" || item.isAdditionalStone ? "HAND" : "WAX";
     const description = [item.stoneType || "STONE", item.shape || "-", item.size || "-"].filter(Boolean).join(" / ");
     return `<span><b>${escapeHtml(item.productionNo)}</b> ${escapeHtml(description)} / ${Number(item.pcs || 0)} PCS / ${gram(item.totalWeight)} / ${settingType}</span>`;
   }).join("");
@@ -53760,6 +54440,46 @@ function normalizeState(currentState) {
     const design = currentState.designs.find((item) => item.id === order.designId);
     order.designNumber = design ? designText(design) : order.designNumber || "";
     order.category = order.category || design?.category || "";
+    const specialFittingCard = order.specialJobType === "fitting-accessories" || Boolean(order.fittingAccessoriesJobCard);
+    if (specialFittingCard) {
+      order.specialJobType = "fitting-accessories";
+      order.fittingAccessoriesJobCard = true;
+      order.noProductionNumber = true;
+      order.finalDestination = order.finalDestination || "Chain Fitting Department";
+      order.legacyProductionNo = order.legacyProductionNo || order.productionNo || order.number || "";
+      const legacyStoneWeight = Number(productionStoneTotals(order.productionStoneItems || []).weight || 0);
+      const savedItems = Array.isArray(order.fittingAccessoryItems) && order.fittingAccessoryItems.length
+        ? order.fittingAccessoryItems
+        : [{
+            id: crypto.randomUUID(),
+            name: order.itemNarration || order.item || "Fitting Accessories",
+            sourceDesignId: "",
+            sourceDesignNumber: "Legacy Fitting Job Card",
+            sourceItemKey: "",
+            quantity: Math.max(1, Number(order.itemPcs || order.orderedPcs || 1)),
+            totalStoneWeight: legacyStoneWeight,
+            sourceStoneRows: [],
+            allocations: [],
+            createdAt: order.createdAt || "",
+          }];
+      order.fittingAccessoryItems = savedItems.map((item) => ({
+        id: item.id || crypto.randomUUID(),
+        name: item.name || "Fitting Accessory",
+        sourceDesignId: item.sourceDesignId || "",
+        sourceDesignNumber: item.sourceDesignNumber || "Manual Fitting",
+        sourceItemKey: item.sourceItemKey ? normalizeStoneItemKey(item.sourceItemKey) : "",
+        quantity: Math.max(1, Math.floor(Number(item.quantity || 1))),
+        totalStoneWeight: Number(Math.max(Number(item.totalStoneWeight || 0), 0).toFixed(5)),
+        sourceStoneRows: Array.isArray(item.sourceStoneRows) ? item.sourceStoneRows : [],
+        allocations: (Array.isArray(item.allocations) ? item.allocations : []).map((allocation) => ({
+          ...allocation,
+          id: allocation.id || crypto.randomUUID(),
+          quantity: Math.max(0, Math.floor(Number(allocation.quantity || 0))),
+          stoneWeight: Number(Math.max(Number(allocation.stoneWeight || 0), 0).toFixed(5)),
+        })),
+        createdAt: item.createdAt || order.createdAt || "",
+      }));
+    }
     order.size = order.size || "";
     order.ringType = order.ringType || "";
     const savedSetItemCode = categoryCode(order.item || "");
@@ -53768,9 +54488,15 @@ function normalizeState(currentState) {
     order.cgSize = order.cgSize || "";
     order.color = order.color || "";
     order.remarks = order.remarks || "";
-    order.productionNo = order.productionNo || order.number || nextProductionNumber(currentState);
-    order.barcode = order.barcode || order.productionNo;
     order.jobNumber = order.jobNumber || nextJobCardNumber(currentState);
+    if (specialFittingCard && order.noProductionNumber) {
+      order.productionNo = "";
+      order.number = "";
+      order.barcode = order.jobNumber;
+    } else {
+      order.productionNo = order.productionNo || order.number || nextProductionNumber(currentState);
+      order.barcode = order.barcode || order.productionNo;
+    }
     order.orderDate = order.orderDate || isoToday();
     const savedProductionDays = Number(order.productionDays ?? daysBetween(order.orderDate, order.dueDate));
     order.productionDays = normalizeProductionDays(savedProductionDays);
@@ -53805,6 +54531,8 @@ function normalizeState(currentState) {
           ? normalizeStoneItemKey(item.sourceFittingItemKey || matchedDesignStone?.sourceFittingItemKey)
           : "",
         sourceFittingStoneId: item.sourceFittingStoneId || matchedDesignStone?.sourceFittingStoneId || "",
+        sourceFittingAllocationId: item.sourceFittingAllocationId || "",
+        sourceFittingJobItemId: item.sourceFittingJobItemId || "",
         isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName || matchedDesignStone?.isFittingAccessory),
         safeDepartmentIssueId: item.safeDepartmentIssueId || "",
         manualShelfIssue: Boolean(item.manualShelfIssue),

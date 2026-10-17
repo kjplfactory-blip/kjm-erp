@@ -22369,3 +22369,300 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     grid-template-columns: 1fr;
   }
 }
+
+/* Special fitting job cards: one transferable GW lot, no PR rows. */
+#fitting-accessories-job-dialog,
+#fitting-accessory-allocation-dialog {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #eef8ff;
+}
+
+#fitting-accessories-job-dialog .fitting-accessories-job-card,
+.fitting-accessory-allocation-card {
+  width: 100%;
+  min-height: 100%;
+  max-width: none;
+  border-radius: 0;
+  background: #f7fbff;
+}
+
+.fitting-job-item-composer {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #9dc8e8;
+  border-radius: 8px;
+  background: #e9f6ff;
+}
+
+.fitting-job-item-fields,
+.fitting-accessory-allocation-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fitting-job-item-fields label,
+.fitting-accessory-allocation-grid label {
+  min-width: 0;
+}
+
+.fitting-job-item-preview,
+.fitting-accessory-target-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid #b7d8ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #174d75;
+}
+
+.fitting-job-item-preview span,
+.fitting-accessory-target-preview span {
+  color: #42677f;
+  text-align: right;
+}
+
+.fitting-job-draft-items {
+  display: grid;
+  gap: 7px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.fitting-job-draft-total,
+.fitting-job-draft-items article {
+  display: grid;
+  grid-template-columns: 42px minmax(180px, 1fr) 100px 150px 90px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid #bddcf1;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.fitting-job-draft-total {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: #d9efff;
+  color: #0c4a73;
+}
+
+.fitting-job-draft-items article > div {
+  display: grid;
+  gap: 2px;
+}
+
+.fitting-job-draft-items article small {
+  color: #5c7586;
+}
+
+.fitting-accessory-allocation-card {
+  align-content: start;
+}
+
+.fitting-accessory-allocation-grid {
+  grid-template-columns: 2fr 1fr 1fr;
+}
+
+.special-fitting-job-dialog .job-split-toolbar,
+.special-fitting-job-dialog #edit-order-details,
+.special-fitting-job-dialog #print-order,
+.special-fitting-job-dialog #print-order-a6,
+.special-fitting-job-dialog #print-transfer-bag {
+  display: none !important;
+}
+
+.special-fitting-job-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.special-fitting-job-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #afd5ef;
+  border-radius: 8px;
+  background: #e9f6ff;
+}
+
+.special-fitting-job-summary span,
+.special-fitting-job-summary small {
+  color: #4d6d82;
+}
+
+.special-fitting-job-summary strong {
+  color: #074f7c;
+  font-size: 1.08rem;
+  overflow-wrap: anywhere;
+}
+
+.special-fitting-job-summary.absorbed > div {
+  background: #e8f7ee;
+  border-color: #9dd1ae;
+}
+
+.special-fitting-guidance {
+  padding: 10px 12px;
+  border-left: 4px solid #2086c1;
+  background: #e7f5ff;
+  color: #164f72;
+}
+
+.special-fitting-items {
+  display: grid;
+  gap: 12px;
+}
+
+.special-fitting-item-card {
+  padding: 12px;
+  border: 1px solid #9fcce9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.special-fitting-item-card.fully-allocated {
+  border-color: #9dccae;
+  background: #f2fbf5;
+}
+
+.special-fitting-item-card > header,
+.special-fitting-item-card > header > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.special-fitting-item-card > header {
+  justify-content: space-between;
+  padding-bottom: 10px;
+}
+
+.special-fitting-item-card > header > div:first-child {
+  flex-wrap: wrap;
+}
+
+.special-fitting-item-card > header span,
+.special-fitting-item-card > header small {
+  color: #567487;
+}
+
+.special-fitting-item-card > header strong {
+  color: #064f7d;
+  font-size: 1.05rem;
+}
+
+.special-fitting-item-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 7px;
+  padding: 9px 0;
+  border-top: 1px solid #d5e7f3;
+  border-bottom: 1px solid #d5e7f3;
+}
+
+.special-fitting-item-metrics span {
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border-radius: 6px;
+  background: #eff8fe;
+  color: #164d70;
+}
+
+.special-fitting-item-metrics b {
+  color: #5d7788;
+  font-size: .72rem;
+}
+
+.fitting-allocation-history {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.fitting-allocation-history-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 120px 150px 165px 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #d2e5f2;
+  border-radius: 6px;
+  background: #f7fbfe;
+}
+
+.fitting-allocation-history-row > div {
+  display: grid;
+  gap: 2px;
+}
+
+.special-fitting-close-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #acd4ed;
+  border-radius: 8px;
+  background: #eaf7ff;
+}
+
+@media (max-width: 950px) {
+  .fitting-job-item-fields,
+  .fitting-accessory-allocation-grid,
+  .special-fitting-job-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .special-fitting-item-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fitting-job-draft-items article,
+  .fitting-allocation-history-row {
+    grid-template-columns: 34px minmax(0, 1fr) 100px;
+  }
+}
+
+@media (max-width: 620px) {
+  .fitting-job-item-fields,
+  .fitting-accessory-allocation-grid,
+  .special-fitting-job-summary,
+  .special-fitting-item-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .fitting-job-item-preview,
+  .fitting-accessory-target-preview,
+  .special-fitting-close-row,
+  .special-fitting-item-card > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fitting-job-item-preview span,
+  .fitting-accessory-target-preview span {
+    text-align: left;
+  }
+
+  .fitting-job-draft-items article,
+  .fitting-allocation-history-row {
+    grid-template-columns: 1fr;
+  }
+}
