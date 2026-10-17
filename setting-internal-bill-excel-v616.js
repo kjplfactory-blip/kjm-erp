@@ -185,16 +185,16 @@
   function excelCell(value, style = "", type = "String") {
     const safeType = type === "Number" && Number.isFinite(Number(value)) ? "Number" : "String";
     const safeValue = safeType === "Number" ? Number(value) : value;
-    return `<Cell${style ? ` ss:StyleID="${style}"` : ""}><Data ss:Type="${safeType}">${excelEscape(safeValue)}</Data></Cell>`;
+    return { value: safeValue ?? "", style, type: safeType };
   }
 
   function excelRow(values = [], style = "") {
-    return `<Row>${values.map((value) => {
+    return values.map((value) => {
       if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "value")) {
         return excelCell(value.value, value.style || style, value.type || "String");
       }
       return excelCell(value, style);
-    }).join("")}</Row>`;
+    });
   }
 
   function billExcelColumns() {
@@ -302,23 +302,122 @@
   }
 
   function excelWorksheet(name, rows = []) {
-    return `<Worksheet ss:Name="${excelEscape(String(name || "Bill Details").slice(0, 31))}"><Table>${rows.join("")}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><Selected/></WorksheetOptions></Worksheet>`;
+    return {
+      name: String(name || "Bill Details").replace(/[\\/?*\[\]:]/g, " ").trim().slice(0, 31) || "Bill Details",
+      rows: Array.isArray(rows) ? rows : [],
+    };
   }
 
-  function downloadExcelWorkbook(fileName, worksheets = []) {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style><Style ss:ID="Title"><Font ss:Bold="1" ss:Size="14"/><Interior ss:Color="#DFF5ED" ss:Pattern="Solid"/></Style><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#08766A" ss:Pattern="Solid"/><Alignment ss:WrapText="1"/></Style><Style ss:ID="Weight"><NumberFormat ss:Format="0.000"/></Style><Style ss:ID="Percent"><NumberFormat ss:Format="0.00"/></Style><Style ss:ID="Total"><Font ss:Bold="1"/><Interior ss:Color="#FFF1B8" ss:Pattern="Solid"/><NumberFormat ss:Format="0.000"/></Style></Styles>${worksheets.join("")}</Workbook>`;
-    const blob = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const anchor = document.createElement("a");
-    anchor.href = URL.createObjectURL(blob);
-    const safeFileName = String(fileName || "BILL-DETAILS")
-      .replace(/[^A-Z0-9_.-]+/gi, "-")
-      .replace(/-+/g, "-")
-      .replace(/^[-.]+|[-.]+$/g, "");
-    anchor.download = `${safeFileName || "BILL-DETAILS"}.xls`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+  function excelColumnName(index = 0) {
+    let value = Number(index) + 1;
+    let name = "";
+    while (value > 0) {
+      const remainder = (value - 1) % 26;
+      name = String.fromCharCode(65 + remainder) + name;
+      value = Math.floor((value - 1) / 26);
+    }
+    return name || "A";
+  }
+
+  function excelStyleIndex(style = "") {
+    return { Title: 1, Header: 2, Weight: 3, Percent: 4, Total: 5 }[style] || 0;
+  }
+
+  function excelXlsxCellXml(cell = {}, rowNumber = 1, columnIndex = 0) {
+    const reference = `${excelColumnName(columnIndex)}${rowNumber}`;
+    const style = excelStyleIndex(cell.style);
+    const styleAttribute = style ? ` s="${style}"` : "";
+    if (cell.type === "Number" && Number.isFinite(Number(cell.value))) {
+      return `<c r="${reference}"${styleAttribute}><v>${Number(cell.value)}</v></c>`;
+    }
+    return `<c r="${reference}"${styleAttribute} t="inlineStr"><is><t xml:space="preserve">${excelEscape(cell.value)}</t></is></c>`;
+  }
+
+  function excelXlsxColumnWidths(rows = []) {
+    const columnCount = rows.reduce((largest, row) => Math.max(largest, Array.isArray(row) ? row.length : 0), 0);
+    if (!columnCount) return "";
+    const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
+      const longest = rows.reduce((length, row) => {
+        const value = row?.[columnIndex]?.value ?? "";
+        return Math.max(length, String(value).length);
+      }, 0);
+      return Math.min(42, Math.max(10, longest + 2));
+    });
+    return `<cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("")}</cols>`;
+  }
+
+  function excelXlsxWorksheetXml(worksheet = {}) {
+    const rows = Array.isArray(worksheet.rows) ? worksheet.rows : [];
+    const sheetRows = rows.map((row, rowIndex) => {
+      const cells = (Array.isArray(row) ? row : []).map((cell, columnIndex) => (
+        excelXlsxCellXml(cell, rowIndex + 1, columnIndex)
+      )).join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join("");
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${excelXlsxColumnWidths(rows)}<sheetData>${sheetRows}</sheetData><pageMargins left="0.25" right="0.25" top="0.4" bottom="0.4" header="0.2" footer="0.2"/></worksheet>`;
+  }
+
+  function excelXlsxStylesXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="0.000"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="3"><font><sz val="10"/><name val="Arial"/><family val="2"/></font><font><b/><sz val="14"/><name val="Arial"/><family val="2"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/><family val="2"/></font></fonts><fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCEFFD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF176D9C"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF1B8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD8E1E8"/></left><right style="thin"><color rgb="FFD8E1E8"/></right><top style="thin"><color rgb="FFD8E1E8"/></top><bottom style="thin"><color rgb="FFD8E1E8"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="164" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  }
+
+  function excelUniqueWorksheets(worksheets = []) {
+    const usedNames = new Set();
+    return worksheets.map((worksheet, index) => {
+      const source = worksheet && typeof worksheet === "object" ? worksheet : excelWorksheet(`Sheet ${index + 1}`, []);
+      const baseName = String(source.name || `Sheet ${index + 1}`).slice(0, 31) || `Sheet ${index + 1}`;
+      let name = baseName;
+      let suffix = 2;
+      while (usedNames.has(name.toUpperCase())) {
+        const marker = ` ${suffix}`;
+        name = `${baseName.slice(0, 31 - marker.length)}${marker}`;
+        suffix += 1;
+      }
+      usedNames.add(name.toUpperCase());
+      return { ...source, name };
+    });
+  }
+
+  async function downloadExcelWorkbook(fileName, worksheets = []) {
+    if (typeof window.JSZip !== "function") {
+      alert("The Excel workbook component could not load. Refresh the latest ERP version and try again.");
+      return false;
+    }
+    try {
+      const sheets = excelUniqueWorksheets(worksheets);
+      if (!sheets.length) sheets.push(excelWorksheet("Bill Details", []));
+      const zip = new window.JSZip();
+      const sheetOverrides = sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+      zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheetOverrides}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
+      zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`);
+      zip.file("docProps/app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>Khushali Jewells Manufacturing ERP</Application></Properties>`);
+      const createdAt = new Date().toISOString();
+      zip.file("docProps/core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>Khushali Jewells Manufacturing ERP</dc:creator><cp:lastModifiedBy>Khushali Jewells Manufacturing ERP</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${createdAt}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${createdAt}</dcterms:modified></cp:coreProperties>`);
+      const sheetNodes = sheets.map((sheet, index) => `<sheet name="${excelEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("");
+      zip.file("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${sheetNodes}</sheets></workbook>`);
+      const sheetRelations = sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("");
+      zip.file("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetRelations}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+      zip.file("xl/styles.xml", excelXlsxStylesXml());
+      sheets.forEach((sheet, index) => zip.file(`xl/worksheets/sheet${index + 1}.xml`, excelXlsxWorksheetXml(sheet)));
+      const mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const blob = await zip.generateAsync({ type: "blob", mimeType, compression: "DEFLATE", compressionOptions: { level: 6 } });
+      const anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      const safeFileName = String(fileName || "BILL-DETAILS")
+        .replace(/[^A-Z0-9_.-]+/gi, "-")
+        .replace(/-+/g, "-")
+        .replace(/^[-.]+|[-.]+$/g, "");
+      anchor.download = `${safeFileName || "BILL-DETAILS"}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+      return true;
+    } catch (error) {
+      console.error("Excel workbook export failed", error);
+      alert(`The Excel .xlsx file could not be created. ${error?.message || "Please refresh and try again."}`);
+      return false;
+    }
   }
 
   function billWorksheetRows(lot = {}, bill = {}) {
