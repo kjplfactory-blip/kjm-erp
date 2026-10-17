@@ -732,6 +732,211 @@
     return rows;
   }
 
+  function billExcelDateKey(value = "") {
+    const text = String(value || "").trim();
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    const dmyMatch = text.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/);
+    if (dmyMatch) return `${dmyMatch[3]}-${String(dmyMatch[2]).padStart(2, "0")}-${String(dmyMatch[1]).padStart(2, "0")}`;
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+
+  function billPeriodDateValues() {
+    return {
+      fromDate: String(document.getElementById("bill-period-from-date")?.value || ""),
+      toDate: String(document.getElementById("bill-period-to-date")?.value || ""),
+    };
+  }
+
+  function billPeriodEntries(fromDate = "", toDate = "") {
+    const fromKey = billExcelDateKey(fromDate);
+    const toKey = billExcelDateKey(toDate);
+    if (!fromKey || !toKey || fromKey > toKey) return [];
+    return generatedBillExcelEntries()
+      .filter(({ bill }) => {
+        const billDate = billExcelDateKey(bill.billDate);
+        return billDate && billDate >= fromKey && billDate <= toKey;
+      })
+      .sort((left, right) => {
+        const dateDifference = billExcelDateKey(left.bill.billDate).localeCompare(billExcelDateKey(right.bill.billDate));
+        if (dateDifference) return dateDifference;
+        return String(left.bill.billNo || "").localeCompare(String(right.bill.billNo || ""), undefined, { numeric: true });
+      });
+  }
+
+  function periodBillSummaryRows(entries = [], fromDate = "", toDate = "") {
+    const rows = [
+      excelRow(["KHUSHALI JEWELLS MANUFACTURING - BILL PERIOD WORK SUMMARY"], "Title"),
+      excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN"), "Bills", entries.length]),
+      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "Stone (g)", "BB (g)", "Moti (g)", "Spring (g)", "Other (g)", "Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+    ];
+    entries.forEach(({ lot, bill }, index) => {
+      const totals = billTotals(bill.items || []);
+      rows.push(excelRow([
+        index + 1, bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", multiBillExcelCustomers(lot, bill),
+        { value: totals.pieces, type: "Number" },
+        { value: totals.finalGw, type: "Number", style: "Weight" },
+        { value: totals.stoneWeight, type: "Number", style: "Weight" },
+        { value: totals.bbWeight, type: "Number", style: "Weight" },
+        { value: totals.motiWeight, type: "Number", style: "Weight" },
+        { value: totals.springWeight, type: "Number", style: "Weight" },
+        { value: totals.otherNonGoldWeight, type: "Number", style: "Weight" },
+        { value: totals.reducedWeight, type: "Number", style: "Weight" },
+        { value: totals.netWeight, type: "Number", style: "Weight" },
+        { value: totals.baseFineWeight, type: "Number", style: "Weight" },
+        { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
+        { value: totals.fineWeight, type: "Number", style: "Weight" },
+      ]));
+    });
+    const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    rows.push(excelRow([
+      "GRAND TOTAL", "", "", "", "", "",
+      { value: grand.pieces, type: "Number", style: "Total" },
+      { value: grand.finalGw, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
+      { value: grand.bbWeight, type: "Number", style: "Total" },
+      { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.springWeight, type: "Number", style: "Total" },
+      { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
+      { value: grand.reducedWeight, type: "Number", style: "Total" },
+      { value: grand.netWeight, type: "Number", style: "Total" },
+      { value: grand.baseFineWeight, type: "Number", style: "Total" },
+      { value: grand.wastageFineWeight, type: "Number", style: "Total" },
+      { value: grand.fineWeight, type: "Number", style: "Total" },
+    ]));
+    return rows;
+  }
+
+  function periodBillItemRows(entries = [], fromDate = "", toDate = "") {
+    const rows = combinedBillItemRows(entries);
+    rows[0] = excelRow(["KHUSHALI JEWELLS MANUFACTURING - PERIOD INDIVIDUAL ITEM DETAILS"], "Title");
+    rows[1] = excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN"), "Bills", entries.length]);
+    return rows;
+  }
+
+  function periodBillPurityRows(entries = [], fromDate = "", toDate = "") {
+    const groups = new Map();
+    entries.forEach(({ bill }) => (bill.items || []).forEach((item) => {
+      const order = findById("orders", item.orderId) || {};
+      const purity = String(item.purity || order.purity || "Unspecified").trim().toUpperCase() || "UNSPECIFIED";
+      if (!groups.has(purity)) groups.set(purity, []);
+      groups.get(purity).push(item);
+    }));
+    const rows = [
+      excelRow(["KHUSHALI JEWELLS MANUFACTURING - PERIOD PURITY SUMMARY"], "Title"),
+      excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN")]),
+      excelRow(["Purity", "Items", "GW (g)", "Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+    ];
+    [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true })).forEach(([purity, items]) => {
+      const totals = billTotals(items);
+      rows.push(excelRow([
+        purity,
+        { value: totals.pieces, type: "Number" },
+        { value: totals.finalGw, type: "Number", style: "Weight" },
+        { value: totals.reducedWeight, type: "Number", style: "Weight" },
+        { value: totals.netWeight, type: "Number", style: "Weight" },
+        { value: totals.baseFineWeight, type: "Number", style: "Weight" },
+        { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
+        { value: totals.fineWeight, type: "Number", style: "Weight" },
+      ]));
+    });
+    const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    rows.push(excelRow([
+      "GRAND TOTAL",
+      { value: grand.pieces, type: "Number", style: "Total" },
+      { value: grand.finalGw, type: "Number", style: "Total" },
+      { value: grand.reducedWeight, type: "Number", style: "Total" },
+      { value: grand.netWeight, type: "Number", style: "Total" },
+      { value: grand.baseFineWeight, type: "Number", style: "Total" },
+      { value: grand.wastageFineWeight, type: "Number", style: "Total" },
+      { value: grand.fineWeight, type: "Number", style: "Total" },
+    ]));
+    return rows;
+  }
+
+  function renderBillPeriodExport() {
+    const summary = document.getElementById("bill-period-export-summary");
+    const list = document.getElementById("bill-period-export-list");
+    const footer = document.getElementById("bill-period-export-footer");
+    const exportButton = document.getElementById("export-bill-period-excel");
+    if (!summary || !list || !footer || !exportButton) return;
+    const { fromDate, toDate } = billPeriodDateValues();
+    const invalidRange = Boolean(fromDate && toDate && fromDate > toDate);
+    const entries = invalidRange ? [] : billPeriodEntries(fromDate, toDate);
+    const totals = billTotals(entries.flatMap(({ bill }) => bill.items || []));
+    summary.innerHTML = `
+      <span><small>BILLS</small><b>${entries.length}</b></span>
+      <span><small>ITEMS</small><b>${totals.pieces}</b></span>
+      <span><small>TOTAL GW</small><b>${weight3(totals.finalGw)} g</b></span>
+      <span><small>NON-GOLD</small><b>${weight3(totals.reducedWeight)} g</b></span>
+      <span><small>NET WEIGHT</small><b>${weight3(totals.netWeight)} g</b></span>
+      <span><small>BASE FINE</small><b>${weight3(totals.baseFineWeight)} g</b></span>
+      <span><small>WASTAGE FINE</small><b>${weight3(totals.wastageFineWeight)} g</b></span>
+      <span><small>TOTAL FINE</small><b>${weight3(totals.fineWeight)} g</b></span>
+    `;
+    list.innerHTML = entries.length ? entries.map(({ lot, bill }) => {
+      const billTotalsValue = billTotals(bill.items || []);
+      return `
+        <div class="bill-period-export-row">
+          <strong>${excelEscape(bill.billNo || "Bill Not Numbered")}</strong>
+          <span>${excelEscape(bill.billDate || "-")}</span>
+          <small title="${excelEscape(multiBillExcelCustomers(lot, bill))}">${excelEscape(lot.orderNumber || lot.number || "-")} / ${excelEscape(multiBillExcelCustomers(lot, bill))}</small>
+          <b>${billTotalsValue.pieces} item${billTotalsValue.pieces === 1 ? "" : "s"}</b>
+          <span>GW ${weight3(billTotalsValue.finalGw)} g</span>
+          <span>Net ${weight3(billTotalsValue.netWeight)} g</span>
+          <span>Fine ${weight3(billTotalsValue.fineWeight)} g</span>
+        </div>
+      `;
+    }).join("") : `<div class="empty-state">${invalidRange ? "From Date cannot be after To Date." : "No generated Bills are available in this date range."}</div>`;
+    footer.textContent = invalidRange
+      ? "Correct the date range before export."
+      : entries.length
+        ? `${entries.length} Bill${entries.length === 1 ? "" : "s"} and ${totals.pieces} item${totals.pieces === 1 ? "" : "s"} are included from ${fromDate} to ${toDate}.`
+        : "No generated Bills are available in this date range.";
+    exportButton.disabled = invalidRange || !fromDate || !toDate || entries.length === 0;
+  }
+
+  function openBillPeriodExportDialog() {
+    const dialog = document.getElementById("bill-period-export-dialog");
+    const fromInput = document.getElementById("bill-period-from-date");
+    const toInput = document.getElementById("bill-period-to-date");
+    if (!dialog || !fromInput || !toInput) return;
+    const currentDate = billExcelDateKey(typeof today === "function" ? today() : new Date());
+    if (!toInput.value) toInput.value = currentDate;
+    if (!fromInput.value) fromInput.value = `${currentDate.slice(0, 8)}01`;
+    renderBillPeriodExport();
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeBillPeriodExportDialog() {
+    document.getElementById("bill-period-export-dialog")?.close();
+  }
+
+  function exportBillPeriodExcel(event) {
+    event?.preventDefault?.();
+    const { fromDate, toDate } = billPeriodDateValues();
+    if (!fromDate || !toDate) {
+      alert("Select both From Date and To Date.");
+      return;
+    }
+    if (fromDate > toDate) {
+      alert("From Date cannot be after To Date.");
+      return;
+    }
+    const entries = billPeriodEntries(fromDate, toDate);
+    if (!entries.length) {
+      alert("No generated Bills are available in this date range.");
+      return;
+    }
+    downloadExcelWorkbook(`BILL-WORK-${fromDate}-TO-${toDate}`, [
+      excelWorksheet("Work Summary", periodBillSummaryRows(entries, fromDate, toDate)),
+      excelWorksheet("Individual Items", periodBillItemRows(entries, fromDate, toDate)),
+      excelWorksheet("Purity Summary", periodBillPurityRows(entries, fromDate, toDate)),
+    ]);
+  }
+
   function combinedBillExcelBillNumber(value = "") {
     const text = String(value || "").trim();
     return text.replace(/^BILL[\s/_-]*/i, "") || "UNNUMBERED";
@@ -787,6 +992,12 @@
     renderMultiBillExcelDialog();
   });
   document.getElementById("export-selected-bills-excel")?.addEventListener("click", exportSelectedBillsExcel);
+  document.getElementById("open-bill-period-export")?.addEventListener("click", openBillPeriodExportDialog);
+  document.getElementById("close-bill-period-export")?.addEventListener("click", closeBillPeriodExportDialog);
+  document.getElementById("bill-period-export-form")?.addEventListener("submit", exportBillPeriodExcel);
+  document.getElementById("bill-period-from-date")?.addEventListener("change", renderBillPeriodExport);
+  document.getElementById("bill-period-to-date")?.addEventListener("change", renderBillPeriodExport);
+  document.getElementById("refresh-bill-period-export")?.addEventListener("click", renderBillPeriodExport);
   renderBills();
 
   window.KJM_SETTING_INTERNAL_BILL_EXCEL_V616 = {
@@ -797,6 +1008,10 @@
     generatedBillExcelEntries,
     combinedBillSummaryRows,
     combinedBillItemRows,
+    billExcelDateKey,
+    billPeriodEntries,
+    periodBillSummaryRows,
+    periodBillPurityRows,
   };
 
   if (migrateInternalSettingSplits(state)) render();
