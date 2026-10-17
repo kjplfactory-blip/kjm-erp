@@ -10,6 +10,7 @@
     bill: "nextSequentialBillV714",
   });
   const pools = { job: [], production: [], bill: [] };
+  const RESERVATION_TIMEOUT_MS = Math.max(Number(SUPABASE_REVISION_TIMEOUT_MS || 0), 30000);
   let setupMissing = false;
   let reservationPromise = null;
 
@@ -101,7 +102,7 @@
           p_app_version: APP_VERSION,
         }),
         "Sequential number reservation timed out.",
-        SUPABASE_REVISION_TIMEOUT_MS,
+        RESERVATION_TIMEOUT_MS,
       );
       if (result?.error) {
         if (missingRpc(result.error)) setupMissing = true;
@@ -161,7 +162,8 @@
       const items = getOrderFormItems(form);
       return items.length ? { job: 1, production: items.length } : null;
     }
-    if (form.id === "fitting-accessories-job-form") return { job: 1, production: 1 };
+    // Special fitting cards deliberately have no PR item, so reserve only a Job Card number.
+    if (form.id === "fitting-accessories-job-form") return { job: 1 };
     if (form.id === "melting-receive-form") {
       const data = getFormData(form);
       const melting = findById("melting", data.meltingId);
