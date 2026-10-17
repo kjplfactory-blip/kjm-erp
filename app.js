@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v720";
+const APP_VERSION = "v721";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3664,6 +3664,7 @@ function normalizeStateForRuntime(currentState = {}) {
   }
   reconcilePostedBillNonGoldShelfConsumption(normalized);
   reconcileBillLotLinks(normalized);
+  normalizeProductionItemSequenceOrdering(normalized);
   reconcileActiveLotCurrentDepartmentsV693(normalized);
   return normalized;
 }
@@ -4108,7 +4109,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
   const applyGwSaveAdjustment = !qcOnlyWorkflow && (!existingBill.id || options.applyGwSaveAdjustment === true);
   const rawItems = billItemRows(draft?.items || existingBill.items || []);
   const gwSaveAllowance = applyOneTimeBillGwSaveAllowance(rawItems, existingBill, applyGwSaveAdjustment);
-  const items = gwSaveAllowance.items;
+  const items = sortByProductionItemSequence(gwSaveAllowance.items);
   const totals = billTotals(items);
   const netWeight = totals.netWeight;
   const effectiveWastagePercent = netWeight > 0
@@ -13257,11 +13258,51 @@ function getLotOrderIds(lot) {
   return lot.orderIds?.length ? lot.orderIds : [lot.orderId].filter(Boolean);
 }
 
+function productionItemSequenceDescriptor(item = {}) {
+  const label = String(
+    item.productionNo
+    || item.productionNumber
+    || item.prNo
+    || item.number
+    || ""
+  ).trim().toUpperCase();
+  const numberMatch = label.match(/\d+/);
+  const sequence = numberMatch ? Number(numberMatch[0]) : Number.POSITIVE_INFINITY;
+  return {
+    label,
+    sequence: Number.isFinite(sequence) ? sequence : Number.POSITIVE_INFINITY,
+  };
+}
+
+function compareProductionItemSequence(left = {}, right = {}) {
+  const a = productionItemSequenceDescriptor(left);
+  const b = productionItemSequenceDescriptor(right);
+  if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+  return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortByProductionItemSequence(items = []) {
+  return [...(Array.isArray(items) ? items : [])].sort(compareProductionItemSequence);
+}
+
+function normalizeProductionItemSequenceOrdering(currentState = {}) {
+  const sortRecordItems = (record) => {
+    if (!record || !Array.isArray(record.items)) return;
+    record.items = sortByProductionItemSequence(record.items);
+  };
+  (currentState.bills || []).forEach(sortRecordItems);
+  (currentState.lots || []).forEach((lot) => {
+    sortRecordItems(lot.bill);
+    sortRecordItems(lot.billDraft);
+  });
+  return currentState;
+}
+
 function getLotOrders(lot, sourceState = null) {
   const sourceOrders = sourceState && Array.isArray(sourceState.orders) ? sourceState.orders : null;
-  return getLotOrderIds(lot)
+  return sortByProductionItemSequence(getLotOrderIds(lot)
     .map((id) => sourceOrders ? sourceOrders.find((order) => order.id === id) : findById("orders", id))
-    .filter(Boolean);
+    .filter(Boolean));
 }
 
 function billForLotRecord(lot = {}) {
@@ -13290,7 +13331,7 @@ function billableOrderIdsForLot(lot = {}, bill = {}) {
 function billableOrdersForLot(lot = {}, bill = {}) {
   const ids = billableOrderIdsForLot(lot, bill);
   const orders = ids.map((id) => findById("orders", id)).filter(Boolean);
-  return orders.length ? orders : getLotOrders(lot);
+  return orders.length ? sortByProductionItemSequence(orders) : getLotOrders(lot);
 }
 
 function rawGoldStock() {
@@ -19398,7 +19439,9 @@ function renderFittingAccessoriesNarrationForm(order = {}) {
 
 function getJobOrders(order) {
   const jobNumber = order.jobNumber || order.productionNo || order.number;
-  return state.orders.filter((item) => (item.jobNumber || item.productionNo || item.number) === jobNumber);
+  return sortByProductionItemSequence(
+    state.orders.filter((item) => (item.jobNumber || item.productionNo || item.number) === jobNumber)
+  );
 }
 
 function filterJobOrdersForBucket(orders = [], bucket = "all") {
@@ -19408,6 +19451,7 @@ function filterJobOrdersForBucket(orders = [], bucket = "all") {
 }
 
 function renderJobItemsDetail(orders) {
+  orders = sortByProductionItemSequence(orders);
   const settingManagerMode = isSettingManagerUser();
   document.getElementById("order-items-detail").innerHTML = `
     <section class="job-split-picker ${settingManagerMode ? "hidden" : ""}" id="standard-split-job-picker">
@@ -35929,7 +35973,7 @@ async function mergeSelectedJobCards(event) {
   }
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
-    alert("The latest production-lot merge control is not loaded. Refresh App v720 and try again.");
+    alert(`The latest production-lot merge control is not loaded. Refresh App ${APP_VERSION} and try again.`);
     return;
   }
   const mergeOrdersBeforeUpdate = [...primaryOrders, ...sourceOrders];
@@ -45835,7 +45879,8 @@ function billDraftForLot(lot = {}, bill = {}) {
 
 function workingBillRecord(lot = {}, bill = {}) {
   const draft = billDraftForLot(lot, bill);
-  return draft ? { ...bill, ...draft, items: draft.items || bill.items || [] } : bill;
+  const working = draft ? { ...bill, ...draft, items: draft.items || bill.items || [] } : bill;
+  return { ...working, items: sortByProductionItemSequence(working.items || []) };
 }
 
 function canPersistBillDraft(lot = {}, bill = {}) {
@@ -45879,7 +45924,9 @@ function buildBillDraftRecord(lot = {}, bill = {}, itemsOverride = null) {
     billDate: data.billDate || "",
     billWastagePercent: factoryWstgPercent(data.billWastagePercent || 0),
     remarks: data.remarks || "",
-    items: Array.isArray(itemsOverride) ? itemsOverride : billDraftItemsFromForm(baseItems),
+    items: sortByProductionItemSequence(
+      Array.isArray(itemsOverride) ? itemsOverride : billDraftItemsFromForm(baseItems)
+    ),
     updatedAt,
     updatedBy: currentUser?.name || currentUser?.id || "User",
     finalizedBillId: "",
