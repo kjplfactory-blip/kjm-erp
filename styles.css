@@ -22392,6 +22392,27 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   background: #f7fbff;
 }
 
+.fitting-job-create-note {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(260px, 1fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #8fc6e9;
+  border-radius: 8px;
+  background: #dff2ff;
+  color: #164e72;
+}
+
+.fitting-job-create-note strong {
+  color: #064f7d;
+  font-size: .92rem;
+}
+
+.fitting-job-create-note small {
+  color: #4a718b;
+}
+
 .fitting-job-item-composer {
   display: grid;
   gap: 12px;
@@ -22399,6 +22420,29 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   border: 1px solid #9dc8e8;
   border-radius: 8px;
   background: #e9f6ff;
+}
+
+.fitting-job-design-search-row {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid #acd4ed;
+  border-radius: 7px;
+  background: #f8fcff;
+}
+
+.fitting-job-design-search-row > label {
+  min-width: 0;
+}
+
+.fitting-job-design-search-row > span {
+  align-self: center;
+  color: #426d88;
+  font-size: .76rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .fitting-job-item-fields,
@@ -22624,6 +22668,16 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 @media (max-width: 950px) {
+  .fitting-job-create-note,
+  .fitting-job-design-search-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .fitting-job-design-search-row > span {
+    white-space: normal;
+  }
+
   .fitting-job-item-fields,
   .fitting-accessory-allocation-grid,
   .special-fitting-job-summary {

@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v726";
+const APP_VERSION = "v727";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1168,7 +1168,6 @@ document.getElementById("create-fitting-accessories-job")?.addEventListener("cli
 document.getElementById("close-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
 document.getElementById("cancel-fitting-accessories-job")?.addEventListener("click", closeFittingAccessoriesJobDialog);
 document.getElementById("fitting-accessories-job-form")?.addEventListener("change", (event) => {
-  if (event.target.name === "departmentId") renderFittingAccessoriesProcessOptions();
   if (event.target.name === "fittingDesignId") renderFittingJobDesignItemOptions();
   if (event.target.name === "fittingItemKey") updateFittingJobItemPreview();
 });
@@ -1178,6 +1177,16 @@ document.getElementById("fitting-accessories-job-form")?.addEventListener("input
   }
 });
 document.getElementById("add-fitting-job-item")?.addEventListener("click", addFittingJobDraftItem);
+document.getElementById("fitting-job-design-search")?.addEventListener("input", debounceInput((event) => {
+  renderFittingJobDesignOptions("", event.target.value);
+}, 80));
+document.getElementById("clear-fitting-job-design-search")?.addEventListener("click", () => {
+  const search = document.getElementById("fitting-job-design-search");
+  if (!search) return;
+  search.value = "";
+  renderFittingJobDesignOptions();
+  search.focus();
+});
 document.getElementById("fitting-job-draft-items")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-fitting-job-item]");
   if (button) removeFittingJobDraftItem(button.dataset.removeFittingJobItem || "");
@@ -1966,6 +1975,8 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     return;
   }
   const lotNumber = nextLotNumber(state);
+  const fittingAccessoriesIssue = selectedOrders.some(isFittingAccessoriesOrder);
+  const fittingAccessoriesOrder = selectedOrders.find(isFittingAccessoriesOrder) || null;
   const issuedLot = {
     id: crypto.randomUUID(),
     number: lotNumber,
@@ -1999,6 +2010,11 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     status: "Issued",
     transfers: [],
     issueSafeItemsBefore,
+    fittingAccessoriesJobCard: fittingAccessoriesIssue,
+    specialJobType: fittingAccessoriesIssue ? "fitting-accessories" : "",
+    jobCardNarration: fittingAccessoriesOrder?.jobCardNarration || "",
+    itemNarration: fittingAccessoriesOrder?.itemNarration || "",
+    finalDestination: fittingAccessoriesIssue ? "Chain Fitting Department" : "",
   };
   const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
   const safeItemsBeforeTransaction = structuredClone(state.safeItems || []);
@@ -2030,6 +2046,13 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   }
   selectedOrders.forEach((order) => {
     order.status = "In Production";
+    if (isFittingAccessoriesOrder(order)) {
+      order.purity = transferPurityLabel(metalPurity);
+      order.color = safeItemColour(castingSafeItem) || order.color || "";
+      order.fittingAccessoriesAwaitingMetalIssue = false;
+      order.metalIssuedAt = new Date().toISOString();
+      order.metalIssueLotId = issuedLot.id;
+    }
   });
   state.lots.unshift(issuedLot);
   state.ledger.unshift({ id: crypto.randomUUID(), date: today(), type: "Out", purity: metalPurity, weight: netMetalIssuedWeight, reference: productionReference, sourceType: "gold-issue", sourceId: issuedLot.id });
@@ -10378,10 +10401,30 @@ function renderFittingAccessoriesProcessOptions(selectedProcess = "") {
     : (processes.length === 1 ? processes[0] : "");
 }
 
-function renderFittingJobDesignOptions(selectedId = "") {
+function fittingJobDesignSearchText(design = {}) {
+  const stoneItemKeys = (design.stoneItems || []).map((item) => designDetailStoneItemKey(item, design));
+  return [
+    designText(design),
+    design.number,
+    design.name,
+    design.category,
+    ...stoneItemKeys,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function renderFittingJobDesignOptions(selectedId = "", queryValue = null) {
   const form = document.getElementById("fitting-accessories-job-form");
   if (!form?.fittingDesignId) return;
-  const designs = fittingAccessorySourceDesigns();
+  const allDesigns = fittingAccessorySourceDesigns();
+  const search = document.getElementById("fitting-job-design-search");
+  const query = String(queryValue === null ? search?.value || "" : queryValue).trim().toLowerCase();
+  const designs = query
+    ? allDesigns.filter((design) => fittingJobDesignSearchText(design).includes(query))
+    : allDesigns;
+  const summary = document.getElementById("fitting-job-design-search-summary");
+  if (summary) summary.textContent = query
+    ? `${designs.length} of ${allDesigns.length} fitting designs found`
+    : `${allDesigns.length} fitting designs available`;
   form.fittingDesignId.innerHTML = `
     <option value="">Manual fitting / no Design Master</option>
     ${designs.map(fittingAccessoryDesignOptionHtml).join("")}
@@ -10513,15 +10556,12 @@ function openFittingAccessoriesJobDialog() {
   const form = document.getElementById("fitting-accessories-job-form");
   form.reset();
   fittingAccessoriesJobDraftItems = [];
-  form.orderDate.value = isoToday();
-  form.purity.value = "18K";
-  form.color.value = "Pink";
-  renderFittingAccessoriesDepartmentOptions();
-  renderFittingAccessoriesProcessOptions();
+  const search = document.getElementById("fitting-job-design-search");
+  if (search) search.value = "";
   renderFittingJobDesignOptions();
   renderFittingJobDraftItems();
   document.getElementById("fitting-accessories-job-dialog").showModal();
-  form.jobCardNarration.focus();
+  search?.focus();
 }
 
 function closeFittingAccessoriesJobDialog() {
@@ -10534,37 +10574,15 @@ function createFittingAccessoriesJobCard(event) {
   event.preventDefault();
   if (!requireFittingAccessoriesManager("create fitting accessories job cards")) return;
   const form = event.currentTarget;
-  const data = getFormData(form);
-  const department = findById("karigars", data.departmentId);
-  const grossWeight = Number(weight3(data.grossWeight || 0));
-  const jobCardNarration = String(data.jobCardNarration || "").trim();
-  const itemNarration = String(data.itemNarration || "").trim();
-  if (!department) {
-    alert("Select the starting department.");
-    return;
-  }
-  if (!data.process || !departmentProcesses(department).includes(data.process)) {
-    alert("Select a process registered under the starting department.");
-    return;
-  }
-  if (grossWeight <= 0) {
-    alert("Enter a gross weight greater than zero.");
-    form.grossWeight.focus();
-    return;
-  }
-  if (!jobCardNarration || !itemNarration) {
-    alert("Enter both Job Card Narration and Lot Description.");
-    return;
-  }
   if (!fittingAccessoriesJobDraftItems.length) {
     alert("Add at least one fitting item before creating the Special Fitting Job Card.");
     return;
   }
   const jobNumber = nextJobCardNumber(state);
-  const lotNumber = nextLotNumber(state);
   const stockCustomer = (state.customers || []).find((customer) => String(customer.name || "").trim().toUpperCase() === "KJPL-STOCK");
-  const orderDate = data.orderDate || isoToday();
+  const orderDate = isoToday();
   const createdAt = new Date().toISOString();
+  const fittingItemLabel = fittingAccessoriesJobDraftItems.map((item) => item.name).filter(Boolean).join(" / ");
   const order = {
     id: crypto.randomUUID(),
     number: "",
@@ -10576,84 +10594,53 @@ function createFittingAccessoriesJobCard(event) {
     designId: "",
     designNumber: "FITTING ACCESSORIES",
     category: "FITTING ACCESSORIES",
-    item: itemNarration,
+    item: fittingItemLabel || "FITTING ACCESSORIES",
     size: "",
-    color: data.color || "Pink",
-    purity: data.purity || "18K",
+    color: "",
+    purity: "",
     itemPcs: fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.quantity || 0), 0),
     orderedPcs: fittingAccessoriesJobDraftItems.reduce((total, item) => total + Number(item.quantity || 0), 0),
     pieceIndex: 0,
     targetWeight: 0,
-    remarks: jobCardNarration,
-    jobCardNarration,
-    itemNarration,
+    remarks: "",
+    jobCardNarration: "",
+    itemNarration: "",
     orderDate,
     productionDays: MIN_PRODUCTION_DAYS,
     dueDate: calculateDueDate(orderDate, MIN_PRODUCTION_DAYS),
     urgent: false,
-    status: "In Production",
+    status: "Pending",
     productionStoneItems: [],
     specialJobType: "fitting-accessories",
     fittingAccessoriesJobCard: true,
-    fittingAccessoriesNarration: jobCardNarration,
+    fittingAccessoriesNarration: "",
     fittingAccessoryItems: fittingAccessoriesJobDraftItems.map((item) => structuredClone(item)),
+    fittingAccessoriesAwaitingMetalIssue: true,
     noProductionNumber: true,
     finalDestination: "Chain Fitting Department",
     createdAt,
     createdBy: currentUser?.name || currentUser?.id || "Manager",
   };
-  const lot = {
-    id: crypto.randomUUID(),
-    number: lotNumber,
-    issueDate: today(),
-    createdAt,
-    orderId: order.id,
-    orderIds: [order.id],
-    orderNumber: jobNumber,
-    karigarId: department.id,
-    karigarName: department.name,
-    issueKarigarId: department.id,
-    issueKarigarName: department.name,
-    issueDepartment: data.process,
-    currentDepartment: data.process,
-    metalPurity: karatLogicPurity(data.purity || "18K"),
-    grossIssuedWeight: grossWeight,
-    waxStoneWeight: 0,
-    issuedWeight: grossWeight,
-    issueSourceName: "Fitting Accessories Job Card",
-    issueSourceDetail: jobCardNarration,
-    issueSourceLocker: "",
-    expectedWastage: 0,
-    finishedWeight: 0,
-    actualWastage: 0,
-    status: "Issued",
-    transfers: [],
-    fittingAccessoriesJobCard: true,
-    jobCardNarration,
-    itemNarration,
-  };
   state.orders.push(order);
-  state.lots.unshift(lot);
   state.ledger.unshift({
     id: crypto.randomUUID(),
     date: today(),
     createdAt,
     type: "Fitting Accessories Card",
-    purity: lot.metalPurity,
+    purity: "",
     weight: 0,
     sourceType: "special-fitting-job-create",
-    sourceId: lot.id,
-    reference: `${jobNumber} / ${lotNumber} Special Fitting Job Card created in ${department.name} / ${data.process}; ${fittingAccessoriesJobDraftItems.length} fitting rows; GW ${gram(grossWeight)}; ${jobCardNarration}. No PR number and no Safe Locker stock movement booked.`,
+    sourceId: order.id,
+    reference: `${jobNumber} Special Fitting Job Card created with ${fittingAccessoriesJobDraftItems.length} fitting rows. Metal issue is pending until casting is ready. No PR number and no stock movement booked.`,
   });
   const saved = saveState({
     alertOnFailure: true,
     context: `${jobNumber} Special Fitting Job Card`,
-    changedStateKeys: ["orders", "lots", "ledger"],
+    changedStateKeys: ["orders", "ledger"],
   });
   if (!saved) {
     state.orders = state.orders.filter((item) => item.id !== order.id);
-    state.lots = state.lots.filter((item) => item.id !== lot.id);
-    state.ledger = state.ledger.filter((item) => item.sourceId !== lot.id);
+    state.ledger = state.ledger.filter((item) => item.sourceId !== order.id);
     return;
   }
   backupRecentJobOrders([order]);
@@ -10662,7 +10649,7 @@ function createFittingAccessoriesJobCard(event) {
   render();
   switchOrderPage("active");
   openOrderDetail(order.id, false, "active");
-  alert(`Special Fitting Job Card created.\n${jobNumber} / ${lotNumber}\nNo PR number generated.\n${order.fittingAccessoryItems.length} fitting rows / GW ${gram(grossWeight)} in ${department.name} / ${data.process}.`);
+  alert(`Special Fitting Job Card created.\n${jobNumber}\nNo PR number generated.\n${order.fittingAccessoryItems.length} fitting rows saved. Issue Metal after the casting is ready.`);
 }
 
 function switchDesignPage(page) {
@@ -19590,7 +19577,7 @@ function openOrderDetailCached(orderId, editMode = false, bucket = "all", prefer
     fittingAccessoryCard
       ? `${fittingAccessoryItemsForOrder(order).length} fitting row${fittingAccessoryItemsForOrder(order).length === 1 ? "" : "s"} / No PR`
       : `${jobOrders.length} item${jobOrders.length > 1 ? "s" : ""}`,
-    `${order.color || "Pink"} Colour`,
+    fittingAccessoryCard && order.fittingAccessoriesAwaitingMetalIssue ? "Metal Not Issued" : `${order.color || "Pink"} Colour`,
     isFittingAccessoriesOrder(order) ? order.jobCardNarration || order.fittingAccessoriesNarration || "Fitting Accessories" : "",
     jobCurrentStage(jobOrders),
     jobOrderDeliverySummary(jobOrders),
@@ -19772,19 +19759,20 @@ function renderFittingAccessoryJobDetail(order = {}) {
   const totals = fittingAccessoryJobTotals(order);
   const canManage = canManageFittingAccessoriesJobCards() && !isReadOnlyUser();
   const absorbed = Boolean(order.fittingAccessoriesAbsorbedAt || lot?.fittingAccessoriesAbsorbedAt);
+  const awaitingMetalIssue = !lot && order.status === "Pending";
   const currentLocation = lot
     ? mergedProductionDepartmentName(lot.currentDepartment || lot.karigarName, lot.karigarName)
-    : "No active production lot";
+    : awaitingMetalIssue ? "Metal Not Issued" : "No active production lot";
   container.innerHTML = `
     <section class="special-fitting-job-summary ${absorbed ? "absorbed" : ""}">
       <div><span>Job Card</span><strong>${escapeHtml(order.jobNumber || "-")}</strong><small>No PR numbers</small></div>
       <div><span>Current Department</span><strong>${escapeHtml(currentLocation || "-")}</strong><small>Final destination: Chain Fitting</small></div>
-      <div><span>Lot GW</span><strong>${escapeHtml(lot ? gram(currentTransferIssueWeight(lot)) : "-")}</strong><small>Transferred only as one complete lot</small></div>
+      <div><span>Lot GW</span><strong>${escapeHtml(lot ? gram(currentTransferIssueWeight(lot)) : "Not issued")}</strong><small>${escapeHtml(lot ? "Transferred only as one complete lot" : "Captured later through Issue Metal")}</small></div>
       <div><span>Fitting Quantity</span><strong>${escapeHtml(totals.availableQuantity)} available</strong><small>${escapeHtml(totals.allocatedQuantity)} of ${escapeHtml(totals.quantity)} allocated</small></div>
       <div><span>Fitting Stone</span><strong>${escapeHtml(weight5(totals.availableStoneWeight))} g available</strong><small>${escapeHtml(weight5(totals.allocatedStoneWeight))} of ${escapeHtml(weight5(totals.stoneWeight))} g allocated</small></div>
-      <div><span>Status</span><strong>${escapeHtml(absorbed ? "Absorbed In Chain Fitting" : atChainFitting ? "Ready For PR Allocation" : "Moving To Chain Fitting")}</strong><small>${escapeHtml(order.jobCardNarration || order.fittingAccessoriesNarration || "Special fitting lot")}</small></div>
+      <div><span>Status</span><strong>${escapeHtml(absorbed ? "Absorbed In Chain Fitting" : awaitingMetalIssue ? "Awaiting Casting Metal Issue" : atChainFitting ? "Ready For PR Allocation" : "Moving To Chain Fitting")}</strong><small>${escapeHtml(order.jobCardNarration || order.fittingAccessoriesNarration || "Special fitting Job Card")}</small></div>
     </section>
-    ${!atChainFitting && !absorbed ? '<p class="special-fitting-guidance">Move this complete lot through normal department transfers. Send-to-PR actions become available after the lot reaches Chain Fitting.</p>' : ""}
+    ${awaitingMetalIssue ? '<p class="special-fitting-guidance">The Job Card is ready. After casting is complete, press Issue Metal to select the casting stock, GW, purity and first department. No factory stock has moved yet.</p>' : !atChainFitting && !absorbed ? '<p class="special-fitting-guidance">Move this complete lot through normal department transfers. Send-to-PR actions become available after the lot reaches Chain Fitting.</p>' : ""}
     <section class="special-fitting-items">
       ${fittingAccessoryItemsForOrder(order).length ? fittingAccessoryItemsForOrder(order).map((item, index) => {
         const availability = fittingAccessoryAvailability(item);
@@ -26309,10 +26297,20 @@ function goldIssueLinkedSafeIssue(lot = {}) {
   ) || null;
 }
 
+function fittingAccessoryLotUsesSafeGoldIssue(lot = {}) {
+  if (!lot?.fittingAccessoriesJobCard) return false;
+  return Boolean(
+    lot.castingSafeItemId
+    || lot.issueSourceLocker
+    || (lot.issueSafeItemsBefore || []).length
+    || lot.sourceType === "gold-issue"
+  );
+}
+
 function goldIssueCorrectionBlockReason(lot = {}) {
   if (!lot?.id) return "Gold issue was not found.";
   if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can correct a Gold Issue.";
-  if (lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) return "This tracking lot was not created by a Safe Locker Gold Issue.";
+  if (lot.fittingItemsJobCard || (lot.fittingAccessoriesJobCard && !fittingAccessoryLotUsesSafeGoldIssue(lot))) return "This legacy tracking lot was not created by a Safe Locker Gold Issue.";
   if (lot.parentLotId || lot.qcReturn) return "Repair and split lots must be corrected through their production workflow.";
   if ((lot.transfers || []).length) return "This lot has already moved to another department. Correct or delete the later transfer first.";
   if (lot.status === "Completed" || lot.finishedWeight || lot.completedDate) return "A completed Gold Issue cannot be undone.";
@@ -26340,7 +26338,7 @@ function goldIssueCorrectionBlockReason(lot = {}) {
 function goldIssueWeightCorrectionBlockReason(lot = {}) {
   if (!lot?.id) return "Gold issue was not found.";
   if (!canDeleteErpData() || isReadOnlyUser()) return "Only Owner or Manager can correct a Gold Issue.";
-  if (lot.fittingItemsJobCard || lot.fittingAccessoriesJobCard) return "This tracking lot was not created by a Safe Locker Gold Issue.";
+  if (lot.fittingItemsJobCard || (lot.fittingAccessoriesJobCard && !fittingAccessoryLotUsesSafeGoldIssue(lot))) return "This legacy tracking lot was not created by a Safe Locker Gold Issue.";
   if (lot.parentLotId || lot.qcReturn) return "Repair and split lots must be corrected through their production workflow.";
   if ((lot.transfers || []).length) return "This lot has already moved to another department. Correct or delete the later transfer first.";
   if (lot.status === "Completed" || lot.finishedWeight || lot.completedDate) return "A completed Gold Issue cannot be corrected.";
@@ -26682,7 +26680,14 @@ function resetOrdersAfterGoldIssueRemoval(lot = {}) {
     const order = (state.orders || []).find((entry) => entry.id === orderId);
     if (!order || isCompletedOrder(order) || order.status === "Discarded") return;
     const stillInProduction = (state.lots || []).some((entry) => entry.id !== lot.id && getLotOrderIds(entry).includes(orderId));
-    if (!stillInProduction) order.status = "Pending";
+    if (!stillInProduction) {
+      order.status = "Pending";
+      if (isFittingAccessoriesOrder(order)) {
+        order.fittingAccessoriesAwaitingMetalIssue = true;
+        delete order.metalIssuedAt;
+        delete order.metalIssueLotId;
+      }
+    }
   });
 }
 
@@ -27128,17 +27133,14 @@ function renderOrderLots(order, scopedLotId = "") {
 function updateIssueGoldFromOrderButton(jobOrders = []) {
   const button = document.getElementById("issue-from-order");
   if (!button) return;
-  if (jobOrders.some(isFittingAccessoriesOrder)) {
-    button.disabled = true;
-    button.textContent = "Accessory Lot Created";
-    button.title = "This tracking job card already has its production lot and does not require a separate Gold Issue.";
-    return;
-  }
   const pendingCount = jobOrders.filter((order) => order.status === "Pending").length;
+  const fittingAccessoriesCard = jobOrders.some(isFittingAccessoriesOrder);
   button.disabled = pendingCount === 0;
-  button.textContent = pendingCount ? "Issue Gold" : "Gold Issued";
+  button.textContent = pendingCount ? (fittingAccessoriesCard ? "Issue Metal After Casting" : "Issue Gold") : "Gold Issued";
   button.title = pendingCount
-    ? `Issue gold for ${pendingCount} pending item${pendingCount === 1 ? "" : "s"} in this job card.`
+    ? fittingAccessoriesCard
+      ? "Create the production lot now that the fitting casting is ready."
+      : `Issue gold for ${pendingCount} pending item${pendingCount === 1 ? "" : "s"} in this job card.`
     : "This job card has no pending item left for gold issue.";
 }
 

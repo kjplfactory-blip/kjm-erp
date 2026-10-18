@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=726">
+    <link rel="stylesheet" href="styles.css?v=727">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v726</small>
+          <small class="app-version-badge">App v727</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v726</span>
+          <span class="app-version-badge">App v727</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2512,34 +2512,14 @@
         <div class="dialog-header">
           <div>
             <h2>Create Special Fitting Job Card</h2>
-            <p class="dialog-note">Create one no-PR production lot containing multiple fitting accessories. Its complete GW moves through departments and finishes in Chain Fitting.</p>
+            <p class="dialog-note">Create the fitting Job Card first without GW or a production lot. After casting is ready, use Issue Metal to enter its GW, purity, colour and first department.</p>
           </div>
           <button class="ghost-button" type="button" id="close-fitting-accessories-job">Close</button>
         </div>
-        <section class="fitting-accessories-form-grid">
-          <label class="full-row">Job Card Narration <textarea name="jobCardNarration" rows="2" placeholder="Purpose or full narration for this fitting lot" required></textarea></label>
-          <label class="full-row">Lot Description <textarea name="itemNarration" rows="2" placeholder="Common description used during department transfers" required></textarea></label>
-          <label>Gross Weight (g) <input name="grossWeight" type="number" min="0.001" step="0.001" placeholder="0.000" required></label>
-          <label>Purity
-            <select name="purity" required>
-              <option>9K</option>
-              <option>14K</option>
-              <option selected>18K</option>
-              <option>22K</option>
-            </select>
-          </label>
-          <label>Colour
-            <select name="color" required>
-              <option>Pink</option>
-              <option>Yellow</option>
-              <option>White</option>
-              <option>2 Tone</option>
-              <option>3 Tone</option>
-            </select>
-          </label>
-          <label>Order Date <input name="orderDate" type="date" required></label>
-          <label>Starting Department <select name="departmentId" required></select></label>
-          <label>Starting Process <select name="process" required></select></label>
+        <section class="fitting-job-create-note">
+          <strong>Step 1: Select all fitting accessories and create the Job Card.</strong>
+          <span>No narration, lot description, GW, purity, colour or department is required at this stage.</span>
+          <small>Step 2: When its casting is complete, open this Job Card and press Issue Metal.</small>
         </section>
         <section class="fitting-job-item-composer">
           <div class="panel-heading">
@@ -2548,6 +2528,13 @@
               <p class="dialog-note">Select a Fitting/Fittings design or enter a manual fitting. No PR number will be generated for these rows.</p>
             </div>
             <button class="ghost-button" type="button" id="add-fitting-job-item">Add Fitting Item</button>
+          </div>
+          <div class="fitting-job-design-search-row">
+            <label>Search Fitting Design
+              <input id="fitting-job-design-search" type="search" placeholder="Type fitting design number or name" autocomplete="off">
+            </label>
+            <span id="fitting-job-design-search-summary">All fitting designs</span>
+            <button class="ghost-button" type="button" id="clear-fitting-job-design-search">Clear Search</button>
           </div>
           <div class="fitting-job-item-fields">
             <label>Fitting Design <select name="fittingDesignId"></select></label>
@@ -2559,7 +2546,7 @@
           <div id="fitting-job-item-preview" class="fitting-job-item-preview">Select a fitting design or enter a manual fitting name.</div>
           <div id="fitting-job-draft-items" class="fitting-job-draft-items"><div class="empty">No fitting item added yet.</div></div>
         </section>
-        <p class="dialog-note fitting-accessories-stock-note">The complete lot GW appears in the selected department. Fitting stone weight can later be allocated to PR items without transferring GW or changing global non-gold stock.</p>
+        <p class="dialog-note fitting-accessories-stock-note">Creating this card does not change factory stock or any department holding. The fitting stone details stay ready for later allocation to PR items.</p>
         <div class="dialog-actions">
           <button class="ghost-button" type="button" id="cancel-fitting-accessories-job">Cancel</button>
           <button type="submit">Create Special Fitting Job Card</button>
@@ -4152,13 +4139,13 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-    <script src="app.js?v=726"></script>
+    <script src="app.js?v=727"></script>
     <script src="office-reference-bills-v715.js?v=715.1"></script>
-  <script src="sequential-numbering-v714.js?v=726"></script>
+  <script src="sequential-numbering-v714.js?v=727"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>
-  <script src="setting-internal-bill-excel-v616.js?v=726"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=727"></script>
   <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
