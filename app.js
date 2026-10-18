@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v730";
+const APP_VERSION = "v731";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4239,6 +4239,7 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     billDate: data.billDate,
     createdAt: existingBill.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    bbRateVersion: existingBill.id ? (existingBill.bbRateVersion || "") : BILL_BB_RATE_VERSION,
     makingRate: 0,
     officeMakingRate: 0,
     otherCharges: 0,
@@ -25270,9 +25271,8 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
   const nonGold = billItemNonGoldBreakup(item, order);
   const huid = officeHuidText(item);
   const hmLot = hallmarkLotLabel(item) || "-";
-  const bbNo = String(item.bbNo || item.blackBeads || "0").trim() || "0";
   const nonGoldText = [
-    `BB ${bbNo} pc / ${weight3(nonGold.blackBeadsWeight)} g`,
+    `BB ${weight3(nonGold.blackBeadsWeight)} g`,
     `M ${weight3(nonGold.motiWeight)}`,
     `SP ${weight3(nonGold.springWeight)}`,
     `O ${weight3(nonGold.otherNonGoldWeight)}`,
@@ -25352,7 +25352,7 @@ function billTagHtml(lot, bill, item = {}) {
         <div class="bill-tag-weights">
           ${billTagWeight("GW", item.finalGw)}
           ${billTagWeight("STONE", item.stoneWeight)}
-          ${billTagBlackBeads(item)}
+          ${billTagWeight("BB", item.blackBeadsWeight)}
           ${billTagWeight("MOTI", item.motiWeight)}
           ${billTagWeight("SPRING", item.springWeight)}
           ${billTagWeight("OTHER", item.otherNonGoldWeight)}
@@ -25366,11 +25366,6 @@ function billTagHtml(lot, bill, item = {}) {
 
 function billTagWeight(label, value, extraClass = "") {
   return `<span class="${escapeHtml(extraClass)}"><b>${escapeHtml(label)}</b><strong>${weight3(value)}</strong></span>`;
-}
-
-function billTagBlackBeads(item = {}) {
-  const bbNo = String(item.bbNo || item.blackBeads || "0").trim() || "0";
-  return `<span><b>BB NO / WT</b><strong>${escapeHtml(bbNo)} / ${weight3(item.blackBeadsWeight)}</strong></span>`;
 }
 
 function billTagReference(label, value) {
@@ -46521,6 +46516,7 @@ function billNumber(value) {
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
 const BILL_STONE_WEIGHT_FACTOR = 0.96;
+const BILL_BB_RATE_VERSION = "revised-2026-10-18";
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
   return Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt)
@@ -46704,6 +46700,10 @@ function bbWeightFromType(bbNo = "", bbType = "") {
   return Number(weight3(pcs * weightPerPc));
 }
 
+function billUsesRevisedBbRate(record = {}) {
+  return record.bbRateVersion === BILL_BB_RATE_VERSION;
+}
+
 function billStoneWeightFromActual(actualWeight = 0) {
   return Number(weight3(Math.max(Number(actualWeight || 0), 0) * BILL_STONE_WEIGHT_FACTOR));
 }
@@ -46730,7 +46730,7 @@ function billItemNonGoldBreakup(item = {}, order = {}) {
   const bbType = normalizeBbType(item.bbType ?? "");
   const calculatedBbWeight = bbWeightFromType(bbNo, bbType);
   const savedBbWeight = billNumber(item.blackBeadsWeight ?? item.bbWeight ?? manualBreakdown["black-beads"]);
-  const blackBeadsWeight = bbType ? calculatedBbWeight : savedBbWeight;
+  const blackBeadsWeight = bbType && billUsesRevisedBbRate(item) ? calculatedBbWeight : savedBbWeight;
   const motiWeight = billNumber(item.motiWeight ?? item.mmWeight ?? manualBreakdown.moti);
   const springWeight = billNumber(item.springWeight ?? manualBreakdown.spring);
   const otherNonGoldWeight = billNumber(item.otherNonGoldWeight ?? item.otherWeight ?? (Number(manualBreakdown.other || 0) + Number(manualBreakdown.combination || 0)));
@@ -48141,6 +48141,12 @@ function renderBillItems(lot, bill = {}) {
   const qcDisabled = canEditQcStatus() ? "" : " disabled";
   const rows = billableOrders.map((order, index) => {
     const saved = savedItems.find((item) => item.orderId === order.id || item.productionNo === order.productionNo) || {};
+    const bbRateVersion = generatedBill.id
+      ? (generatedBill.bbRateVersion || saved.bbRateVersion || "")
+      : BILL_BB_RATE_VERSION;
+    const calculationItem = billUsesRevisedBbRate({ bbRateVersion })
+      ? { ...saved, bbRateVersion }
+      : saved;
     const lotManualWip = Boolean(lot.manualWipLot && !lot.manualWipCombinedBill && getLotOrderIds(lot).includes(order.id));
     const calculationOrder = lotManualWip ? {
       ...order,
@@ -48148,7 +48154,7 @@ function renderBillItems(lot, bill = {}) {
       manualWipGrossWeight: lot.manualWipGrossWeight || lot.grossIssuedWeight || 0,
       manualWipNonGoldBreakdown: normalizeNonGoldBreakdown(lot.manualWipNonGoldBreakdown),
     } : order;
-    const nonGold = billItemNonGoldBreakup(saved, calculationOrder);
+    const nonGold = billItemNonGoldBreakup(calculationItem, calculationOrder);
     const manualWip = Boolean(lotManualWip || order.manualWipOrder);
     const actualStoneWeight = manualWip ? nonGold.stoneWeight : actualBillStoneWeight(order);
     const finalGwValue = saved.finalGw ?? (manualWip ? lot.manualWipGrossWeight || lot.grossIssuedWeight || order.manualWipGrossWeight || "" : "");
@@ -48176,7 +48182,7 @@ function renderBillItems(lot, bill = {}) {
           ? "Reverse the later Office, Factory Out, Hallmarking, Sales, repair or discard movement first."
           : "";
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-bill-bb-rate-version="${escapeHtml(bbRateVersion)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
           <div class="bill-item-select-line">
             <input type="checkbox" class="bill-item-remove-check" value="${escapeHtml(order.id)}" data-removal-blocked="${removeBlockedReason ? "true" : "false"}" ${removeBlockedReason ? "disabled" : ""} aria-label="Select ${escapeHtml(itemLabel)} for removal">
@@ -48264,8 +48270,11 @@ function billItemRows(existingItems = [], options = {}) {
     }
     const bbNo = (bbNoInput?.value || "").trim();
     const bbType = (bbTypeInput?.value || "").trim();
+    const bbRateVersion = row.dataset.billBbRateVersion || existing.bbRateVersion || "";
     const calculatedBbWeight = bbWeightFromType(bbNo, bbType);
-    const blackBeadsWeight = bbType ? calculatedBbWeight : Number(bbWeightInput?.value || 0);
+    const blackBeadsWeight = bbType && billUsesRevisedBbRate({ bbRateVersion })
+      ? calculatedBbWeight
+      : Number(bbWeightInput?.value || existing.blackBeadsWeight || existing.bbWeight || 0);
     const motiWeight = Number(motiWeightInput?.value || 0);
     const manualWip = row.dataset.manualWip === "true";
     const stoneWeight = Number(manualWip ? stoneWeightInput?.value || 0 : row.dataset.jobStoneWeight || 0);
@@ -48300,6 +48309,7 @@ function billItemRows(existingItems = [], options = {}) {
       gwSaveAdjustmentAppliedAt,
       bbNo,
       bbType: normalizeBbType(bbType),
+      bbRateVersion,
       blackBeads: bbNo || existing.blackBeads || "",
       blackBeadsWeight: Number(weight3(blackBeadsWeight)),
       bbWeight: Number(weight3(blackBeadsWeight)),
@@ -54649,6 +54659,9 @@ function normalizeState(currentState) {
     jobNumber: bill.jobNumber || "",
     billNo: bill.billNo || "",
     billDate: bill.billDate || "",
+    createdAt: bill.createdAt || "",
+    updatedAt: bill.updatedAt || "",
+    bbRateVersion: bill.bbRateVersion || "",
     makingRate: 0,
     officeMakingRate: 0,
     otherCharges: 0,
@@ -54687,6 +54700,7 @@ function normalizeState(currentState) {
       gwSaveAdjustmentRecoveredAt: item.gwSaveAdjustmentRecoveredAt || "",
       bbNo: item.bbNo || item.blackBeads || "",
       bbType: normalizeBbType(item.bbType || ""),
+      bbRateVersion: item.bbRateVersion || bill.bbRateVersion || "",
       blackBeadsWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
       bbWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
       motiWeight: Number(item.motiWeight ?? item.mmWeight ?? 0),
