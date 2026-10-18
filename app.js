@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v727";
+const APP_VERSION = "v728";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4604,10 +4604,32 @@ document.getElementById("close-production-stone-bottom").addEventListener("click
   document.getElementById("production-stone-dialog").close();
 });
 
-document.getElementById("production-stone-dialog").addEventListener("close", restoreBillAfterProductionStoneEntry);
+document.getElementById("production-stone-dialog").addEventListener("close", () => {
+  restoreBillAfterProductionStoneEntry();
+  configureProductionStoneDialogMode("production");
+});
 
 document.getElementById("production-stone-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  const fittingContext = productionStoneFittingEditorContext();
+  if (fittingContext) {
+    if (!requireFittingAccessoriesManager("save fitting item stone details")) return;
+    let fittingStoneItems = [];
+    try {
+      fittingStoneItems = productionStoneRowsFromDialog({ validate: true });
+    } catch (error) {
+      alert(error.message || "Please correct the fitting stone rows.");
+      return;
+    }
+    const editorOrder = fittingAccessoryStoneEditorOrder(fittingContext.sourceOrder, fittingContext.item);
+    const masterWeightUpdates = saveMissingProductionStoneWeightsToMaster(fittingStoneItems, editorOrder);
+    const saved = commitFittingAccessoryStonePlan(fittingContext, fittingStoneItems, "Manual Fitting Stone Entry", { keepEditorOpen: true });
+    if (saved) {
+      const perPiece = productionStoneTotals(fittingAccessoryStoneEditorRows(fittingContext.item));
+      alert(`Fitting stone entry saved. Per piece: ${perPiece.pcs} stones / ${weight5(perPiece.weight)} g. Total for ${fittingContext.item.quantity} pcs: ${weight5(fittingContext.item.totalStoneWeight)} g.${masterWeightUpdates ? ` ${masterWeightUpdates} missing weight${masterWeightUpdates === 1 ? " was" : "s were"} saved to Stone Master.` : ""}`);
+    }
+    return;
+  }
   const order = findById("orders", event.target.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "save stone details")) return;
@@ -4660,20 +4682,20 @@ document.getElementById("reset-production-stone-design")?.addEventListener("clic
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
   if (event.target.dataset.productionStoneField) {
     handleProductionStoneRowChange(event);
-    const order = findById("orders", event.currentTarget.orderId.value);
+    const order = activeProductionStoneEditorOrder();
     if (order) markProductionStoneDialogEdited(order);
   }
 });
 
 document.getElementById("production-stone-form").addEventListener("input", (event) => {
   if (event.target.name === "additionalStoneWeight") {
-    const order = findById("orders", event.currentTarget.orderId.value);
+    const order = activeProductionStoneEditorOrder();
     if (order) markProductionStoneDialogEdited(order);
     updateProductionStoneDialogSummary();
     return;
   }
   if (event.target.dataset.productionStoneField) {
-    const order = findById("orders", event.currentTarget.orderId.value);
+    const order = activeProductionStoneEditorOrder();
     if (order) markProductionStoneDialogEdited(order);
     updateProductionStoneRowPreview(event.target.closest("[data-production-stone-row]"));
     updateProductionStoneDialogSummary();
@@ -19776,18 +19798,22 @@ function renderFittingAccessoryJobDetail(order = {}) {
     <section class="special-fitting-items">
       ${fittingAccessoryItemsForOrder(order).length ? fittingAccessoryItemsForOrder(order).map((item, index) => {
         const availability = fittingAccessoryAvailability(item);
+        const perPieceStone = productionStoneTotals(fittingAccessoryStoneEditorRows(item));
         return `
           <article class="special-fitting-item-card ${availability.availableQuantity ? "" : "fully-allocated"}">
             <header>
-              <div><span>Fitting ${index + 1}</span><strong>${escapeHtml(item.name || "Fitting Accessory")}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</small></div>
+              <div><span>Fitting ${index + 1}</span><strong>${escapeHtml(item.name || "Fitting Accessory")}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</small>${item.stoneOverride ? '<b class="fitting-stone-edited-badge">STONE EDITED</b>' : ""}</div>
               <div class="special-fitting-item-actions">
-                ${canManage && atChainFitting && !absorbed && availability.availableQuantity > 0 ? `<button type="button" onclick="openFittingAccessoryAllocationDialog('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Send To PR Item</button>` : ""}
+                ${canManage && !absorbed ? `<button class="ghost-button" type="button" onclick="openFittingJobStoneEntry('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Edit Stone Entry</button>` : ""}
+                ${canManage && !absorbed ? `<button class="ghost-button" type="button" onclick="loadFittingJobStoneFromDesign('${escapeHtml(order.id)}','${escapeHtml(item.id)}',false)">Get From Design + Stone Master</button>` : ""}
+                ${canManage && atChainFitting && !absorbed && availability.availableQuantity > 0 ? `<button type="button" onclick="openFittingAccessoryAllocationDialog('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Transfer Individual Pcs To PR</button>` : ""}
               </div>
             </header>
             <div class="special-fitting-item-metrics">
               <span><b>Total Qty</b>${escapeHtml(availability.totalQuantity)} pcs</span>
               <span><b>Allocated</b>${escapeHtml(availability.allocatedQuantity)} pcs</span>
               <span><b>Available</b>${escapeHtml(availability.availableQuantity)} pcs</span>
+              <span><b>Per Piece Stone</b>${escapeHtml(perPieceStone.pcs)} pcs / ${escapeHtml(weight5(perPieceStone.weight))} g</span>
               <span><b>Total Stone</b>${escapeHtml(weight5(availability.totalStoneWeight))} g</span>
               <span><b>Shifted Stone</b>${escapeHtml(weight5(availability.allocatedStoneWeight))} g</span>
               <span><b>Available Stone</b>${escapeHtml(weight5(availability.availableStoneWeight))} g</span>
@@ -19859,7 +19885,8 @@ function fittingAccessoryShiftWeight(item = {}, requestedQuantity = 0) {
   const quantity = Math.max(Math.min(Math.floor(Number(requestedQuantity || 0)), availability.availableQuantity), 0);
   if (!quantity || !availability.totalQuantity) return 0;
   if (quantity === availability.availableQuantity) return Number(availability.availableStoneWeight.toFixed(5));
-  return Number(((availability.totalStoneWeight / availability.totalQuantity) * quantity).toFixed(5));
+  const perPieceWeight = productionStoneTotals(fittingAccessoryStoneEditorRows(item)).weight;
+  return Number(((perPieceWeight || availability.totalStoneWeight / availability.totalQuantity) * quantity).toFixed(5));
 }
 
 function updateFittingAccessoryAllocationPreview() {
@@ -19869,10 +19896,13 @@ function updateFittingAccessoryAllocationPreview() {
   const sourceOrder = findById("orders", form.sourceOrderId.value);
   const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === form.accessoryId.value);
   const quantity = Math.max(Math.floor(Number(form.quantity.value || 0)), 0);
-  form.stoneWeight.value = weight5(fittingAccessoryShiftWeight(item, quantity));
+  const stoneWeight = fittingAccessoryShiftWeight(item, quantity);
+  const transferRows = fittingAccessoryStoneRowsForTarget(item, quantity, stoneWeight, {}, "preview");
+  const transferStone = productionStoneTotals(transferRows);
+  form.stoneWeight.value = weight5(stoneWeight);
   const target = findFittingAccessoryTargetPr(form.productionNo.value, sourceOrder?.id || "");
   preview.innerHTML = target
-    ? `<strong>${escapeHtml(target.productionNo || target.number)} / ${escapeHtml(jobItemDisplayName(target))}</strong><span>${escapeHtml(target.jobNumber || "-")} / ${escapeHtml(orderCurrentStage(target))} / ${escapeHtml(target.purity || "-")} / ${escapeHtml(target.color || "-")}</span>`
+    ? `<strong>${escapeHtml(target.productionNo || target.number)} / ${escapeHtml(jobItemDisplayName(target))}</strong><span>${escapeHtml(quantity)} fitting pcs / ${escapeHtml(transferStone.pcs)} stones / ${escapeHtml(weight5(transferStone.weight))} g stone</span><span>${escapeHtml(target.jobNumber || "-")} / ${escapeHtml(orderCurrentStage(target))} / ${escapeHtml(target.purity || "-")} / ${escapeHtml(target.color || "-")}</span>`
     : "Enter an exact active PR number from the list.";
 }
 
@@ -19988,6 +20018,14 @@ function allocateFittingAccessoryToPr(event) {
     targetDesign: jobItemDisplayName(targetOrder),
     quantity,
     stoneWeight,
+    stoneRows: copiedRows.map((row) => ({
+      stoneType: row.stoneType || "",
+      shape: row.shape || "",
+      size: row.size || "",
+      pcs: Number(row.pcs || 0),
+      weightPerPc: Number(row.weightPerPc || 0),
+      totalWeight: Number(row.totalWeight || 0),
+    })),
     date: today(),
     allocatedAt: new Date().toISOString(),
     allocatedByUserId: currentUser?.id || "",
@@ -22604,11 +22642,247 @@ function productionStoneDesignForOrder(order = {}, sourceState = state) {
   return matches.find((design) => design.stoneItems?.length) || directDesign || matches[0] || null;
 }
 
+function productionStoneFittingEditorContext() {
+  const form = document.getElementById("production-stone-form");
+  const itemId = form?.dataset?.fittingJobItemId || "";
+  if (!itemId) return null;
+  const sourceOrder = findById("orders", form.orderId?.value || "");
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === itemId) || null;
+  return sourceOrder && item ? { form, sourceOrder, item } : null;
+}
+
+function fittingAccessoryStoneSourceDesign(item = {}) {
+  const direct = item.sourceDesignId ? findById("designs", item.sourceDesignId) : null;
+  if (direct) return direct;
+  const sourceKey = normalizedDesignMatchKey(item.sourceDesignNumber || item.name || "");
+  if (!sourceKey) return null;
+  return (state.designs || []).find((design) => [design.number, design.name, designText(design)]
+    .map(normalizedDesignMatchKey)
+    .includes(sourceKey)) || null;
+}
+
+function fittingAccessoryStoneEditorRows(item = {}) {
+  return (Array.isArray(item.sourceStoneRows) ? item.sourceStoneRows : []).map((row) => productionStoneItemWithMasterData({
+    ...row,
+    id: row.id || crypto.randomUUID(),
+    itemKey: normalizeStoneItemKey(row.itemKey || item.sourceItemKey || "ITEM"),
+    fittingAccessoryId: item.id || "",
+    fittingAccessoryName: item.name || "Fitting Accessory",
+    fittingAccessoryQuantity: 1,
+    sourceFittingDesignId: item.sourceDesignId || "",
+    sourceFittingItemKey: item.sourceItemKey || "",
+    sourceFittingStoneId: row.sourceFittingStoneId || row.sourceDesignStoneId || row.id || "",
+    isFittingAccessory: true,
+  }));
+}
+
+function fittingAccessoryStoneEditorOrder(sourceOrder = {}, item = {}) {
+  const design = fittingAccessoryStoneSourceDesign(item);
+  const itemIndex = Math.max(fittingAccessoryItemsForOrder(sourceOrder).findIndex((entry) => entry.id === item.id), 0);
+  return {
+    ...sourceOrder,
+    id: sourceOrder.id,
+    designId: design?.id || item.sourceDesignId || "",
+    designNumber: design ? designText(design) : item.sourceDesignNumber || item.name || "Fitting Accessory",
+    category: design?.category || "FITTING",
+    designSubItemType: normalizeStoneItemKey(item.sourceItemKey || defaultStoneItemKeyForDesign(design) || "ITEM"),
+    item: item.name || "Fitting Accessory",
+    itemName: item.name || "Fitting Accessory",
+    productionNo: `FITTING ROW ${itemIndex + 1}`,
+    number: "",
+    productionStoneItems: fittingAccessoryStoneEditorRows(item),
+    productionStoneOverride: Boolean(item.stoneOverride),
+    productionStoneUpdatedAt: item.stoneUpdatedAt || "",
+    productionStoneEditedAt: item.stoneEditedAt || "",
+    productionStoneEditedBy: item.stoneEditedBy || "",
+    productionStoneEditedLoginId: item.stoneEditedLoginId || "",
+    productionStoneEditedAccount: item.stoneEditedAccount || "",
+    productionStoneEditSource: item.stoneEditSource || "",
+    productionStoneEditHistory: Array.isArray(item.stoneEditHistory) ? item.stoneEditHistory : [],
+  };
+}
+
+function activeProductionStoneEditorOrder() {
+  const context = productionStoneFittingEditorContext();
+  if (context) return fittingAccessoryStoneEditorOrder(context.sourceOrder, context.item);
+  const form = document.getElementById("production-stone-form");
+  return findById("orders", form?.orderId?.value || "");
+}
+
+function fittingAccessoryStoneRowsFromDesign(item = {}) {
+  const design = fittingAccessoryStoneSourceDesign(item);
+  if (!design) return [];
+  const requestedKey = normalizeStoneItemKey(item.sourceItemKey || defaultStoneItemKeyForDesign(design));
+  let rows = (design.stoneItems || []).filter((row) => designDetailStoneItemKey(row, design) === requestedKey);
+  if (!rows.length) {
+    const groups = designDetailStoneGroups(design, design.stoneItems || []).filter((group) => group.items.length);
+    if (groups.length === 1) rows = groups[0].items;
+  }
+  return rows.map((row) => ({
+    ...productionStoneItemFromDesignStone({ ...row, itemKey: requestedKey }),
+    sourceFittingStoneId: row.id || "",
+  }));
+}
+
+function updateFittingAccessoryStoneEditAudit(sourceOrder = {}, item = {}, rows = [], source = "Fitting Stone Entry") {
+  const editorOrder = fittingAccessoryStoneEditorOrder(sourceOrder, { ...item, sourceStoneRows: rows });
+  const existingHistory = normalizedProductionStoneEditHistory(editorOrder);
+  editorOrder.productionStoneOverride = true;
+  editorOrder.productionStoneUpdatedAt = today();
+  editorOrder.productionStoneEditedAt = new Date().toISOString();
+  editorOrder.productionStoneEditedBy = currentOperatorName();
+  editorOrder.productionStoneEditedLoginId = currentUser?.id || "";
+  editorOrder.productionStoneEditedAccount = currentLoginAccountName();
+  editorOrder.productionStoneEditSource = source;
+  appendProductionStoneEditHistory(editorOrder, source, existingHistory);
+  item.stoneOverride = true;
+  item.stoneUpdatedAt = editorOrder.productionStoneUpdatedAt;
+  item.stoneEditedAt = editorOrder.productionStoneEditedAt;
+  item.stoneEditedBy = editorOrder.productionStoneEditedBy;
+  item.stoneEditedLoginId = editorOrder.productionStoneEditedLoginId;
+  item.stoneEditedAccount = editorOrder.productionStoneEditedAccount;
+  item.stoneEditSource = editorOrder.productionStoneEditSource;
+  item.stoneEditHistory = editorOrder.productionStoneEditHistory;
+}
+
+function syncAllocatedFittingStoneRows(sourceOrder = {}, item = {}, source = "Fitting Stone Entry Updated") {
+  const updatedTargets = [];
+  (item.allocations || []).forEach((allocation) => {
+    const targetOrder = findById("orders", allocation.targetOrderId);
+    if (!targetOrder) return;
+    const quantity = Math.max(Math.floor(Number(allocation.quantity || 0)), 0);
+    const stoneWeight = Number((Number(item.totalStoneWeight || 0) * quantity / Math.max(Number(item.quantity || 1), 1)).toFixed(5));
+    const currentRows = productionStoneItemsForOrder(targetOrder)
+      .filter((row) => row.sourceFittingAllocationId !== allocation.id)
+      .map((row) => ({ ...row, id: row.id || crypto.randomUUID() }));
+    const copiedRows = fittingAccessoryStoneRowsForTarget(item, quantity, stoneWeight, targetOrder, allocation.id);
+    targetOrder.productionStoneItems = [...currentRows, ...copiedRows];
+    allocation.stoneWeight = stoneWeight;
+    allocation.stoneRows = copiedRows.map((row) => ({
+      stoneType: row.stoneType || "",
+      shape: row.shape || "",
+      size: row.size || "",
+      pcs: Number(row.pcs || 0),
+      weightPerPc: Number(row.weightPerPc || 0),
+      totalWeight: Number(row.totalWeight || 0),
+    }));
+    allocation.stoneRowsUpdatedAt = new Date().toISOString();
+    stampProductionStoneEdit(targetOrder, source);
+    (state.ledger || []).filter((entry) => entry.sourceId === allocation.id).forEach((entry) => {
+      entry.stoneWeight = stoneWeight;
+      entry.reference = `${sourceOrder.jobNumber} ${item.name}: ${quantity} fitting pcs / ${weight5(stoneWeight)} g stone assigned to ${targetOrder.productionNo || targetOrder.number} / ${targetOrder.jobNumber}. GW movement 0.000 g; fitting stone rows updated from the Special Fitting Job Card.`;
+    });
+    updatedTargets.push(targetOrder);
+  });
+  return updatedTargets;
+}
+
+function commitFittingAccessoryStonePlan(context = {}, rows = [], source = "Fitting Stone Entry", { keepEditorOpen = true } = {}) {
+  const { sourceOrder, item } = context;
+  if (!sourceOrder || !item) return false;
+  const quantity = Math.max(Number(item.quantity || 1), 1);
+  const normalizedRows = rows.map((row) => ({
+    ...productionStoneItemWithMasterData(row),
+    id: row.id || crypto.randomUUID(),
+    itemKey: normalizeStoneItemKey(row.itemKey || item.sourceItemKey || "ITEM"),
+    fittingAccessoryId: item.id,
+    fittingAccessoryName: item.name || "Fitting Accessory",
+    fittingAccessoryQuantity: 1,
+    sourceFittingDesignId: item.sourceDesignId || "",
+    sourceFittingItemKey: item.sourceItemKey || "",
+    sourceFittingStoneId: row.sourceFittingStoneId || row.sourceDesignStoneId || row.id || "",
+    isFittingAccessory: true,
+  }));
+  item.sourceStoneRows = normalizedRows;
+  item.totalStoneWeight = Number((productionStoneTotals(normalizedRows).weight * quantity).toFixed(5));
+  updateFittingAccessoryStoneEditAudit(sourceOrder, item, normalizedRows, source);
+  const updatedTargets = syncAllocatedFittingStoneRows(sourceOrder, item, `${source} / Allocated PR Refreshed`);
+  backupRecentJobOrders([sourceOrder, ...updatedTargets]);
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `${sourceOrder.jobNumber} ${item.name} stone entry`,
+    changedStateKeys: ["orders", "ledger", "stones"],
+  });
+  if (!saved) return false;
+  renderFittingAccessoryJobDetail(sourceOrder);
+  if (keepEditorOpen) {
+    const editorOrder = fittingAccessoryStoneEditorOrder(sourceOrder, item);
+    const form = document.getElementById("production-stone-form");
+    form.dataset.stoneEdited = "false";
+    renderProductionStoneItems(editorOrder, fittingAccessoryStoneEditorRows(item));
+    updateProductionStoneMasterReloadState(editorOrder);
+  }
+  return true;
+}
+
+function configureProductionStoneDialogMode(mode = "production") {
+  const fittingMode = mode === "fitting";
+  const form = document.getElementById("production-stone-form");
+  const dialog = document.getElementById("production-stone-dialog");
+  dialog?.classList.toggle("fitting-job-stone-mode", fittingMode);
+  const title = document.getElementById("production-stone-dialog-title");
+  const guidance = document.getElementById("production-stone-guidance");
+  const additional = form?.querySelector(".production-additional-stone-weight");
+  const saveButton = form?.querySelector('button[type="submit"]');
+  const stoneMasterButton = document.getElementById("refresh-production-stone-master");
+  const designMasterButton = document.getElementById("reset-production-stone-design");
+  if (title) title.textContent = fittingMode ? "Fitting Item Stone Entry" : "Production Stone Entry";
+  if (guidance) guidance.textContent = fittingMode
+    ? "These rows belong only to one fitting piece. Quantity totals are calculated automatically, and transferred pieces copy these exact stone rows into the destination PR item. Design Master and Stone Master remain unchanged unless a missing Stone Master weight is saved."
+    : "Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only and never changes Design Master or Stone Master.";
+  additional?.classList.toggle("hidden", fittingMode);
+  if (saveButton) saveButton.textContent = fittingMode ? "Save Fitting Stone Entry" : "Save Production Stone Plan";
+  if (stoneMasterButton) stoneMasterButton.textContent = fittingMode ? "Refresh Weights From Stone Master" : "Get Stone Data From Stone Master";
+  if (designMasterButton) designMasterButton.textContent = fittingMode ? "Get From Design + Stone Master" : "Get Stone Data From Design Master";
+  if (!fittingMode && form) delete form.dataset.fittingJobItemId;
+}
+
+function openFittingJobStoneEntry(sourceOrderId = "", itemId = "") {
+  if (!requireFittingAccessoriesManager("edit fitting item stone details")) return false;
+  const sourceOrder = findById("orders", sourceOrderId);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === itemId);
+  if (!sourceOrder || !item) return false;
+  const form = document.getElementById("production-stone-form");
+  form.orderId.value = sourceOrder.id;
+  form.dataset.fittingJobItemId = item.id;
+  form.dataset.stoneEdited = "false";
+  form.additionalStoneWeight.value = "";
+  configureProductionStoneDialogMode("fitting");
+  const editorOrder = fittingAccessoryStoneEditorOrder(sourceOrder, item);
+  const rows = fittingAccessoryStoneEditorRows(item);
+  const design = fittingAccessoryStoneSourceDesign(item);
+  const perPiece = productionStoneTotals(rows);
+  document.getElementById("production-stone-summary").textContent = `${sourceOrder.jobNumber} / ${item.name} / ${item.quantity} fitting pcs / Per piece ${perPiece.pcs} stones and ${weight5(perPiece.weight)} g / Total ${weight5(item.totalStoneWeight)} g`;
+  document.getElementById("production-stone-target-panel")?.classList.add("hidden");
+  renderProductionStoneItems(editorOrder, rows);
+  updateProductionStoneMasterReloadState(editorOrder);
+  void renderProductionStoneChart(editorOrder);
+  document.getElementById("production-stone-dialog").showModal();
+  return true;
+}
+
+function loadFittingJobStoneFromDesign(sourceOrderId = "", itemId = "", keepEditorOpen = false) {
+  if (!requireFittingAccessoriesManager("get fitting stone data from Design Master")) return false;
+  const sourceOrder = findById("orders", sourceOrderId);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === itemId);
+  if (!sourceOrder || !item) return false;
+  const rows = fittingAccessoryStoneRowsFromDesign(item);
+  if (!rows.length) {
+    alert("No matching stone rows are available in Design Master for this fitting item. Edit the stone entry and add rows manually.");
+    return false;
+  }
+  if (!confirm(`Replace ${item.name} stone rows with the latest Design Master data and Stone Master weights?\n\nExisting PR allocations from this fitting row will also be refreshed.`)) return false;
+  const saved = commitFittingAccessoryStonePlan({ sourceOrder, item }, rows, "Design Master + Stone Master Data Loaded", { keepEditorOpen });
+  if (saved) alert(`${rows.length} stone row${rows.length === 1 ? "" : "s"} loaded for ${item.name}. Total fitting stone: ${weight5(item.totalStoneWeight)} g.`);
+  return saved;
+}
+
 function openProductionStoneEntry(orderId) {
   const order = findById("orders", orderId);
   if (!order) return false;
   if (!requireProductionStoneEditPermission(order, "open stone details")) return false;
   const form = document.getElementById("production-stone-form");
+  configureProductionStoneDialogMode("production");
   form.orderId.value = order.id;
   form.dataset.stoneEdited = "false";
   form.additionalStoneWeight.value = formatStoneWeight(productionAdditionalStoneWeightForOrder(order)) || "";
@@ -22866,6 +23140,30 @@ function markProductionStoneDialogEdited(order = {}) {
 }
 
 function updateProductionStoneMasterReloadState(order = {}) {
+  const fittingContext = productionStoneFittingEditorContext();
+  if (fittingContext) {
+    const editedStatus = document.getElementById("production-stone-edit-status");
+    if (editedStatus) {
+      editedStatus.classList.toggle("hidden", !productionStoneEntryEdited(order));
+      editedStatus.textContent = productionStoneEntryEdited(order) ? productionStoneEditStatusText(order) : "";
+    }
+    const sourceLock = document.getElementById("production-stone-source-lock");
+    if (sourceLock) {
+      sourceLock.classList.remove("locked");
+      sourceLock.innerHTML = `<strong>FITTING ITEM MASTER DATA</strong><span>You may refresh this fitting item from Design Master and Stone Master, then correct its rows before transferring pieces to a PR item.</span>`;
+    }
+    ["refresh-production-stone-master", "reset-production-stone-design"].forEach((id) => {
+      const button = document.getElementById(id);
+      if (!button) return;
+      button.disabled = false;
+      button.title = id === "refresh-production-stone-master"
+        ? "Refresh the current fitting stone rows with matching Stone Master weights."
+        : "Replace the current fitting stone rows with its Design Master stone plan.";
+      button.setAttribute("aria-disabled", "false");
+    });
+    renderProductionStoneMeta(order);
+    return;
+  }
   const locked = !canReloadProductionStoneFromMaster(order);
   const editedStatus = document.getElementById("production-stone-edit-status");
   if (editedStatus) {
@@ -23367,7 +23665,7 @@ function updateProductionStoneDialogSummary() {
   const summary = document.querySelector("#production-stone-details .stone-total-summary");
   if (!summary) return;
   const form = document.getElementById("production-stone-form");
-  const order = findById("orders", form?.orderId?.value);
+  const order = activeProductionStoneEditorOrder();
   const items = productionStoneRowsFromDialog();
   const additionalWeight = Number(formatStoneWeight(form?.additionalStoneWeight?.value || "") || 0);
   if (order && additionalWeight > 0) items.push(directAdditionalStoneItemForOrder(order, additionalWeight));
@@ -23408,9 +23706,11 @@ function directAdditionalStoneItemForOrder(order = {}, weight = 0) {
 
 function addProductionStoneRow() {
   const form = document.getElementById("production-stone-form");
-  const order = findById("orders", form.orderId.value);
+  const order = activeProductionStoneEditorOrder();
   if (!order) return;
-  if (!requireProductionStoneEditPermission(order, "add stone rows")) return;
+  if (productionStoneFittingEditorContext()) {
+    if (!requireFittingAccessoriesManager("add fitting stone rows")) return;
+  } else if (!requireProductionStoneEditPermission(order, "add stone rows")) return;
   const container = document.getElementById("production-stone-details");
   const design = productionStoneDesignForOrder(order);
   const blank = {
@@ -23436,9 +23736,11 @@ function addProductionStoneRow() {
 }
 
 function removeProductionStoneRow(button) {
-  const form = document.getElementById("production-stone-form");
-  const order = findById("orders", form?.orderId?.value);
-  if (!order || !requireProductionStoneRowRemovePermission(order)) return;
+  const order = activeProductionStoneEditorOrder();
+  if (!order) return;
+  if (productionStoneFittingEditorContext()) {
+    if (!requireFittingAccessoriesManager("remove fitting stone rows")) return;
+  } else if (!requireProductionStoneRowRemovePermission(order)) return;
   const row = button?.closest("[data-production-stone-row]");
   if (!row) return;
   row.remove();
@@ -23448,6 +23750,30 @@ function removeProductionStoneRow(button) {
 
 function refreshProductionStoneFromMaster() {
   const form = document.getElementById("production-stone-form");
+  const fittingContext = productionStoneFittingEditorContext();
+  if (fittingContext) {
+    if (!requireFittingAccessoriesManager("refresh fitting stone details from Stone Master")) return;
+    const sourceItems = productionStoneRowsFromDialog();
+    if (!sourceItems.length) {
+      alert("No fitting stone rows are available. Use Get Stone Data From Design Master first, or add a stone row manually.");
+      return;
+    }
+    let matchedRows = 0;
+    let unmatchedRows = 0;
+    const refreshedItems = sourceItems.map((item) => {
+      const libraryStone = productionStoneLibraryMatch(item.stoneType, item.shape, item.size);
+      if (libraryStone && Number(libraryStone.weightPerPc || 0) > 0) matchedRows += 1;
+      else unmatchedRows += 1;
+      const refreshed = productionStoneItemWithMasterData(item, { force: true });
+      return {
+        ...refreshed,
+        totalWeight: refreshed.weightPerPc ? totalStoneWeight(refreshed.weightPerPc, refreshed.pcs) : refreshed.totalWeight,
+      };
+    });
+    const saved = commitFittingAccessoryStonePlan(fittingContext, refreshedItems, "Stone Master Data Loaded", { keepEditorOpen: true });
+    if (saved) alert(`${matchedRows} fitting stone row${matchedRows === 1 ? "" : "s"} refreshed from Stone Master.${unmatchedRows ? ` ${unmatchedRows} row${unmatchedRows === 1 ? "" : "s"} had no matching Stone Master weight and remained unchanged.` : ""}`);
+    return;
+  }
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "refresh stone details")) return;
@@ -23492,6 +23818,11 @@ function refreshProductionStoneFromMaster() {
 
 function resetProductionStoneFromDesign() {
   const form = document.getElementById("production-stone-form");
+  const fittingContext = productionStoneFittingEditorContext();
+  if (fittingContext) {
+    loadFittingJobStoneFromDesign(fittingContext.sourceOrder.id, fittingContext.item.id, true);
+    return;
+  }
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "load Design Master stone details")) return;

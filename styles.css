@@ -22611,9 +22611,32 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   font-size: 1.05rem;
 }
 
+.special-fitting-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.special-fitting-item-actions button {
+  min-height: 36px;
+  padding: 7px 10px;
+  white-space: normal;
+}
+
+.fitting-stone-edited-badge {
+  padding: 4px 7px;
+  border: 1px solid #72b4dc;
+  border-radius: 5px;
+  background: #e1f4ff;
+  color: #075a8e;
+  font-size: .68rem;
+  letter-spacing: .03em;
+}
+
 .special-fitting-item-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
   gap: 7px;
   padding: 9px 0;
   border-top: 1px solid #d5e7f3;
