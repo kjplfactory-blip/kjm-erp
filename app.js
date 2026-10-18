@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v728";
+const APP_VERSION = "v729";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -19605,6 +19605,8 @@ function openOrderDetailCached(orderId, editMode = false, bucket = "all", prefer
     jobOrderDeliverySummary(jobOrders),
   ].filter(Boolean).join(" / ");
   document.getElementById("order-dialog-title").textContent = fittingAccessoryCard ? "Special Fitting Job Card" : "Open Job Order";
+  const transferBagButton = document.getElementById("print-transfer-bag");
+  if (transferBagButton) transferBagButton.textContent = fittingAccessoryCard ? "Print Fitting Transfer Bag" : "Transfer Bag";
   renderJobItemsDetail(jobOrders);
   renderFittingAccessoriesNarrationForm(order);
   closeJobItemDetail();
@@ -25813,7 +25815,204 @@ function transferBagItemTableHtml(items = [], startIndex = 0) {
   `;
 }
 
+function fittingTransferBagItemRow(item = {}, index = 0) {
+  const availability = fittingAccessoryAvailability(item);
+  const perPieceStone = productionStoneTotals(fittingAccessoryStoneEditorRows(item));
+  const totalStonePcs = Number(perPieceStone.pcs || 0) * Number(availability.totalQuantity || 0);
+  return `
+    <tr>
+      <td>${index + 1}</td>
+      <td><strong>${escapeHtml(item.name || "Fitting Accessory")}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")}</small></td>
+      <td>${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</td>
+      <td>${escapeHtml(availability.totalQuantity)} pcs</td>
+      <td class="transfer-bag-item-stone"><b>${escapeHtml(perPieceStone.pcs)} pcs</b><span>${escapeHtml(weight5(perPieceStone.weight))} g</span></td>
+      <td class="transfer-bag-item-stone"><b>${escapeHtml(totalStonePcs)} pcs</b><span>${escapeHtml(weight5(availability.totalStoneWeight))} g</span></td>
+      <td>${escapeHtml(availability.allocatedQuantity)} pcs</td>
+      <td><strong>${escapeHtml(availability.availableQuantity)} pcs</strong></td>
+    </tr>
+  `;
+}
+
+function fittingTransferBagItemTableHtml(items = [], startIndex = 0) {
+  const rows = items.map((item, index) => fittingTransferBagItemRow(item, startIndex + index)).join("");
+  return `
+    <table class="transfer-bag-table transfer-bag-item-table fitting-transfer-item-table">
+      <thead><tr><th>#</th><th>Fitting Design</th><th>Item</th><th>Total Qty</th><th>Stone / Pc</th><th>Total Stone</th><th>Used</th><th>Balance</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8">No fitting item details</td></tr>`}</tbody>
+    </table>
+  `;
+}
+
+function fittingTransferBagHistoryRows(lots = [], minimumRows = 7) {
+  const entries = [];
+  lots.forEach((lot) => {
+    const issueGw = Number(lot.grossIssuedWeight || (Number(lot.issuedWeight || 0) + transferWaxStoneWeight(lot)) || 0);
+    if (lot.issueDate || issueGw > 0) {
+      entries.push({
+        date: transferHistoryDateTime(lot.issueDate || "", lot.createdAt || ""),
+        fromDepartment: lot.issueSourceName || lotIssueSourceName(lot),
+        toDepartment: lot.issueDepartment || lot.karigarName || lot.currentDepartment || "-",
+        issueGw,
+        receiveGw: 0,
+      });
+    }
+    (lot.transfers || []).forEach((transfer) => entries.push({
+      date: transferHistoryDateTime(transfer.date || "", transfer.createdAt || ""),
+      fromDepartment: transfer.fromKarigarName || transfer.fromDepartment || "-",
+      toDepartment: transfer.toKarigarName || transfer.toDepartment || "-",
+      issueGw: Number(transfer.transferWeight || 0),
+      receiveGw: Number(transfer.grossReceivedWeight || 0),
+    }));
+  });
+  const totalRows = Math.max(minimumRows, entries.length);
+  return Array.from({ length: totalRows }, (_, index) => {
+    const entry = entries[index] || {};
+    const hasEntry = Boolean(entry.fromDepartment || entry.toDepartment);
+    return `
+      <tr class="${hasEntry ? "transfer-bag-prefilled-row" : ""}">
+        <td>${index + 1}</td>
+        <td>${escapeHtml(entry.date || "")}</td>
+        <td>${escapeHtml(entry.fromDepartment || "")}</td>
+        <td>${escapeHtml(entry.toDepartment || "")}</td>
+        <td>${hasEntry ? gram(entry.issueGw || 0) : ""}</td>
+        <td>${hasEntry && Number(entry.receiveGw || 0) > 0 ? gram(entry.receiveGw) : ""}</td>
+        <td></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function fittingTransferBagAllocationRows(order = {}, minimumRows = 5) {
+  const entries = fittingAccessoryItemsForOrder(order).flatMap((item) => (item.allocations || []).map((allocation) => ({
+    ...allocation,
+    fittingDesign: item.name || item.sourceDesignNumber || "Fitting Accessory",
+  }))).sort((left, right) => String(left.allocatedAt || left.date || "").localeCompare(String(right.allocatedAt || right.date || "")));
+  const totalRows = Math.max(minimumRows, entries.length);
+  return Array.from({ length: totalRows }, (_, index) => {
+    const entry = entries[index] || {};
+    const hasEntry = Boolean(entry.targetProductionNo || entry.fittingDesign);
+    return `
+      <tr class="${hasEntry ? "transfer-bag-prefilled-row" : ""}">
+        <td>${index + 1}</td>
+        <td>${hasEntry ? escapeHtml(transferHistoryDateTime(entry.date || "", entry.allocatedAt || "")) : ""}</td>
+        <td>${escapeHtml(entry.fittingDesign || "")}</td>
+        <td>${hasEntry ? `${escapeHtml(entry.quantity || 0)} pcs` : ""}</td>
+        <td>${escapeHtml(entry.targetProductionNo || "")}</td>
+        <td>${hasEntry ? `${escapeHtml(weight5(entry.stoneWeight || 0))} g` : ""}</td>
+        <td></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function fittingAccessoriesTransferBagPrintHtml(job = {}) {
+  const items = fittingAccessoryItemsForOrder(job);
+  const lots = lotsForOrder(job);
+  const activeLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;
+  const totals = fittingAccessoryJobTotals(job);
+  const jobNumber = job.jobNumber || job.number || "-";
+  const lotNumbers = lots.map((lot) => lot.number).filter(Boolean).join(", ") || "Not Issued";
+  const currentDepartment = activeLot
+    ? mergedProductionDepartmentName(activeLot.currentDepartment || activeLot.karigarName, activeLot.karigarName)
+    : "Metal Not Issued";
+  const currentGw = lots.reduce((total, lot) => total + Number(currentTransferIssueWeight(lot) || 0), 0);
+  const purity = transferPurityLabel(activeLot?.metalPurity || job.purity || "-");
+  const color = activeLot?.metalColor || activeLot?.color || job.color || "-";
+  const totalStonePcs = items.reduce((total, item) => {
+    const perPiece = productionStoneTotals(fittingAccessoryStoneEditorRows(item));
+    return total + (Number(perPiece.pcs || 0) * Number(item.quantity || 0));
+  }, 0);
+  const detailPageClasses = "transfer-bag-page transfer-bag-detail-page fitting-transfer-bag-page";
+  const historyRows = fittingTransferBagHistoryRows(lots, 7);
+  const allocationRows = fittingTransferBagAllocationRows(job, 5);
+  const printDate = new Date().toLocaleDateString("en-IN");
+  const qr = qrCodeHtml(jobNumber, { label: false });
+  return `
+    <div class="transfer-bag-print fitting-transfer-bag-print">
+      <section class="${detailPageClasses}" data-transfer-item-page>
+        <div class="transfer-bag-head">
+          <div><strong>KHUSHALI JEWELLS</strong><span>SPECIAL FITTING JOB CARD - TRANSFER BAG</span></div>
+          <div><b>${escapeHtml(jobNumber)}</b><small data-transfer-page-label data-page-suffix="${escapeHtml(printDate)}">Page 1 / 2 - ${escapeHtml(printDate)}</small></div>
+        </div>
+        <div class="transfer-bag-summary fitting-transfer-summary">
+          <span><b>Job Card</b>${escapeHtml(jobNumber)}<small>No PR Numbers</small></span>
+          <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+          <span><b>Current Dept</b>${escapeHtml(currentDepartment || "-")}</span>
+          <span><b>Purity / Colour</b>${escapeHtml(purity)} / ${escapeHtml(color)}</span>
+          <span><b>Current Lot GW</b>${currentGw > 0 ? gram(currentGw) : "Not Issued"}</span>
+          <span><b>Fitting Designs</b>${escapeHtml(totals.rows)}</span>
+          <span><b>Total Quantity</b>${escapeHtml(totals.quantity)} pcs</span>
+          <span class="transfer-bag-stone-weight transfer-bag-total-stone"><b>Total Stone</b>${escapeHtml(weight5(totals.stoneWeight))} g<small>${escapeHtml(totalStonePcs)} pcs</small></span>
+          <span><b>Used / Balance</b>${escapeHtml(totals.allocatedQuantity)} / ${escapeHtml(totals.availableQuantity)} pcs</span>
+        </div>
+        <section class="transfer-bag-section transfer-bag-items-section">
+          <h3 data-transfer-item-range>Fitting Item Details - 1 To ${items.length} Of ${items.length}</h3>
+          ${fittingTransferBagItemTableHtml(items, 0)}
+        </section>
+        <div class="transfer-bag-footer fitting-transfer-footer">
+          <span><b>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</b><small>Complete fitting GW moves as one lot. Individual PR allocation moves fitting quantity and stone only.</small></span>
+          <div class="fitting-transfer-qr">${qr}</div>
+        </div>
+      </section>
+      <template class="transfer-bag-continuation-template">
+        <section class="${detailPageClasses} transfer-bag-item-continuation-page" data-transfer-item-page>
+          <div class="transfer-bag-head">
+            <div><strong>KHUSHALI JEWELLS</strong><span>SPECIAL FITTING ITEMS - CONTINUED</span></div>
+            <div><b>${escapeHtml(jobNumber)}</b><small data-transfer-page-label></small></div>
+          </div>
+          <div class="transfer-bag-history-meta transfer-bag-continuation-meta">
+            <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
+            <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+            <span><b>Current Dept</b>${escapeHtml(currentDepartment || "-")}</span>
+            <span><b>Total Fittings</b>${escapeHtml(totals.quantity)} pcs</span>
+          </div>
+          <section class="transfer-bag-section transfer-bag-items-section">
+            <h3 data-transfer-item-range></h3>
+            ${fittingTransferBagItemTableHtml([], 0)}
+          </section>
+          <div class="transfer-bag-footer fitting-transfer-footer">
+            <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+            <div class="fitting-transfer-qr">${qr}</div>
+          </div>
+        </section>
+      </template>
+      <section class="transfer-bag-page transfer-bag-history-page fitting-transfer-history-page">
+        <div class="transfer-bag-head">
+          <div><strong>KHUSHALI JEWELLS</strong><span>FITTING LOT MOVEMENT / PR ALLOCATION</span></div>
+          <div><b>${escapeHtml(jobNumber)}</b><small data-transfer-page-label data-page-suffix="${escapeHtml(lotNumbers)}">Page 2 / 2 - ${escapeHtml(lotNumbers)}</small></div>
+        </div>
+        <div class="transfer-bag-history-meta">
+          <span><b>Job Card</b>${escapeHtml(jobNumber)}</span>
+          <span><b>Lot</b>${escapeHtml(lotNumbers)}</span>
+          <span><b>Current Dept</b>${escapeHtml(currentDepartment || "-")}</span>
+          <span><b>Current GW</b>${currentGw > 0 ? gram(currentGw) : "Not Issued"}</span>
+        </div>
+        <section class="transfer-bag-section transfer-bag-manual-section fitting-transfer-movement-section">
+          <h3>Department Transfer Register</h3>
+          <table class="transfer-bag-table fitting-transfer-movement-table">
+            <thead><tr><th>#</th><th>Date</th><th>From</th><th>To</th><th>Issue GW</th><th>Receive GW</th><th>Sign</th></tr></thead>
+            <tbody>${historyRows}</tbody>
+          </table>
+        </section>
+        <section class="transfer-bag-section transfer-bag-manual-section fitting-transfer-allocation-section">
+          <h3>Fitting Pieces Transferred To PR</h3>
+          <table class="transfer-bag-table fitting-transfer-allocation-table">
+            <thead><tr><th>#</th><th>Date</th><th>Fitting Design</th><th>Qty</th><th>Destination PR</th><th>Stone Wt</th><th>Sign</th></tr></thead>
+            <tbody>${allocationRows}</tbody>
+          </table>
+        </section>
+        <div class="fitting-transfer-signatures"><span>Prepared By</span><span>Checked By</span><span>Chain Fitting</span></div>
+        <div class="transfer-bag-footer fitting-transfer-footer">
+          <span>${escapeHtml(jobNumber)} / ${escapeHtml(lotNumbers)}</span>
+          <div class="fitting-transfer-qr">${qr}</div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function jobCardTransferBagPrintHtml(job, jobOrders = []) {
+  if (isFittingAccessoriesOrder(job)) return fittingAccessoriesTransferBagPrintHtml(job);
   const items = jobOrders.length ? jobOrders : [job].filter(Boolean);
   const lots = lotsForJobOrders(items);
   const activeLot = lots.find((lot) => lot.status !== "Completed") || lots[0] || null;

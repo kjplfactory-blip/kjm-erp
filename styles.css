@@ -10093,6 +10093,189 @@ body.measuring-transfer-bag .global-print-area {
   height: 3.2mm;
 }
 
+.fitting-transfer-bag-page {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.fitting-transfer-summary span {
+  min-height: 7.2mm;
+  padding: 0.9mm 1.1mm;
+}
+
+.fitting-transfer-item-table th:nth-child(1),
+.fitting-transfer-item-table td:nth-child(1) {
+  width: 4%;
+}
+
+.fitting-transfer-item-table th:nth-child(2),
+.fitting-transfer-item-table td:nth-child(2) {
+  width: 23%;
+}
+
+.fitting-transfer-item-table th:nth-child(3),
+.fitting-transfer-item-table td:nth-child(3) {
+  width: 10%;
+}
+
+.fitting-transfer-item-table th:nth-child(4),
+.fitting-transfer-item-table td:nth-child(4) {
+  width: 10%;
+}
+
+.fitting-transfer-item-table th:nth-child(5),
+.fitting-transfer-item-table td:nth-child(5) {
+  width: 14%;
+}
+
+.fitting-transfer-item-table th:nth-child(6),
+.fitting-transfer-item-table td:nth-child(6) {
+  width: 15%;
+}
+
+.fitting-transfer-item-table th:nth-child(7),
+.fitting-transfer-item-table td:nth-child(7),
+.fitting-transfer-item-table th:nth-child(8),
+.fitting-transfer-item-table td:nth-child(8) {
+  width: 12%;
+}
+
+.fitting-transfer-item-table td:not(:nth-child(2)),
+.fitting-transfer-item-table th:not(:nth-child(2)) {
+  text-align: center;
+}
+
+.fitting-transfer-item-table td strong,
+.fitting-transfer-item-table td small {
+  display: block;
+}
+
+.fitting-transfer-item-table td small {
+  margin-top: 0.4mm;
+  color: #4b5563;
+  font-size: 5.6px;
+  font-weight: 800;
+}
+
+.fitting-transfer-footer {
+  grid-template-columns: minmax(0, 1fr) 19mm;
+}
+
+.fitting-transfer-footer > span {
+  display: grid;
+  gap: 0.6mm;
+}
+
+.fitting-transfer-footer small {
+  color: #4b5563;
+  font-size: 6px;
+  line-height: 1.15;
+}
+
+.fitting-transfer-qr,
+.fitting-transfer-qr .qr-code-wrap,
+.fitting-transfer-qr .qr-code-canvas,
+.fitting-transfer-qr canvas,
+.fitting-transfer-qr img,
+.fitting-transfer-qr svg {
+  width: 17mm;
+  height: 17mm;
+}
+
+.fitting-transfer-history-page {
+  grid-template-rows: auto auto minmax(0, 1.1fr) minmax(0, 0.8fr) auto auto;
+  gap: 1.35mm;
+}
+
+.fitting-transfer-history-page .transfer-bag-manual-section {
+  min-height: 0;
+}
+
+.fitting-transfer-movement-table th,
+.fitting-transfer-movement-table td,
+.fitting-transfer-allocation-table th,
+.fitting-transfer-allocation-table td {
+  padding: 0.65mm 0.5mm;
+  font-size: 6.2px;
+  line-height: 1.08;
+}
+
+.fitting-transfer-movement-table th,
+.fitting-transfer-allocation-table th {
+  font-size: 5.2px;
+}
+
+.fitting-transfer-movement-table td,
+.fitting-transfer-allocation-table td {
+  height: 4.2mm;
+}
+
+.fitting-transfer-movement-table th:nth-child(1),
+.fitting-transfer-movement-table td:nth-child(1),
+.fitting-transfer-allocation-table th:nth-child(1),
+.fitting-transfer-allocation-table td:nth-child(1) {
+  width: 5%;
+  text-align: center;
+}
+
+.fitting-transfer-movement-table th:nth-child(2),
+.fitting-transfer-movement-table td:nth-child(2) {
+  width: 15%;
+}
+
+.fitting-transfer-movement-table th:nth-child(3),
+.fitting-transfer-movement-table td:nth-child(3),
+.fitting-transfer-movement-table th:nth-child(4),
+.fitting-transfer-movement-table td:nth-child(4) {
+  width: 21%;
+}
+
+.fitting-transfer-movement-table th:nth-child(5),
+.fitting-transfer-movement-table td:nth-child(5),
+.fitting-transfer-movement-table th:nth-child(6),
+.fitting-transfer-movement-table td:nth-child(6) {
+  width: 14%;
+}
+
+.fitting-transfer-allocation-table th:nth-child(2),
+.fitting-transfer-allocation-table td:nth-child(2) {
+  width: 15%;
+}
+
+.fitting-transfer-allocation-table th:nth-child(3),
+.fitting-transfer-allocation-table td:nth-child(3) {
+  width: 24%;
+}
+
+.fitting-transfer-allocation-table th:nth-child(4),
+.fitting-transfer-allocation-table td:nth-child(4) {
+  width: 10%;
+}
+
+.fitting-transfer-allocation-table th:nth-child(5),
+.fitting-transfer-allocation-table td:nth-child(5) {
+  width: 20%;
+}
+
+.fitting-transfer-allocation-table th:nth-child(6),
+.fitting-transfer-allocation-table td:nth-child(6) {
+  width: 15%;
+}
+
+.fitting-transfer-signatures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2mm;
+}
+
+.fitting-transfer-signatures span {
+  padding-top: 3.5mm;
+  border-top: 1px solid #111827;
+  font-size: 6.3px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .bill-print-document {
   display: grid;
   gap: 12px;
@@ -22522,8 +22705,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 .special-fitting-job-dialog .job-split-toolbar,
 .special-fitting-job-dialog #edit-order-details,
 .special-fitting-job-dialog #print-order,
-.special-fitting-job-dialog #print-order-a6,
-.special-fitting-job-dialog #print-transfer-bag {
+.special-fitting-job-dialog #print-order-a6 {
   display: none !important;
 }
 
