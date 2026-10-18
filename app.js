@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v731";
+const APP_VERSION = "v732";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -20207,7 +20207,7 @@ function renderJobItemsDetail(orders) {
               <span class="job-item-subcategory"><b>Sub Item</b>${escapeHtml(subcategory)}</span>
               <small class="job-item-stage">${escapeHtml(stage)}</small>
               ${deliveryText ? `<em class="job-item-delivery">${escapeHtml(deliveryText)}</em>` : ""}
-              ${stoneEntryEdited ? `<span class="job-item-stone-edited-badge" title="${escapeHtml(stoneEntryTitle)}" aria-label="Stone entry edited by ${escapeHtml(order.productionStoneEditedBy || "ERP User")}"><b>STONE</b><i>EDITED</i><em>${escapeHtml(order.productionStoneEditedBy || "UNSAVED")}</em></span>` : ""}
+              ${stoneEntryEdited ? `<span class="job-item-stone-edited-badge" title="${escapeHtml(stoneEntryTitle)}" aria-label="${escapeHtml(stoneEntryTitle)}"><b>STONE EDITED</b><em>${escapeHtml(order.productionStoneEditedBy || "ERP USER")}</em><time datetime="${escapeHtml(order.productionStoneEditedAt || "")}"><span>${escapeHtml(productionStoneEditedBadgeDateText(order.productionStoneEditedAt || order.productionStoneUpdatedAt))}</span><span>${escapeHtml(productionStoneEditedBadgeTimeText(order.productionStoneEditedAt || order.productionStoneUpdatedAt))}</span></time></span>` : ""}
               ${order.urgent ? '<b class="urgent-mini">Urgent</b>' : ""}
             </button>
           </article>
@@ -23038,7 +23038,29 @@ function productionStoneEditedTimeText(value = "") {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
+}
+
+function productionStoneEditedBadgeDateText(value = "") {
+  if (!value) return "DATE -";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  }).toUpperCase();
+}
+
+function productionStoneEditedBadgeTimeText(value = "") {
+  if (!value) return "TIME -";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).toUpperCase();
 }
 
 function productionStoneEditStatusText(order = {}) {

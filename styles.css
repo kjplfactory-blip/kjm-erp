@@ -8801,7 +8801,7 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button.has-stone-entry-edit {
-  padding-right: 76px;
+  padding-right: 105px;
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button:hover,
@@ -21347,8 +21347,10 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 }
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-open-button .job-item-stone-edited-badge {
-  width: 70px;
-  height: 60px;
+  width: 82px;
+  height: 76px;
+  min-height: 72px;
+  padding: 5px 4px;
   border-color: #2884bd;
   background: #e8f5fd;
   color: #0b527e !important;
@@ -21357,16 +21359,27 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
 
 body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge em {
   display: -webkit-box;
-  max-width: 60px;
+  max-width: 72px;
   overflow: hidden;
   color: inherit;
-  font-size: 7px;
+  font-size: 8px;
   font-style: normal;
-  font-weight: 900;
-  line-height: 1.12;
+  font-weight: 950;
+  line-height: 1.1;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.printing-packing-list):not(.printing-hallmark-tags):not(.printing-barcode) .job-item-stone-edited-badge time {
+  display: grid;
+  gap: 1px;
+  color: #315e7a;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
