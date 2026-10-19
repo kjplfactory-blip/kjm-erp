@@ -164,6 +164,14 @@
     }
     // Special fitting cards deliberately have no PR item, so reserve only a Job Card number.
     if (form.id === "fitting-accessories-job-form") return { job: 1 };
+    if (form.id === "office-return-lot-form") {
+      const purpose = String(form.elements?.purpose?.value || "").trim().toLowerCase();
+      return purpose === "melting" ? null : { job: 1 };
+    }
+    if (form.id === "production-return-form") {
+      const reason = String(form.elements?.reason?.value || "").trim();
+      return /melt|dismant/i.test(reason) ? null : { job: 1 };
+    }
     if (form.id === "melting-receive-form") {
       const data = getFormData(form);
       const melting = findById("melting", data.meltingId);
