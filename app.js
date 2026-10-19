@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v732";
+const APP_VERSION = "v733";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4358,8 +4358,12 @@ document.getElementById("close-design-image").addEventListener("click", () => {
 });
 
 document.getElementById("close-design-detail").addEventListener("click", () => {
+  closeDesignDetailNameEditor();
   document.getElementById("design-detail-dialog").close();
 });
+
+document.getElementById("design-detail-name-form")?.addEventListener("submit", saveDesignNameFromDetail);
+document.getElementById("cancel-design-detail-name-edit")?.addEventListener("click", closeDesignDetailNameEditor);
 
 document.getElementById("close-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
 document.getElementById("cancel-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
@@ -37772,6 +37776,7 @@ async function handleDesignMasterAction(event) {
   if (action === "chart") await openStoneChart(design.id);
   if (action === "stone-details") openDesignStoneDetails(design.id);
   if (action === "moti-details") openDesignStoneDetails(design.id, "moti");
+  if (action === "rename") openDesignDetailNameEditor(design.id);
   if (action === "edit") {
     document.getElementById("design-category-dialog")?.close();
     document.getElementById("design-detail-dialog")?.close();
@@ -38123,6 +38128,7 @@ function openDesignCategory(categoryKey) {
 async function openDesignDetail(designId) {
   const design = findById("designs", designId);
   if (!design) return;
+  closeDesignDetailNameEditor();
   activateDesignMaster(design.id);
   const dialog = document.getElementById("design-detail-dialog");
   const image = document.getElementById("design-detail-image");
@@ -39562,13 +39568,124 @@ function updateCustomerReferences(customer) {
   });
 }
 
-function updateDesignReferences(design) {
+function normalizedDesignReferenceText(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-IN");
+}
+
+function updateDesignReferences(design, previousDesign = null) {
+  const currentLabel = designText(design);
+  const previousLabels = new Set([
+    previousDesign?.number,
+    previousDesign?.name,
+    previousDesign ? designText(previousDesign) : "",
+  ].map(normalizedDesignReferenceText).filter(Boolean));
+  const linkedOrders = [];
   state.orders.forEach((order) => {
-    if (order.designId === design.id) {
-      order.designNumber = designLabel(design.id);
-      order.category = design.category || order.category || "";
+    if (order.designId !== design.id) return;
+    const oldItemText = normalizedDesignReferenceText(order.item);
+    order.designNumber = currentLabel;
+    order.designNo = design.number || currentLabel;
+    order.category = design.category || order.category || "";
+    if (!order.item || previousLabels.has(oldItemText)) {
+      order.item = design.name || design.number || currentLabel;
     }
+    order.itemName = normalizedJobItemName(order, design);
+    linkedOrders.push(order);
   });
+
+  const linkedOrdersById = new Map(linkedOrders.map((order) => [String(order.id || ""), order]));
+  const visitedBills = new Set();
+  const updateBill = (bill) => {
+    if (!bill || visitedBills.has(bill)) return;
+    visitedBills.add(bill);
+    (bill.items || []).forEach((item) => {
+      const order = linkedOrdersById.get(String(item.orderId || ""));
+      if (!order) return;
+      item.designNo = design.number || currentLabel;
+      item.designNumber = currentLabel;
+      item.itemName = jobItemDisplayName(order, design);
+    });
+  };
+  (state.bills || []).forEach(updateBill);
+  (state.lots || []).forEach((lot) => {
+    updateBill(lot.bill);
+    updateBill(lot.billDraft);
+  });
+  return linkedOrders;
+}
+
+function openDesignDetailNameEditor(designId = "") {
+  if (!requirePageEditPermission("designs", "edit design names")) return;
+  const design = findById("designs", designId);
+  const form = document.getElementById("design-detail-name-form");
+  if (!design || !form) return;
+  form.designId.value = design.id;
+  form.designNumber.value = design.number || design.name || "";
+  form.designName.value = design.name && design.name !== design.number ? design.name : "";
+  form.classList.remove("hidden");
+  form.designNumber.focus();
+  form.designNumber.select();
+}
+
+function closeDesignDetailNameEditor() {
+  const form = document.getElementById("design-detail-name-form");
+  if (!form) return;
+  form.reset();
+  form.classList.add("hidden");
+}
+
+function saveDesignNameFromDetail(event) {
+  event.preventDefault();
+  if (!requirePageEditPermission("designs", "edit design names")) return;
+  const form = event.currentTarget;
+  const design = findById("designs", form.designId.value);
+  if (!design) {
+    alert("Design not found. Refresh Design Master and try again.");
+    return;
+  }
+  const nextNumber = String(form.designNumber.value || "").trim();
+  const nextName = String(form.designName.value || "").trim() || nextNumber;
+  if (!nextNumber) {
+    alert("Enter the Design No. / Primary Name.");
+    form.designNumber.focus();
+    return;
+  }
+  const duplicate = state.designs.find((candidate) => (
+    candidate.id !== design.id
+    && normalizedDesignReferenceText(candidate.number) === normalizedDesignReferenceText(nextNumber)
+  ));
+  if (duplicate) {
+    alert(`Design ${nextNumber} already exists. Use a unique Design No. or merge the duplicate designs.`);
+    form.designNumber.focus();
+    return;
+  }
+  const previousDesign = {
+    id: design.id,
+    number: design.number || "",
+    name: design.name || "",
+    category: design.category || "",
+  };
+  const nextDesign = { ...previousDesign, number: nextNumber, name: nextName };
+  design.number = nextNumber;
+  design.name = nextName;
+  const linkedOrders = updateDesignReferences(design, previousDesign);
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `Design name ${nextNumber}`,
+    changedStateKeys: ["designs", "orders", "bills", "lots"],
+  });
+  if (!saved) {
+    design.number = previousDesign.number;
+    design.name = previousDesign.name;
+    updateDesignReferences(design, nextDesign);
+    render();
+    return;
+  }
+  backupRecentJobOrders(linkedOrders);
+  closeDesignDetailNameEditor();
+  render();
+  void openDesignDetail(design.id);
+  alert(`Design name updated. ${linkedOrders.length} linked PR item${linkedOrders.length === 1 ? "" : "s"} updated automatically.`);
 }
 
 function applyDesignToForm(form, designId) {

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-    <link rel="stylesheet" href="styles.css?v=732">
+    <link rel="stylesheet" href="styles.css?v=733">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v732</small>
+          <small class="app-version-badge">App v733</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v732</span>
+          <span class="app-version-badge">App v733</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -3894,6 +3894,25 @@
             </label>
           </section>
           <section class="design-detail-control-panel">
+            <form id="design-detail-name-form" class="design-detail-name-form hidden">
+              <input type="hidden" name="designId">
+              <div class="design-detail-name-heading">
+                <div>
+                  <span>Edit Design Name</span>
+                  <strong>Linked PR items update automatically</strong>
+                </div>
+                <button type="button" class="ghost-button" id="cancel-design-detail-name-edit">Cancel</button>
+              </div>
+              <div class="design-detail-name-fields">
+                <label>Design No. / Primary Name
+                  <input name="designNumber" autocomplete="off" required>
+                </label>
+                <label>Design Description
+                  <input name="designName" autocomplete="off" placeholder="Optional description">
+                </label>
+              </div>
+              <button type="submit">Save Design Name</button>
+            </form>
             <div class="design-detail-facts">
               <div><span>Category</span><strong id="design-detail-category">-</strong></div>
               <div><span>Design Items</span><strong id="design-detail-items">-</strong></div>
@@ -3929,7 +3948,8 @@
                 <button type="button" data-design-master-action="chart" disabled>View Stone Chart</button>
                 <button type="button" data-design-master-action="stone-details" disabled>Stone Details</button>
                 <button type="button" data-design-master-action="moti-details" disabled>Moti Details</button>
-                <button type="button" class="ghost-button" data-design-master-action="edit" disabled>Edit Design</button>
+                <button type="button" data-design-master-action="rename" disabled>Edit Design Name</button>
+                <button type="button" class="ghost-button" data-design-master-action="edit" disabled>Edit Full Design</button>
                 <button type="button" class="ghost-button" data-design-master-action="merge" disabled>Merge</button>
                 <button type="button" class="ghost-button danger-button" data-design-master-action="remove-chart" disabled>Remove Chart</button>
                 <button type="button" class="delete-btn" data-design-master-action="delete" disabled>Delete Design</button>
@@ -4139,13 +4159,13 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-    <script src="app.js?v=732"></script>
+    <script src="app.js?v=733"></script>
     <script src="office-reference-bills-v715.js?v=715.1"></script>
-  <script src="sequential-numbering-v714.js?v=732"></script>
+  <script src="sequential-numbering-v714.js?v=733"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>
-  <script src="setting-internal-bill-excel-v616.js?v=732"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=733"></script>
   <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
