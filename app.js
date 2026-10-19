@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v738";
+const APP_VERSION = "v739";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -11999,12 +11999,112 @@ function orderItemsFromEntryRow(row) {
 }
 
 function getOrderFormItems(form) {
-  return [...form.querySelectorAll(".order-item-row")]
+  const items = [...form.querySelectorAll(".order-item-row")]
     .filter((row) => row.dataset.mode === "saved")
-    .map(getOrderItemFromRow)
+    .map((row, jobOrderDraftIndex) => ({
+      ...getOrderItemFromRow(row),
+      jobOrderDraftIndex,
+    }))
     .flatMap(expandOrderItemCombinations)
     .flatMap(expandOrderItemPcs)
     .filter(hasOrderItemDetails);
+  return sortJobOrderItemsForPrAssignment(items);
+}
+
+function jobOrderNaturalCompare(left = "", right = "") {
+  return String(left || "").localeCompare(String(right || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function jobOrderItemCategory(item = {}) {
+  const design = item.designId ? findById("designs", item.designId) : null;
+  return categoryCode(item.category || design?.category || "UNCATEGORIZED") || "UNCATEGORIZED";
+}
+
+function jobOrderItemDesignText(item = {}) {
+  const design = item.designId ? findById("designs", item.designId) : null;
+  return String(design?.number || item.designNumber || design?.name || designLabel(item.designId) || item.item || "").trim();
+}
+
+function jobOrderItemSubItemSequence(item = {}) {
+  const design = item.designId ? findById("designs", item.designId) : null;
+  const category = jobOrderItemCategory(item);
+  if (isCbCategory(category)) {
+    return {
+      keys: designOrderRingKeys(design, category),
+      selected: categoryCode(item.ringType || item.item || ""),
+    };
+  }
+  if (isSetItemCategory(category)) {
+    return {
+      keys: designOrderCmKeys(design, category),
+      selected: categoryCode(item.cmItemType || item.item || ""),
+    };
+  }
+  return {
+    keys: designOrderGenericItemKeys(design, category),
+    selected: normalizeStoneItemKey(item.designSubItemType || item.item || ""),
+  };
+}
+
+function sortJobOrderItemsForPrAssignment(items = []) {
+  const categoryOrder = new Map();
+  items.forEach((item) => {
+    const category = jobOrderItemCategory(item);
+    if (!categoryOrder.has(category)) categoryOrder.set(category, categoryOrder.size);
+  });
+  return items.map((item, sourceIndex) => ({ item, sourceIndex })).sort((left, right) => {
+    const leftCategory = jobOrderItemCategory(left.item);
+    const rightCategory = jobOrderItemCategory(right.item);
+    const categoryDifference = Number(categoryOrder.get(leftCategory) || 0) - Number(categoryOrder.get(rightCategory) || 0);
+    if (categoryDifference) return categoryDifference;
+
+    const designDifference = jobOrderNaturalCompare(jobOrderItemDesignText(left.item), jobOrderItemDesignText(right.item));
+    if (designDifference) return designDifference;
+
+    const leftSubItem = jobOrderItemSubItemSequence(left.item);
+    const rightSubItem = jobOrderItemSubItemSequence(right.item);
+    const leftSubItemIndex = leftSubItem.keys.indexOf(leftSubItem.selected);
+    const rightSubItemIndex = rightSubItem.keys.indexOf(rightSubItem.selected);
+    const subItemDifference = (leftSubItemIndex < 0 ? 999 : leftSubItemIndex) - (rightSubItemIndex < 0 ? 999 : rightSubItemIndex);
+    if (subItemDifference) return subItemDifference;
+
+    const subItemTextDifference = jobOrderNaturalCompare(leftSubItem.selected, rightSubItem.selected);
+    if (subItemTextDifference) return subItemTextDifference;
+
+    const draftDifference = Number(left.item.jobOrderDraftIndex || 0) - Number(right.item.jobOrderDraftIndex || 0);
+    if (draftDifference) return draftDifference;
+    const pieceDifference = Number(left.item.pieceIndex || 1) - Number(right.item.pieceIndex || 1);
+    return pieceDifference || left.sourceIndex - right.sourceIndex;
+  }).map(({ item }) => item);
+}
+
+function confirmJobOrderPrAssignment(form, reservation = {}) {
+  const items = getOrderFormItems(form);
+  if (!items.length) return true;
+  const productionSerials = Array.isArray(reservation.productionSerials) ? reservation.productionSerials : [];
+  const jobSerial = Number(reservation.jobSerial || 0);
+  const lines = [];
+  let currentCategory = "";
+  items.forEach((item, index) => {
+    const category = jobOrderItemCategory(item);
+    if (category !== currentCategory) {
+      currentCategory = category;
+      lines.push(`\n${category}`);
+    }
+    const serial = Number(productionSerials[index] || 0);
+    const productionNo = serial ? `PR-${String(serial).padStart(6, "0")}` : `PR ${index + 1}`;
+    const design = item.designId ? findById("designs", item.designId) : null;
+    const itemName = normalizedJobItemName(item, design);
+    const pieceText = Number(item.orderedPcs || 1) > 1 ? ` (Piece ${Number(item.pieceIndex || 1)} of ${Number(item.orderedPcs)})` : "";
+    lines.push(`${productionNo}  |  ${itemName}${pieceText}`);
+  });
+  const jobNumber = jobSerial ? `JOB-${jobSerial}` : "NEW JOB CARD";
+  return confirm(
+    `CONFIRM PR ASSIGNMENT\n\n${jobNumber}\n${items.length} item${items.length === 1 ? "" : "s"}\n\nCategory order follows the first category selected. Designs are in ascending order and sub-items stay together.\n${lines.join("\n")}\n\nContinue and create this Job Order?`
+  );
 }
 
 function expandOrderItemCombinations(item) {

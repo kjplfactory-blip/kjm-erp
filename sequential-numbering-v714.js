@@ -214,6 +214,16 @@
     if (submitter) submitter.disabled = true;
     try {
       await reserveExact(requests);
+      if (form.id === "order-form" && typeof confirmJobOrderPrAssignment === "function") {
+        const confirmed = confirmJobOrderPrAssignment(form, {
+          jobSerial: Number(pools.job[0] || 0),
+          productionSerials: pools.production.slice(0, Number(requests.production || 0)),
+        });
+        if (!confirmed) {
+          if (submitter) submitter.disabled = false;
+          return;
+        }
+      }
       if (form.id === "bill-form") {
         const billNo = `BILL-${String(allocateSerial("bill", state)).padStart(4, "0")}`;
         form.billNo.value = billNo;
