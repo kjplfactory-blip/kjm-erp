@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v733";
+const APP_VERSION = "v734";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4549,6 +4549,10 @@ document.getElementById("update-order-form").addEventListener("input", (event) =
 document.getElementById("cancel-item-edit").addEventListener("click", () => {
   document.getElementById("item-edit-dialog").close();
 });
+
+document.getElementById("close-pr-design-name")?.addEventListener("click", closePrDesignNameEditor);
+document.getElementById("cancel-pr-design-name")?.addEventListener("click", closePrDesignNameEditor);
+document.getElementById("pr-design-name-form")?.addEventListener("submit", savePrDesignNameFromItem);
 
 document.getElementById("item-edit-form").addEventListener("change", (event) => {
   const form = event.currentTarget;
@@ -21771,10 +21775,14 @@ function jobItemDetailHtml(order) {
 }
 
 function jobItemDetailActionsHtml(order = {}) {
+  const editDesignNameButton = canEditPageData("designs") && order.designId
+    ? `<button type="button" onclick="openPrDesignNameEditor('${escapeHtml(order.id)}')">Edit Design Name</button>`
+    : "";
   if (isSettingManagerUser()) {
     return `
       <div class="row-actions job-item-detail-actions">
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Edit Stone Details</button>
+        ${editDesignNameButton}
         <small>Job Card details are read only for Setting Manager.</small>
       </div>
     `;
@@ -21785,6 +21793,7 @@ function jobItemDetailActionsHtml(order = {}) {
       <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
       <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
       <button type="button" onclick="openJobItemFittingAccessoryDialog('${escapeHtml(order.id)}')">Add Fitting Accessory</button>
+      ${editDesignNameButton}
       <button type="button" onclick="openItemEdit('${escapeHtml(order.id)}')">Edit Item</button>
       ${canMergeSplitJobCards() ? `<button type="button" onclick="openSingleJobItemTransfer('${escapeHtml(order.id)}')">Transfer To Another Job Card</button>` : ""}
       <button class="danger-button" type="button" onclick="removeJobCardItem('${escapeHtml(order.id)}')">Remove Item</button>
@@ -39634,30 +39643,18 @@ function closeDesignDetailNameEditor() {
   form.classList.add("hidden");
 }
 
-function saveDesignNameFromDetail(event) {
-  event.preventDefault();
-  if (!requirePageEditPermission("designs", "edit design names")) return;
-  const form = event.currentTarget;
-  const design = findById("designs", form.designId.value);
-  if (!design) {
-    alert("Design not found. Refresh Design Master and try again.");
-    return;
-  }
-  const nextNumber = String(form.designNumber.value || "").trim();
-  const nextName = String(form.designName.value || "").trim() || nextNumber;
-  if (!nextNumber) {
-    alert("Enter the Design No. / Primary Name.");
-    form.designNumber.focus();
-    return;
+function renameDesignMasterRecord(design, nextNumberValue = "", nextNameValue = "") {
+  const nextNumber = String(nextNumberValue || "").trim();
+  const nextName = String(nextNameValue || "").trim() || nextNumber;
+  if (!design || !nextNumber) {
+    return { ok: false, error: "Enter the Design No. / Primary Name." };
   }
   const duplicate = state.designs.find((candidate) => (
     candidate.id !== design.id
     && normalizedDesignReferenceText(candidate.number) === normalizedDesignReferenceText(nextNumber)
   ));
   if (duplicate) {
-    alert(`Design ${nextNumber} already exists. Use a unique Design No. or merge the duplicate designs.`);
-    form.designNumber.focus();
-    return;
+    return { ok: false, error: `Design ${nextNumber} already exists. Use a unique Design No. or merge the duplicate designs.` };
   }
   const previousDesign = {
     id: design.id,
@@ -39678,14 +39675,82 @@ function saveDesignNameFromDetail(event) {
     design.number = previousDesign.number;
     design.name = previousDesign.name;
     updateDesignReferences(design, nextDesign);
-    render();
-    return;
+    return { ok: false, saveFailed: true };
   }
   backupRecentJobOrders(linkedOrders);
+  return { ok: true, linkedOrders, design };
+}
+
+function saveDesignNameFromDetail(event) {
+  event.preventDefault();
+  if (!requirePageEditPermission("designs", "edit design names")) return;
+  const form = event.currentTarget;
+  const design = findById("designs", form.designId.value);
+  if (!design) {
+    alert("Design not found. Refresh Design Master and try again.");
+    return;
+  }
+  const result = renameDesignMasterRecord(design, form.designNumber.value, form.designName.value);
+  if (!result.ok) {
+    if (result.error) alert(result.error);
+    form.designNumber.focus();
+    return;
+  }
   closeDesignDetailNameEditor();
   render();
   void openDesignDetail(design.id);
-  alert(`Design name updated. ${linkedOrders.length} linked PR item${linkedOrders.length === 1 ? "" : "s"} updated automatically.`);
+  alert(`Design name updated. ${result.linkedOrders.length} linked PR item${result.linkedOrders.length === 1 ? "" : "s"} updated automatically.`);
+}
+
+function openPrDesignNameEditor(orderId = "") {
+  if (!requirePageEditPermission("designs", "edit design names")) return;
+  const order = findById("orders", orderId);
+  const design = order ? findById("designs", order.designId) : null;
+  if (!order || !design) {
+    alert("This PR item is not linked to a Design Master record.");
+    return;
+  }
+  const form = document.getElementById("pr-design-name-form");
+  form.orderId.value = order.id;
+  form.designId.value = design.id;
+  form.designNumber.value = design.number || design.name || "";
+  form.designName.value = design.name && design.name !== design.number ? design.name : "";
+  document.getElementById("pr-design-name-summary").textContent = `${order.productionNo || order.number || "PR Item"} / Current: ${designText(design)}`;
+  const dialog = document.getElementById("pr-design-name-dialog");
+  if (!dialog.open) dialog.showModal();
+  form.designNumber.focus();
+  form.designNumber.select();
+}
+
+function closePrDesignNameEditor() {
+  const dialog = document.getElementById("pr-design-name-dialog");
+  const form = document.getElementById("pr-design-name-form");
+  form?.reset();
+  if (dialog?.open) dialog.close();
+}
+
+function savePrDesignNameFromItem(event) {
+  event.preventDefault();
+  if (!requirePageEditPermission("designs", "edit design names")) return;
+  const form = event.currentTarget;
+  const order = findById("orders", form.orderId.value);
+  const design = order ? findById("designs", form.designId.value || order.designId) : null;
+  if (!order || !design || order.designId !== design.id) {
+    alert("The PR item or linked Design Master record could not be found. Refresh the Job Card and try again.");
+    return;
+  }
+  const result = renameDesignMasterRecord(design, form.designNumber.value, form.designName.value);
+  if (!result.ok) {
+    if (result.error) alert(result.error);
+    form.designNumber.focus();
+    return;
+  }
+  const bucket = document.getElementById("order-dialog")?.dataset.bucket || "all";
+  closePrDesignNameEditor();
+  render();
+  openOrderDetail(order.id, false, bucket);
+  setTimeout(() => openJobItemDetail(order.id), 0);
+  alert(`Design name updated from ${order.productionNo || order.number}. ${result.linkedOrders.length} linked PR item${result.linkedOrders.length === 1 ? "" : "s"} updated automatically.`);
 }
 
 function applyDesignToForm(form, designId) {
