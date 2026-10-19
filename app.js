@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v735";
+const APP_VERSION = "v736";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -9245,6 +9245,146 @@ function repairOfficeReturnPr2900V735(currentState = state) {
   return { count: alreadyRepaired ? 0 : allReturnedSafeItems.length, repaired: !alreadyRepaired, returnLot };
 }
 
+function rollbackOfficeReturnPr2900V736(currentState = state) {
+  if (currentState.officeReturnPr2900RollbackV736At) return { count: 0, reason: "already-restored" };
+  const prSerial = 2900;
+  const targetOrders = (currentState.orders || []).filter((order) => (
+    serialFromNumber(order.productionNo || order.number || order.barcode, "PR") === prSerial
+  ));
+  const targetOrderIds = new Set(targetOrders.map((order) => order.id));
+  const targetSafeItems = (currentState.safeItems || []).filter((item) => (
+    item.sourceType === "production-return"
+    && (serialFromNumber(item.returnProductionNo, "PR") === prSerial || targetOrderIds.has(item.returnOrderId))
+  ));
+  const candidateLotIds = new Set(targetSafeItems.flatMap((item) => [item.officeReturnLotId, item.issuedToReturnLotId]).filter(Boolean));
+  (currentState.lots || []).forEach((lot) => {
+    if (!lot.officeReturnBatch) return;
+    if ((lot.productionNos || []).some((productionNo) => serialFromNumber(productionNo, "PR") === prSerial)) candidateLotIds.add(lot.id);
+    if ((lot.orderIds || []).some((orderId) => targetOrderIds.has(orderId))) candidateLotIds.add(lot.id);
+  });
+  const returnLots = (currentState.lots || []).filter((lot) => candidateLotIds.has(lot.id) && lot.officeReturnBatch);
+  if (!targetSafeItems.length && !returnLots.length) {
+    const checkedAt = new Date().toISOString();
+    currentState.officeReturnPr2900RollbackV736At = checkedAt;
+    currentState.officeReturnPr2900RollbackV736 = {
+      productionNo: "PR-002900",
+      checkedAt,
+      restored: false,
+      reason: "return-transaction-not-found",
+    };
+    return { count: 1, restored: false, reason: "return-transaction-not-found", removedLotNumbers: [], removedJobNumbers: [] };
+  }
+
+  const safeItemIds = new Set(targetSafeItems.map((item) => item.id));
+  returnLots.forEach((lot) => (lot.officeReturnSafeItemIds || []).forEach((id) => safeItemIds.add(id)));
+  const relatedSafeItems = (currentState.safeItems || []).filter((item) => safeItemIds.has(item.id));
+  relatedSafeItems.forEach((item) => {
+    if (item.returnOrderId) targetOrderIds.add(item.returnOrderId);
+  });
+  returnLots.forEach((lot) => (lot.orderIds || []).forEach((orderId) => targetOrderIds.add(orderId)));
+  const productionNos = new Set(relatedSafeItems.map((item) => normalizeOfficeReturnPr(item.returnProductionNo)).filter(Boolean));
+  const removedLotIds = new Set(returnLots.map((lot) => lot.id));
+  const removedLotNumbers = returnLots.map((lot) => lot.number).filter(Boolean);
+  const removedJobNumbers = returnLots.map((lot) => lot.officeReturnJobNumber || lot.orderNumber).filter(Boolean);
+  const restoredAt = new Date().toISOString();
+
+  (currentState.orders || []).filter((order) => targetOrderIds.has(order.id)).forEach((order) => {
+    const safeItem = relatedSafeItems.find((item) => item.returnOrderId === order.id);
+    const originalJobNumber = order.officeReturnSourceJobNumber || safeItem?.returnSourceJobNumber || order.officeReturnJobHistory?.[0] || "";
+    if (originalJobNumber) order.jobNumber = originalJobNumber;
+    order.status = "Completed";
+    order.updatedAt = restoredAt;
+    delete order.repairStatus;
+    delete order.officeReturnLotId;
+    delete order.officeReturnLotNumber;
+    delete order.officeReturnComposition;
+  });
+
+  const restoreBillItem = (item = {}) => {
+    const linkedSafe = relatedSafeItems.find((safeItem) => (
+      safeItem.id === item.productionReturnSafeItemId
+      || (safeItem.returnOrderId && safeItem.returnOrderId === item.orderId)
+      || (safeItem.returnProductionNo && normalizeOfficeReturnPr(safeItem.returnProductionNo) === normalizeOfficeReturnPr(item.productionNo))
+    ));
+    if (!linkedSafe) return false;
+    item.qcStatus = "QC OK";
+    item.officeStatus = "Office";
+    item.factoryStatus = "Factory Out";
+    item.holder = KJPL_OFFICE_VENDOR_NAME;
+    item.repairStatus = "";
+    item.salesTeam = "";
+    [
+      "productionReturnFromOffice", "productionReturnSafeItemId", "productionReturnDate", "productionReturnIsoDate",
+      "productionReturnReason", "productionReturnRemarks", "productionReturnSafeIssueId", "officeReturnLotId",
+      "officeReturnLotNumber", "officeReturnJobNumber", "officeReturnPurpose", "officeReturnSourceBillNo",
+      "officeReturnComposition", "reworkLotId", "reworkLotNumber", "repairStartDate", "repairStartIsoDate",
+      "repairBaseFinalGw", "repairBaseNetWeight", "repairAdditionalLoss", "repairIssueDate", "repairIssueIsoDate",
+    ].forEach((key) => delete item[key]);
+    return true;
+  };
+
+  const touchedBillIds = new Set();
+  (currentState.bills || []).forEach((bill) => {
+    if ((bill.items || []).some(restoreBillItem)) touchedBillIds.add(bill.id || bill.billNo || "");
+  });
+  (currentState.lots || []).forEach((lot) => {
+    const savedBill = lot.bill || (currentState.bills || []).find((bill) => bill.lotId === lot.id);
+    if (!savedBill?.items?.length || !savedBill.items.some(restoreBillItem)) return;
+    lot.bill = savedBill;
+    lot.currentDepartment = KJPL_OFFICE_VENDOR_NAME;
+    lot.karigarName = KJPL_OFFICE_VENDOR_NAME;
+    lot.billingStage = "Factory Out / Office";
+    lot.productionStockWeight = billProductionStockWeight(savedBill);
+    touchedBillIds.add(savedBill.id || savedBill.billNo || "");
+  });
+
+  currentState.safeItems = (currentState.safeItems || []).filter((item) => !safeItemIds.has(item.id));
+  currentState.factoryLedger = (currentState.factoryLedger || []).filter((entry) => !(
+    entry.sourceType === "office-production-return" && safeItemIds.has(entry.sourceId)
+  ));
+  currentState.productionNonGoldIssues = (currentState.productionNonGoldIssues || []).filter((issue) => !(
+    removedLotIds.has(issue.lotId) || (issue.sourceType === "office-return-embedded" && removedLotIds.has(issue.lotId))
+  ));
+  currentState.safeDepartmentIssues = (currentState.safeDepartmentIssues || []).filter((issue) => !(
+    safeItemIds.has(issue.safeItemId) || removedLotIds.has(issue.lotId)
+  ));
+  currentState.safeDepartmentReturns = (currentState.safeDepartmentReturns || []).filter((entry) => !(
+    safeItemIds.has(entry.safeItemId) || removedLotIds.has(entry.lotId)
+  ));
+  currentState.settingManagerEntries = (currentState.settingManagerEntries || []).filter((entry) => !removedLotIds.has(entry.lotId));
+  currentState.ledger = (currentState.ledger || []).filter((entry) => {
+    if (removedLotIds.has(entry.sourceId) || removedLotIds.has(entry.lotId)) return false;
+    if (!["Office Return", "QC Failed Return"].includes(entry.type || "")) return true;
+    const reference = normalizeOfficeReturnPr(entry.reference || "");
+    return ![...productionNos].some((productionNo) => productionNo && reference.includes(productionNo));
+  });
+  currentState.lots = (currentState.lots || []).filter((lot) => !removedLotIds.has(lot.id));
+  delete currentState.officeReturnPr2900RepairV735At;
+  delete currentState.officeReturnPr2900RepairV735;
+  currentState.officeReturnPr2900RollbackV736At = restoredAt;
+  currentState.officeReturnPr2900RollbackV736 = {
+    productionNo: targetSafeItems[0]?.returnProductionNo || targetOrders[0]?.productionNo || "PR-002900",
+    removedLotNumbers,
+    removedJobNumbers,
+    restoredBillIds: [...touchedBillIds].filter(Boolean),
+    grossWeight: Number(weight3(relatedSafeItems.reduce((total, item) => total + Number(item.grossWeight || 0), 0))),
+    nonGoldWeight: Number(weight3(relatedSafeItems.reduce((total, item) => total + Number(item.nonGoldWeight || 0), 0))),
+    netWeight: Number(weight3(relatedSafeItems.reduce((total, item) => total + Number(item.netWeight || 0), 0))),
+  };
+  currentState.ledger = currentState.ledger || [];
+  currentState.ledger.unshift({
+    id: crypto.randomUUID(),
+    date: today(),
+    createdAt: restoredAt,
+    type: "Office Return Rollback",
+    purity: relatedSafeItems[0]?.purity || targetOrders[0]?.purity || "18K",
+    weight: 0,
+    productionNos: [...productionNos],
+    reference: `PR-002900 return transaction reversed at Owner request. ${removedLotNumbers.join(", ") || "Return lot"} and ${removedJobNumbers.join(", ") || "repair Job Card"} removed; the item is restored to KJPL Office and can be returned again through a fresh Return Lot.`,
+  });
+  return { count: relatedSafeItems.length || returnLots.length, restored: true, removedLotNumbers, removedJobNumbers };
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -9264,7 +9404,7 @@ function runPostCloudMigrations() {
     const reconciledCentralFlow = migrateCentralNonGoldFlowV699(state);
     const completedBilledOrders = reconcileBilledOrdersToCompletedV696(state);
     const repairedJob1694Split = repairJob1694IncompleteSplitV700(state);
-    const repairedOfficeReturnPr2900 = repairOfficeReturnPr2900V735(state);
+    const rolledBackOfficeReturnPr2900 = rollbackOfficeReturnPr2900V736(state);
     const normalizedOfficeReturnLedger = normalizeOfficeReturnFactoryLedgerV735(state);
     const repairedOldMergedLots = globalThis.KJM_JOB_CARD_LOT_MERGE_V716?.repairAllOldMerges
       ? globalThis.KJM_JOB_CARD_LOT_MERGE_V716.repairAllOldMerges()
@@ -9284,7 +9424,7 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count || repairedOfficeReturnPr2900.count || normalizedOfficeReturnLedger.count || repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count || rolledBackOfficeReturnPr2900.count || normalizedOfficeReturnLedger.count || repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
@@ -9295,7 +9435,7 @@ function runPostCloudMigrations() {
       if (reconciledCentralFlow.count || reconciledCentralFlow.upgraded) changedStateKeys.push("lots", "centralNonGoldFlowVersion", "centralNonGoldFlowV699At");
       if (completedBilledOrders.count || completedBilledOrders.upgraded) changedStateKeys.push("orders", "billedOrderCompletionVersion", "billedOrderCompletionV696At");
       if (repairedJob1694Split.count) changedStateKeys.push("orders", "lots", "ledger", "job1694SplitRepairV700At", "job1694SplitRepairV700OrderIds");
-      if (repairedOfficeReturnPr2900.count) changedStateKeys.push("orders", "lots", "bills", "safeItems", "ledger", "factoryLedger", "productionNonGoldIssues", "nextJob", "nextOrder", "nextLot", "officeReturnPr2900RepairV735At", "officeReturnPr2900RepairV735");
+      if (rolledBackOfficeReturnPr2900.count) changedStateKeys.push("orders", "lots", "bills", "safeItems", "ledger", "factoryLedger", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "settingManagerEntries", "officeReturnPr2900RollbackV736At", "officeReturnPr2900RollbackV736", "officeReturnPr2900RepairV735At", "officeReturnPr2900RepairV735");
       if (normalizedOfficeReturnLedger.count) changedStateKeys.push("factoryLedger");
       if (repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) changedStateKeys.push("orders", "lots", "ledger", "settingManagerEntries", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "safeItems", "jobCardLotMergeRepairV716At", "jobCardLotMergeRepairV716");
       let migrationContext = "Central non-gold shelf and post-cloud production correction";
@@ -9309,7 +9449,8 @@ function runPostCloudMigrations() {
       if (reconciledBillNonGold) migrationContext = `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`;
       if (repairedJob1694Split.count) migrationContext = `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`;
       if (repairedOldMergedLots.repairedJobs.length) migrationContext = `${repairedOldMergedLots.repairedJobs.length} old merged Job Card production lot repair`;
-      if (repairedOfficeReturnPr2900.count) migrationContext = `PR-002900 Office return repaired into ${repairedOfficeReturnPr2900.returnLot?.number || "its return lot"} / ${repairedOfficeReturnPr2900.returnLot?.officeReturnJobNumber || "new Job Card"}`;
+      if (rolledBackOfficeReturnPr2900.restored) migrationContext = `PR-002900 restored to KJPL Office; removed ${rolledBackOfficeReturnPr2900.removedLotNumbers?.join(", ") || "its Factory Return Lot"}`;
+      else if (rolledBackOfficeReturnPr2900.count) migrationContext = "PR-002900 one-time Office return rollback check completed";
       saveState({
         context: migrationContext,
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
@@ -45257,6 +45398,50 @@ function officeReturnCombinedBreakdown(returnedEntries = []) {
   }, {});
 }
 
+function officeReturnCompositionLines(returnedEntries = []) {
+  return returnedEntries.map((entry) => {
+    const safeItem = entry?.result?.safeItem || entry?.safeItem || {};
+    const found = entry?.found || {};
+    const order = found.order || findById("orders", safeItem.returnOrderId) || {};
+    const breakdown = normalizeNonGoldBreakdown(safeItem.nonGoldBreakdown || {});
+    const grossWeight = Number(weight3(safeItem.grossWeight || 0));
+    const nonGoldWeight = Number(weight3(safeItem.nonGoldWeight ?? nonGoldBreakdownTotal(breakdown)));
+    return {
+      safeItemId: safeItem.id || "",
+      orderId: safeItem.returnOrderId || order.id || "",
+      productionNo: safeItem.returnProductionNo || found.item?.productionNo || order.productionNo || "",
+      designNo: found.item?.designNo || order.designNo || designLabel(order.designId) || "",
+      purity: karatLogicPurity(safeItem.purity || order.purity || "18K"),
+      grossWeight,
+      nonGoldBreakdown: breakdown,
+      stoneWeight: Number(weight3(breakdown.stone || 0)),
+      blackBeadsWeight: Number(weight3(breakdown["black-beads"] || 0)),
+      motiWeight: Number(weight3(breakdown.moti || 0)),
+      springWeight: Number(weight3(breakdown.spring || 0)),
+      otherNonGoldWeight: Number(weight3(breakdown.other || 0)),
+      nonGoldWeight,
+      netWeight: Number(weight3(safeItem.netWeight ?? Math.max(grossWeight - nonGoldWeight, 0))),
+      sourceBillId: safeItem.returnSourceBillId || found.bill?.id || "",
+      sourceBillNo: safeItem.returnSourceBillNo || found.bill?.billNo || "",
+      sourceJobNumber: safeItem.returnSourceJobNumber || found.lot?.orderNumber || order.jobNumber || "",
+    };
+  });
+}
+
+function officeReturnPurityLines(composition = []) {
+  const rows = new Map();
+  composition.forEach((line) => {
+    const purity = karatLogicPurity(line.purity || "18K");
+    const current = rows.get(purity) || { purity, grossWeight: 0, nonGoldWeight: 0, netWeight: 0, pcs: 0 };
+    current.grossWeight = Number(weight3(current.grossWeight + Number(line.grossWeight || 0)));
+    current.nonGoldWeight = Number(weight3(current.nonGoldWeight + Number(line.nonGoldWeight || 0)));
+    current.netWeight = Number(weight3(current.netWeight + Number(line.netWeight || 0)));
+    current.pcs += 1;
+    rows.set(purity, current);
+  });
+  return [...rows.values()];
+}
+
 function officeReturnWastagePercent(purity = "") {
   return karatPurityKey(karatLogicPurity(purity)) === "18K" ? 1.75 : 0;
 }
@@ -45271,6 +45456,7 @@ function activateOfficeReturnRepairJobCard(returnLot = null, returnedEntries = [
   const stoneWeight = Number(weight3(breakdown.stone || 0));
   const otherNonGoldWeight = Number(weight3(Math.max(nonGoldWeight - stoneWeight, 0)));
   const sourceJobs = [...new Set((returnLot.sourceJobNumbers || []).filter(Boolean))];
+  const composition = officeReturnCompositionLines(returnedEntries);
 
   returnLot.orderNumber = newJobNumber;
   returnLot.officeReturnJobNumber = newJobNumber;
@@ -45284,6 +45470,9 @@ function activateOfficeReturnRepairJobCard(returnLot = null, returnedEntries = [
   returnLot.issueNonGoldWeight = nonGoldWeight;
   returnLot.issueOtherNonGoldWeight = otherNonGoldWeight;
   returnLot.issueNonGoldBreakdown = breakdown;
+  returnLot.officeReturnComposition = composition;
+  returnLot.officeReturnPurityLines = officeReturnPurityLines(composition);
+  returnLot.issuePurityBreakdown = returnLot.officeReturnPurityLines;
   returnLot.productionStockWeight = grossWeight;
   returnLot.status = "Issued";
   returnLot.updatedAt = new Date().toISOString();
@@ -45298,6 +45487,7 @@ function activateOfficeReturnRepairJobCard(returnLot = null, returnedEntries = [
     order.repairStatus = "Repair Job Card Created";
     order.officeReturnLotId = returnLot.id;
     order.officeReturnLotNumber = returnLot.number;
+    order.officeReturnComposition = composition.find((line) => line.orderId === order.id) || null;
     order.updatedAt = returnLot.updatedAt;
   });
 
@@ -45355,6 +45545,10 @@ function activateOfficeReturnRepairJobCard(returnLot = null, returnedEntries = [
     jobNumber: newJobNumber,
     lotId: returnLot.id,
     lotNumber: returnLot.number,
+    grossWeight,
+    nonGoldWeight,
+    nonGoldBreakdown: breakdown,
+    purityBreakdown: returnLot.officeReturnPurityLines || officeReturnPurityLines(composition),
     sourceType: "gold-issue",
     sourceId: returnLot.id,
     reference: `${returnLot.number} / ${newJobNumber} returned from KJPL Office for repair; Gold Issue GW ${gram(grossWeight)} - Non-Gold ${gram(nonGoldWeight)} = Net Gold ${gram(netWeight)}`,
@@ -45374,6 +45568,7 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
   const productionNos = returnedEntries.map(({ result, found }) => result.safeItem.returnProductionNo || found.item.productionNo || found.order.productionNo).filter(Boolean);
   const purities = [...new Set(returnedEntries.map(({ result }) => transferPurityLabel(result.safeItem.purity)).filter(Boolean))];
   const breakdown = officeReturnCombinedBreakdown(returnedEntries);
+  const composition = officeReturnCompositionLines(returnedEntries);
   const totals = returnedEntries.reduce((summary, { result }) => {
     summary.grossWeight += Number(result.safeItem.grossWeight || 0);
     summary.nonGoldWeight += Number(result.safeItem.nonGoldWeight || 0);
@@ -45418,6 +45613,8 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
     officeReturnNonGoldWeight: Number(weight3(totals.nonGoldWeight)),
     officeReturnNetWeight: Number(weight3(totals.netWeight)),
     officeReturnNonGoldBreakdown: breakdown,
+    officeReturnComposition: composition,
+    officeReturnPurityLines: officeReturnPurityLines(composition),
     productionNos,
     officeReturnSafeItemIds: returnedEntries.map(({ result }) => result.safeItem.id),
     parentLotId: sourceLots.length === 1 ? sourceLots[0].id : "",
@@ -45445,6 +45642,7 @@ function linkOfficeReturnItemsToLot(returnedEntries = [], returnLot = null) {
       officeReturnLotNumber: returnLot.number,
       officeReturnJobNumber: returnLot.officeReturnJobNumber || "",
       officeReturnPurpose: returnLot.officeReturnPurpose,
+      officeReturnComposition: (returnLot.officeReturnComposition || []).find((line) => line.safeItemId === result.safeItem.id) || null,
       officeReturnSourceBillNo: found.bill.billNo || "",
       reworkLotId: returnLot.officeReturnRepairJobCard ? returnLot.id : "",
       reworkLotNumber: returnLot.officeReturnRepairJobCard ? returnLot.number : "",
