@@ -8298,6 +8298,42 @@ dialog::backdrop {
   text-align: center;
 }
 
+.production-stone-navigation {
+  display: inline-grid;
+  grid-template-columns: minmax(108px, auto) minmax(130px, auto) minmax(108px, auto);
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  padding: 5px;
+  border: 1px solid #a9ccec;
+  border-radius: 8px;
+  background: #eef7ff;
+}
+
+.production-stone-navigation button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-color: #82b3df;
+  color: #124f80;
+  background: #ffffff;
+  white-space: nowrap;
+}
+
+.production-stone-navigation button:not(:disabled):hover {
+  border-color: #3a8dcc;
+  color: #ffffff;
+  background: #3a8dcc;
+}
+
+.production-stone-navigation span {
+  color: #123f67;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .production-stone-meta {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
@@ -18197,6 +18233,13 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   #production-stone-dialog .design-stone-details {
     height: auto;
     max-height: 58vh;
+  }
+
+  .production-stone-navigation {
+    order: 3;
+    width: 100%;
+    grid-template-columns: minmax(92px, 1fr) minmax(110px, auto) minmax(92px, 1fr);
+    margin-left: 0;
   }
 }
 #billing .billing-heading-tools {

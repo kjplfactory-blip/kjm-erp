@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v737";
+const APP_VERSION = "v738";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4613,7 +4613,17 @@ document.getElementById("close-production-stone-bottom").addEventListener("click
   document.getElementById("production-stone-dialog").close();
 });
 
+document.getElementById("previous-production-stone-pr")?.addEventListener("click", () => {
+  openAdjacentProductionStoneEntry(-1);
+});
+
+document.getElementById("next-production-stone-pr")?.addEventListener("click", () => {
+  openAdjacentProductionStoneEntry(1);
+});
+
 document.getElementById("production-stone-dialog").addEventListener("close", () => {
+  const form = document.getElementById("production-stone-form");
+  if (form) delete form.dataset.navigateAfterSave;
   restoreBillAfterProductionStoneEntry();
   configureProductionStoneDialogMode("production");
 });
@@ -4678,10 +4688,14 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
   renderJobItemsDetail(jobOrdersForOpenOrderDialog(order));
-  if (!productionStoneOpenedFromBill()) openJobItemDetail(order.id);
+  const navigateAfterSave = event.target.dataset.navigateAfterSave || "";
+  delete event.target.dataset.navigateAfterSave;
+  if (!productionStoneOpenedFromBill() && !navigateAfterSave) openJobItemDetail(order.id);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
   const savedAdditionalWeight = productionStoneTotals(additionalStoneItems).weight;
-  alert(`Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed lot transfer chain${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight and department net weight.` : ""}`);
+  const savedMessage = `Production stone plan saved to ${targetOrders.length} production number${targetOrders.length === 1 ? "" : "s"}: ${productionNumbers.join(", ")}.${savedAdditionalWeight ? ` Additional stone ${weight3(savedAdditionalWeight)}g saved only to ${order.productionNo || order.number}.` : ""}${masterWeightUpdates ? ` ${masterWeightUpdates} missing stone weight${masterWeightUpdates === 1 ? "" : "s"} saved to Stone Master.` : ""}${syncedFilingTransfers ? ` ${syncedFilingTransfers} completed lot transfer chain${syncedFilingTransfers === 1 ? " was" : "s were"} updated with the new stone weight and department net weight.` : ""}`;
+  if (navigateAfterSave && openProductionStoneEntry(navigateAfterSave)) return;
+  alert(savedMessage);
 });
 
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
@@ -23119,6 +23133,7 @@ function configureProductionStoneDialogMode(mode = "production") {
   const saveButton = form?.querySelector('button[type="submit"]');
   const stoneMasterButton = document.getElementById("refresh-production-stone-master");
   const designMasterButton = document.getElementById("reset-production-stone-design");
+  const navigation = document.getElementById("production-stone-navigation");
   if (title) title.textContent = fittingMode ? "Fitting Item Stone Entry" : "Production Stone Entry";
   if (guidance) guidance.textContent = fittingMode
     ? "These rows belong only to one fitting piece. Quantity totals are calculated automatically, and transferred pieces copy these exact stone rows into the destination PR item. Design Master and Stone Master remain unchanged unless a missing Stone Master weight is saved."
@@ -23127,7 +23142,52 @@ function configureProductionStoneDialogMode(mode = "production") {
   if (saveButton) saveButton.textContent = fittingMode ? "Save Fitting Stone Entry" : "Save Production Stone Plan";
   if (stoneMasterButton) stoneMasterButton.textContent = fittingMode ? "Refresh Weights From Stone Master" : "Get Stone Data From Stone Master";
   if (designMasterButton) designMasterButton.textContent = fittingMode ? "Get From Design + Stone Master" : "Get Stone Data From Design Master";
+  navigation?.classList.toggle("hidden", fittingMode);
   if (!fittingMode && form) delete form.dataset.fittingJobItemId;
+}
+
+function productionStoneNavigationOrders(order = {}) {
+  if (!order?.id || productionStoneFittingEditorContext()) return [];
+  return getJobOrders(order).filter((candidate) => (
+    !isSettingManagerUser() || canSettingManagerEditProductionStone(candidate)
+  ));
+}
+
+function updateProductionStoneNavigation(order = {}) {
+  const navigation = document.getElementById("production-stone-navigation");
+  const previous = document.getElementById("previous-production-stone-pr");
+  const next = document.getElementById("next-production-stone-pr");
+  const position = document.getElementById("production-stone-navigation-position");
+  if (!navigation || !previous || !next || !position) return;
+  const orders = productionStoneNavigationOrders(order);
+  const index = orders.findIndex((candidate) => candidate.id === order.id);
+  const available = index >= 0 && orders.length > 0;
+  navigation.classList.toggle("hidden", !available);
+  previous.disabled = !available || index === 0;
+  next.disabled = !available || index === orders.length - 1;
+  previous.title = previous.disabled ? "This is the first PR item in the Job Card." : `Open ${orders[index - 1]?.productionNo || orders[index - 1]?.number || "previous PR"}`;
+  next.title = next.disabled ? "This is the last PR item in the Job Card." : `Open ${orders[index + 1]?.productionNo || orders[index + 1]?.number || "next PR"}`;
+  position.textContent = available
+    ? `${order.productionNo || order.number || "PR"} / ${index + 1} of ${orders.length}`
+    : "PR item";
+}
+
+function openAdjacentProductionStoneEntry(direction = 1) {
+  const form = document.getElementById("production-stone-form");
+  if (!form || productionStoneFittingEditorContext()) return false;
+  const order = findById("orders", form.orderId?.value || "");
+  if (!order) return false;
+  const orders = productionStoneNavigationOrders(order);
+  const currentIndex = orders.findIndex((candidate) => candidate.id === order.id);
+  const nextIndex = currentIndex + (Number(direction) < 0 ? -1 : 1);
+  const nextOrder = orders[nextIndex];
+  if (!nextOrder) return false;
+  if (productionStoneDialogHasUnsavedEdits(order)) {
+    form.dataset.navigateAfterSave = nextOrder.id;
+    form.requestSubmit();
+    return true;
+  }
+  return openProductionStoneEntry(nextOrder.id);
 }
 
 function openFittingJobStoneEntry(sourceOrderId = "", itemId = "") {
@@ -23141,6 +23201,7 @@ function openFittingJobStoneEntry(sourceOrderId = "", itemId = "") {
   form.dataset.stoneEdited = "false";
   form.additionalStoneWeight.value = "";
   configureProductionStoneDialogMode("fitting");
+  updateProductionStoneNavigation({});
   const editorOrder = fittingAccessoryStoneEditorOrder(sourceOrder, item);
   const rows = fittingAccessoryStoneEditorRows(item);
   const design = fittingAccessoryStoneSourceDesign(item);
@@ -23178,6 +23239,13 @@ function openProductionStoneEntry(orderId) {
   configureProductionStoneDialogMode("production");
   form.orderId.value = order.id;
   form.dataset.stoneEdited = "false";
+  delete form.dataset.navigateAfterSave;
+  if (productionStoneReturnContext?.source === "bill") {
+    productionStoneReturnContext.touchedOrderIds = [...new Set([
+      ...(productionStoneReturnContext.touchedOrderIds || []),
+      order.id,
+    ])];
+  }
   form.additionalStoneWeight.value = formatStoneWeight(productionAdditionalStoneWeightForOrder(order)) || "";
   const design = productionStoneDesignForOrder(order);
   const designItems = designStoneItemsForOrder(design, order);
@@ -23187,8 +23255,16 @@ function openProductionStoneEntry(orderId) {
   renderProductionStoneTargets(order);
   renderProductionStoneItems(order);
   updateProductionStoneMasterReloadState(order);
+  updateProductionStoneNavigation(order);
   void renderProductionStoneChart(order);
-  document.getElementById("production-stone-dialog").showModal();
+  const dialog = document.getElementById("production-stone-dialog");
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => {
+    const details = document.getElementById("production-stone-details");
+    const chart = document.getElementById("production-stone-chart-panel");
+    if (details) details.scrollTop = 0;
+    if (chart) chart.scrollTop = 0;
+  });
   return true;
 }
 
@@ -48490,6 +48566,7 @@ function openBillItemStoneEntry(orderId = "") {
     source: "bill",
     lotId: lot.id,
     orderId: order.id,
+    touchedOrderIds: [order.id],
     billView,
     searchValue: document.getElementById("bill-item-search")?.value || "",
     dialogScrollTop: billCard?.scrollTop || 0,
@@ -48507,17 +48584,22 @@ function restoreBillAfterProductionStoneEntry() {
   productionStoneReturnContext = null;
   if (context?.source !== "bill") return;
   const lot = findById("lots", context.lotId);
-  const order = findById("orders", context.orderId);
+  const touchedOrders = [...new Set([context.orderId, ...(context.touchedOrderIds || [])].filter(Boolean))]
+    .map((orderId) => findById("orders", orderId))
+    .filter(Boolean);
+  const order = touchedOrders[0];
   if (!lot || !order) return;
   const billDialog = document.getElementById("bill-dialog");
   if (!billDialog?.open) openBill(lot.id);
   const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
   const snapshot = context.billView || {};
-  const items = (snapshot.items || []).map((item) =>
-    item.orderId === order.id || (item.productionNo && item.productionNo === order.productionNo)
-      ? billItemWithLatestStoneEntry(item, order, "Production Stone Entry")
-      : item
-  );
+  const items = (snapshot.items || []).map((item) => {
+    const matchingOrder = touchedOrders.find((candidate) => (
+      item.orderId === candidate.id
+      || (item.productionNo && item.productionNo === candidate.productionNo)
+    ));
+    return matchingOrder ? billItemWithLatestStoneEntry(item, matchingOrder, "Production Stone Entry") : item;
+  });
   const displayBill = { ...storedBill, ...snapshot, items };
   renderBillItems(lot, displayBill);
   const search = document.getElementById("bill-item-search");
@@ -48526,7 +48608,9 @@ function restoreBillAfterProductionStoneEntry() {
   updateBillAmount();
   applyBillAccessMode();
   const saved = canPersistBillDraft(lot, storedBill) ? saveBillDraftNow({ items }) : false;
-  const reference = order.productionNo || order.number || billOrderDesignCode(order) || "Item";
+  const reference = touchedOrders.length > 1
+    ? `${touchedOrders.length} PR items`
+    : (order.productionNo || order.number || billOrderDesignCode(order) || "Item");
   setBillDraftStatus(
     saved
       ? `${reference} stone entry refreshed and the Bill draft remains saved.`
