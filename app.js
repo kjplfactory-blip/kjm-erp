@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v734";
+const APP_VERSION = "v735";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -9105,6 +9105,146 @@ function repairJob1694IncompleteSplitV700(currentState = state) {
   return { count: mismatchedOrders.length, repaired: true, splitLot, linkedOrders };
 }
 
+function normalizeOfficeReturnFactoryLedgerV735(currentState = state) {
+  let count = 0;
+  (currentState.factoryLedger || []).forEach((entry) => {
+    if (entry.sourceType !== "office-production-return") return;
+    const safeItem = (currentState.safeItems || []).find((item) => item.id === entry.sourceId) || {};
+    const purity = safeItem.purity || entry.purity || "18K";
+    const grossWeight = Number(weight3(safeItem.grossWeight ?? entry.grossWeight ?? 0));
+    const breakdown = normalizeNonGoldBreakdown(safeItem.nonGoldBreakdown || factoryEntryNonGoldBreakdown(entry));
+    const totalNonGoldWeight = Number(weight3(safeItem.nonGoldWeight ?? nonGoldBreakdownTotal(breakdown)));
+    const netWeight = Number(weight3(safeItem.netWeight ?? entry.netWeight ?? Math.max(grossWeight - totalNonGoldWeight, 0)));
+    const wstgPercent = officeReturnWastagePercent(purity);
+    const baseFineGold = fineGoldWeight(netWeight, purity);
+    const wstgFineGold = Number(weight3(netWeight * (wstgPercent / 100)));
+    const next = {
+      purity: karatLogicPurity(purity),
+      weight: netWeight,
+      grossWeight,
+      nonGoldBreakdown: breakdown,
+      totalNonGoldWeight,
+      stoneWeight: Number(weight3(breakdown.stone || 0)),
+      blackBeadsWeight: Number(weight3(breakdown["black-beads"] || 0)),
+      motiWeight: Number(weight3(breakdown.moti || 0)),
+      springWeight: Number(weight3(breakdown.spring || 0)),
+      otherNonGoldWeight: Number(weight3(breakdown.other || 0)),
+      netWeight,
+      fineWeightBasis: "net",
+      wstgPercent,
+      wastagePercent: wstgPercent,
+      baseFineGold,
+      wstgFineGold,
+      fineGold: Number(weight3(baseFineGold + wstgFineGold)),
+    };
+    const changed = Object.entries(next).some(([key, value]) => JSON.stringify(entry[key]) !== JSON.stringify(value));
+    if (changed) {
+      Object.assign(entry, next);
+      count += 1;
+    }
+  });
+  return { count };
+}
+
+function repairOfficeReturnPr2900V735(currentState = state) {
+  const prSerial = 2900;
+  const orders = (currentState.orders || []).filter((order) => (
+    serialFromNumber(order.productionNo || order.number || order.barcode, "PR") === prSerial
+  ));
+  const orderIds = new Set(orders.map((order) => order.id));
+  const returnedSafeItems = (currentState.safeItems || []).filter((item) => (
+    item.sourceType === "production-return"
+    && (serialFromNumber(item.returnProductionNo, "PR") === prSerial || orderIds.has(item.returnOrderId))
+  ));
+  if (!returnedSafeItems.length) return { count: 0, reason: "PR-002900 return not found" };
+
+  let returnLot = (currentState.lots || []).find((lot) => (
+    lot.officeReturnBatch
+    && returnedSafeItems.some((item) => lot.id === item.officeReturnLotId || (lot.officeReturnSafeItemIds || []).includes(item.id))
+  ));
+  if (!returnLot) {
+    const lotNumber = nextLotNumber(currentState);
+    returnLot = {
+      id: `office-return-pr2900-${returnedSafeItems[0].id}`,
+      number: lotNumber,
+      issueDate: returnedSafeItems[0].date || today(),
+      createdAt: returnedSafeItems[0].createdAt || new Date().toISOString(),
+      createdBy: "v735 repair",
+      orderId: orders[0]?.id || returnedSafeItems[0].returnOrderId || "",
+      orderIds: [...new Set([...orders.map((order) => order.id), ...returnedSafeItems.map((item) => item.returnOrderId)].filter(Boolean))],
+      billOrderIds: orders.map((order) => order.id),
+      orderNumber: returnedSafeItems[0].returnSourceJobNumber || "",
+      karigarId: "",
+      karigarName: "Production Shelf",
+      issueKarigarId: "",
+      issueKarigarName: KJPL_OFFICE_VENDOR_NAME,
+      issueDepartment: KJPL_OFFICE_VENDOR_NAME,
+      currentDepartment: "Production Shelf / Repair Pending",
+      metalPurity: returnedSafeItems[0].purity || orders[0]?.purity || "18K",
+      transfers: [],
+      qcReturn: true,
+      officeReturnBatch: true,
+      officeReturnBatchStockReferenceOnly: false,
+      officeReturnPurpose: "Repair / Rework",
+      officeReturnPurposeCode: "REPAIR",
+      officeReturnReason: returnedSafeItems[0].returnReason || "Repair Required",
+      officeReturnRemarks: returnedSafeItems[0].returnRemarks || "",
+      sourceJobNumbers: [...new Set(returnedSafeItems.map((item) => item.returnSourceJobNumber).filter(Boolean))],
+      sourceBillIds: [...new Set(returnedSafeItems.map((item) => item.returnSourceBillId).filter(Boolean))],
+      sourceBillNos: [...new Set(returnedSafeItems.map((item) => item.returnSourceBillNo).filter(Boolean))],
+    };
+    currentState.lots.unshift(returnLot);
+  }
+
+  const linkedSafeIds = new Set([...(returnLot.officeReturnSafeItemIds || []), ...returnedSafeItems.map((item) => item.id)]);
+  const allReturnedSafeItems = (currentState.safeItems || []).filter((item) => linkedSafeIds.has(item.id));
+  returnLot.officeReturnSafeItemIds = allReturnedSafeItems.map((item) => item.id);
+  returnLot.orderIds = [...new Set([...(returnLot.orderIds || []), ...allReturnedSafeItems.map((item) => item.returnOrderId)].filter(Boolean))];
+  returnLot.orderId = returnLot.orderIds[0] || returnLot.orderId || "";
+  returnLot.billOrderIds = [...returnLot.orderIds];
+  returnLot.productionNos = [...new Set(allReturnedSafeItems.map((item) => item.returnProductionNo).filter(Boolean))];
+  returnLot.officeReturnItemCount = allReturnedSafeItems.length;
+  returnLot.officeReturnGrossWeight = Number(weight3(allReturnedSafeItems.reduce((total, item) => total + Number(item.grossWeight || 0), 0)));
+  returnLot.officeReturnNonGoldBreakdown = allReturnedSafeItems.reduce((breakdown, item) => addNonGoldBreakdowns(breakdown, item.nonGoldBreakdown || {}), {});
+  returnLot.officeReturnNonGoldWeight = Number(weight3(nonGoldBreakdownTotal(returnLot.officeReturnNonGoldBreakdown)));
+  returnLot.officeReturnNetWeight = Number(weight3(Math.max(returnLot.officeReturnGrossWeight - returnLot.officeReturnNonGoldWeight, 0)));
+  const sourceJobNumber = returnLot.sourceJobNumbers?.[0] || allReturnedSafeItems[0]?.returnSourceJobNumber || "";
+  const alreadyRepaired = Boolean(returnLot.officeReturnRepairJobCard && returnLot.officeReturnJobNumber && returnLot.grossIssuedWeight > 0);
+  const requestedJobNumber = returnLot.officeReturnJobNumber || nextJobCardNumber(currentState);
+  const returnedEntries = allReturnedSafeItems.map((safeItem) => ({ safeItem }));
+  activateOfficeReturnRepairJobCard(returnLot, returnedEntries, requestedJobNumber);
+  allReturnedSafeItems.forEach((safeItem) => {
+    safeItem.officeReturnLotId = returnLot.id;
+    safeItem.officeReturnLotNumber = returnLot.number;
+    safeItem.officeReturnPurpose = returnLot.officeReturnPurpose;
+  });
+
+  const updateBillItem = (item = {}) => {
+    const safeItem = allReturnedSafeItems.find((safe) => safe.id === item.productionReturnSafeItemId);
+    if (!safeItem) return;
+    item.officeReturnLotId = returnLot.id;
+    item.officeReturnLotNumber = returnLot.number;
+    item.officeReturnJobNumber = returnLot.officeReturnJobNumber;
+    item.reworkLotId = returnLot.id;
+    item.reworkLotNumber = returnLot.number;
+    item.repairStatus = "Repair Job Card Created";
+    item.holder = `${returnLot.currentDepartment} / ${returnLot.number}`;
+  };
+  (currentState.bills || []).forEach((bill) => (bill.items || []).forEach(updateBillItem));
+  (currentState.lots || []).forEach((lot) => (lot.bill?.items || []).forEach(updateBillItem));
+  currentState.officeReturnPr2900RepairV735At = currentState.officeReturnPr2900RepairV735At || new Date().toISOString();
+  currentState.officeReturnPr2900RepairV735 = {
+    productionNo: returnedSafeItems[0].returnProductionNo || "PR-002900",
+    sourceJobNumber,
+    newJobNumber: returnLot.officeReturnJobNumber,
+    lotNumber: returnLot.number,
+    grossWeight: returnLot.officeReturnGrossWeight,
+    nonGoldWeight: returnLot.officeReturnNonGoldWeight,
+    netWeight: returnLot.officeReturnNetWeight,
+  };
+  return { count: alreadyRepaired ? 0 : allReturnedSafeItems.length, repaired: !alreadyRepaired, returnLot };
+}
+
 function runPostCloudMigrations() {
   if (postCloudMigrationsStarted) return;
   if (supabaseSettings.url && supabaseSettings.anonKey && !supabaseInitialReadComplete) return;
@@ -9124,6 +9264,8 @@ function runPostCloudMigrations() {
     const reconciledCentralFlow = migrateCentralNonGoldFlowV699(state);
     const completedBilledOrders = reconcileBilledOrdersToCompletedV696(state);
     const repairedJob1694Split = repairJob1694IncompleteSplitV700(state);
+    const repairedOfficeReturnPr2900 = repairOfficeReturnPr2900V735(state);
+    const normalizedOfficeReturnLedger = normalizeOfficeReturnFactoryLedgerV735(state);
     const repairedOldMergedLots = globalThis.KJM_JOB_CARD_LOT_MERGE_V716?.repairAllOldMerges
       ? globalThis.KJM_JOB_CARD_LOT_MERGE_V716.repairAllOldMerges()
       : { repairedJobs: [], blockedJobs: [], consolidatedLots: 0, relinkedRecords: 0, upgraded: false };
@@ -9142,7 +9284,7 @@ function runPostCloudMigrations() {
         reference: `${repairedMergedSettingLots.count} previously merged free Setting sub-lot(s) rejoined into their original active lot: ${repairedMergedSettingLots.sourceLotNumbers.join(", ")}. Stone totals refreshed from the current Job Card PR items.`,
       });
     }
-    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count || repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) {
+    if (reconciledBillNonGold || correctedOpeningNonGold || correctedSetterBalances || correctedFilingTransfers || repairedMergedSettingLots.count || correctedLegacyIssueGoldWax.count || reconciledSafeSources.count || reconciledDepartmentBalances.count || reconciledDepartmentBalances.upgraded || reconciledManualBills.count || reconciledManualBills.upgraded || reconciledCentralFlow.count || reconciledCentralFlow.upgraded || completedBilledOrders.count || completedBilledOrders.upgraded || repairedJob1694Split.count || repairedOfficeReturnPr2900.count || normalizedOfficeReturnLedger.count || repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) {
       const changedStateKeys = [];
       if (reconciledBillNonGold) changedStateKeys.push("safeItems", "bills", "lots", "factoryLedger");
       if (correctedOpeningNonGold) changedStateKeys.push("safeItems", "nonGoldAuditEvents", "openingNonGold18KReclassifiedV683At");
@@ -9153,29 +9295,23 @@ function runPostCloudMigrations() {
       if (reconciledCentralFlow.count || reconciledCentralFlow.upgraded) changedStateKeys.push("lots", "centralNonGoldFlowVersion", "centralNonGoldFlowV699At");
       if (completedBilledOrders.count || completedBilledOrders.upgraded) changedStateKeys.push("orders", "billedOrderCompletionVersion", "billedOrderCompletionV696At");
       if (repairedJob1694Split.count) changedStateKeys.push("orders", "lots", "ledger", "job1694SplitRepairV700At", "job1694SplitRepairV700OrderIds");
+      if (repairedOfficeReturnPr2900.count) changedStateKeys.push("orders", "lots", "bills", "safeItems", "ledger", "factoryLedger", "productionNonGoldIssues", "nextJob", "nextOrder", "nextLot", "officeReturnPr2900RepairV735At", "officeReturnPr2900RepairV735");
+      if (normalizedOfficeReturnLedger.count) changedStateKeys.push("factoryLedger");
       if (repairedOldMergedLots.repairedJobs.length || repairedOldMergedLots.upgraded) changedStateKeys.push("orders", "lots", "ledger", "settingManagerEntries", "productionNonGoldIssues", "safeDepartmentIssues", "safeDepartmentReturns", "safeItems", "jobCardLotMergeRepairV716At", "jobCardLotMergeRepairV716");
+      let migrationContext = "Central non-gold shelf and post-cloud production correction";
+      if (reconciledCentralFlow.count) migrationContext = `${reconciledCentralFlow.count} Setting transfer audit bridge update`;
+      if (completedBilledOrders.count) migrationContext = `${completedBilledOrders.count} billed PR completion correction`;
+      if (reconciledManualBills.count) migrationContext = `${reconciledManualBills.count} manual Bill duplicate issue correction`;
+      if (correctedLegacyIssueGoldWax.count) migrationContext = `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`;
+      if (reconciledSafeSources.count) migrationContext = `${reconciledSafeSources.count} duplicate shelf source balance correction`;
+      if (reconciledDepartmentBalances.count) migrationContext = `${reconciledDepartmentBalances.count} department GW balance correction`;
+      if (correctedOpeningNonGold) migrationContext = "Confirmed opening non-gold reclassified from 14K to 18K";
+      if (reconciledBillNonGold) migrationContext = `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`;
+      if (repairedJob1694Split.count) migrationContext = `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`;
+      if (repairedOldMergedLots.repairedJobs.length) migrationContext = `${repairedOldMergedLots.repairedJobs.length} old merged Job Card production lot repair`;
+      if (repairedOfficeReturnPr2900.count) migrationContext = `PR-002900 Office return repaired into ${repairedOfficeReturnPr2900.returnLot?.number || "its return lot"} / ${repairedOfficeReturnPr2900.returnLot?.officeReturnJobNumber || "new Job Card"}`;
       saveState({
-        context: repairedOldMergedLots.repairedJobs.length
-          ? `${repairedOldMergedLots.repairedJobs.length} old merged Job Card production lot repair`
-          : (repairedJob1694Split.count
-            ? `JOB-1694 split repair: ${repairedJob1694Split.count} PR items restored to JOB-1694-S1`
-            : (reconciledBillNonGold
-          ? `${reconciledBillNonGold} posted Bill non-gold shelf reconciliation`
-          : (correctedOpeningNonGold
-              ? "Confirmed opening non-gold reclassified from 14K to 18K"
-              : (reconciledDepartmentBalances.count
-                ? `${reconciledDepartmentBalances.count} department GW balance correction`
-                : (reconciledSafeSources.count
-                  ? `${reconciledSafeSources.count} duplicate shelf source balance correction`
-                  : (correctedLegacyIssueGoldWax.count
-                      ? `${correctedLegacyIssueGoldWax.count} legacy WIP wax composition correction`
-                      : (reconciledManualBills.count
-                          ? `${reconciledManualBills.count} manual Bill duplicate issue correction`
-                          : (completedBilledOrders.count
-                              ? `${completedBilledOrders.count} billed PR completion correction`
-                              : (reconciledCentralFlow.count
-                                ? `${reconciledCentralFlow.count} Setting transfer audit bridge update`
-                                : "Central non-gold shelf and post-cloud production correction"))))))))),
+        context: migrationContext,
         changedStateKeys: changedStateKeys.length ? [...new Set(changedStateKeys)] : undefined,
       });
       render();
@@ -45095,7 +45231,7 @@ function renderOfficeReturnRecentLots() {
       <div>
         <strong>${escapeHtml(lot.number || "-")} / ${escapeHtml(lot.officeReturnPurpose || "Office Return")}</strong>
         <span>${Number(lot.officeReturnItemCount || lot.productionNos?.length || 0)} item${Number(lot.officeReturnItemCount || lot.productionNos?.length || 0) === 1 ? "" : "s"} / GW ${gram(lot.officeReturnGrossWeight)} / Net ${gram(lot.officeReturnNetWeight)}</span>
-        <small>PR ${escapeHtml((lot.productionNos || []).join(", ") || "-")}<br>Bills ${escapeHtml((lot.sourceBillNos || []).join(", ") || "-")}</small>
+        <small>${lot.officeReturnJobNumber ? `New Job Card ${escapeHtml(lot.officeReturnJobNumber)}<br>` : ""}PR ${escapeHtml((lot.productionNos || []).join(", ") || "-")}<br>Bills ${escapeHtml((lot.sourceBillNos || []).join(", ") || "-")}</small>
       </div>
       <button class="ghost-button" type="button" data-office-return-open-lot="${escapeHtml(lot.id || "")}">Open Lot</button>
     </article>
@@ -45114,6 +45250,120 @@ function handleOfficeReturnRecentLotClick(event) {
   openLotHistory(lot.id);
 }
 
+function officeReturnCombinedBreakdown(returnedEntries = []) {
+  return returnedEntries.reduce((breakdown, entry) => {
+    const safeItem = entry?.result?.safeItem || entry?.safeItem || {};
+    return addNonGoldBreakdowns(breakdown, safeItem.nonGoldBreakdown || {});
+  }, {});
+}
+
+function officeReturnWastagePercent(purity = "") {
+  return karatPurityKey(karatLogicPurity(purity)) === "18K" ? 1.75 : 0;
+}
+
+function activateOfficeReturnRepairJobCard(returnLot = null, returnedEntries = [], requestedJobNumber = "") {
+  if (!returnLot?.id || returnLot.officeReturnPurposeCode === "MELT") return returnLot;
+  const newJobNumber = requestedJobNumber || returnLot.officeReturnJobNumber || nextJobCardNumber(state);
+  const breakdown = officeReturnCombinedBreakdown(returnedEntries);
+  const grossWeight = Number(weight3(returnedEntries.reduce((total, entry) => total + Number((entry?.result?.safeItem || entry?.safeItem || {}).grossWeight || 0), 0)));
+  const nonGoldWeight = Number(weight3(nonGoldBreakdownTotal(breakdown)));
+  const netWeight = Number(weight3(Math.max(grossWeight - nonGoldWeight, 0)));
+  const stoneWeight = Number(weight3(breakdown.stone || 0));
+  const otherNonGoldWeight = Number(weight3(Math.max(nonGoldWeight - stoneWeight, 0)));
+  const sourceJobs = [...new Set((returnLot.sourceJobNumbers || []).filter(Boolean))];
+
+  returnLot.orderNumber = newJobNumber;
+  returnLot.officeReturnJobNumber = newJobNumber;
+  returnLot.officeReturnRepairJobCard = true;
+  returnLot.officeReturnBatchStockReferenceOnly = false;
+  returnLot.grossIssuedWeight = grossWeight;
+  returnLot.issuedWeight = netWeight;
+  returnLot.waxStoneWeight = stoneWeight;
+  returnLot.plannedWaxStoneWeight = stoneWeight;
+  returnLot.physicalWaxStoneWeight = stoneWeight;
+  returnLot.issueNonGoldWeight = nonGoldWeight;
+  returnLot.issueOtherNonGoldWeight = otherNonGoldWeight;
+  returnLot.issueNonGoldBreakdown = breakdown;
+  returnLot.productionStockWeight = grossWeight;
+  returnLot.status = "Issued";
+  returnLot.updatedAt = new Date().toISOString();
+
+  (returnLot.orderIds || []).forEach((orderId) => {
+    const order = findById("orders", orderId);
+    if (!order) return;
+    if (!order.officeReturnSourceJobNumber) order.officeReturnSourceJobNumber = order.jobNumber || sourceJobs[0] || "";
+    order.officeReturnJobHistory = [...new Set([...(order.officeReturnJobHistory || []), order.officeReturnSourceJobNumber].filter(Boolean))];
+    order.jobNumber = newJobNumber;
+    order.status = "In Production";
+    order.repairStatus = "Repair Job Card Created";
+    order.officeReturnLotId = returnLot.id;
+    order.officeReturnLotNumber = returnLot.number;
+    order.updatedAt = returnLot.updatedAt;
+  });
+
+  returnedEntries.forEach((entry) => {
+    const safeItem = entry?.result?.safeItem || entry?.safeItem;
+    if (!safeItem?.id) return;
+    safeItem.status = "Out";
+    safeItem.issuedToReturnLotId = returnLot.id;
+    safeItem.issuedToReturnLotNumber = returnLot.number;
+    safeItem.issuedToReturnJobNumber = newJobNumber;
+    safeItem.issuedDate = safeItem.issuedDate || today();
+    safeItem.updatedAt = returnLot.updatedAt;
+    const ledgerEntry = (state.factoryLedger || []).find((row) => row.sourceType === "office-production-return" && row.sourceId === safeItem.id);
+    if (ledgerEntry) {
+      ledgerEntry.lotId = returnLot.id;
+      ledgerEntry.lotNumber = returnLot.number;
+      ledgerEntry.jobNumber = newJobNumber;
+    }
+  });
+
+  state.productionNonGoldIssues = state.productionNonGoldIssues || [];
+  Object.entries(breakdown).forEach(([materialType, weight]) => {
+    if (materialType === "stone" || Number(weight || 0) <= 0) return;
+    const id = `office-return-ng-${returnLot.id}-${materialType}`;
+    const existing = state.productionNonGoldIssues.find((issue) => issue.id === id);
+    const issue = normalizeProductionNonGoldIssue({
+      id,
+      date: returnLot.issueDate || today(),
+      createdAt: returnLot.createdAt || new Date().toISOString(),
+      movementType: "issue",
+      lotId: returnLot.id,
+      lotNumber: returnLot.number,
+      jobNumber: newJobNumber,
+      department: returnLot.currentDepartment,
+      materialType,
+      weight,
+      purity: returnLot.metalPurity,
+      sourceType: "office-return-embedded",
+      openingStockTransfer: false,
+      embeddedInOpeningGw: true,
+      reason: returnLot.officeReturnReason,
+      remarks: `${returnLot.number} returned from KJPL Office inside GW`,
+    }, returnLot);
+    if (existing) Object.assign(existing, issue);
+    else state.productionNonGoldIssues.unshift(issue);
+  });
+
+  state.ledger = state.ledger || [];
+  let goldIssue = state.ledger.find((entry) => entry.sourceType === "gold-issue" && entry.sourceId === returnLot.id);
+  const issueData = {
+    date: returnLot.issueDate || today(),
+    type: "Out",
+    purity: returnLot.metalPurity,
+    weight: netWeight,
+    jobNumber: newJobNumber,
+    lotId: returnLot.id,
+    lotNumber: returnLot.number,
+    sourceType: "gold-issue",
+    sourceId: returnLot.id,
+    reference: `${returnLot.number} / ${newJobNumber} returned from KJPL Office for repair; Gold Issue GW ${gram(grossWeight)} - Non-Gold ${gram(nonGoldWeight)} = Net Gold ${gram(netWeight)}`,
+  };
+  if (goldIssue) Object.assign(goldIssue, issueData);
+  else state.ledger.unshift({ id: crypto.randomUUID(), createdAt: returnLot.createdAt || new Date().toISOString(), ...issueData });
+  return returnLot;
+}
+
 function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remarks = "") {
   state.nextLot = Number(state.nextLot || 1);
   const lotNumber = nextLotNumber(state);
@@ -45123,6 +45373,7 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
   const sourceBills = [...new Map(returnedEntries.map(({ found }) => [found.bill.id || found.bill.billNo || found.lot.id, found.bill])).values()];
   const productionNos = returnedEntries.map(({ result, found }) => result.safeItem.returnProductionNo || found.item.productionNo || found.order.productionNo).filter(Boolean);
   const purities = [...new Set(returnedEntries.map(({ result }) => transferPurityLabel(result.safeItem.purity)).filter(Boolean))];
+  const breakdown = officeReturnCombinedBreakdown(returnedEntries);
   const totals = returnedEntries.reduce((summary, { result }) => {
     summary.grossWeight += Number(result.safeItem.grossWeight || 0);
     summary.nonGoldWeight += Number(result.safeItem.nonGoldWeight || 0);
@@ -45157,7 +45408,7 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
     transfers: [],
     qcReturn: true,
     officeReturnBatch: true,
-    officeReturnBatchStockReferenceOnly: true,
+    officeReturnBatchStockReferenceOnly: purpose.code === "MELT",
     officeReturnPurpose: purpose.label,
     officeReturnPurposeCode: purpose.code,
     officeReturnReason: purpose.reason,
@@ -45166,6 +45417,7 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
     officeReturnGrossWeight: Number(weight3(totals.grossWeight)),
     officeReturnNonGoldWeight: Number(weight3(totals.nonGoldWeight)),
     officeReturnNetWeight: Number(weight3(totals.netWeight)),
+    officeReturnNonGoldBreakdown: breakdown,
     productionNos,
     officeReturnSafeItemIds: returnedEntries.map(({ result }) => result.safeItem.id),
     parentLotId: sourceLots.length === 1 ? sourceLots[0].id : "",
@@ -45175,6 +45427,7 @@ function createOfficeReturnTrackingLot(returnedEntries = [], purpose = {}, remar
     sourceBillNos: [...new Set(sourceBills.map((bill) => bill.billNo).filter(Boolean))],
   };
   state.lots.unshift(lot);
+  activateOfficeReturnRepairJobCard(lot, returnedEntries);
   return lot;
 }
 
@@ -45190,9 +45443,15 @@ function linkOfficeReturnItemsToLot(returnedEntries = [], returnLot = null) {
       ...found.bill.items[index],
       officeReturnLotId: returnLot.id,
       officeReturnLotNumber: returnLot.number,
+      officeReturnJobNumber: returnLot.officeReturnJobNumber || "",
       officeReturnPurpose: returnLot.officeReturnPurpose,
       officeReturnSourceBillNo: found.bill.billNo || "",
-      holder: `${result.safeItem.locker} Production Shelf / ${returnLot.number}`,
+      reworkLotId: returnLot.officeReturnRepairJobCard ? returnLot.id : "",
+      reworkLotNumber: returnLot.officeReturnRepairJobCard ? returnLot.number : "",
+      repairStatus: returnLot.officeReturnRepairJobCard ? "Repair Job Card Created" : "Returned For Melting",
+      holder: returnLot.officeReturnRepairJobCard
+        ? `${returnLot.currentDepartment} / ${returnLot.number}`
+        : `${result.safeItem.locker} Production Shelf / ${returnLot.number}`,
     };
     found.lot.bill = found.bill;
   });
@@ -45297,7 +45556,7 @@ async function createOfficeReturnLotFromSelection(event) {
     const totals = `${returnedEntries.length} PR item${returnedEntries.length === 1 ? "" : "s"} / GW ${gram(returnLot.officeReturnGrossWeight)} / Non-Gold ${gram(returnLot.officeReturnNonGoldWeight)} / Net Gold ${gram(returnLot.officeReturnNetWeight)}`;
     const nextStep = purpose.code === "MELT"
       ? "The returned items are in Production Shelf. Use Remove Non-Gold / Melt to dismantle them."
-      : "The returned items are in Production Shelf and grouped under this lot for the next repair issue.";
+      : `${returnLot.officeReturnJobNumber} is the new repair Job Card. Its complete GW, non-gold breakup, net gold, and Gold Issue are recorded.`;
     alert(`${returnLot.number} created for ${purpose.label}.\n${totals}.\nOriginal PR numbers are unchanged.\n${nextStep}${cloudVerified ? "\nLive cloud sync confirmed." : "\nSaved locally; cloud confirmation is pending and will retry automatically."}`);
   } catch (error) {
     restoreProductionReturnTransactionState(rollbackSnapshot);
@@ -45396,6 +45655,7 @@ function addOfficeProductionReturnLedger(safeItem = {}) {
   const sourceId = safeItem.id;
   const existing = (state.factoryLedger || []).find((entry) => entry.sourceType === "office-production-return" && entry.sourceId === sourceId);
   if (existing) return existing;
+  const wstgPercent = officeReturnWastagePercent(safeItem.purity);
   return addFactoryLedgerEntry({
     id: `office-return-${sourceId}`,
     date: safeItem.date || today(),
@@ -45406,6 +45666,8 @@ function addOfficeProductionReturnLedger(safeItem = {}) {
     vendorName: safeItem.returnVendorName || "",
     purity: safeItem.purity || safeItem.locker || "",
     weight: Number(safeItem.netWeight || 0),
+    fineWeightBasis: "net",
+    wstgPercent,
     grossWeight: Number(safeItem.grossWeight || 0),
     stoneWeight: Number(safeItem.nonGoldBreakdown?.stone || 0),
     blackBeadsWeight: Number(safeItem.nonGoldBreakdown?.["black-beads"] || 0),
@@ -45416,7 +45678,7 @@ function addOfficeProductionReturnLedger(safeItem = {}) {
     netWeight: Number(safeItem.netWeight || 0),
     stockPosting: `${safeItem.locker || safeLockerForPurity(safeItem.purity)} Production Shelf Return`,
     reference: `${safeItem.returnProductionNo || "Returned item"} / ${safeItem.returnSourceBillNo || "Office"}`,
-    remarks: `Returned GW ${gram(safeItem.grossWeight)} - Non-Gold ${gram(safeItem.nonGoldWeight)} = Net Gold ${gram(safeItem.netWeight)}; ${nonGoldBreakdownText(safeItem.nonGoldBreakdown) || "No non-gold"}; ${safeItem.returnReason || "Office return"}`,
+    remarks: `Returned GW ${gram(safeItem.grossWeight)} - Non-Gold ${gram(safeItem.nonGoldWeight)} = Net Gold ${gram(safeItem.netWeight)}; ${nonGoldBreakdownText(safeItem.nonGoldBreakdown) || "No non-gold"}; ${transferPurityLabel(safeItem.purity)}${wstgPercent ? ` + ${wstgPercent.toFixed(2)}% WSTG` : ""}; ${safeItem.returnReason || "Office return"}`,
     sourceType: "office-production-return",
     sourceId,
     sourceLine: safeItem.returnOrderId || "",
@@ -45591,6 +45853,8 @@ function updateProductionReturnTotals() {
 
 function captureProductionReturnTransactionState() {
   return structuredClone({
+    nextJob: state.nextJob,
+    nextOrder: state.nextOrder,
     nextLot: state.nextLot,
     safeItems: state.safeItems || [],
     factoryLedger: state.factoryLedger || [],
@@ -45599,10 +45863,13 @@ function captureProductionReturnTransactionState() {
     orders: state.orders || [],
     vendors: state.vendors || [],
     ledger: state.ledger || [],
+    productionNonGoldIssues: state.productionNonGoldIssues || [],
   });
 }
 
 function restoreProductionReturnTransactionState(snapshot = {}) {
+  state.nextJob = Number(snapshot.nextJob || state.nextJob || 1001);
+  state.nextOrder = Number(snapshot.nextOrder || state.nextOrder || state.nextJob || 1001);
   state.nextLot = Number(snapshot.nextLot || state.nextLot || 1);
   state.safeItems = structuredClone(snapshot.safeItems || []);
   state.factoryLedger = structuredClone(snapshot.factoryLedger || []);
@@ -45611,11 +45878,17 @@ function restoreProductionReturnTransactionState(snapshot = {}) {
   state.orders = structuredClone(snapshot.orders || []);
   state.vendors = structuredClone(snapshot.vendors || []);
   state.ledger = structuredClone(snapshot.ledger || []);
+  state.productionNonGoldIssues = structuredClone(snapshot.productionNonGoldIssues || []);
 }
 
 function productionReturnTransactionIsComplete(safeItemId = "", source = state) {
   const safeItem = (source.safeItems || []).find((item) => String(item.id || "") === String(safeItemId || ""));
-  if (!safeItem || safeItem.status !== "In Safe") return false;
+  const repairLot = (source.lots || []).find((lot) => (
+    lot.id === safeItem?.officeReturnLotId
+    && lot.officeReturnRepairJobCard
+    && safeItem?.issuedToReturnLotId === lot.id
+  ));
+  if (!safeItem || (safeItem.status !== "In Safe" && !(safeItem.status === "Out" && repairLot))) return false;
   const matchingBillItem = (source.lots || []).some((lot) => {
     const bill = lot.bill || (source.bills || []).find((entry) => entry.lotId === lot.id);
     return (bill?.items || []).some((item) => String(item.productionReturnSafeItemId || "") === String(safeItemId || ""));
@@ -45703,8 +45976,17 @@ async function saveOfficeProductionReturn(form) {
     alert(result?.duplicate ? "This item is already recorded in Production Shelf." : "The return could not be saved. Check the weights.");
     return;
   }
+  const purposeKey = /melt|dismant/i.test(reason)
+    ? "melting"
+    : (/size/i.test(reason) ? "size" : (/polish|finish/i.test(reason) ? "polish" : (/other/i.test(reason) ? "other" : "repair")));
+  const returnLot = createOfficeReturnTrackingLot([
+    { found: { ...found, order, key: found.key || officeItemKey(found.lot.id, found.item) }, result },
+  ], officeReturnPurposeConfig(purposeKey), form.remarks.value.trim());
+  linkOfficeReturnItemsToLot([
+    { found: { ...found, order, key: found.key || officeItemKey(found.lot.id, found.item) }, result },
+  ], returnLot);
   finalizeProductionShelfReturnLot(found.lot, found.bill);
-  if (!productionReturnTransactionIsComplete(result.safeItem.id)) {
+  if (!officeReturnLotTransactionIsComplete(returnLot.id)) {
     restoreProductionReturnTransactionState(rollbackSnapshot);
     render();
     if (submit) {
@@ -45714,7 +45996,7 @@ async function saveOfficeProductionReturn(form) {
     alert("Repair Factory In validation failed. No shelf, bill, or party ledger data was changed.");
     return;
   }
-  const savedLocally = saveState({ alertOnFailure: true, context: `${result.safeItem.returnProductionNo} Repair Factory In` });
+  const savedLocally = saveState({ alertOnFailure: true, context: `${returnLot.number} Repair Factory In` });
   if (!savedLocally) {
     restoreProductionReturnTransactionState(rollbackSnapshot);
     render();
@@ -45729,9 +46011,9 @@ async function saveOfficeProductionReturn(form) {
   document.getElementById("production-return-dialog")?.close();
   const status = document.getElementById("repair-factory-in-status");
   if (status) status.textContent = `${result.safeItem.returnProductionNo} is saved on this laptop. Confirming live sync...`;
-  const savedToCloud = await saveCurrentStateToCloudNow({ context: `${result.safeItem.returnProductionNo} Repair Factory In` });
-  const cloudVerified = savedToCloud && await verifyProductionReturnInCloud(result.safeItem.id);
-  if (!cloudVerified) saveState({ alertOnFailure: false, context: `${result.safeItem.returnProductionNo} Repair Factory In retry` });
+  const savedToCloud = await saveCurrentStateToCloudNow({ context: `${returnLot.number} Repair Factory In` });
+  const cloudVerified = savedToCloud && await verifyOfficeReturnLotInCloud(returnLot.id);
+  if (!cloudVerified) saveState({ alertOnFailure: false, context: `${returnLot.number} Repair Factory In retry` });
   if (submit) {
     submit.disabled = false;
     submit.textContent = sourceMode === "repair-factory-in" ? "Confirm Repair Factory In" : "Return To Production Shelf";
@@ -45740,11 +46022,11 @@ async function saveOfficeProductionReturn(form) {
     ? `Party ${result.safeItem.returnVendorName || "-"} inward fine ${gram(fineGoldWeight(result.safeItem.netWeight, result.safeItem.purity))}.`
     : "This item had not been posted Factory Out, so no party ledger reversal was required.";
   if (cloudVerified) {
-    if (status) status.textContent = `${result.safeItem.returnProductionNo} is in ${result.safeItem.locker} Production Shelf and confirmed in live cloud.`;
-    alert(`${result.safeItem.returnProductionNo} Repair Factory In saved and confirmed in cloud.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}`);
+    if (status) status.textContent = `${result.safeItem.returnProductionNo} is in ${returnLot.number}${returnLot.officeReturnJobNumber ? ` / ${returnLot.officeReturnJobNumber}` : ""} and confirmed in live cloud.`;
+    alert(`${result.safeItem.returnProductionNo} Repair Factory In saved in ${returnLot.number}${returnLot.officeReturnJobNumber ? ` / ${returnLot.officeReturnJobNumber}` : ""} and confirmed in cloud.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}`);
   } else {
     if (status) status.textContent = `${result.safeItem.returnProductionNo} is saved safely on this laptop. Cloud sync is pending and will retry automatically.`;
-    alert(`${result.safeItem.returnProductionNo} Repair Factory In is saved safely on this laptop.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}\n\nCloud confirmation is pending; do not scan this PR again.`);
+    alert(`${result.safeItem.returnProductionNo} Repair Factory In is saved safely in ${returnLot.number}${returnLot.officeReturnJobNumber ? ` / ${returnLot.officeReturnJobNumber}` : ""}.\nGW ${gram(result.safeItem.grossWeight)} / Non-Gold ${gram(result.safeItem.nonGoldWeight)} / Net Gold ${gram(result.safeItem.netWeight)}.\n${partyText}\n\nCloud confirmation is pending; do not scan this PR again.`);
   }
 }
 
