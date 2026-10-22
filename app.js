@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v739";
+const APP_VERSION = "v740";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26845,18 +26845,12 @@ function isMatchingCbPrintPair(left, right) {
   if (right.cbSplitFrom && right.cbSplitFrom === left.id) return true;
   const leftFamily = categoryCode(left.category) === "CBR" ? "CBR" : "CB";
   const rightFamily = categoryCode(right.category) === "CBR" ? "CBR" : "CB";
-  return leftFamily === rightFamily && setBagGroupKey(left, leftFamily) === setBagGroupKey(right, rightFamily);
+  return leftFamily === rightFamily && bagDesignGroupKey(left, leftFamily) === bagDesignGroupKey(right, rightFamily);
 }
 
 function groupSetBagPrintItems(entries) {
   const output = [];
-  const openGroups = new Map();
-  const closeGroup = (key) => {
-    const group = openGroups.get(key);
-    if (!group) return;
-    output.push(combinedSetBagEntry(group));
-    openGroups.delete(key);
-  };
+  const groupedEntries = new Map();
 
   entries.forEach((entry, index) => {
     const entryIndex = entry.printIndex ?? index;
@@ -26869,33 +26863,69 @@ function groupSetBagPrintItems(entries) {
 
     const family = setBagFamilyForOrder(item);
     const itemKey = setBagItemKeyForOrder(item);
-    const groupKey = family ? setBagGroupKey(item, family) : "";
+    const groupKey = family ? bagDesignGroupKey(item, family) : "";
     if (!family || !itemKey || !groupKey) {
       output.push({ ...entry, items: [item], printIndex: entryIndex });
       return;
     }
 
-    let group = openGroups.get(groupKey);
-    if (!group || group.itemKeys.has(itemKey)) {
-      closeGroup(groupKey);
+    let group = groupedEntries.get(groupKey);
+    if (!group) {
       group = {
         family,
         firstEntry: entry,
         firstIndex: entryIndex,
-        entries: [],
-        items: [],
-        itemKeys: new Set(),
+        entriesByItemKey: new Map(),
+        itemKeyOrder: [],
       };
-      openGroups.set(groupKey, group);
+      groupedEntries.set(groupKey, group);
     }
-    group.entries.push(entry);
-    group.items.push(item);
-    group.itemKeys.add(itemKey);
+    if (!group.entriesByItemKey.has(itemKey)) {
+      group.entriesByItemKey.set(itemKey, []);
+      group.itemKeyOrder.push(itemKey);
+    }
+    group.entriesByItemKey.get(itemKey).push({ entry, item, printIndex: entryIndex });
     group.firstIndex = Math.min(group.firstIndex, entryIndex);
   });
 
-  openGroups.forEach((group) => output.push(combinedSetBagEntry(group)));
+  groupedEntries.forEach((group) => {
+    const itemKeys = setBagFamilyItemOrder(group.family, group.itemKeyOrder);
+    const bagCount = Math.max(0, ...itemKeys.map((itemKey) => group.entriesByItemKey.get(itemKey)?.length || 0));
+    for (let occurrenceIndex = 0; occurrenceIndex < bagCount; occurrenceIndex += 1) {
+      const occurrenceEntries = itemKeys
+        .map((itemKey) => group.entriesByItemKey.get(itemKey)?.[occurrenceIndex])
+        .filter(Boolean);
+      if (!occurrenceEntries.length) continue;
+      const firstOccurrence = occurrenceEntries.reduce((earliest, candidate) =>
+        candidate.printIndex < earliest.printIndex ? candidate : earliest
+      );
+      output.push(combinedSetBagEntry({
+        family: group.family,
+        firstEntry: firstOccurrence.entry,
+        firstIndex: firstOccurrence.printIndex,
+        entries: occurrenceEntries.map((candidate) => candidate.entry),
+        items: occurrenceEntries.map((candidate) => candidate.item),
+      }));
+    }
+  });
   return output.sort((left, right) => (left.printIndex ?? 0) - (right.printIndex ?? 0));
+}
+
+function setBagFamilyItemOrder(family = "", encounteredKeys = []) {
+  const familyOrders = {
+    CM: CM_ITEM_KEYS,
+    PS: PS_ITEM_KEYS,
+    TM: TM_ITEM_KEYS,
+    NS: NS_ITEM_KEYS,
+    CN: CN_ITEM_KEYS,
+    MM: MM_ITEM_KEYS,
+    LRGR: ["LR", "GR"],
+  };
+  const preferredKeys = familyOrders[family] || [];
+  return [
+    ...preferredKeys.filter((itemKey) => encounteredKeys.includes(itemKey)),
+    ...encounteredKeys.filter((itemKey) => !preferredKeys.includes(itemKey)),
+  ];
 }
 
 function combinedSetBagEntry(group) {
@@ -26977,11 +27007,17 @@ function bagDesignFamilyKey(order = {}, family = "") {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function setBagGroupKey(order = {}, family = "") {
+function bagDesignGroupKey(order = {}, family = "") {
   return [
     family,
     order.jobNumber || "",
     bagDesignFamilyKey(order, family),
+  ].map((value) => String(value || "").trim().toUpperCase()).join("|");
+}
+
+function setBagGroupKey(order = {}, family = "") {
+  return [
+    bagDesignGroupKey(order, family),
     bagPieceOccurrenceKey(order),
   ].map((value) => String(value || "").trim().toUpperCase()).join("|");
 }
