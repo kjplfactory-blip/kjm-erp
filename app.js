@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v740";
+const APP_VERSION = "v741";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -131,6 +131,9 @@ const STONE_ITEM_PRESETS = [
   ["PSE", "PSE - Ear Rings"],
   ["TM", "TM - Main"],
   ["TME", "TME - Ear Rings"],
+  ["TMB", "TMB - Bracelet"],
+  ["PND", "PND - Main"],
+  ["PNDE", "PNDE - Ear Rings"],
   ["NS", "NS - Main"],
   ["NSE", "NSE - Ear Rings"],
   ["CN", "CN - Main"],
@@ -141,11 +144,12 @@ const STONE_ITEM_PRESETS = [
 ];
 const CM_ITEM_KEYS = ["CM", "CME", "CMB"];
 const PS_ITEM_KEYS = ["PS", "PSE"];
-const TM_ITEM_KEYS = ["TM", "TME"];
+const TM_ITEM_KEYS = ["TM", "TME", "TMB"];
+const PND_ITEM_KEYS = ["PND", "PNDE"];
 const NS_ITEM_KEYS = ["NS", "NSE"];
 const CN_ITEM_KEYS = ["CN", "CNE"];
 const MM_ITEM_KEYS = ["M", "ME", "MB"];
-const SET_ITEM_KEYS = [...CM_ITEM_KEYS, ...PS_ITEM_KEYS, ...TM_ITEM_KEYS, ...NS_ITEM_KEYS, ...CN_ITEM_KEYS, ...MM_ITEM_KEYS];
+const SET_ITEM_KEYS = [...CM_ITEM_KEYS, ...PS_ITEM_KEYS, ...TM_ITEM_KEYS, ...PND_ITEM_KEYS, ...NS_ITEM_KEYS, ...CN_ITEM_KEYS, ...MM_ITEM_KEYS];
 const SET_ITEM_CATEGORY_KEYS = [...SET_ITEM_KEYS, "MM"];
 const PRODUCTION_NON_GOLD_TYPES = [
   { value: "stone", label: "Stone" },
@@ -11525,6 +11529,7 @@ function setItemFamilyKeys(value = "") {
   if (CM_ITEM_KEYS.includes(code)) return CM_ITEM_KEYS;
   if (PS_ITEM_KEYS.includes(code)) return PS_ITEM_KEYS;
   if (TM_ITEM_KEYS.includes(code)) return TM_ITEM_KEYS;
+  if (PND_ITEM_KEYS.includes(code)) return PND_ITEM_KEYS;
   if (NS_ITEM_KEYS.includes(code)) return NS_ITEM_KEYS;
   if (CN_ITEM_KEYS.includes(code)) return CN_ITEM_KEYS;
   if (code === "MM" || MM_ITEM_KEYS.includes(code)) return MM_ITEM_KEYS;
@@ -12401,7 +12406,8 @@ function defaultDesignItemKeysForCategory(category = "") {
   if (code === "CBR") return ["CLR", "CGR"];
   if (CM_ITEM_KEYS.includes(code)) return ["CM", "CME", "CMB"];
   if (PS_ITEM_KEYS.includes(code)) return ["PS", "PSE"];
-  if (TM_ITEM_KEYS.includes(code)) return ["TM", "TME"];
+  if (TM_ITEM_KEYS.includes(code)) return TM_ITEM_KEYS;
+  if (PND_ITEM_KEYS.includes(code)) return PND_ITEM_KEYS;
   if (NS_ITEM_KEYS.includes(code)) return ["NS", "NSE"];
   if (CN_ITEM_KEYS.includes(code)) return ["CN", "CNE"];
   if (code === "MM" || MM_ITEM_KEYS.includes(code)) return ["M", "ME", "MB"];
@@ -12417,6 +12423,15 @@ function normalizeDesignItemKeys(value = "", category = "") {
     .map((item) => normalizeStoneItemKey(item))
     .filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
   const uniqueKeys = [...new Set(keys)];
+  const code = categoryCode(category);
+  const requiredFamilyKeys = TM_ITEM_KEYS.includes(code)
+    ? TM_ITEM_KEYS
+    : PND_ITEM_KEYS.includes(code)
+      ? PND_ITEM_KEYS
+      : [];
+  if (requiredFamilyKeys.length) {
+    return [...requiredFamilyKeys, ...uniqueKeys.filter((key) => !requiredFamilyKeys.includes(key))];
+  }
   return uniqueKeys.length ? uniqueKeys : defaultDesignItemKeysForCategory(category);
 }
 
@@ -22478,7 +22493,7 @@ function cleanCatalogueCategory(value = "") {
 function inferCatalogueCategory(fileName = "") {
   const name = designNameFromFile(fileName).toUpperCase();
   const parts = name.split(/[^A-Z0-9]+/).filter(Boolean);
-  const known = ["CBR", "CME", "CMB", "CM", "TME", "TM", "CB", "BR", "LR", "GR", "RING", "BANGLE", "CHAIN", "PENDANT", "EARRING", "NECKLACE", "SET"];
+  const known = ["PNDE", "PND", "CBR", "CME", "CMB", "CM", "TME", "TMB", "TM", "CB", "BR", "LR", "GR", "RING", "BANGLE", "CHAIN", "PENDANT", "EARRING", "NECKLACE", "SET"];
   return known.find((item) => parts.includes(item)) || "Uncategorised";
 }
 
@@ -26916,6 +26931,7 @@ function setBagFamilyItemOrder(family = "", encounteredKeys = []) {
     CM: CM_ITEM_KEYS,
     PS: PS_ITEM_KEYS,
     TM: TM_ITEM_KEYS,
+    PND: PND_ITEM_KEYS,
     NS: NS_ITEM_KEYS,
     CN: CN_ITEM_KEYS,
     MM: MM_ITEM_KEYS,
@@ -26943,6 +26959,7 @@ function setBagFamilyForOrder(order = {}) {
   if (keys.some((key) => CM_ITEM_KEYS.includes(key))) return "CM";
   if (keys.some((key) => PS_ITEM_KEYS.includes(key))) return "PS";
   if (keys.some((key) => TM_ITEM_KEYS.includes(key))) return "TM";
+  if (keys.some((key) => PND_ITEM_KEYS.includes(key))) return "PND";
   if (keys.some((key) => NS_ITEM_KEYS.includes(key))) return "NS";
   if (keys.some((key) => CN_ITEM_KEYS.includes(key))) return "CN";
   if (keys.some((key) => MM_ITEM_KEYS.includes(key))) return "MM";
@@ -26956,6 +26973,7 @@ function setBagItemKeyForOrder(order = {}) {
   if (family === "CM") return keys.find((key) => CM_ITEM_KEYS.includes(key)) || "";
   if (family === "PS") return keys.find((key) => PS_ITEM_KEYS.includes(key)) || "";
   if (family === "TM") return keys.find((key) => TM_ITEM_KEYS.includes(key)) || "";
+  if (family === "PND") return keys.find((key) => PND_ITEM_KEYS.includes(key)) || "";
   if (family === "NS") return keys.find((key) => NS_ITEM_KEYS.includes(key)) || "";
   if (family === "CN") return keys.find((key) => CN_ITEM_KEYS.includes(key)) || "";
   if (family === "MM") return keys.find((key) => MM_ITEM_KEYS.includes(key)) || "";
@@ -26990,7 +27008,8 @@ function bagDesignFamilyKey(order = {}, family = "") {
   const replacements = {
     CM: ["CME", "CMB", "CM"],
     PS: ["PSE", "PS"],
-    TM: ["TME", "TM"],
+    TM: ["TME", "TMB", "TM"],
+    PND: ["PNDE", "PND"],
     NS: ["NSE", "NS"],
     CN: ["CNE", "CN"],
     MM: ["MM", "ME", "MB", "M"],
@@ -33439,7 +33458,13 @@ function isCmSetStoneDesign(design = null) {
 function isTmSetStoneDesign(design = null) {
   const category = categoryCode(design?.category || "");
   const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
-  return TM_ITEM_KEYS.includes(category) || /\bTME?\b/.test(designTextValue);
+  return TM_ITEM_KEYS.includes(category) || /\bTM(?:E|B)?\b/.test(designTextValue);
+}
+
+function isPndSetStoneDesign(design = null) {
+  const category = categoryCode(design?.category || "");
+  const designTextValue = `${design?.number || ""} ${design?.name || ""} ${category}`.toUpperCase();
+  return PND_ITEM_KEYS.includes(category) || /\bPNDE?\b/.test(designTextValue);
 }
 
 function isNsSetStoneDesign(design = null) {
@@ -33473,14 +33498,15 @@ function fallbackStoneItemKeyForDesign(design = null) {
 }
 
 function baseStoneItemKeysForDesign(design = null) {
-  const savedItemKeys = normalizeDesignItemKeys(design?.itemKeys || []);
+  const savedItemKeys = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || "");
   if (savedItemKeys.length) return savedItemKeys;
   const category = categoryCode(design?.category || "");
   if (isCbrStoneDesign(design)) return ["CLR", "CGR"];
   if (category === "CB") return ["CL", "CG"];
   if (isRegularRingStoneDesign(design)) return ["LR", "GR"];
   if (isCmSetStoneDesign(design)) return ["CM", "CME", "CMB"];
-  if (isTmSetStoneDesign(design)) return ["TM", "TME"];
+  if (isTmSetStoneDesign(design)) return TM_ITEM_KEYS;
+  if (isPndSetStoneDesign(design)) return PND_ITEM_KEYS;
   if (isNsSetStoneDesign(design)) return ["NS", "NSE"];
   if (isCnSetStoneDesign(design)) return ["CN", "CNE"];
   if (isMmSetStoneDesign(design)) return ["M", "ME", "MB"];
@@ -33499,7 +33525,7 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   const name = ` ${designNameFromFile(fileName).toUpperCase().replace(/[^A-Z0-9]+/g, " ")} `;
   const isCbr = isCbrStoneDesign(design);
   const category = categoryCode(design?.category || "");
-  const savedItemKey = normalizeDesignItemKeys(design?.itemKeys || [])
+  const savedItemKey = normalizeDesignItemKeys(design?.itemKeys || [], design?.category || "")
     .find((key) => new RegExp(`\\b${escapeRegExp(key)}\\b`).test(name));
   if (savedItemKey) return savedItemKey;
   if (/\bCGR\b/.test(name) || (isCbr && /\bCG\b/.test(name))) return "CGR";
@@ -33509,6 +33535,8 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   if (/\bCME\b/.test(name)) return "CME";
   if (/\bCMB\b/.test(name)) return "CMB";
   if (/\bTME\b/.test(name)) return "TME";
+  if (/\bTMB\b/.test(name)) return "TMB";
+  if (/\bPNDE\b/.test(name)) return "PNDE";
   if (isMmSetStoneDesign(design) && /\bME\b/.test(name)) return "ME";
   if (isMmSetStoneDesign(design) && /\bMB\b/.test(name)) return "MB";
   if (isMmSetStoneDesign(design) && /\bM\b/.test(name)) return "M";
@@ -33522,13 +33550,14 @@ function explicitStoneItemKeyFromFileName(fileName = "", design = null) {
   if (/\bLR\b/.test(name) || /\bLADIES?\b/.test(name)) return "LR";
   if (/\bCM\b/.test(name) || /\bCHAMS?\b/.test(name)) return "CM";
   if (/\bTM\b/.test(name)) return "TM";
+  if (/\bPND\b/.test(name)) return "PND";
   return "";
 }
 
 function stoneItemOptionKeysForDesign(design = null) {
   const hasSavedDesignItems = normalizeDesignItemKeys(design?.itemKeys || []).length > 0;
   const baseKeys = baseStoneItemKeysForDesign(design);
-  const isSpecificMultiItemDesign = hasSavedDesignItems || isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design) || isTmSetStoneDesign(design) || isMmSetStoneDesign(design);
+  const isSpecificMultiItemDesign = hasSavedDesignItems || isCbrStoneDesign(design) || categoryCode(design?.category || "") === "CB" || isCmSetStoneDesign(design) || isTmSetStoneDesign(design) || isPndSetStoneDesign(design) || isMmSetStoneDesign(design);
   const keys = new Set(baseKeys);
   const category = categoryCode(design?.category || "");
   if (!isSpecificMultiItemDesign && category) keys.add(category);
@@ -33665,6 +33694,8 @@ function orderStoneItemKeys(order = {}) {
   if (/\bCMB\b/.test(itemText)) return ["CMB"];
   if (/\bPSE\b/.test(itemText)) return ["PSE"];
   if (/\bTME\b/.test(itemText)) return ["TME"];
+  if (/\bTMB\b/.test(itemText)) return ["TMB"];
+  if (/\bPNDE\b/.test(itemText)) return ["PNDE"];
   if (/\bNSE\b/.test(itemText)) return ["NSE"];
   if (/\bCNE\b/.test(itemText)) return ["CNE"];
   if (/\bCHAMS?\b/.test(itemText) && /\b(EAR|EARRING|EARRINGS|ER)\b/.test(itemText)) return ["CME"];
@@ -33673,6 +33704,7 @@ function orderStoneItemKeys(order = {}) {
   if (["CM", "CMB", "CME"].includes(category)) return [category];
   if (PS_ITEM_KEYS.includes(category)) return [category];
   if (TM_ITEM_KEYS.includes(category)) return [category];
+  if (PND_ITEM_KEYS.includes(category)) return [category];
   if (NS_ITEM_KEYS.includes(category)) return [category];
   if (CN_ITEM_KEYS.includes(category)) return [category];
   if (MM_ITEM_KEYS.includes(category)) return [category];
@@ -33681,6 +33713,7 @@ function orderStoneItemKeys(order = {}) {
   if (/\bGR\b/.test(itemText) || /\bGENTS?\b/.test(itemText)) return ["GR"];
   if (/\bLR\b/.test(itemText) || /\bLADIES?\b/.test(itemText)) return ["LR"];
   if (/\bTM\b/.test(itemText)) return ["TM"];
+  if (/\bPND\b/.test(itemText)) return ["PND"];
   const fallback = normalizeStoneItemKey(category || order.item || order.designNumber || "ITEM");
   return [fallback === DEFAULT_STONE_ITEM_KEY ? "ITEM" : fallback];
 }
@@ -46725,7 +46758,7 @@ function hallmarkItemCodes(order = {}, item = {}) {
 
 function isEarringItem(order = {}, item = {}) {
   const codes = hallmarkItemCodes(order, item);
-  if (codes.some((code) => ["CME", "PSE", "TME"].includes(code) || (code.length <= 6 && code.endsWith("E")))) {
+  if (codes.some((code) => ["CME", "PSE", "TME", "PNDE"].includes(code) || (code.length <= 6 && code.endsWith("E")))) {
     return true;
   }
   const text = [
