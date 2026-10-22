@@ -6519,6 +6519,315 @@ dialog::backdrop {
   justify-content: flex-end;
 }
 
+#verify-job-hand-stones {
+  border-color: #176ca3;
+  color: #ffffff;
+  background: #176ca3;
+}
+
+#verify-job-hand-stones:hover {
+  border-color: #0c527f;
+  background: #0c527f;
+}
+
+#job-hand-stone-dialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  height: calc(100vh - 12px);
+  max-height: calc(100vh - 12px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.job-hand-stone-dialog {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, #f8fcff 0%, #edf7fd 100%);
+}
+
+.job-hand-stone-dialog > .dialog-header {
+  position: relative;
+  padding: 0 0 10px;
+  border-bottom: 1px solid #b7d9ec;
+  background: transparent;
+}
+
+.job-hand-stone-dialog > .dialog-header h2 {
+  margin: 0 0 3px;
+  color: #083f66;
+}
+
+.job-hand-stone-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.job-hand-stone-summary article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid #b7d9ec;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.job-hand-stone-summary span {
+  color: #56788f;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.job-hand-stone-summary strong {
+  color: #0c527f;
+  font-size: 17px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.job-hand-stone-guidance {
+  padding: 8px 11px;
+  border: 1px solid #a8d2ea;
+  border-radius: 7px;
+  color: #174f70;
+  background: #e8f6ff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.job-hand-stone-table-wrap {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #a9cee4;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.job-hand-stone-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 10px;
+}
+
+.job-hand-stone-table th,
+.job-hand-stone-table td {
+  padding: 7px 5px;
+  border-right: 1px solid #d9e9f2;
+  border-bottom: 1px solid #d9e9f2;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.job-hand-stone-table th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  color: #ffffff;
+  background: #0e5c8c;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.job-hand-stone-table th:nth-child(1) { width: 17%; }
+.job-hand-stone-table th:nth-child(2) { width: 10%; }
+.job-hand-stone-table th:nth-child(3) { width: 10%; }
+.job-hand-stone-table th:nth-child(4) { width: 10%; }
+.job-hand-stone-table th:nth-child(5) { width: 10%; }
+.job-hand-stone-table th:nth-child(6) { width: 8%; }
+.job-hand-stone-table th:nth-child(7) { width: 10%; }
+.job-hand-stone-table th:nth-child(8) { width: 9%; }
+.job-hand-stone-table th:nth-child(9) { width: 8%; }
+
+.job-hand-stone-row:nth-child(even) td {
+  background: #f5fbff;
+}
+
+.job-hand-stone-row:hover td {
+  background: #e6f5ff;
+}
+
+.job-hand-stone-row.additional td {
+  background: #fff9df;
+}
+
+.job-hand-stone-table select,
+.job-hand-stone-table input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 6px;
+  font-size: 10px;
+  box-sizing: border-box;
+}
+
+.job-hand-stone-pr {
+  display: grid;
+  gap: 2px;
+}
+
+.job-hand-stone-pr strong {
+  color: #0b5f91;
+  font-size: 13px;
+}
+
+.job-hand-stone-pr span {
+  color: #173e55;
+  font-weight: 900;
+}
+
+.job-hand-stone-pr small {
+  color: #668091;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.job-hand-stone-group td {
+  position: sticky;
+  top: 31px;
+  z-index: 3;
+  padding: 7px 9px;
+  border-color: #9bc8e2;
+  background: #dff2fd;
+}
+
+.job-hand-stone-group td,
+.job-hand-stone-group td > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.job-hand-stone-group td > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-hand-stone-group strong {
+  color: #084d78;
+}
+
+.job-hand-stone-group small {
+  color: #41677e;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.job-hand-stone-group button,
+.job-hand-stone-row .delete-btn {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 8px;
+  white-space: normal;
+}
+
+.job-hand-stone-empty td {
+  padding: 14px;
+  color: #6d7e88;
+  background: #fbfdff;
+  font-weight: 800;
+  text-align: center;
+}
+
+.job-hand-stone-locked {
+  display: inline-flex;
+  padding: 5px 7px;
+  border-radius: 5px;
+  color: #5b7484;
+  background: #edf3f6;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.job-hand-stone-dialog > .dialog-actions {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid #b7d9ec;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .job-hand-stone-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .job-hand-stone-table,
+  .job-hand-stone-table tbody {
+    display: block;
+  }
+
+  .job-hand-stone-table thead {
+    display: none;
+  }
+
+  .job-hand-stone-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 8px;
+    border: 1px solid #b9d7e8;
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .job-hand-stone-table td,
+  .job-hand-stone-row:nth-child(even) td,
+  .job-hand-stone-row:hover td {
+    display: grid;
+    grid-template-columns: minmax(76px, 0.42fr) minmax(0, 1fr);
+    gap: 7px;
+    align-items: center;
+    border: 0;
+    border-bottom: 1px solid #e0ebf1;
+    background: #ffffff;
+  }
+
+  .job-hand-stone-table td::before {
+    content: attr(data-label);
+    color: #607b8c;
+    font-size: 8px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .job-hand-stone-table .job-hand-stone-pr,
+  .job-hand-stone-table td[data-label="Action"] {
+    grid-column: 1 / -1;
+  }
+
+  .job-hand-stone-group {
+    position: static;
+    display: block !important;
+    margin: 10px 8px 3px !important;
+  }
+
+  .job-hand-stone-group td,
+  .job-hand-stone-empty td {
+    position: static;
+    display: flex !important;
+    grid-template-columns: none;
+  }
+
+  .job-hand-stone-group td::before,
+  .job-hand-stone-empty td::before {
+    display: none;
+  }
+}
+
 #order-dialog .inline-form {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   overflow: hidden;

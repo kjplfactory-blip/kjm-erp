@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v741";
+const APP_VERSION = "v742";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4406,6 +4406,16 @@ document.getElementById("close-design-category").addEventListener("click", () =>
 document.getElementById("close-order").addEventListener("click", () => {
   document.getElementById("order-dialog").close();
 });
+
+document.getElementById("verify-job-hand-stones")?.addEventListener("click", openJobHandStoneVerification);
+document.getElementById("close-job-hand-stone")?.addEventListener("click", closeJobHandStoneVerification);
+document.getElementById("cancel-job-hand-stone")?.addEventListener("click", closeJobHandStoneVerification);
+document.getElementById("job-hand-stone-dialog")?.addEventListener("close", () => {
+  jobHandStoneVerificationContext = null;
+});
+document.getElementById("job-hand-stone-form")?.addEventListener("submit", saveJobHandStoneVerification);
+document.getElementById("job-hand-stone-rows")?.addEventListener("input", handleJobHandStoneVerificationInput);
+document.getElementById("job-hand-stone-rows")?.addEventListener("change", handleJobHandStoneVerificationInput);
 
 document.getElementById("close-job-item-detail").addEventListener("click", () => {
   closeJobItemDetail();
@@ -20022,6 +20032,7 @@ function openOrderDetailCached(orderId, editMode = false, bucket = "all", prefer
   document.getElementById("order-dialog-title").textContent = fittingAccessoryCard ? "Special Fitting Job Card" : "Open Job Order";
   const transferBagButton = document.getElementById("print-transfer-bag");
   if (transferBagButton) transferBagButton.textContent = fittingAccessoryCard ? "Print Fitting Transfer Bag" : "Transfer Bag";
+  document.getElementById("verify-job-hand-stones")?.classList.toggle("hidden", fittingAccessoryCard);
   renderJobItemsDetail(jobOrders);
   renderFittingAccessoriesNarrationForm(order);
   closeJobItemDetail();
@@ -24385,6 +24396,385 @@ function productionStoneTotals(items = [], settingType = "") {
       total.weight += Number(item.totalWeight || 0);
       return total;
     }, { pcs: 0, weight: 0 });
+}
+
+let jobHandStoneVerificationContext = null;
+
+function isHandProductionStoneItem(item = {}) {
+  return item.settingType === "hand" || Boolean(item.isAdditionalStone);
+}
+
+function mergeVerifiedHandStoneRows(baseItems = [], verifiedHandItems = []) {
+  const remaining = new Map((verifiedHandItems || []).map((item) => [String(item.id || crypto.randomUUID()), item]));
+  const merged = [];
+  (baseItems || []).forEach((item) => {
+    if (!isHandProductionStoneItem(item)) {
+      merged.push(item);
+      return;
+    }
+    const id = String(item.id || "");
+    if (!id || !remaining.has(id)) return;
+    merged.push(remaining.get(id));
+    remaining.delete(id);
+  });
+  remaining.forEach((item) => merged.push(item));
+  return merged;
+}
+
+function canEditJobHandStoneVerification() {
+  return Boolean(!isReadOnlyUser() && (isSettingManagerUser() || canEditPageData("orders")));
+}
+
+function handStoneVerificationOrders(rootOrder = {}) {
+  return jobOrdersForOpenOrderDialog(rootOrder)
+    .filter((order) => !isFittingAccessoriesOrder(order));
+}
+
+function handStoneVerificationSourceKey(order = {}, item = {}, index = 0) {
+  return `${order.id || "order"}:${item.id || "stone"}:${index}:${crypto.randomUUID()}`;
+}
+
+function handStoneVerificationRowHtml(item = {}, order = {}, index = 0) {
+  const context = jobHandStoneVerificationContext;
+  const sourceKey = handStoneVerificationSourceKey(order, item, index);
+  context?.sources.set(sourceKey, item);
+  const id = item.id || crypto.randomUUID();
+  const isAdditionalStone = Boolean(item.isAdditionalStone);
+  const disabled = canEditJobHandStoneVerification() ? "" : "disabled";
+  const canRemove = canRemoveProductionStoneRowForOrder(order) && canEditJobHandStoneVerification();
+  const stoneType = item.stoneType || "SW";
+  const shape = normalizeOcrShape(item.shape || "");
+  const size = item.size || "";
+  const stoneKey = `${stoneType}|${shape}|${normalizeSizeText(size)}`;
+  const design = productionStoneDesignForOrder(order);
+  const identity = `
+    <strong>${escapeHtml(order.productionNo || order.number || "-")}</strong>
+    <span>${escapeHtml(jobItemDisplayName(order, design))}</span>
+    <small>${escapeHtml(order.category || "-")} / ${escapeHtml(jobItemSubcategoryLabel(order) || "-")}</small>`;
+  const sharedData = `
+      data-job-hand-stone-row
+      data-hand-stone-order-id="${escapeHtml(order.id || "")}"
+      data-hand-stone-source-key="${escapeHtml(sourceKey)}"
+      data-production-stone-row="${escapeHtml(id)}"
+      data-production-stone-id="${escapeHtml(id)}"
+      data-source-design-stone-id="${escapeHtml(item.sourceDesignStoneId || "")}"
+      data-fitting-accessory-id="${escapeHtml(item.fittingAccessoryId || "")}"
+      data-fitting-accessory-name="${escapeHtml(item.fittingAccessoryName || "")}"
+      data-fitting-accessory-quantity="${escapeHtml(fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1))}"
+      data-job-fitting-accessory-id="${escapeHtml(item.jobFittingAccessoryId || "")}"
+      data-job-fitting-accessory-name="${escapeHtml(item.jobFittingAccessoryName || "")}"
+      data-source-fitting-design-id="${escapeHtml(item.sourceFittingDesignId || "")}"
+      data-source-fitting-item-key="${escapeHtml(item.sourceFittingItemKey || "")}"
+      data-source-fitting-stone-id="${escapeHtml(item.sourceFittingStoneId || "")}"
+      data-original-stone-key="${escapeHtml(stoneKey)}"
+      data-original-weight-per-pc="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}"
+      data-original-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}"
+      data-manual-shelf-issue="${item.manualShelfIssue ? "true" : ""}"
+      data-additional-stone="${isAdditionalStone ? "true" : ""}"
+      data-safe-department-issue-id="${escapeHtml(item.safeDepartmentIssueId || "")}"`;
+
+  if (isAdditionalStone) {
+    return `
+      <tr class="job-hand-stone-row additional" ${sharedData}>
+        <td data-label="PR / Design" class="job-hand-stone-pr">${identity}</td>
+        <td data-label="Stone Item"><select data-production-stone-field="itemKey" ${disabled}>${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select></td>
+        <td data-label="Type"><strong>ADDITIONAL STONE</strong><input type="hidden" data-production-stone-field="stoneType" value="ADDITIONAL STONE"></td>
+        <td data-label="Shape">-<input type="hidden" data-production-stone-field="shape" value=""></td>
+        <td data-label="Size">-<input type="hidden" data-production-stone-field="size" value=""></td>
+        <td data-label="No. Pcs">-<input type="hidden" data-production-stone-field="pcs" value="0"></td>
+        <td data-label="Wt/Pc (g)">-<input type="hidden" data-production-stone-field="weightPerPc" value=""></td>
+        <td data-label="Total (g)" data-production-stone-total><input data-production-stone-field="totalWeight" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.totalWeight) || "")}" ${disabled}></td>
+        <td data-label="Action"><input type="hidden" data-production-stone-field="settingType" value="hand"><input type="hidden" data-production-stone-field="manufacturingStage" value="Setting">${canRemove ? `<button class="delete-btn" type="button" onclick="removeJobHandStoneVerificationRow(this)">Remove</button>` : '<span class="job-hand-stone-locked">Item only</span>'}</td>
+      </tr>`;
+  }
+
+  return `
+    <tr class="job-hand-stone-row" ${sharedData}>
+      <td data-label="PR / Design" class="job-hand-stone-pr">${identity}</td>
+      <td data-label="Stone Item"><select data-production-stone-field="itemKey" ${disabled}>${productionStoneItemOptionsForOrder(order, design, item.itemKey)}</select></td>
+      <td data-label="Type"><select data-production-stone-field="stoneType" ${disabled}>${stoneEditOptions("stoneType", stoneType)}</select></td>
+      <td data-label="Shape"><select data-production-stone-field="shape" ${disabled}>${stoneEditOptions("shape", shape)}</select></td>
+      <td data-label="Size"><select data-production-stone-field="size" ${disabled}>${stoneEditOptions("size", size)}</select></td>
+      <td data-label="No. Pcs"><input data-production-stone-field="pcs" type="number" min="1" step="1" value="${escapeHtml(item.pcs || "")}" ${disabled}></td>
+      <td data-label="Wt/Pc (g)"><input data-production-stone-field="weightPerPc" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.weightPerPc) || "")}" placeholder="0.00000" ${disabled}></td>
+      <td data-label="Total (g)" data-production-stone-total>${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
+      <td data-label="Action"><input type="hidden" data-production-stone-field="settingType" value="hand"><input type="hidden" data-production-stone-field="manufacturingStage" value="Setting">${canRemove ? `<button class="delete-btn" type="button" onclick="removeJobHandStoneVerificationRow(this)">Remove</button>` : '<span class="job-hand-stone-locked">Item only</span>'}</td>
+    </tr>`;
+}
+
+function jobHandStoneVerificationGroupHtml(order = {}, plan = {}) {
+  const rows = (plan.baseItems || []).filter(isHandProductionStoneItem);
+  const totals = productionStoneTotals(rows, "hand");
+  const verified = order.handStoneVerifiedAt
+    ? `Verified by ${order.handStoneVerifiedBy || "ERP User"} / ${productionStoneEditedTimeText(order.handStoneVerifiedAt)}`
+    : "Not verified yet";
+  const addButton = canEditJobHandStoneVerification()
+    ? `<button class="ghost-button" type="button" onclick="addJobHandStoneVerificationRow('${escapeHtml(order.id)}')">Add Hand Stone Row</button>`
+    : "";
+  return `
+    <tr class="job-hand-stone-group" data-hand-stone-group-order="${escapeHtml(order.id || "")}">
+      <td colspan="9">
+        <div>
+          <span><strong>${escapeHtml(order.productionNo || order.number || "-")}</strong> / ${escapeHtml(jobItemDisplayName(order, productionStoneDesignForOrder(order)))}</span>
+          <small>${rows.length} hand row${rows.length === 1 ? "" : "s"} / ${totals.pcs} pcs / ${weight5(totals.weight)} g / ${escapeHtml(verified)}</small>
+        </div>
+        ${addButton}
+      </td>
+    </tr>
+    ${rows.length
+      ? rows.map((item, index) => handStoneVerificationRowHtml(item, order, index)).join("")
+      : `<tr class="job-hand-stone-empty" data-hand-stone-empty-order="${escapeHtml(order.id || "")}"><td colspan="9">No hand-set stone row is recorded for this PR. Use Add Hand Stone Row if one is missing.</td></tr>`}`;
+}
+
+function renderJobHandStoneVerification() {
+  const context = jobHandStoneVerificationContext;
+  const container = document.getElementById("job-hand-stone-rows");
+  if (!context || !container) return;
+  context.sources = new Map();
+  const orders = context.orderIds.map((id) => findById("orders", id)).filter(Boolean);
+  container.innerHTML = orders.map((order) => jobHandStoneVerificationGroupHtml(order, context.plans.get(order.id) || { baseItems: [] })).join("");
+  container.querySelectorAll("[data-job-hand-stone-row]:not(.additional)").forEach((row) => {
+    refreshProductionStoneRowOptions(row);
+    updateProductionStoneRowPreview(row);
+  });
+  updateJobHandStoneVerificationSummary();
+}
+
+function openJobHandStoneVerification() {
+  const orderDialog = document.getElementById("order-dialog");
+  const rootOrder = findById("orders", orderDialog?.dataset.orderId || "");
+  if (!rootOrder) return false;
+  const orders = handStoneVerificationOrders(rootOrder);
+  if (!orders.length) {
+    alert("No PR item is available in this Job Card for hand-stone verification.");
+    return false;
+  }
+  jobHandStoneVerificationContext = {
+    rootOrderId: rootOrder.id,
+    orderIds: orders.map((order) => order.id),
+    plans: new Map(orders.map((order) => [order.id, {
+      orderId: order.id,
+      baseItems: productionStoneItemsForOrder(order).map((item) => ({ ...item })),
+    }])),
+    sources: new Map(),
+  };
+  const form = document.getElementById("job-hand-stone-form");
+  form.orderId.value = rootOrder.id;
+  document.getElementById("job-hand-stone-title-summary").textContent = `${rootOrder.jobNumber || rootOrder.number || "Job Card"} / ${rootOrder.customer || "-"} / ${orders.length} PR item${orders.length === 1 ? "" : "s"}`;
+  document.getElementById("save-job-hand-stone").classList.toggle("hidden", !canEditJobHandStoneVerification());
+  renderJobHandStoneVerification();
+  const dialog = document.getElementById("job-hand-stone-dialog");
+  if (!dialog.open) dialog.showModal();
+  return true;
+}
+
+function closeJobHandStoneVerification() {
+  document.getElementById("job-hand-stone-dialog")?.close();
+  jobHandStoneVerificationContext = null;
+}
+
+function addJobHandStoneVerificationRow(orderId = "") {
+  const order = findById("orders", orderId);
+  if (!order || !canEditJobHandStoneVerification()) return;
+  if (!requireProductionStoneEditPermission(order, "add hand-stone rows")) return;
+  const item = {
+    id: crypto.randomUUID(),
+    date: today(),
+    itemKey: orderStoneItemKeys(order)[0] || "ITEM",
+    stoneType: "SW",
+    shape: "",
+    size: "",
+    pcs: 0,
+    weightPerPc: "",
+    totalWeight: "",
+    settingType: "hand",
+    manufacturingStage: "Setting",
+  };
+  const context = jobHandStoneVerificationContext;
+  const html = handStoneVerificationRowHtml(item, order, Date.now());
+  const rows = [...document.querySelectorAll("#job-hand-stone-rows [data-job-hand-stone-row]")]
+    .filter((row) => row.dataset.handStoneOrderId === orderId);
+  const group = [...document.querySelectorAll("#job-hand-stone-rows [data-hand-stone-group-order]")]
+    .find((row) => row.dataset.handStoneGroupOrder === orderId);
+  const anchor = rows.at(-1) || group;
+  document.querySelector(`[data-hand-stone-empty-order="${orderId}"]`)?.remove();
+  anchor?.insertAdjacentHTML("afterend", html);
+  const inserted = [...document.querySelectorAll("#job-hand-stone-rows [data-job-hand-stone-row]")]
+    .filter((row) => row.dataset.handStoneOrderId === orderId)
+    .at(-1);
+  if (inserted) {
+    refreshProductionStoneRowOptions(inserted);
+    updateProductionStoneRowPreview(inserted);
+    inserted.querySelector('[data-production-stone-field="shape"]')?.focus();
+  }
+  updateJobHandStoneVerificationSummary();
+}
+
+function removeJobHandStoneVerificationRow(button) {
+  const row = button?.closest("[data-job-hand-stone-row]");
+  const order = findById("orders", row?.dataset.handStoneOrderId || "");
+  if (!row || !order || !canEditJobHandStoneVerification()) return;
+  if (!requireProductionStoneRowRemovePermission(order)) return;
+  row.remove();
+  updateJobHandStoneVerificationSummary();
+}
+
+function jobHandStoneItemFromVerificationRow(row, { validate = false, rowNumber = 1 } = {}) {
+  const source = jobHandStoneVerificationContext?.sources.get(row.dataset.handStoneSourceKey) || {};
+  if (row.dataset.additionalStone === "true") {
+    const totalWeight = formatStoneWeight(row.querySelector('[data-production-stone-field="totalWeight"]')?.value || "");
+    if (validate && Number(totalWeight || 0) <= 0) throw new Error(`Hand stone row ${rowNumber}: enter Additional Stone total weight.`);
+    if (Number(totalWeight || 0) <= 0) return null;
+    return {
+      ...source,
+      id: row.dataset.productionStoneId || source.id || crypto.randomUUID(),
+      date: today(),
+      itemKey: normalizeStoneItemKey(row.querySelector('[data-production-stone-field="itemKey"]')?.value || source.itemKey || "ITEM"),
+      stoneType: "ADDITIONAL STONE",
+      shape: "",
+      size: "",
+      code: "ADDITIONAL",
+      pcs: 0,
+      weightPerPc: "",
+      totalWeight,
+      isAdditionalStone: true,
+      settingType: "hand",
+      manufacturingStage: "Setting",
+    };
+  }
+  const parsed = productionStoneItemFromDialogRow(row, { validate, rowNumber });
+  return parsed ? {
+    ...source,
+    ...parsed,
+    settingType: "hand",
+    manufacturingStage: "Setting",
+  } : null;
+}
+
+function jobHandStoneRowsFromVerification(orderId = "", { validate = false } = {}) {
+  const rows = [...document.querySelectorAll("#job-hand-stone-rows [data-job-hand-stone-row]")]
+    .filter((row) => row.dataset.handStoneOrderId === orderId);
+  return rows.map((row, index) => jobHandStoneItemFromVerificationRow(row, { validate, rowNumber: index + 1 })).filter(Boolean);
+}
+
+function jobHandStoneComparableRows(items = []) {
+  return (items || []).filter(isHandProductionStoneItem).map((item) => ({
+    id: String(item.id || ""),
+    itemKey: normalizeStoneItemKey(item.itemKey || ""),
+    stoneType: String(item.stoneType || ""),
+    shape: normalizeOcrShape(item.shape || ""),
+    size: normalizeSizeText(item.size || ""),
+    pcs: Number(item.pcs || 0),
+    weightPerPc: formatStoneWeight(item.weightPerPc || ""),
+    totalWeight: formatStoneWeight(item.totalWeight || ""),
+    isAdditionalStone: Boolean(item.isAdditionalStone),
+  }));
+}
+
+function updateJobHandStoneVerificationSummary() {
+  const context = jobHandStoneVerificationContext;
+  const summary = document.getElementById("job-hand-stone-summary");
+  if (!context || !summary) return;
+  const items = context.orderIds.flatMap((orderId) => jobHandStoneRowsFromVerification(orderId));
+  const totals = productionStoneTotals(items, "hand");
+  const verifiedCount = context.orderIds
+    .map((id) => findById("orders", id))
+    .filter((order) => order?.handStoneVerifiedAt).length;
+  summary.innerHTML = `
+    <article><span>PR Items</span><strong>${context.orderIds.length}</strong></article>
+    <article><span>Hand Stone Rows</span><strong>${items.length}</strong></article>
+    <article><span>Total Pieces</span><strong>${totals.pcs}</strong></article>
+    <article><span>Total Hand Stone</span><strong>${weight5(totals.weight)} g</strong></article>
+    <article><span>Previously Verified</span><strong>${verifiedCount} / ${context.orderIds.length}</strong></article>`;
+}
+
+function handleJobHandStoneVerificationInput(event) {
+  const row = event.target.closest?.("[data-job-hand-stone-row]");
+  if (!row || row.dataset.additionalStone === "true") {
+    updateJobHandStoneVerificationSummary();
+    return;
+  }
+  const field = event.target.dataset.productionStoneField;
+  if (["stoneType", "shape", "size"].includes(field)) {
+    row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
+    refreshProductionStoneRowOptions(row);
+  }
+  updateProductionStoneRowPreview(row);
+  updateJobHandStoneVerificationSummary();
+}
+
+function restoreJobHandStoneStateSlices(snapshot = {}) {
+  Object.entries(snapshot).forEach(([key, json]) => {
+    state[key] = JSON.parse(json);
+  });
+}
+
+function saveJobHandStoneVerification(event) {
+  event.preventDefault();
+  const context = jobHandStoneVerificationContext;
+  if (!context || !canEditJobHandStoneVerification()) {
+    alert(isReadOnlyUser() ? readOnlyNotice() : "Your login cannot edit Job Card hand-stone details.");
+    return;
+  }
+  const orders = context.orderIds.map((id) => findById("orders", id)).filter(Boolean);
+  if (!orders.length || orders.some((order) => !requireProductionStoneEditPermission(order, "verify hand-stone details"))) return;
+  const plans = [];
+  try {
+    orders.forEach((order) => {
+      const baseItems = context.plans.get(order.id)?.baseItems || productionStoneItemsForOrder(order);
+      const verifiedHandItems = jobHandStoneRowsFromVerification(order.id, { validate: true });
+      const nextItems = mergeVerifiedHandStoneRows(baseItems, verifiedHandItems);
+      const changed = JSON.stringify(jobHandStoneComparableRows(baseItems)) !== JSON.stringify(jobHandStoneComparableRows(nextItems));
+      plans.push({ order, nextItems, changed });
+    });
+  } catch (error) {
+    alert(error.message || "Please correct the highlighted hand-stone row.");
+    return;
+  }
+
+  const rollbackKeys = ["orders", "lots", "settingManagerEntries", "ledger", "safeItems", "nonGoldAuditEvents"]
+    .filter((key) => state[key] !== undefined);
+  const rollback = Object.fromEntries(rollbackKeys.map((key) => [key, JSON.stringify(state[key])]));
+  const verifiedAt = new Date().toISOString();
+  const verifiedBy = currentOperatorName();
+  const changedOrders = [];
+  plans.forEach(({ order, nextItems, changed }) => {
+    if (changed) {
+      order.productionStoneItems = nextItems;
+      stampProductionStoneEdit(order, "Job Card Hand Stone Verification");
+      order.productionStoneCopiedFrom = order.productionStoneCopiedFrom || "Job Card Verification";
+      changedOrders.push(order);
+    }
+    const handTotals = productionStoneTotals(changed ? nextItems : productionStoneItemsForOrder(order), "hand");
+    order.handStoneVerifiedAt = verifiedAt;
+    order.handStoneVerifiedBy = verifiedBy;
+    order.handStoneVerifiedLoginId = currentUser?.id || "";
+    order.handStoneVerifiedRows = changed ? nextItems.filter(isHandProductionStoneItem).length : productionStoneItemsForOrder(order).filter(isHandProductionStoneItem).length;
+    order.handStoneVerifiedPcs = handTotals.pcs;
+    order.handStoneVerifiedWeight = Number(weight5(handTotals.weight));
+  });
+  if (changedOrders.length) {
+    syncSettingEntriesForUpdatedStoneOrders(changedOrders, "Job Card hand stone verified");
+    syncFilingTransfersForUpdatedStoneOrders(changedOrders, "Job Card hand stone verified");
+  }
+  const saved = saveState({
+    alertOnFailure: true,
+    changedStateKeys: rollbackKeys,
+  });
+  if (!saved) {
+    restoreJobHandStoneStateSlices(rollback);
+    const restoredRoot = findById("orders", context.rootOrderId);
+    if (restoredRoot) openJobHandStoneVerification();
+    return;
+  }
+
+  const rootOrder = findById("orders", context.rootOrderId) || plans[0]?.order;
+  if (rootOrder) {
+    renderJobItemsDetail(jobOrdersForOpenOrderDialog(rootOrder));
+    renderOrderLots(rootOrder, document.getElementById("order-dialog")?.dataset.settingManagerLotId || "");
+    openJobHandStoneVerification();
+  }
+  alert(`Hand stone verified for ${orders.length} PR item${orders.length === 1 ? "" : "s"}. ${changedOrders.length} PR item${changedOrders.length === 1 ? " was" : "s were"} corrected and synchronized.`);
 }
 
 function productionStoneSettingLabel(value) {
