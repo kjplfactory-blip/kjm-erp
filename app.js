@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v743";
+const APP_VERSION = "v744";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -47880,7 +47880,7 @@ function billNumber(value) {
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
 const BILL_STONE_WEIGHT_FACTOR = 0.96;
-const BILL_BB_RATE_VERSION = "revised-2026-10-23";
+const BILL_BB_RATE_VERSION = "revised-2026-10-23-v2";
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
   return Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt)
@@ -48054,7 +48054,7 @@ function bbTypeWeightPerPc(value = "") {
   const normalized = normalizeBbType(value);
   if (normalized === "0.9") return 0.00855;
   if (normalized === "1.3") return 0.0123;
-  if (normalized === "1.1") return 0.0198;
+  if (normalized === "1.1") return 0.01098;
   const numeric = Number(normalized);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   return numeric > 0.1 ? numeric / 100 : numeric;
