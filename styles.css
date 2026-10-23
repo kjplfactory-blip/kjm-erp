@@ -3236,6 +3236,31 @@ form.active-operation-page,
   grid-column: 4 / 5;
 }
 
+.customer-field {
+  position: relative;
+}
+
+.customer-match-status {
+  display: block;
+  min-height: 18px;
+  margin-top: 5px;
+  color: #4f6f86;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.customer-match-status.selected {
+  color: #0c7358;
+}
+
+.customer-match-status.matching {
+  color: #176d9a;
+}
+
+.customer-match-status.missing {
+  color: #b13b47;
+}
+
 .order-item-row.entry .order-item-colour-field {
   display: none;
 }

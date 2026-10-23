@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v742";
+const APP_VERSION = "v743";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1207,11 +1207,13 @@ document.getElementById("order-form").addEventListener("submit", async (event) =
   event.preventDefault();
   if (!validateOrderDueDate(event.target)) return;
   const data = getFormData(event.target);
-  const customer = findById("customers", data.customerId);
+  const customer = findById("customers", data.customerId) || findManufacturingCustomerByName(data.customerName);
   if (!customer) {
-    alert("Add or select a customer first.");
+    alert("Select a matching customer from the suggestions. Add the customer in Customer Master first if the name is new.");
+    event.target.customerName?.focus();
     return;
   }
+  event.target.customerId.value = customer.id;
   const items = getOrderFormItems(event.target);
   if (!items.length) {
     alert("Press Add Item first. Only added items will be saved in the job card.");
@@ -1854,6 +1856,7 @@ document.querySelectorAll('form select[name="designId"]').forEach((select) => {
 });
 
 document.getElementById("order-form").addEventListener("input", (event) => {
+  if (event.target.name === "customerName") renderCreateOrderCustomerMatches(event.target.value);
   if (event.target.name === "jobColor") syncCreateJobCardColor(event.currentTarget);
   if (["orderDate", "productionDays"].includes(event.target.name)) {
     updateOrderDueDate(event.currentTarget);
@@ -1863,6 +1866,7 @@ document.getElementById("order-form").addEventListener("input", (event) => {
 });
 
 document.getElementById("order-form").addEventListener("change", (event) => {
+  if (event.target.name === "customerName") renderCreateOrderCustomerMatches(event.target.value);
   if (event.target.name === "jobColor") syncCreateJobCardColor(event.currentTarget);
   if (["orderDate", "productionDays"].includes(event.target.name)) {
     updateOrderDueDate(event.currentTarget);
@@ -11807,6 +11811,7 @@ function captureOrderDraft() {
   if (!form) return null;
   return {
     customerId: form.customerId?.value || "",
+    customerName: form.customerName?.value || "",
     jobColor: form.jobColor?.value || "Pink",
     orderDate: form.orderDate?.value || "",
     productionDays: form.productionDays?.value || "",
@@ -11840,6 +11845,7 @@ function orderDraftHasWork(draft = null) {
   const changedDays = draft.productionDays && Number(draft.productionDays) !== MIN_PRODUCTION_DAYS;
   return Boolean(
     draft.customerId
+    || draft.customerName
     || (draft.jobColor && draft.jobColor !== "Pink")
     || draft.urgent
     || changedDate
@@ -11920,7 +11926,10 @@ function restoreOrderDraft(draft = null) {
   const form = document.getElementById("order-form");
   const list = document.getElementById("order-item-list");
   if (!form || !list || !orderDraftHasWork(draft)) return false;
-  form.customerId.value = [...form.customerId.options].some((option) => option.value === draft.customerId) ? draft.customerId : "";
+  const draftCustomer = findById("customers", draft.customerId) || findManufacturingCustomerByName(draft.customerName);
+  form.customerId.value = draftCustomer?.id || "";
+  form.customerName.value = draftCustomer?.name || cleanManufacturingCustomerName(draft.customerName);
+  renderCreateOrderCustomerMatches(form.customerName.value);
   form.jobColor.value = draft.jobColor || draft.rows?.find((row) => row.item?.color)?.item?.color || "Pink";
   form.orderDate.value = draft.orderDate || isoToday();
   form.productionDays.value = draft.productionDays || MIN_PRODUCTION_DAYS;
@@ -33574,6 +33583,8 @@ function renderSelects(view = activeViewId() || "dashboard") {
     });
   }
 
+  if (view === "orders") renderCreateOrderCustomerMatches();
+
   if (view === "orders") {
     const designOptions = renderDesignOptions();
     document.querySelectorAll('select[name="designId"]').forEach((select) => {
@@ -38126,6 +38137,7 @@ async function mergeSelectedJobCards(event) {
     alert(`These Job Cards cannot be physically merged because they are not in one matching production location.\n\n${operationalCheck.message}\n\nKeep them as separate child cards under the same Main Job and transfer each exact lot from the Job Card Family Control. Merge becomes available when every selected card is in the same department.`);
     return;
   }
+
   const lotMergeTool = window.KJM_JOB_CARD_LOT_MERGE_V716;
   if (!lotMergeTool) {
     alert(`The latest production-lot merge control is not loaded. Refresh App ${APP_VERSION} and try again.`);
@@ -40491,6 +40503,39 @@ function updateCustomerReferences(customer) {
 
 function normalizedDesignReferenceText(value = "") {
   return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-IN");
+}
+
+function renderCreateOrderCustomerMatches(queryValue = null) {
+  const form = document.getElementById("order-form");
+  const list = document.getElementById("order-customer-list");
+  const status = document.getElementById("order-customer-match-status");
+  if (!form || !list) return;
+  const query = cleanManufacturingCustomerName(queryValue === null ? form.customerName?.value : queryValue);
+  const queryKey = query.toLocaleLowerCase("en-IN");
+  const customers = [...state.customers]
+    .filter((customer) => !queryKey || cleanManufacturingCustomerName(customer.name).toLocaleLowerCase("en-IN").includes(queryKey))
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "en-IN", { sensitivity: "base", numeric: true }));
+  list.innerHTML = customers.slice(0, 50).map((customer) => {
+    const detail = [customer.phone, customer.city].filter(Boolean).join(" / ");
+    return `<option value="${escapeHtml(customer.name || "")}"${detail ? ` label="${escapeHtml(detail)}"` : ""}></option>`;
+  }).join("");
+  const selectedCustomer = findManufacturingCustomerByName(query);
+  form.customerId.value = selectedCustomer?.id || "";
+  if (!status) return;
+  if (selectedCustomer) {
+    status.textContent = `${selectedCustomer.name} selected.`;
+    status.className = "customer-match-status selected";
+  } else if (query) {
+    status.textContent = customers.length
+      ? `${customers.length} matching customer${customers.length === 1 ? "" : "s"}. Select the required name.`
+      : "No matching customer. Add it in Customer Master first.";
+    status.className = `customer-match-status ${customers.length ? "matching" : "missing"}`;
+  } else {
+    status.textContent = state.customers.length
+      ? "Type a customer name to see matches."
+      : "Add a customer in Customer Master first.";
+    status.className = `customer-match-status ${state.customers.length ? "" : "missing"}`.trim();
+  }
 }
 
 function updateDesignReferences(design, previousDesign = null) {
@@ -47835,7 +47880,7 @@ function billNumber(value) {
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
 const BILL_STONE_WEIGHT_FACTOR = 0.96;
-const BILL_BB_RATE_VERSION = "revised-2026-10-18";
+const BILL_BB_RATE_VERSION = "revised-2026-10-23";
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
   return Boolean(item.gwSaveAdjustmentApplied || item.gwSaveAdjustmentAppliedAt)
@@ -47990,6 +48035,7 @@ function bbTypeOptions(selected = "") {
     ["", "Select"],
     ["1.3", "1.3 gm / 100 pc"],
     ["0.9", "0.9 gm / 100 pc"],
+    ["1.1", "1.1 gm / 100 pc"],
   ];
   return options.map(([value, label]) =>
     `<option value="${escapeHtml(value)}" ${value === normalized ? "selected" : ""}>${escapeHtml(label)}</option>`
@@ -48000,6 +48046,7 @@ function bbTypeLabel(value = "") {
   const normalized = normalizeBbType(value);
   if (normalized === "1.3") return "1.3 gm/100 pc";
   if (normalized === "0.9") return "0.9 gm/100 pc";
+  if (normalized === "1.1") return "1.1 gm/100 pc";
   return "";
 }
 
@@ -48007,6 +48054,7 @@ function bbTypeWeightPerPc(value = "") {
   const normalized = normalizeBbType(value);
   if (normalized === "0.9") return 0.00855;
   if (normalized === "1.3") return 0.0123;
+  if (normalized === "1.1") return 0.0198;
   const numeric = Number(normalized);
   if (!Number.isFinite(numeric) || numeric <= 0) return 0;
   return numeric > 0.1 ? numeric / 100 : numeric;

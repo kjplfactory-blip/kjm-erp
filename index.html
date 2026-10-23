@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=742">
+  <link rel="stylesheet" href="styles.css?v=743">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v742</small>
+            <small class="app-version-badge">App v743</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v742</span>
+          <span class="app-version-badge">App v743</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -545,7 +545,12 @@
                 <label class="check-item urgent-order-field"><input name="urgent" type="checkbox"> Mark as Urgent</label>
               </div>
               <div class="job-card-header-grid">
-                <label class="customer-field">Customer / Retailer <select name="customerId" required></select></label>
+                <label class="customer-field">Customer / Retailer
+                  <input name="customerName" list="order-customer-list" autocomplete="off" placeholder="Type customer name" required>
+                  <input name="customerId" type="hidden">
+                  <datalist id="order-customer-list"></datalist>
+                  <small id="order-customer-match-status" class="customer-match-status">Type a customer name to see matches.</small>
+                </label>
                 <label>Job Card Colour
                   <select name="jobColor" required>
                     <option>Pink</option>
@@ -4232,9 +4237,9 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-  <script src="app.js?v=742"></script>
+  <script src="app.js?v=743"></script>
     <script src="office-reference-bills-v715.js?v=715.1"></script>
-  <script src="sequential-numbering-v714.js?v=742"></script>
+  <script src="sequential-numbering-v714.js?v=743"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>
