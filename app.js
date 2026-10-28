@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v747";
+const APP_VERSION = "v748";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -5647,7 +5647,9 @@ function applyLoginState() {
   }
   renderLoginUserOptions();
   applyAccessControl();
-  renderLoginUsers();
+  if (document.getElementById("users")?.classList.contains("active-view")) {
+    renderLoginUsers();
+  }
   if (isLoggedIn && document.getElementById("dashboard")?.classList.contains("active-view")) {
     renderOperationsCenter();
   }
@@ -6812,7 +6814,7 @@ function saveState(options = {}) {
   stateLoadedFromFallback = false;
   delete state.cloudRecoveryRequired;
   const fineSheetSnapshotsBeforeSave = state.fineSheetSnapshots;
-  captureTodayFineSheetSnapshot();
+  if (!options.skipFineSheetSnapshot) captureTodayFineSheetSnapshot();
   const requestedKeys = Array.isArray(options.changedStateKeys)
     ? new Set(options.changedStateKeys)
     : null;
@@ -32995,8 +32997,8 @@ function recordLoginAudit(userId, user = {}) {
     appVersion: APP_VERSION,
   });
   state.loginHistory = [entry, ...(state.loginHistory || [])].slice(0, LOGIN_HISTORY_LIMIT);
-  saveState();
-  renderLoginHistory();
+  saveState({ changedStateKeys: ["loginHistory"], skipFineSheetSnapshot: true, context: "Login audit" });
+  if (document.getElementById("users")?.classList.contains("active-view")) renderLoginHistory();
   enrichLoginAudit(entry.id);
 }
 
@@ -33011,8 +33013,8 @@ async function enrichLoginAudit(loginId) {
     trackingStatus: loginTrackingStatus(networkDetails, gpsDetails),
     updatedAt: new Date().toISOString(),
   });
-  saveState();
-  renderLoginHistory();
+  saveState({ changedStateKeys: ["loginHistory"], skipFineSheetSnapshot: true, context: "Login audit details" });
+  if (document.getElementById("users")?.classList.contains("active-view")) renderLoginHistory();
 }
 
 function loginDeviceInfo() {
@@ -36579,6 +36581,7 @@ function designStoneSummaryText(items = []) {
 }
 
 function operationalTaskDefinitions() {
+  if (!activeRenderCache) return withRenderCache(operationalTaskDefinitions);
   const activeJobs = groupedJobOrders((order) => !isCompletedOrder(order), "active");
   const urgentJobs = activeJobs.filter((job) => job.urgent || Number(daysRemaining(job.dueDate)) < 0);
   const pendingBills = activeOperationalLots().filter((lot) => {
@@ -36662,6 +36665,7 @@ function openOperationalTask(taskId = "") {
 }
 
 function renderDashboard() {
+  if (!activeRenderCache) return withRenderCache(renderDashboard);
   const factoryStock = factoryPhysicalStock();
   const factoryVendorTotals = factoryVendorFineTotals();
   document.getElementById("metric-raw").textContent = gram(rawGoldStock());
