@@ -9143,7 +9143,92 @@ dialog::backdrop {
   line-height: 1.35;
 }
 
+.production-diamond-type-control {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 18px;
+  padding: 12px;
+  border: 1px solid #86bde8;
+  border-radius: 8px;
+  background: #eef7ff;
+}
+
+.production-diamond-type-control label,
+.production-diamond-type-control > div {
+  display: grid;
+  gap: 5px;
+}
+
+.production-diamond-type-control label > span,
+.production-diamond-type-control strong {
+  color: #074b79;
+  font-weight: 900;
+}
+
+.production-diamond-type-control select {
+  min-height: 42px;
+  border-color: #6daedc;
+  background: #fff;
+  color: #073e66;
+  font-weight: 900;
+}
+
+.production-diamond-type-control small {
+  color: #315e7b;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.production-stone-dialog.real-diamond-mode .production-diamond-type-control,
+.production-stone-dialog.real-diamond-mode .production-additional-stone-weight {
+  border-color: #d0a528;
+  background: #fff8dc;
+}
+
+.production-stone-dialog.real-diamond-mode .production-diamond-type-control strong,
+.production-stone-dialog.real-diamond-mode .production-diamond-type-control label > span,
+.production-stone-dialog.real-diamond-mode .production-additional-stone-weight label span {
+  color: #765500;
+}
+
+.production-stone-dialog.real-diamond-mode [data-production-stone-row]:not(.additional-production-stone-row) [data-label="Wt/Pc (g)"],
+.production-stone-dialog.real-diamond-mode [data-production-stone-row]:not(.additional-production-stone-row) [data-label="Total Wt (g)"] {
+  background: #fff8e3;
+}
+
+.diamond-piece-breakdown {
+  display: block;
+  margin-top: 4px;
+  color: #315e7b;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.bill-diamond-type-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border: 1px solid #79b5df;
+  border-radius: 999px;
+  background: #edf7ff;
+  color: #064c7b;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.bill-diamond-type-badge.real {
+  border-color: #d0a528;
+  background: #fff8dc;
+  color: #765500;
+}
+
 @media (max-width: 720px) {
+  .production-diamond-type-control,
   .production-additional-stone-weight {
     grid-template-columns: 1fr;
   }
