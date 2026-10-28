@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=744">
+  <link rel="stylesheet" href="styles.css?v=746">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-            <small class="app-version-badge">App v744</small>
+            <small class="app-version-badge">App v746</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v744</span>
+          <span class="app-version-badge">App v746</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -2588,6 +2588,31 @@
       </form>
     </dialog>
 
+    <dialog id="fitting-accessory-quantity-dialog">
+      <form id="fitting-accessory-quantity-form" class="dialog-card fitting-accessory-quantity-card">
+        <div class="dialog-header">
+          <div>
+            <h2>Correct Fitting Piece Quantity</h2>
+            <p id="fitting-accessory-quantity-summary" class="dialog-note"></p>
+          </div>
+          <button class="ghost-button" type="button" id="close-fitting-accessory-quantity">Close</button>
+        </div>
+        <input type="hidden" name="sourceOrderId">
+        <input type="hidden" name="accessoryId">
+        <section class="fitting-accessory-quantity-grid">
+          <label>Current No. of Pcs <input name="currentQuantity" type="number" readonly></label>
+          <label>Already Allocated To PR <input name="allocatedQuantity" type="number" readonly></label>
+          <label>Correct No. of Fitting Pcs <input name="quantity" type="number" min="1" max="10000" step="1" required></label>
+        </section>
+        <div id="fitting-accessory-quantity-preview" class="fitting-accessory-target-preview"></div>
+        <p class="dialog-note">Total fitting stone is recalculated automatically. Quantity cannot be reduced below pieces already transferred to PR items. Design Master remains unchanged.</p>
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-fitting-accessory-quantity">Cancel</button>
+          <button type="submit">Save Piece Correction</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="merge-job-cards-dialog">
       <form id="merge-job-cards-form" class="dialog-card merge-job-cards-card">
         <div class="dialog-header">
@@ -4063,6 +4088,12 @@
             </div>
           </aside>
           <div class="design-fitting-accessory-editor">
+            <section class="design-fitting-accessory-search">
+              <label for="design-fitting-accessory-search-input">Find Fitting Accessory</label>
+              <input id="design-fitting-accessory-search-input" type="search" autocomplete="off" placeholder="Type design no, design name or fitting item">
+              <div id="design-fitting-accessory-search-results" class="design-fitting-accessory-search-results" role="listbox" aria-label="Matching fitting accessories"></div>
+              <small id="design-fitting-accessory-search-status">Start typing to find a fitting quickly.</small>
+            </section>
             <section class="design-fitting-accessory-fields">
               <label>Source Fitting Design
                 <select name="sourceDesignId"></select>
@@ -4237,9 +4268,9 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-  <script src="app.js?v=744"></script>
+  <script src="app.js?v=746"></script>
     <script src="office-reference-bills-v715.js?v=715.1"></script>
-  <script src="sequential-numbering-v714.js?v=744"></script>
+  <script src="sequential-numbering-v714.js?v=745"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>

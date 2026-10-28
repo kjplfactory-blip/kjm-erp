@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v744";
+const APP_VERSION = "v746";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1202,6 +1202,10 @@ document.getElementById("cancel-fitting-accessory-allocation")?.addEventListener
 document.getElementById("fitting-accessory-allocation-form")?.addEventListener("input", updateFittingAccessoryAllocationPreview);
 document.getElementById("fitting-accessory-allocation-form")?.addEventListener("change", updateFittingAccessoryAllocationPreview);
 document.getElementById("fitting-accessory-allocation-form")?.addEventListener("submit", allocateFittingAccessoryToPr);
+document.getElementById("close-fitting-accessory-quantity")?.addEventListener("click", closeFittingAccessoryQuantityDialog);
+document.getElementById("cancel-fitting-accessory-quantity")?.addEventListener("click", closeFittingAccessoryQuantityDialog);
+document.getElementById("fitting-accessory-quantity-form")?.addEventListener("input", updateFittingAccessoryQuantityPreview);
+document.getElementById("fitting-accessory-quantity-form")?.addEventListener("submit", saveFittingAccessoryQuantityCorrection);
 
 document.getElementById("order-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3758,6 +3762,9 @@ function normalizeFittingAccessoryJobCardsV725(currentState = {}) {
         quantity: Math.max(0, Math.floor(Number(allocation.quantity || 0))),
         stoneWeight: Number(Math.max(Number(allocation.stoneWeight || 0), 0).toFixed(5)),
       })),
+      quantityEditedAt: item.quantityEditedAt || "",
+      quantityEditedBy: item.quantityEditedBy || "",
+      quantityEditHistory: Array.isArray(item.quantityEditHistory) ? item.quantityEditHistory : [],
     }));
     order.productionNo = "";
     order.number = "";
@@ -4376,7 +4383,13 @@ document.getElementById("cancel-design-detail-name-edit")?.addEventListener("cli
 document.getElementById("close-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
 document.getElementById("cancel-design-fitting-accessory")?.addEventListener("click", closeDesignFittingAccessoryDialog);
 document.getElementById("design-fitting-accessory-form")?.addEventListener("change", (event) => {
-  if (event.target.name === "sourceDesignId") renderDesignFittingAccessoryItemOptions();
+  if (event.target.name === "sourceDesignId") {
+    renderDesignFittingAccessoryItemOptions();
+    const selectedDesign = findById("designs", event.target.value);
+    const searchInput = document.getElementById("design-fitting-accessory-search-input");
+    if (searchInput) searchInput.value = selectedDesign ? designText(selectedDesign) : "";
+    renderFittingAccessoryTypeahead(searchInput?.value || "");
+  }
   if (event.target.name === "sourceItemKey") {
     updateDesignFittingAccessorySummary();
     void updateDesignFittingAccessoryPreview();
@@ -4409,6 +4422,19 @@ document.getElementById("close-design-category").addEventListener("click", () =>
 
 document.getElementById("close-order").addEventListener("click", () => {
   document.getElementById("order-dialog").close();
+});
+document.getElementById("design-fitting-accessory-search-input")?.addEventListener("input", (event) => {
+  renderFittingAccessoryTypeahead(event.target.value || "");
+});
+document.getElementById("design-fitting-accessory-search-input")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const firstMatch = fittingAccessoryTypeaheadMatches(event.currentTarget.value || "")[0];
+  if (firstMatch) selectFittingAccessoryFromTypeahead(firstMatch.id);
+});
+document.getElementById("design-fitting-accessory-search-results")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-fitting-design]");
+  if (button) selectFittingAccessoryFromTypeahead(button.dataset.selectFittingDesign);
 });
 
 document.getElementById("verify-job-hand-stones")?.addEventListener("click", openJobHandStoneVerification);
@@ -4696,9 +4722,12 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
     targetOrder.productionStoneItems = targetOrder.id === order.id
       ? stoneItems
       : [...cloneProductionStonePlan(regularStoneItems), ...existingAdditionalItems];
+    targetOrder.colourStonePostfix = colourStonePostfixesForItems(targetOrder.productionStoneItems || []).join("/");
+    targetOrder.itemName = normalizedJobItemName(targetOrder, findById("designs", targetOrder.designId));
     stampProductionStoneEdit(targetOrder, "Manual Stone Entry");
     targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
   });
+  syncColourStoneOrderReferences(targetOrders);
   event.target.dataset.stoneEdited = "false";
   syncSettingEntriesForUpdatedStoneOrders(targetOrders);
   const syncedFilingTransfers = syncFilingTransfersForUpdatedStoneOrders(targetOrders);
@@ -20241,6 +20270,7 @@ function renderFittingAccessoryJobDetail(order = {}) {
             <header>
               <div><span>Fitting ${index + 1}</span><strong>${escapeHtml(item.name || "Fitting Accessory")}</strong><small>${escapeHtml(item.sourceDesignNumber || "Manual Fitting")} / ${escapeHtml(stoneItemInputValue(item.sourceItemKey || "ITEM"))}</small>${item.stoneOverride ? '<b class="fitting-stone-edited-badge">STONE EDITED</b>' : ""}</div>
               <div class="special-fitting-item-actions">
+                ${canManage && !absorbed ? `<button class="ghost-button" type="button" onclick="openFittingAccessoryQuantityDialog('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Edit No. of Pcs</button>` : ""}
                 ${canManage && !absorbed ? `<button class="ghost-button" type="button" onclick="openFittingJobStoneEntry('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Edit Stone Entry</button>` : ""}
                 ${canManage && !absorbed ? `<button class="ghost-button" type="button" onclick="loadFittingJobStoneFromDesign('${escapeHtml(order.id)}','${escapeHtml(item.id)}',false)">Get From Design + Stone Master</button>` : ""}
                 ${canManage && atChainFitting && !absorbed && availability.availableQuantity > 0 ? `<button type="button" onclick="openFittingAccessoryAllocationDialog('${escapeHtml(order.id)}','${escapeHtml(item.id)}')">Transfer Individual Pcs To PR</button>` : ""}
@@ -20267,6 +20297,176 @@ function renderFittingAccessoryJobDetail(order = {}) {
       <div class="special-fitting-close-row"><button class="ghost-button" type="button" onclick="reopenFittingAccessoryJob('${escapeHtml(order.id)}')">Reopen Fitting Lot</button><small>Use only to correct an allocation or closure mistake.</small></div>
     ` : ""}
   `;
+}
+
+function fittingAccessoryQuantityStoneValues(item = {}, quantity = 0) {
+  const currentQuantity = Math.max(Math.floor(Number(item.quantity || 0)), 1);
+  const requestedQuantity = Math.max(Math.floor(Number(quantity || 0)), 0);
+  const stoneRows = fittingAccessoryStoneEditorRows(item);
+  const rowStoneWeight = Number(productionStoneTotals(stoneRows).weight || 0);
+  const currentTotalStoneWeight = Math.max(Number(item.totalStoneWeight || 0), 0);
+  const perPieceStoneWeight = stoneRows.length
+    ? rowStoneWeight
+    : currentTotalStoneWeight / currentQuantity;
+  return {
+    currentQuantity,
+    requestedQuantity,
+    perPieceStoneWeight: Number(perPieceStoneWeight.toFixed(5)),
+    totalStoneWeight: Number((perPieceStoneWeight * requestedQuantity).toFixed(5)),
+  };
+}
+
+function openFittingAccessoryQuantityDialog(sourceOrderId = "", accessoryId = "") {
+  if (!requireFittingAccessoriesManager("correct fitting accessory piece quantities")) return false;
+  const sourceOrder = findById("orders", sourceOrderId);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === accessoryId);
+  if (!sourceOrder || !item) return false;
+  if (sourceOrder.fittingAccessoriesAbsorbedAt || fittingAccessoryJobLot(sourceOrder)?.fittingAccessoriesAbsorbedAt) {
+    alert("Reopen this fitting lot before correcting its number of pieces.");
+    return false;
+  }
+  const availability = fittingAccessoryAvailability(item);
+  const minimumQuantity = Math.max(availability.allocatedQuantity, 1);
+  const form = document.getElementById("fitting-accessory-quantity-form");
+  form.sourceOrderId.value = sourceOrder.id;
+  form.accessoryId.value = item.id;
+  form.currentQuantity.value = availability.totalQuantity;
+  form.allocatedQuantity.value = availability.allocatedQuantity;
+  form.quantity.min = minimumQuantity;
+  form.quantity.max = 10000;
+  form.quantity.value = availability.totalQuantity;
+  document.getElementById("fitting-accessory-quantity-summary").textContent = `${sourceOrder.jobNumber} / ${item.name} / ${item.sourceDesignNumber || "Manual Fitting"}`;
+  updateFittingAccessoryQuantityPreview();
+  const dialog = document.getElementById("fitting-accessory-quantity-dialog");
+  if (!dialog.open) dialog.showModal();
+  form.quantity.focus();
+  form.quantity.select();
+  return true;
+}
+
+function closeFittingAccessoryQuantityDialog() {
+  document.getElementById("fitting-accessory-quantity-dialog")?.close();
+}
+
+function updateFittingAccessoryQuantityPreview() {
+  const form = document.getElementById("fitting-accessory-quantity-form");
+  const preview = document.getElementById("fitting-accessory-quantity-preview");
+  if (!form || !preview) return;
+  const sourceOrder = findById("orders", form.sourceOrderId.value);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === form.accessoryId.value);
+  if (!item) {
+    preview.textContent = "Fitting row is not available.";
+    return;
+  }
+  const availability = fittingAccessoryAvailability(item);
+  const requestedQuantity = Math.floor(Number(form.quantity.value || 0));
+  const values = fittingAccessoryQuantityStoneValues(item, requestedQuantity);
+  const minimumQuantity = Math.max(availability.allocatedQuantity, 1);
+  const valid = Number.isInteger(requestedQuantity) && requestedQuantity >= minimumQuantity && requestedQuantity <= 10000;
+  preview.classList.toggle("is-invalid", !valid);
+  preview.innerHTML = valid
+    ? `<strong>${escapeHtml(requestedQuantity)} pcs / ${escapeHtml(weight5(values.totalStoneWeight))} g total stone</strong><span>${escapeHtml(availability.allocatedQuantity)} pcs already allocated / ${escapeHtml(requestedQuantity - availability.allocatedQuantity)} pcs available after correction</span>`
+    : `<strong>Enter ${escapeHtml(minimumQuantity)} to 10000 pcs</strong><span>The quantity cannot be lower than ${escapeHtml(availability.allocatedQuantity)} pcs already assigned to PR items.</span>`;
+}
+
+function saveFittingAccessoryQuantityCorrection(event) {
+  event.preventDefault();
+  if (!requireFittingAccessoriesManager("correct fitting accessory piece quantities")) return false;
+  const form = event.currentTarget;
+  const sourceOrder = findById("orders", form.sourceOrderId.value);
+  const item = fittingAccessoryItemsForOrder(sourceOrder).find((entry) => entry.id === form.accessoryId.value);
+  if (!sourceOrder || !item) return false;
+  const availability = fittingAccessoryAvailability(item);
+  const quantity = Math.floor(Number(form.quantity.value || 0));
+  const minimumQuantity = Math.max(availability.allocatedQuantity, 1);
+  if (!Number.isInteger(quantity) || quantity < minimumQuantity || quantity > 10000) {
+    alert(`Enter No. of Fitting Pcs from ${minimumQuantity} to 10000. ${availability.allocatedQuantity} pcs are already allocated and cannot be removed here.`);
+    form.quantity.focus();
+    return false;
+  }
+  if (quantity === availability.totalQuantity) {
+    closeFittingAccessoryQuantityDialog();
+    return true;
+  }
+  const values = fittingAccessoryQuantityStoneValues(item, quantity);
+  const previousQuantity = availability.totalQuantity;
+  const previousStoneWeight = availability.totalStoneWeight;
+  if (!confirm(`Correct ${item.name} from ${previousQuantity} pcs to ${quantity} pcs?\n\nTotal fitting stone will change from ${weight5(previousStoneWeight)} g to ${weight5(values.totalStoneWeight)} g. Design Master will not be changed.`)) return false;
+
+  const sourceBefore = structuredClone(sourceOrder);
+  const targetSnapshots = new Map((item.allocations || [])
+    .map((allocation) => findById("orders", allocation.targetOrderId))
+    .filter(Boolean)
+    .map((targetOrder) => [targetOrder.id, structuredClone(targetOrder)]));
+  const affectedAllocationIds = new Set((item.allocations || []).map((allocation) => allocation.id).filter(Boolean));
+  const ledgerSnapshots = new Map((state.ledger || [])
+    .filter((entry) => affectedAllocationIds.has(entry.sourceId))
+    .map((entry) => [entry.id, structuredClone(entry)]));
+  const editedAt = new Date().toISOString();
+  const editedBy = currentOperatorName();
+  item.quantity = quantity;
+  item.totalStoneWeight = values.totalStoneWeight;
+  item.quantityEditedAt = editedAt;
+  item.quantityEditedBy = editedBy;
+  item.quantityEditHistory = Array.isArray(item.quantityEditHistory) ? item.quantityEditHistory : [];
+  item.quantityEditHistory.unshift({
+    id: crypto.randomUUID(),
+    fromQuantity: previousQuantity,
+    toQuantity: quantity,
+    fromStoneWeight: Number(previousStoneWeight || 0),
+    toStoneWeight: values.totalStoneWeight,
+    editedAt,
+    editedBy,
+    loginId: currentUser?.id || "",
+  });
+  item.quantityEditHistory = item.quantityEditHistory.slice(0, 100);
+  sourceOrder.itemPcs = fittingAccessoryItemsForOrder(sourceOrder).reduce((total, entry) => total + Number(entry.quantity || 0), 0);
+  sourceOrder.orderedPcs = sourceOrder.itemPcs;
+  sourceOrder.updatedAt = editedAt;
+  const updatedTargets = syncAllocatedFittingStoneRows(sourceOrder, item, "Fitting Quantity Corrected / Allocated PR Refreshed");
+  const correctionLedgerId = crypto.randomUUID();
+  state.ledger.unshift({
+    id: correctionLedgerId,
+    date: today(),
+    createdAt: editedAt,
+    type: "Fitting Quantity Correction",
+    purity: sourceOrder.purity || "-",
+    weight: 0,
+    stoneWeight: Number((values.totalStoneWeight - previousStoneWeight).toFixed(5)),
+    sourceType: "fitting-quantity-correction",
+    sourceId: item.id,
+    reference: `${sourceOrder.jobNumber} ${item.name}: fitting quantity corrected ${previousQuantity} to ${quantity} pcs by ${editedBy}. Total fitting stone ${weight5(previousStoneWeight)} g to ${weight5(values.totalStoneWeight)} g.`,
+  });
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `${sourceOrder.jobNumber} ${item.name} fitting quantity correction`,
+    changedStateKeys: ["orders", "ledger"],
+  });
+  if (!saved) {
+    Object.keys(sourceOrder).forEach((key) => delete sourceOrder[key]);
+    Object.assign(sourceOrder, sourceBefore);
+    targetSnapshots.forEach((snapshot, targetId) => {
+      const targetOrder = findById("orders", targetId);
+      if (!targetOrder) return;
+      Object.keys(targetOrder).forEach((key) => delete targetOrder[key]);
+      Object.assign(targetOrder, snapshot);
+    });
+    state.ledger = (state.ledger || []).filter((entry) => entry.id !== correctionLedgerId);
+    ledgerSnapshots.forEach((snapshot, ledgerId) => {
+      const entry = (state.ledger || []).find((candidate) => candidate.id === ledgerId);
+      if (!entry) return;
+      Object.keys(entry).forEach((key) => delete entry[key]);
+      Object.assign(entry, snapshot);
+    });
+    return false;
+  }
+  backupRecentJobOrders([sourceOrder, ...updatedTargets]);
+  const bucket = document.getElementById("order-dialog")?.dataset.bucket || "all";
+  closeFittingAccessoryQuantityDialog();
+  render();
+  openOrderDetail(sourceOrder.id, false, bucket);
+  alert(`${item.name} corrected to ${quantity} pcs. Total fitting stone is ${weight5(values.totalStoneWeight)} g.`);
+  return true;
 }
 
 function fittingAccessoryPrTargets(sourceOrderId = "") {
@@ -23867,7 +24067,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
     </div>
     <div class="production-stone-table-wrap">
       <table>
-        <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Actual Total Wt (g)</th><th>Setting Type</th><th>Manufacturing Stage</th><th>Action</th></tr></thead>
+        <thead><tr><th>Item</th><th>Code</th><th>Type</th><th>Shape</th><th>Size</th><th>No. Pcs</th><th>Wt/Pc (g)</th><th>Actual Total Wt (g)</th><th>Colour / Postfix</th><th>Setting Type</th><th>Manufacturing Stage</th><th>Action</th></tr></thead>
         <tbody data-production-stone-row-list>${regularItems.map((item) => productionStoneRowHtml(item, order, design)).join("")}</tbody>
       </table>
     </div>`;
@@ -23882,6 +24082,9 @@ function removeProductionStoneItem(orderId, stoneItemId) {
   if (!order) return;
   if (!requireProductionStoneRowRemovePermission(order)) return;
   order.productionStoneItems = (order.productionStoneItems || []).filter((item) => item.id !== stoneItemId);
+  order.colourStonePostfix = colourStonePostfixesForItems(order.productionStoneItems || []).join("/");
+  order.itemName = normalizedJobItemName(order, findById("designs", order.designId));
+  syncColourStoneOrderReferences([order]);
   stampProductionStoneEdit(order, "Stone Row Removed");
   syncSettingEntriesForUpdatedStoneOrders([order]);
   syncFilingTransfersForUpdatedStoneOrders([order]);
@@ -23901,6 +24104,59 @@ function productionStonePlanSourceText(order = {}, designRowCount = 0) {
   return designRowCount
     ? "Showing Design Master rows as this job-card item reference."
     : "No Design Master stone rows found. You can add item-level stone rows here.";
+}
+
+const COLOUR_STONE_POSTFIX_OPTIONS = [
+  { value: "R", label: "R - Ruby" },
+  { value: "E", label: "E - Emerald" },
+  { value: "BS", label: "BS - Blue Sapphire" },
+  { value: "OTHER", label: "Other - Type Postfix" },
+];
+
+function normalizeColourStonePostfix(value = "") {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "")
+    .slice(0, 8);
+}
+
+function colourStonePostfixForType(stoneType = "") {
+  const type = normalizeSearchText(stoneType);
+  if (!type || type === "sw" || type.includes("diamond")) return "";
+  if (type.includes("ruby") || type === "r" || type.includes("red stone")) return "R";
+  if (type.includes("emerald") || type === "em" || type === "e" || type.includes("green stone")) return "E";
+  if (type.includes("blue sapphire") || type === "bs" || type.includes("sapphire")) return "BS";
+  return "";
+}
+
+function productionStoneColourPostfixOptions(selected = "") {
+  const normalized = normalizeColourStonePostfix(selected);
+  const known = COLOUR_STONE_POSTFIX_OPTIONS.some((option) => option.value === normalized);
+  return `
+    <option value="">Select</option>
+    ${COLOUR_STONE_POSTFIX_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === normalized || (option.value === "OTHER" && normalized && !known) ? "selected" : ""}>${option.label}</option>`).join("")}
+  `;
+}
+
+function productionStoneColourControlHtml(item = {}, stoneType = "") {
+  const suggested = colourStonePostfixForType(stoneType);
+  const savedPostfix = normalizeColourStonePostfix(item.colourStonePostfix || item.colorStonePostfix || "");
+  const isColourStone = item.isColourStone === false
+    ? false
+    : Boolean(item.isColourStone || savedPostfix || suggested);
+  const activePostfix = savedPostfix || suggested;
+  const isKnown = COLOUR_STONE_POSTFIX_OPTIONS.some((option) => option.value === activePostfix && option.value !== "OTHER");
+  const selectedPostfix = isKnown ? activePostfix : (isColourStone ? "OTHER" : "");
+  return `
+    <div class="production-colour-stone-control">
+      <label class="production-colour-stone-toggle">
+        <input data-production-stone-field="isColourStone" type="checkbox" ${isColourStone ? "checked" : ""}>
+        <span>Colour</span>
+      </label>
+      <select data-production-stone-field="colourStonePostfix" ${isColourStone ? "" : "disabled"}>${productionStoneColourPostfixOptions(selectedPostfix)}</select>
+      <input class="production-colour-stone-custom ${isColourStone && selectedPostfix === "OTHER" ? "" : "hidden"}" data-production-stone-field="colourStoneCustomPostfix" type="text" maxlength="8" value="${escapeHtml(isKnown ? "" : activePostfix)}" placeholder="Postfix" ${isColourStone ? "" : "disabled"}>
+    </div>`;
 }
 
 function productionStoneRowHtml(item = {}, order = {}, design = null) {
@@ -23940,6 +24196,7 @@ function productionStoneRowHtml(item = {}, order = {}, design = null) {
       <td data-label="Total Wt (g)" data-production-stone-total>${isAdditionalStone
         ? `<input data-production-stone-field="totalWeight" type="number" min="0" step="0.00001" value="${escapeHtml(formatStoneWeight(item.totalWeight) || "")}" placeholder="Enter actual weight">`
         : escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "-")}</td>
+      <td data-label="Colour / Postfix">${productionStoneColourControlHtml(item, stoneType)}</td>
       <td data-label="Setting Type"><select data-production-stone-field="settingType">${productionSettingOptions(item.settingType || automaticProductionStoneSetting(item).settingType)}</select></td>
       <td data-label="Manufacturing Stage"><select data-production-stone-field="manufacturingStage">${manufacturingStageOptions(item.manufacturingStage || automaticProductionStoneSetting(item).manufacturingStage)}</select></td>
       <td data-label="Action"><button class="delete-btn" type="button" onclick="removeProductionStoneRow(this)">Remove Row</button></td>
@@ -23995,6 +24252,8 @@ function handleProductionStoneRowChange(event) {
     row.querySelector('[data-production-stone-field="weightPerPc"]').value = "";
     refreshProductionStoneRowOptions(row);
   }
+  if (field === "stoneType") syncProductionStoneColourSelection(row, { forceFromType: true });
+  if (["isColourStone", "colourStonePostfix"].includes(field)) syncProductionStoneColourSelection(row);
   if (field === "size") syncProductionStoneSettingFromSize(row);
   updateProductionStoneRowPreview(row);
   updateProductionStoneDialogSummary();
@@ -24123,6 +24382,18 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
   if (!stoneType || !shape || !size || pcs <= 0 || Number(totalWeight || 0) <= 0) return null;
   const settingType = row.querySelector('[data-production-stone-field="settingType"]')?.value || automaticProductionStoneSetting({ size }).settingType;
   const manufacturingStage = row.querySelector('[data-production-stone-field="manufacturingStage"]')?.value || automaticProductionStoneSetting({ size }).manufacturingStage;
+  const colourStoneCheckbox = row.querySelector('[data-production-stone-field="isColourStone"]');
+  const isColourStone = colourStoneCheckbox
+    ? Boolean(colourStoneCheckbox.checked)
+    : row.dataset.colourStone === "true";
+  const selectedColourPostfix = row.querySelector('[data-production-stone-field="colourStonePostfix"]')?.value || "";
+  const customColourPostfix = row.querySelector('[data-production-stone-field="colourStoneCustomPostfix"]')?.value || "";
+  const colourStonePostfix = isColourStone
+    ? normalizeColourStonePostfix(selectedColourPostfix === "OTHER" ? customColourPostfix : (selectedColourPostfix || row.dataset.colourStonePostfix || colourStonePostfixForType(stoneType)))
+    : "";
+  if (isColourStone && !colourStonePostfix && validate) {
+    throw new Error(`Stone row ${rowNumber}: select Ruby, Emerald, Blue Sapphire, or type an Other colour postfix.`);
+  }
   return {
     id: row.dataset.productionStoneId || crypto.randomUUID(),
     sourceDesignStoneId: row.dataset.sourceDesignStoneId || "",
@@ -24141,6 +24412,8 @@ function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1
     date: today(),
     settingType,
     manufacturingStage,
+    isColourStone,
+    colourStonePostfix,
     itemKey: normalizeStoneItemKey(row.querySelector('[data-production-stone-field="itemKey"]')?.value || "ITEM"),
     stoneType,
     shape,
@@ -24407,6 +24680,26 @@ function productionStoneTotals(items = [], settingType = "") {
     }, { pcs: 0, weight: 0 });
 }
 
+function syncProductionStoneColourSelection(row, { forceFromType = false } = {}) {
+  if (!row) return;
+  const stoneType = row.querySelector('[data-production-stone-field="stoneType"]')?.value || "";
+  const checkbox = row.querySelector('[data-production-stone-field="isColourStone"]');
+  const postfixSelect = row.querySelector('[data-production-stone-field="colourStonePostfix"]');
+  const customInput = row.querySelector('[data-production-stone-field="colourStoneCustomPostfix"]');
+  if (!checkbox || !postfixSelect || !customInput) return;
+  const suggested = colourStonePostfixForType(stoneType);
+  if (forceFromType && suggested) {
+    checkbox.checked = true;
+    postfixSelect.value = suggested;
+    customInput.value = "";
+  }
+  if (checkbox.checked && !postfixSelect.value) postfixSelect.value = suggested || "OTHER";
+  postfixSelect.disabled = !checkbox.checked;
+  customInput.disabled = !checkbox.checked;
+  customInput.classList.toggle("hidden", !checkbox.checked || postfixSelect.value !== "OTHER");
+  if (postfixSelect.value !== "OTHER") customInput.value = "";
+}
+
 let jobHandStoneVerificationContext = null;
 
 function isHandProductionStoneItem(item = {}) {
@@ -24480,6 +24773,8 @@ function handStoneVerificationRowHtml(item = {}, order = {}, index = 0) {
       data-original-total-weight="${escapeHtml(item.totalWeight || totalStoneWeight(item.weightPerPc, item.pcs) || "")}"
       data-manual-shelf-issue="${item.manualShelfIssue ? "true" : ""}"
       data-additional-stone="${isAdditionalStone ? "true" : ""}"
+      data-colour-stone="${item.isColourStone ? "true" : ""}"
+      data-colour-stone-postfix="${escapeHtml(item.colourStonePostfix || item.colorStonePostfix || "")}"
       data-safe-department-issue-id="${escapeHtml(item.safeDepartmentIssueId || "")}"`;
 
   if (isAdditionalStone) {
@@ -27467,7 +27762,7 @@ function combinedBagPrintItem(items) {
     ...base,
     item: itemKeys.join("+"),
     cmItemType: itemKeys.some((key) => SET_ITEM_KEYS.includes(key)) ? itemKeys.join("+") : base.cmItemType,
-    remarks: remarks.length <= 1 ? remarks[0] || "" : "See item-wise remarks",
+    remarks: remarks.join(" | "),
     productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
     number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
     bagItemLabels: itemKeys,
@@ -27491,7 +27786,7 @@ function combinedCbPrintItem(items) {
     ringType: "CL+CG",
     clSize: cl.clSize || cl.size || "",
     cgSize: cg.cgSize || cg.size || "",
-    remarks: remarks.length <= 1 ? remarks[0] || "" : "See item-wise remarks",
+    remarks: remarks.join(" | "),
     productionNo: items.map((item) => item.productionNo || item.number).filter(Boolean).join(" / "),
     number: items.map((item) => item.number || item.productionNo).filter(Boolean).join(" / "),
     bagItemLabels: [clLabel, cgLabel],
@@ -27503,11 +27798,41 @@ function combinedCbPrintItem(items) {
 }
 
 function printJobBagDesignName(order = {}, design = null, bagItems = []) {
-  const baseName = order.designNumber || (design ? designText(design) : "") || "-";
+  const postfix = colourStonePostfixForOrders(bagItems?.length ? bagItems : [order]);
+  const baseName = appendColourStonePostfix(order.designNumber || (design ? designText(design) : "") || "-", postfix);
   const fittingNames = [...new Set(
     (bagItems || []).flatMap((item) => jobItemFittingAccessoryNames(item))
   )];
   return fittingNames.length ? [baseName, ...fittingNames].join(" / ") : baseName;
+}
+
+function jobBagRemarkPresentation(remark = "") {
+  const text = String(remark || "").trim();
+  const lengthClass = text.length <= 45
+    ? "remark-short"
+    : text.length <= 100
+      ? "remark-medium"
+      : text.length <= 180
+        ? "remark-long"
+        : "remark-extra-long";
+  const colourRules = [
+    { className: "remark-colour-red", pattern: /\b(RUBY|RED)\b/i },
+    { className: "remark-colour-blue", pattern: /\b(BLUE SAPPHIRE|SAPPHIRE|BLUE)\b/i },
+    { className: "remark-colour-green", pattern: /\b(EMERALD|GREEN)\b/i },
+    { className: "remark-colour-pink", pattern: /\b(PINK|ROSE)\b/i },
+    { className: "remark-colour-purple", pattern: /\b(PURPLE|AMETHYST)\b/i },
+    { className: "remark-colour-orange", pattern: /\bORANGE\b/i },
+    { className: "remark-colour-yellow", pattern: /\bYELLOW\b/i },
+    { className: "remark-colour-black", pattern: /\bBLACK\b/i },
+    { className: "remark-colour-white", pattern: /\bWHITE\b/i },
+  ];
+  const colourClass = colourRules.find((rule) => rule.pattern.test(text))?.className || "";
+  return { text: text || "-", className: [lengthClass, colourClass].filter(Boolean).join(" ") };
+}
+
+function printJobBagRemarkHtml(remark = "") {
+  const presentation = jobBagRemarkPresentation(remark);
+  return `<span class="print-wide print-job-remark ${presentation.className}"><b>Remark</b><strong class="print-job-remark-text">${escapeHtml(presentation.text)}</strong></span>`;
 }
 
 function printJobItemHtml(job, entry) {
@@ -27552,7 +27877,7 @@ function printJobItemHtml(job, entry) {
             ${printSizeDetailHtml(order)}
             <span><b>Color</b>${escapeHtml(order.color || "-")}</span>
             <span><b>Purity</b>${escapeHtml(order.purity || "-")}</span>
-            <span class="print-wide"><b>Remark</b>${escapeHtml(order.remarks || "-")}</span>
+            ${printJobBagRemarkHtml(order.remarks)}
           </div>
         </div>
       </div>
@@ -33828,20 +34153,79 @@ function jobItemCode(order = {}, design = null) {
   return subItem || mainCategory;
 }
 
+function colourStonePostfixesForItems(items = []) {
+  const postfixes = [];
+  (items || []).forEach((item) => {
+    if (!item?.isColourStone) return;
+    const postfix = normalizeColourStonePostfix(item.colourStonePostfix || item.colorStonePostfix || colourStonePostfixForType(item.stoneType));
+    if (postfix && !postfixes.includes(postfix)) postfixes.push(postfix);
+  });
+  return postfixes;
+}
+
+function colourStonePostfixForOrder(order = {}) {
+  const fromRows = colourStonePostfixesForItems(order.productionStoneItems || []);
+  if (fromRows.length) return fromRows.join("/");
+  return normalizeColourStonePostfix(order.colourStonePostfix || order.colorStonePostfix || "");
+}
+
+function appendColourStonePostfix(value = "", postfix = "") {
+  const name = String(value || "").trim();
+  const normalizedPostfix = String(postfix || "").trim().toUpperCase();
+  if (!name || !normalizedPostfix) return name;
+  const escapedPostfix = escapeRegExp(normalizedPostfix).replace(/\\\//g, "\\s*\\/\\s*");
+  if (new RegExp(`\\s${escapedPostfix}$`, "i").test(name)) return name;
+  return `${name} ${normalizedPostfix}`;
+}
+
+function colourStonePostfixForOrders(orders = []) {
+  const postfixes = [];
+  (orders || []).forEach((order) => {
+    String(colourStonePostfixForOrder(order) || "").split("/").forEach((postfix) => {
+      const clean = normalizeColourStonePostfix(postfix);
+      if (clean && !postfixes.includes(clean)) postfixes.push(clean);
+    });
+  });
+  return postfixes.join("/");
+}
+
 function normalizedJobItemName(order = {}, design = null) {
   const designReference = design?.number || order.designNumber || design?.name || "";
   const designNumber = jobItemDesignNumberOnly(designReference);
   const itemCode = jobItemCode(order, design);
   if (itemCode && designNumber) {
-    return `KJ-${itemCode}-${designNumber}`;
+    return appendColourStonePostfix(`KJ-${itemCode}-${designNumber}`, colourStonePostfixForOrder(order));
   }
-  return String(order.itemName || order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item").trim();
+  const fallback = String(order.itemName || order.designNumber || (design ? designText(design) : "") || order.item || order.category || "Job item").trim();
+  return appendColourStonePostfix(fallback, colourStonePostfixForOrder(order));
 }
 
 function jobItemDisplayName(order = {}, design = null) {
   const baseName = normalizedJobItemName(order, design);
   const fittingNames = jobItemFittingAccessoryNames(order);
   return fittingNames.length ? [baseName, ...fittingNames].join(" / ") : baseName;
+}
+
+function syncColourStoneOrderReferences(orders = []) {
+  const linkedOrders = new Map((orders || []).filter(Boolean).map((order) => [String(order.id || ""), order]));
+  if (!linkedOrders.size) return;
+  const visitedBills = new Set();
+  const updateBill = (bill) => {
+    if (!bill || visitedBills.has(bill)) return;
+    visitedBills.add(bill);
+    (bill.items || []).forEach((item) => {
+      const order = linkedOrders.get(String(item.orderId || ""));
+      if (!order) return;
+      item.designNo = billOrderDesignCode(order);
+      item.designNumber = billOrderDesignCode(order);
+      item.itemName = jobItemDisplayName(order, findById("designs", order.designId));
+    });
+  };
+  (state.bills || []).forEach(updateBill);
+  (state.lots || []).forEach((lot) => {
+    updateBill(lot.bill);
+    updateBill(lot.billDraft);
+  });
 }
 
 function isCbrStoneDesign(design = null) {
@@ -39137,6 +39521,7 @@ function designDetailStoneGroups(design = null, items = []) {
 }
 
 let pendingFittingAccessoryRows = [];
+let fittingAccessoryDialogCandidates = [];
 
 function fittingAccessoryQuantity(value = 1) {
   return window.KJM_FITTING_ACCESSORY_QUANTITY_V620?.quantity(value, 1) || 1;
@@ -39569,6 +39954,8 @@ function closeDesignFittingAccessoryDialog() {
     previewImage.classList.add("hidden");
   }
   pendingFittingAccessoryRows = [];
+  fittingAccessoryDialogCandidates = [];
+  resetFittingAccessoryTypeahead();
   renderPendingFittingAccessories();
 }
 
@@ -39580,11 +39967,77 @@ function fittingAccessorySourceDesigns(excludeDesignId = "") {
 }
 
 function renderFittingAccessorySourceDesignOptions(form, candidates = []) {
+  fittingAccessoryDialogCandidates = [...candidates];
   form.sourceDesignId.innerHTML = `
     <option value="">Select fitting design</option>
     ${candidates.length ? `<optgroup label="Fitting Category Designs">${candidates.map(fittingAccessoryDesignOptionHtml).join("")}</optgroup>` : ""}
   `;
   form.sourceDesignId.value = candidates[0]?.id || "";
+  resetFittingAccessoryTypeahead();
+}
+
+function fittingAccessorySearchText(design = {}) {
+  const itemKeys = [
+    ...(design.itemKeys || []),
+    ...(design.stoneItems || []).map((item) => item.itemKey),
+  ];
+  return normalizeSearchText([
+    design.number,
+    design.name,
+    design.category,
+    designText(design),
+    ...itemKeys.map(stoneItemInputValue),
+  ].filter(Boolean).join(" "));
+}
+
+function fittingAccessoryTypeaheadMatches(query = "") {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return fittingAccessoryDialogCandidates.slice(0, 8);
+  const words = normalizedQuery.split(/\s+/).filter(Boolean);
+  return fittingAccessoryDialogCandidates
+    .filter((design) => {
+      const searchText = fittingAccessorySearchText(design);
+      return words.every((word) => searchText.includes(word));
+    })
+    .slice(0, 20);
+}
+
+function renderFittingAccessoryTypeahead(query = "") {
+  const results = document.getElementById("design-fitting-accessory-search-results");
+  const status = document.getElementById("design-fitting-accessory-search-status");
+  if (!results || !status) return;
+  const matches = fittingAccessoryTypeaheadMatches(query);
+  results.innerHTML = matches.length
+    ? matches.map((design) => {
+      const stoneRows = (design.stoneItems || []).length;
+      const itemKeys = [...new Set((design.stoneItems || []).map((item) => stoneItemInputValue(item.itemKey)).filter(Boolean))];
+      return `<button type="button" role="option" data-select-fitting-design="${escapeHtml(design.id)}">
+        <strong>${escapeHtml(designText(design))}</strong>
+        <span>${escapeHtml(design.category || "Fitting")} / ${stoneRows ? `${stoneRows} stone row${stoneRows === 1 ? "" : "s"}` : "NO STONE YET"}${itemKeys.length ? ` / ${escapeHtml(itemKeys.join(", "))}` : ""}</span>
+      </button>`;
+    }).join("")
+    : '<div class="empty">No matching fitting accessory.</div>';
+  status.textContent = query
+    ? `${matches.length} matching fitting design${matches.length === 1 ? "" : "s"}.`
+    : `${fittingAccessoryDialogCandidates.length} fitting design${fittingAccessoryDialogCandidates.length === 1 ? "" : "s"} available. Type to narrow the list.`;
+}
+
+function resetFittingAccessoryTypeahead() {
+  const input = document.getElementById("design-fitting-accessory-search-input");
+  if (input) input.value = "";
+  renderFittingAccessoryTypeahead("");
+}
+
+function selectFittingAccessoryFromTypeahead(designId = "") {
+  const form = document.getElementById("design-fitting-accessory-form");
+  const input = document.getElementById("design-fitting-accessory-search-input");
+  const design = fittingAccessoryDialogCandidates.find((candidate) => candidate.id === designId);
+  if (!form || !design) return false;
+  form.sourceDesignId.value = design.id;
+  if (input) input.value = designText(design);
+  renderDesignFittingAccessoryItemOptions();
+  renderFittingAccessoryTypeahead(input?.value || "");
+  return true;
 }
 
 function openDesignFittingAccessoryDialog(designId = "", itemKey = "") {
@@ -40567,8 +41020,8 @@ function updateDesignReferences(design, previousDesign = null) {
     (bill.items || []).forEach((item) => {
       const order = linkedOrdersById.get(String(item.orderId || ""));
       if (!order) return;
-      item.designNo = design.number || currentLabel;
-      item.designNumber = currentLabel;
+      item.designNo = billOrderDesignCode(order);
+      item.designNumber = appendColourStonePostfix(currentLabel, colourStonePostfixForOrder(order));
       item.itemName = jobItemDisplayName(order, design);
     });
   };
@@ -49361,7 +49814,8 @@ function renderBillTotals(items = []) {
 
 function billOrderDesignCode(order = {}) {
   const design = findById("designs", order.designId) || {};
-  return order.designNo || order.designNumber || design.number || designText(design) || order.category || "";
+  const baseName = order.designNo || order.designNumber || design.number || designText(design) || order.category || "";
+  return appendColourStonePostfix(baseName, colourStonePostfixForOrder(order));
 }
 
 function billOrderUsesSize(order = {}) {
