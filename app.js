@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v750";
+const APP_VERSION = "v751";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -22403,12 +22403,14 @@ function jobItemDetailHtml(order) {
 }
 
 function jobItemDetailActionsHtml(order = {}) {
+  const viewDesignButton = `<button type="button" onclick="openPrItemDesign('${escapeHtml(order.id)}')">View Design</button>`;
   const editDesignNameButton = canEditPageData("designs") && order.designId
     ? `<button type="button" onclick="openPrDesignNameEditor('${escapeHtml(order.id)}')">Edit Design Name</button>`
     : "";
   if (isSettingManagerUser()) {
     return `
       <div class="row-actions job-item-detail-actions">
+        ${viewDesignButton}
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Edit Stone Details</button>
         ${editDesignNameButton}
         <small>Job Card details are read only for Setting Manager.</small>
@@ -22417,6 +22419,7 @@ function jobItemDetailActionsHtml(order = {}) {
   }
   return `
     <div class="row-actions job-item-detail-actions">
+      ${viewDesignButton}
       <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
       <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
       <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
@@ -24139,6 +24142,21 @@ function productionStoneColourPostfixOptions(selected = "") {
     <option value="">Select</option>
     ${COLOUR_STONE_POSTFIX_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === normalized || (option.value === "OTHER" && normalized && !known) ? "selected" : ""}>${option.label}</option>`).join("")}
   `;
+}
+
+async function openPrItemDesign(orderId = "") {
+  const order = findById("orders", orderId);
+  if (!order) {
+    alert("This PR item could not be found.");
+    return false;
+  }
+  const design = productionStoneDesignForOrder(order);
+  if (!design) {
+    alert(`No Design Master image is linked to ${order.productionNo || order.number || "this PR item"}.`);
+    return false;
+  }
+  await openDesignImage(design.id);
+  return true;
 }
 
 function productionStoneColourControlHtml(item = {}, stoneType = "") {
