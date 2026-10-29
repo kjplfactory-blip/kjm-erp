@@ -68,14 +68,8 @@
     const real = type === REAL_DIAMOND;
     form.classList.toggle("real-diamond-mode", real);
     form.classList.toggle("american-diamond-mode", !real);
-    const title = document.getElementById("production-diamond-mode-title");
-    const note = document.getElementById("production-diamond-mode-note");
     const label = document.getElementById("production-additional-stone-label");
     const help = document.getElementById("production-additional-stone-help");
-    if (title) title.textContent = real ? "Real Diamond / 100% Bill Weight" : "American Diamond / 96% Bill Weight";
-    if (note) note.textContent = real
-      ? "Type, shape, size and number of pieces remain visible. Row weights are reference-only; only the manually entered actual Real Diamond weight is counted."
-      : "Stone Master weights and piece counts are used. Billing uses 96% of the actual stone weight.";
     if (label) label.textContent = real ? "Real Diamond Actual Weight (g)" : "Additional Stone Weight (g)";
     if (help) help.textContent = real
       ? "Enter the total actual Real Diamond weight for this PR. It is counted once at 100%; individual row weights are not counted again."
@@ -189,7 +183,7 @@
     if (!container || !order.id) return;
     const type = activeDiamondType(order);
     const existing = container.querySelector("[data-diamond-type-meta]");
-    const html = `<article data-diamond-type-meta><span>Diamond Type</span><strong>${escapeHtml(diamondLabel(type))} / ${Math.round(diamondFactor(type) * 100)}%</strong></article>`;
+    const html = `<article data-diamond-type-meta><span>Diamond Type</span><strong>${escapeHtml(diamondLabel(type))}</strong></article>`;
     if (existing) existing.outerHTML = html;
     else container.insertAdjacentHTML("beforeend", html);
   };
@@ -300,7 +294,7 @@
         badge = row.querySelector(".bill-diamond-type-badge");
       }
       if (badge) {
-        badge.textContent = `${diamondLabel(type)} / ${Math.round(factor * 100)}%`;
+        badge.textContent = diamondLabel(type);
         badge.classList.toggle("real", type === REAL_DIAMOND);
       }
       let detail = row.querySelector(".diamond-piece-breakdown");

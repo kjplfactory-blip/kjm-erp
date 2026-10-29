@@ -9145,7 +9145,8 @@ dialog::backdrop {
 
 .production-diamond-type-control {
   display: grid;
-  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 360px);
+  justify-content: start;
   align-items: center;
   gap: 12px 18px;
   padding: 12px;
