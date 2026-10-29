@@ -18820,6 +18820,88 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
     margin-left: 0;
   }
 }
+
+/* V749: one clear page-level scrollbar for Production Stone Entry. */
+#production-stone-dialog .production-stone-dialog {
+  display: block;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+  scroll-padding-bottom: 96px;
+}
+
+#production-stone-dialog .production-stone-workspace {
+  min-height: 66vh;
+  overflow: visible;
+  align-items: start;
+}
+
+#production-stone-dialog .production-stone-chart-panel {
+  top: 96px;
+  height: auto;
+  min-height: 420px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+#production-stone-dialog .design-stone-details {
+  height: auto;
+  min-height: 420px;
+  max-height: none;
+  overflow: visible;
+  padding-bottom: 32px;
+}
+
+#production-stone-dialog .production-stone-table-wrap {
+  overflow: visible;
+}
+
+#production-stone-dialog .design-stone-details th {
+  top: 92px;
+  z-index: 5;
+}
+
+#production-stone-dialog .production-stone-dialog::-webkit-scrollbar,
+#production-stone-dialog .production-stone-chart-panel::-webkit-scrollbar {
+  width: 13px;
+}
+
+#production-stone-dialog .production-stone-dialog::-webkit-scrollbar-track,
+#production-stone-dialog .production-stone-chart-panel::-webkit-scrollbar-track {
+  background: #e7f3ff;
+}
+
+#production-stone-dialog .production-stone-dialog::-webkit-scrollbar-thumb,
+#production-stone-dialog .production-stone-chart-panel::-webkit-scrollbar-thumb {
+  border: 3px solid #e7f3ff;
+  border-radius: 999px;
+  background: #3b82c4;
+}
+
+#production-stone-dialog .production-stone-dialog > .dialog-actions {
+  position: relative;
+  margin-top: 18px;
+}
+
+@media (max-width: 1050px) {
+  #production-stone-dialog .production-stone-workspace {
+    min-height: 0;
+  }
+
+  #production-stone-dialog .production-stone-chart-panel {
+    position: static;
+    min-height: 280px;
+    max-height: none;
+  }
+
+  #production-stone-dialog .design-stone-details {
+    min-height: 320px;
+  }
+}
 #billing .billing-heading-tools {
   display: flex;
   width: min(100%, 1180px);
