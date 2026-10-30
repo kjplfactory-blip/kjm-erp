@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v751";
+const APP_VERSION = "v752";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3507,6 +3507,7 @@ document.getElementById("bill-form").addEventListener("submit", (event) => {
 });
 
 document.getElementById("bill-dialog").addEventListener("close", () => {
+  stopOpenBillStoneAutoSync();
   hideBillDesignHoverPreview();
   hideBillItemRemarkPreview();
   if (suppressBillDraftSaveOnClose) {
@@ -4167,6 +4168,7 @@ function deleteBillFromDialog() {
 function saveBillFromForm(closeDialog = false, options = {}) {
   cancelBillDraftSaveTimer();
   const form = document.getElementById("bill-form");
+  syncOpenBillStoneEntries({ updateTotals: false });
   updateBillAmount();
   const data = getFormData(form);
   const lot = findById("lots", data.lotId);
@@ -48175,6 +48177,7 @@ function openBill(lotId) {
   updateBillAmount();
   applyBillAccessMode();
   document.getElementById("bill-dialog").showModal();
+  startOpenBillStoneAutoSync();
 }
 
 function billLotTraceEntries(lot = {}) {
@@ -48931,6 +48934,7 @@ function clearBillItemSearch() {
 }
 
 let billDraftSaveTimer = null;
+let billStoneAutoSyncTimer = null;
 let suppressBillDraftSaveOnClose = false;
 
 function billDraftForLot(lot = {}, bill = {}) {
@@ -49004,6 +49008,7 @@ function saveBillDraftNow(options = {}) {
   const lot = findById("lots", form.lotId?.value || "");
   const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
   if (!canPersistBillDraft(lot, bill)) return false;
+  if (!Array.isArray(options.items)) syncOpenBillStoneEntries({ updateTotals: true });
   lot.billDraft = buildBillDraftRecord(lot, bill, options.items);
   lot.billDraftUpdatedAt = lot.billDraft.updatedAt;
   const saved = saveState({ alertOnFailure: false, context: `${lot.number || "Bill"} draft` });
@@ -49029,6 +49034,62 @@ function scheduleBillDraftSave(options = {}) {
 function flushBillDraftSave() {
   if (billDraftSaveTimer === null) return false;
   return saveBillDraftNow();
+}
+
+function syncOpenBillStoneEntries(options = {}) {
+  const dialog = document.getElementById("bill-dialog");
+  const form = document.getElementById("bill-form");
+  if (!dialog?.open || !form) return 0;
+  const lot = findById("lots", form.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!lot || isReferenceOnlyBill(bill) || isReferenceOnlyBillLot(lot)) return 0;
+  if (bill.id && !billAllowsAutomaticStoneSync(bill)) return 0;
+
+  let changed = 0;
+  document.querySelectorAll("#bill-item-table tr[data-order-id]").forEach((row) => {
+    if (row.dataset.manualWip === "true") return;
+    const order = findById("orders", row.dataset.orderId || "");
+    if (!order) return;
+    const actualStoneWeight = actualBillStoneWeight(order);
+    const latestStoneWeight = automaticBillStoneWeight(order);
+    const currentStoneWeight = Number(row.dataset.jobStoneWeight || 0);
+    const currentActualWeight = Number(row.dataset.billActualStoneWeight || 0);
+    if (
+      Math.abs(currentStoneWeight - latestStoneWeight) < 0.000005
+      && Math.abs(currentActualWeight - actualStoneWeight) < 0.000005
+    ) return;
+
+    row.dataset.jobStoneWeight = weight3(latestStoneWeight);
+    row.dataset.billActualStoneWeight = weight3(actualStoneWeight);
+    row.dataset.billStoneWeightFactor = String(BILL_STONE_WEIGHT_FACTOR);
+    const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
+    if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
+    const stoneItems = productionStoneItemsForOrder(order);
+    const stoneStatus = row.querySelector("[data-bill-stone-status]");
+    if (stoneStatus) {
+      stoneStatus.textContent = `Live stone entry: ${stoneItems.length} row${stoneItems.length === 1 ? "" : "s"} / ${gram(latestStoneWeight)}`;
+    }
+    changed += 1;
+  });
+  if (changed && options.updateTotals !== false) updateBillAmount({ preserveWastageField: true });
+  return changed;
+}
+
+function stopOpenBillStoneAutoSync() {
+  if (billStoneAutoSyncTimer !== null) clearInterval(billStoneAutoSyncTimer);
+  billStoneAutoSyncTimer = null;
+}
+
+function startOpenBillStoneAutoSync() {
+  stopOpenBillStoneAutoSync();
+  billStoneAutoSyncTimer = setInterval(() => {
+    const changed = syncOpenBillStoneEntries({ updateTotals: true });
+    if (!changed) return;
+    const form = document.getElementById("bill-form");
+    const lot = findById("lots", form?.lotId?.value || "");
+    const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+    if (canPersistBillDraft(lot, bill)) scheduleBillDraftSave({ immediate: true });
+  }, 1500);
 }
 
 let pendingBillItemRemoval = null;
@@ -49985,7 +50046,7 @@ function renderBillItems(lot, bill = {}) {
     !isReadOnlyUser()
     && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
   );
-  const canRefreshStoneEntries = Boolean(
+  const canUpdateBillLinkedEntries = Boolean(
     !isReadOnlyUser()
     && (generatedBill.id ? canEditGeneratedBill() : canCreateBill())
   );
@@ -50044,9 +50105,8 @@ function renderBillItems(lot, bill = {}) {
           <button type="button" class="bill-item-remark-trigger ${itemRemark ? "has-remark" : "no-remark"}" data-bill-item-remark="${escapeHtml(itemRemark)}" aria-label="${escapeHtml(itemRemark ? `Item remark: ${itemRemark}` : "No Remark")}">${itemRemark ? "Remark" : "No Remark"}</button>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-item-stone-open-button" data-open-bill-stone="${escapeHtml(order.id)}" aria-label="Open stone entry for ${escapeHtml(itemLabel)}">Open Stone Entry</button>`}
-          ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-fitting-accessory-button" data-add-bill-fitting="${escapeHtml(order.id)}" aria-label="Add fitting accessory to ${escapeHtml(itemLabel)}">Add Fitting Accessory</button>` : ""}
-          ${!manualWip && canRefreshStoneEntries ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}">Refresh Stone Entry</button>` : ""}
-          ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Auto-synced: ${productionStoneItemsForOrder(order).length} stone row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
+          ${!manualWip && canUpdateBillLinkedEntries ? `<button type="button" class="ghost-button bill-item-fitting-accessory-button" data-add-bill-fitting="${escapeHtml(order.id)}" aria-label="Add fitting accessory to ${escapeHtml(itemLabel)}">Add Fitting Accessory</button>` : ""}
+          ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Live stone entry: ${productionStoneItemsForOrder(order).length} row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${fittingAccessories.length ? `<small class="bill-item-fitting-accessory-status">Fitting included: ${escapeHtml(fittingAccessories.map((accessory) => accessory.name).join(" / "))} / ${escapeHtml(fittingAccessoryPcs)} fitting pcs</small>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
