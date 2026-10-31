@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v757";
+const APP_VERSION = "v758";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26858,7 +26858,6 @@ function billWeightCategoryRows(totals = {}, lot = {}, items = []) {
     { label: "SW Stone Weight", value: weight3(totals.swStoneWeight), note: "Billing SW stone" },
     { label: "Colour Stone Weight", value: weight3(totals.colourStoneWeight), note: "Colour + Additional stone" },
     { label: "Total Stone Weight", value: weight3(totals.stoneWeight), note: "SW + Colour stone" },
-    { label: "Stone Difference", value: weight3(totals.stoneAdjustmentWeight), note: "Actual stone - billing stone" },
     { label: "Spring Weight", value: weight3(totals.springWeight), note: "Spring" },
     { label: "Other Weight", value: weight3(totals.otherNonGoldWeight), note: "Other non-gold" },
     { label: "Total Non-Gold", value: weight3(totals.reducedWeight), note: "BB + Moti + Stone + Spring + Other" },
@@ -26908,7 +26907,6 @@ function packingListPrintHtml(lot, bill) {
           ${billPrintTotalCard("SW Stone", gram(totals.swStoneWeight))}
           ${billPrintTotalCard("Colour Stone", gram(totals.colourStoneWeight))}
           ${billPrintTotalCard("Total Stone", gram(totals.stoneWeight))}
-          ${billPrintTotalCard("Stone Diff.", gram(totals.stoneAdjustmentWeight))}
           ${billPrintTotalCard("Spring Wt", gram(totals.springWeight))}
           ${billPrintTotalCard("Other Wt", gram(totals.otherNonGoldWeight))}
           ${billPrintTotalCard("Total Non-Gold", gram(totals.reducedWeight))}
@@ -27037,7 +27035,6 @@ function billPrintItemTableHtml(items = []) {
       <td>${item.hasStoneBreakdown ? gram(item.swStoneWeight) : "-"}</td>
       <td>${item.hasStoneBreakdown ? gram(item.colourStoneWeight) : "-"}</td>
       <td>${gram(item.stoneWeight)}</td>
-      <td>${item.hasStoneBreakdown ? gram(item.stoneAdjustmentWeight) : "-"}</td>
       <td>${gram(item.springWeight)}</td>
       <td>${gram(item.otherNonGoldWeight)}</td>
       <td>${gram(item.reducedWeight)}</td>
@@ -27047,9 +27044,9 @@ function billPrintItemTableHtml(items = []) {
   return `
     <table class="bill-print-table bill-print-items-table">
       <thead>
-        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Size</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>SW Stone</th><th>Colour Stone</th><th>Total Stone</th><th>Stone Diff.</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
+        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Size</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>SW Stone</th><th>Colour Stone</th><th>Total Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="18">No item details</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="17">No item details</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -50124,7 +50121,6 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card stone-sw"><span>SW Stone (g)</span><strong>${gram(total.swStoneWeight)}</strong></div>
     <div class="bill-total-card stone-colour"><span>Colour Stone (g)</span><strong>${gram(total.colourStoneWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Stone (g)</span><strong>${gram(total.stoneWeight)}</strong></div>
-    <div class="bill-total-card stone-difference"><span>Stone Diff. (g)</span><strong>${gram(total.stoneAdjustmentWeight)}</strong></div>
     <div class="bill-total-card"><span>Spring Wt (g)</span><strong>${gram(total.springWeight)}</strong></div>
     <div class="bill-total-card"><span>Other Wt (g)</span><strong>${gram(total.otherNonGoldWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Non-Gold (g)</span><strong>${gram(total.reducedWeight)}</strong></div>

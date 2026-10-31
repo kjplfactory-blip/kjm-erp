@@ -349,17 +349,12 @@
           <label class="bill-stone-part bill-stone-sw" data-bill-stone-part="sw">SW Stone <input name="billItemSwStoneWeight" type="number" readonly></label>
           <label class="bill-stone-part bill-stone-colour" data-bill-stone-part="colour">Colour Stone <input name="billItemColourStoneWeight" type="number" readonly></label>
         `);
-        totalStoneLabel.insertAdjacentHTML("afterend", `
-          <label class="bill-stone-part bill-stone-difference" data-bill-stone-part="difference">Stone Diff. <input name="billItemStoneDifference" type="number" readonly></label>
-        `);
       }
       const hasStoredBreakdown = useLiveBreakdown || breakdown.hasBreakdown;
       const swInput = row.querySelector('[name="billItemSwStoneWeight"]');
       const colourInput = row.querySelector('[name="billItemColourStoneWeight"]');
-      const differenceInput = row.querySelector('[name="billItemStoneDifference"]');
       if (swInput) swInput.value = hasStoredBreakdown ? billWeightInputValue(breakdown.swStoneWeight) : "";
       if (colourInput) colourInput.value = hasStoredBreakdown ? billWeightInputValue(breakdown.colourStoneWeight) : "";
-      if (differenceInput) differenceInput.value = hasStoredBreakdown ? billWeightInputValue(breakdown.adjustmentWeight) : "";
       const status = row.querySelector("[data-bill-stone-status]");
       if (status) status.textContent = hasStoredBreakdown
         ? `${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${productionStoneTotals(rows).pcs} pcs / SW ${gram(breakdown.swStoneWeight)} / Colour ${gram(breakdown.colourStoneWeight)} / Total ${gram(Number(row.dataset.jobStoneWeight || 0))}`
