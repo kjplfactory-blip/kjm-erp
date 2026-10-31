@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v752";
+const APP_VERSION = "v753";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -48357,7 +48357,7 @@ function billNumber(value) {
 }
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
-const BILL_STONE_WEIGHT_FACTOR = 0.96;
+const BILL_STONE_WEIGHT_FACTOR = 0.975;
 const BILL_BB_RATE_VERSION = "revised-2026-10-23-v2";
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
@@ -48560,6 +48560,12 @@ function actualBillStoneWeight(order = {}) {
 
 function automaticBillStoneWeight(order = {}) {
   return billStoneWeightFromActual(actualBillStoneWeight(order));
+}
+
+function automaticBillStoneWeightFactor(order = {}) {
+  const actualWeight = actualBillStoneWeight(order);
+  if (actualWeight <= 0) return BILL_STONE_WEIGHT_FACTOR;
+  return Number((automaticBillStoneWeight(order) / actualWeight).toFixed(5));
 }
 
 function billItemNonGoldBreakup(item = {}, order = {}) {
@@ -49061,7 +49067,7 @@ function syncOpenBillStoneEntries(options = {}) {
 
     row.dataset.jobStoneWeight = weight3(latestStoneWeight);
     row.dataset.billActualStoneWeight = weight3(actualStoneWeight);
-    row.dataset.billStoneWeightFactor = String(BILL_STONE_WEIGHT_FACTOR);
+    row.dataset.billStoneWeightFactor = String(automaticBillStoneWeightFactor(order));
     const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
     if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
     const stoneItems = productionStoneItemsForOrder(order);
@@ -49802,7 +49808,7 @@ function refreshBillItemStoneEntry(orderId = "") {
   const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
   row.dataset.jobStoneWeight = weight3(latestStoneWeight);
   row.dataset.billActualStoneWeight = weight3(actualStoneWeight);
-  row.dataset.billStoneWeightFactor = String(BILL_STONE_WEIGHT_FACTOR);
+  row.dataset.billStoneWeightFactor = String(automaticBillStoneWeightFactor(order));
   if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
   const stoneStatus = row.querySelector("[data-bill-stone-status]");
   if (stoneStatus) {
@@ -50094,7 +50100,7 @@ function renderBillItems(lot, bill = {}) {
           ? "Reverse the later Office, Factory Out, Hallmarking, Sales, repair or discard movement first."
           : "";
     return `
-      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(BILL_STONE_WEIGHT_FACTOR)}" data-bill-bb-rate-version="${escapeHtml(bbRateVersion)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
+      <tr data-order-id="${escapeHtml(order.id)}" data-production-no="${escapeHtml(order.productionNo || "")}" data-design-no="${escapeHtml(designCode)}" data-category="${escapeHtml(order.category || "")}" data-ring-type="${escapeHtml(order.ringType || "")}" data-cm-item-type="${escapeHtml(order.cmItemType || "")}" data-color="${escapeHtml(order.color || "")}" data-job-stone-weight="${weight3(nonGold.stoneWeight)}" data-bill-actual-stone-weight="${weight3(actualStoneWeight)}" data-bill-stone-weight-factor="${manualWip ? "1" : String(automaticBillStoneWeightFactor(order))}" data-bill-bb-rate-version="${escapeHtml(bbRateVersion)}" data-manual-wip="${manualWip ? "true" : "false"}" data-purity="${escapeHtml(purity)}" data-office-status="${escapeHtml(saved.officeStatus || "")}" data-rework-lot-id="${escapeHtml(saved.reworkLotId || "")}" data-rework-lot-number="${escapeHtml(saved.reworkLotNumber || "")}" data-bill-final-gw-baseline="${escapeHtml(String(finalGwValue))}" data-bill-gw-adjustment-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-adjustment-original-applied="${gwSaveAdjustmentApplied ? "true" : "false"}" data-bill-gw-edited="false">
         <td>
           <div class="bill-item-select-line">
             <input type="checkbox" class="bill-item-remove-check" value="${escapeHtml(order.id)}" data-removal-blocked="${removeBlockedReason ? "true" : "false"}" ${removeBlockedReason ? "disabled" : ""} aria-label="Select ${escapeHtml(itemLabel)} for removal">
