@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v753";
+const APP_VERSION = "v754";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4257,6 +4257,9 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     createdAt: existingBill.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     bbRateVersion: existingBill.id ? (existingBill.bbRateVersion || "") : BILL_BB_RATE_VERSION,
+    billStoneRuleVersion: existingBill.id
+      ? (existingBill.billStoneRuleVersion || "")
+      : BILL_STONE_RULE_VERSION,
     makingRate: 0,
     officeMakingRate: 0,
     otherCharges: 0,
@@ -48358,6 +48361,7 @@ function billNumber(value) {
 
 const BILL_ITEM_GW_SAVE_INCREMENT = 0.004;
 const BILL_STONE_WEIGHT_FACTOR = 0.975;
+const BILL_STONE_RULE_VERSION = "v754-american-cap";
 const BILL_BB_RATE_VERSION = "revised-2026-10-23-v2";
 
 function billGwSaveAdjustmentIsApplied(item = {}) {
@@ -48657,8 +48661,13 @@ function refreshStoredBillTotals(bill = {}) {
   return bill;
 }
 
+function billUsesCurrentStoneRule(bill = {}) {
+  if (!bill?.id) return true;
+  return String(bill.billStoneRuleVersion || "") === BILL_STONE_RULE_VERSION;
+}
+
 function billAllowsAutomaticStoneSync(bill = {}) {
-  if (!bill?.id || isBillFactoryOutPosted(bill)) return false;
+  if (!bill?.id || !billUsesCurrentStoneRule(bill) || isBillFactoryOutPosted(bill)) return false;
   return !(bill.items || []).some((item) =>
     item.officeStatus === "Office"
     || item.factoryStatus === "Factory Out"
@@ -48675,7 +48684,7 @@ function syncBillStoneEntriesForUpdatedOrders(orders = [], source = "Job Card St
   (state.lots || []).forEach((lot) => {
     const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
     const activeDraft = billDraftForLot(lot, storedBill);
-    if (activeDraft?.items?.length) {
+    if (billUsesCurrentStoneRule(storedBill) && activeDraft?.items?.length) {
       let changed = false;
       const items = activeDraft.items.map((item) => {
         const order = orderById.get(item.orderId);
@@ -48993,6 +49002,9 @@ function buildBillDraftRecord(lot = {}, bill = {}, itemsOverride = null) {
   const updatedAt = new Date().toISOString();
   return {
     billId: bill.id || "",
+    billStoneRuleVersion: bill.id
+      ? (bill.billStoneRuleVersion || "")
+      : BILL_STONE_RULE_VERSION,
     billNo: data.billNo || "",
     billDate: data.billDate || "",
     billWastagePercent: factoryWstgPercent(data.billWastagePercent || 0),
