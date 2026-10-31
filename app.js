@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v754";
+const APP_VERSION = "v755";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4753,6 +4753,7 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
 document.getElementById("add-production-stone-row")?.addEventListener("click", addProductionStoneRow);
 document.getElementById("refresh-production-stone-master")?.addEventListener("click", refreshProductionStoneFromMaster);
 document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
+document.getElementById("upload-production-stone-design")?.addEventListener("click", uploadProductionStoneEntryToDesignMaster);
 
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
   if (event.target.dataset.productionStoneField) {
@@ -23478,15 +23479,17 @@ function configureProductionStoneDialogMode(mode = "production") {
   const saveButton = form?.querySelector('button[type="submit"]');
   const stoneMasterButton = document.getElementById("refresh-production-stone-master");
   const designMasterButton = document.getElementById("reset-production-stone-design");
+  const uploadDesignMasterButton = document.getElementById("upload-production-stone-design");
   const navigation = document.getElementById("production-stone-navigation");
   if (title) title.textContent = fittingMode ? "Fitting Item Stone Entry" : "Production Stone Entry";
   if (guidance) guidance.textContent = fittingMode
     ? "These rows belong only to one fitting piece. Quantity totals are calculated automatically, and transferred pieces copy these exact stone rows into the destination PR item. Design Master and Stone Master remain unchanged unless a missing Stone Master weight is saved."
-    : "Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only and never changes Design Master or Stone Master.";
+    : "Stone rows start from Design Master. Additional Stone Weight stays only on this PR. After saving a verified correction, Upload PR Stone Entry To Design Master can replace only the matching design subcategory.";
   additional?.classList.toggle("hidden", fittingMode);
   if (saveButton) saveButton.textContent = fittingMode ? "Save Fitting Stone Entry" : "Save Production Stone Plan";
   if (stoneMasterButton) stoneMasterButton.textContent = fittingMode ? "Refresh Weights From Stone Master" : "Get Stone Data From Stone Master";
   if (designMasterButton) designMasterButton.textContent = fittingMode ? "Get From Design + Stone Master" : "Get Stone Data From Design Master";
+  uploadDesignMasterButton?.classList.toggle("hidden", fittingMode);
   navigation?.classList.toggle("hidden", fittingMode);
   if (!fittingMode && form) delete form.dataset.fittingJobItemId;
 }
@@ -24057,6 +24060,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
   const designItems = designStoneItemsForOrder(design, order);
   const items = Array.isArray(forcedItems) ? forcedItems : productionStoneItemsForOrder(order);
   const regularItems = items.filter((item) => !item.isAdditionalStone);
+  updateProductionStoneDesignUploadState(order, design, items);
   renderProductionStoneMeta(order, items);
   renderProductionStoneEditHistory(order);
   container.dataset.orderId = order.id;
@@ -24072,7 +24076,7 @@ function renderProductionStoneItems(order, forcedItems = null) {
     <div class="stone-total-summary">${productionStoneSummaryText(items)}</div>
     <p class="dialog-note">${escapeHtml(productionStonePlanSourceText(order, designItems.length))}</p>
     <div class="production-stone-details-head">
-      <div><strong>Item Stone Rows</strong><span>Edit values directly. Design Master remains unchanged.</span></div>
+      <div><strong>Item Stone Rows</strong><span>Edit and save this PR first. Design Master changes only through the separate upload button.</span></div>
       <b>${regularItems.length} ROW${regularItems.length === 1 ? "" : "S"}</b>
     </div>
     <div class="production-stone-table-wrap">
@@ -24106,7 +24110,7 @@ function removeProductionStoneItem(orderId, stoneItemId) {
 function productionStonePlanSourceText(order = {}, designRowCount = 0) {
   if (order.productionStoneOverride) {
     const editor = order.productionStoneEditedBy ? ` Edited by ${order.productionStoneEditedBy}${order.productionStoneEditedAt ? ` on ${productionStoneEditedTimeText(order.productionStoneEditedAt)}` : ""}.` : "";
-    return `This is a job-card item stone plan.${editor} Changes here do not affect Design Master.`;
+    return `This is a job-card item stone plan.${editor} Changes here do not affect Design Master unless the separate upload button is confirmed.`;
   }
   if (order.productionStoneItems?.length) {
     return "This job-card item has its own copied stone plan from Design Master. Edit here for this item only.";
@@ -24114,6 +24118,164 @@ function productionStonePlanSourceText(order = {}, designRowCount = 0) {
   return designRowCount
     ? "Showing Design Master rows as this job-card item reference."
     : "No Design Master stone rows found. You can add item-level stone rows here.";
+}
+
+function updateProductionStoneDesignUploadState(order = {}, design = null, items = null) {
+  const button = document.getElementById("upload-production-stone-design");
+  if (!button) return;
+  const fittingMode = Boolean(productionStoneFittingEditorContext());
+  const regularRows = (Array.isArray(items) ? items : productionStoneItemsForOrder(order))
+    .filter((item) => !item.isAdditionalStone);
+  const available = Boolean(order?.id && design?.id && regularRows.length);
+  button.classList.toggle("hidden", fittingMode);
+  button.disabled = fittingMode || !available || !canEditPageData("designs");
+  if (fittingMode) {
+    button.title = "Fitting item stone entry uses its own Design Master workflow.";
+  } else if (!design?.id) {
+    button.title = "No matching Design Master record is linked to this PR item.";
+  } else if (!regularRows.length) {
+    button.title = "Save at least one regular stone row before uploading to Design Master.";
+  } else if (!canEditPageData("designs")) {
+    button.title = "This login needs Design Master access to upload PR stone rows.";
+  } else {
+    button.title = "Replace only this PR item's matching Design Master subcategory rows.";
+  }
+}
+
+function productionStoneDesignMasterItemKey(item = {}, order = {}, design = null) {
+  const savedKey = normalizeStoneItemKey(item.itemKey || "");
+  if (savedKey && savedKey !== DEFAULT_STONE_ITEM_KEY) return savedKey;
+  const orderKeys = orderStoneItemKeys(order).filter((key) => key && key !== DEFAULT_STONE_ITEM_KEY);
+  return normalizeStoneItemKey(orderKeys.length === 1 ? orderKeys[0] : defaultStoneItemKeyForDesign(design));
+}
+
+function designMasterStoneRowFromProduction(item = {}, order = {}, design = null, audit = {}) {
+  const itemKey = productionStoneDesignMasterItemKey(item, order, design);
+  const shape = normalizeOcrShape(item.shape || "");
+  const weightPerPc = formatStoneWeight(item.weightPerPc || "");
+  const pcs = Number(item.pcs || 0);
+  const automaticSetting = automaticProductionStoneSetting({ ...item, shape });
+  return {
+    id: crypto.randomUUID(),
+    itemKey,
+    stoneType: item.stoneType || "",
+    shape,
+    size: item.size || "",
+    code: item.code || designStoneCodeForSelection(item.stoneType || "", shape, item.size || ""),
+    pcs,
+    weightPerPc,
+    totalWeight: formatStoneWeight(item.totalWeight || totalStoneWeight(weightPerPc, pcs)),
+    settingType: item.settingType || automaticSetting.settingType,
+    manufacturingStage: item.manufacturingStage || automaticSetting.manufacturingStage,
+    isColourStone: Boolean(item.isColourStone),
+    colourStonePostfix: normalizeColourStonePostfix(item.colourStonePostfix || ""),
+    fittingAccessoryId: item.fittingAccessoryId || "",
+    fittingAccessoryName: item.fittingAccessoryName || "",
+    fittingAccessoryQuantity: fittingAccessoryQuantity(item.fittingAccessoryQuantity || 1),
+    jobFittingAccessoryId: item.jobFittingAccessoryId || "",
+    jobFittingAccessoryName: item.jobFittingAccessoryName || "",
+    sourceFittingDesignId: item.sourceFittingDesignId || "",
+    sourceFittingItemKey: item.sourceFittingItemKey || "",
+    sourceFittingStoneId: item.sourceFittingStoneId || "",
+    isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName),
+    date: today(),
+    masterUpdatedAt: audit.updatedAt || new Date().toISOString(),
+    masterUpdatedBy: audit.updatedBy || currentOperatorName(),
+    sourceProductionOrderId: order.id || "",
+    sourceProductionNo: order.productionNo || order.number || "",
+    sourceJobNumber: order.jobNumber || "",
+  };
+}
+
+function uploadProductionStoneEntryToDesignMaster() {
+  const form = document.getElementById("production-stone-form");
+  if (!form || productionStoneFittingEditorContext()) return false;
+  const order = findById("orders", form.orderId?.value || "");
+  if (!order) {
+    alert("Open a saved PR item first.");
+    return false;
+  }
+  if (!requirePageEditPermission("designs", "update Design Master stone rows from this PR item")) return false;
+  if (productionStoneDialogHasUnsavedEdits(order)) {
+    alert("Save Production Stone Plan first. Then use Upload PR Stone Entry To Design Master so the PR and Design Master receive the same verified rows.");
+    return false;
+  }
+  const design = findById("designs", order.designId) || productionStoneDesignForOrder(order);
+  if (!design) {
+    alert("No matching Design Master record is linked to this PR item.");
+    return false;
+  }
+  const regularRows = productionStoneItemsForOrder(order).filter((item) => !item.isAdditionalStone);
+  if (!regularRows.length) {
+    alert("This PR item has no regular stone rows to upload. Additional Stone Weight remains PR-specific and is not uploaded to Design Master.");
+    return false;
+  }
+  const updatedAt = new Date().toISOString();
+  const updatedBy = currentOperatorName();
+  const audit = { updatedAt, updatedBy };
+  const masterRows = regularRows.map((item) => designMasterStoneRowFromProduction(item, order, design, audit));
+  const itemKeys = [...new Set(masterRows.map((item) => designDetailStoneItemKey(item, design)))];
+  const existingRows = design.stoneItems || [];
+  const replacedRows = existingRows.filter((item) => itemKeys.includes(designDetailStoneItemKey(item, design)));
+  const total = designStoneTotals(masterRows);
+  const itemLabels = itemKeys.map(stoneItemInputValue).join(" + ");
+  const productionNo = order.productionNo || order.number || "PR item";
+  const designName = design.number || design.name || "Design";
+  const confirmed = confirm(
+    `Upload verified stone entry from ${productionNo} to Design Master ${designName}?\n\n`
+    + `Subcategory: ${itemLabels}\n`
+    + `Replace ${replacedRows.length} existing row(s) with ${masterRows.length} corrected row(s).\n`
+    + `Total: ${total.pcs} pcs / ${weight5(total.weight)} g.\n\n`
+    + "Other subcategories and existing PR items will not change. Additional Stone Weight is not uploaded."
+  );
+  if (!confirmed) return false;
+
+  const backup = structuredClone(design);
+  const otherRows = existingRows.filter((item) => !itemKeys.includes(designDetailStoneItemKey(item, design)));
+  design.stoneItems = [...otherRows, ...masterRows];
+  design.itemKeys = normalizeDesignItemKeys([...(design.itemKeys || []), ...itemKeys], design.category || order.category || "");
+  design.stoneDetails = designStoneDetailsText(design.stoneItems);
+  design.stoneMasterUpdatedAt = updatedAt;
+  design.stoneMasterUpdatedBy = updatedBy;
+  design.stoneMasterUpdatedLoginId = currentUser?.id || "";
+  design.stoneMasterUpdatedAccount = currentLoginAccountName();
+  design.stoneMasterSourceOrderId = order.id;
+  design.stoneMasterSourceProductionNo = productionNo;
+  design.stoneMasterSourceJobNumber = order.jobNumber || "";
+  design.stoneMasterUpdatedItemKeys = itemKeys;
+  const historyEntry = {
+    id: crypto.randomUUID(),
+    updatedAt,
+    updatedBy,
+    loginId: currentUser?.id || "",
+    accountName: currentLoginAccountName(),
+    sourceOrderId: order.id,
+    productionNo,
+    jobNumber: order.jobNumber || "",
+    itemKeys,
+    replacedRowCount: replacedRows.length,
+    savedRowCount: masterRows.length,
+    totalPcs: total.pcs,
+    totalWeight: total.weight,
+  };
+  design.stoneMasterUpdateHistory = [historyEntry, ...(design.stoneMasterUpdateHistory || [])].slice(0, 100);
+
+  const saved = saveState({
+    alertOnFailure: true,
+    context: `${designName} Design Master stone rows from ${productionNo}`,
+    changedStateKeys: ["designs"],
+  });
+  if (!saved) {
+    Object.keys(design).forEach((key) => delete design[key]);
+    Object.assign(design, backup);
+    updateProductionStoneDesignUploadState(order, design, productionStoneItemsForOrder(order));
+    return false;
+  }
+  renderDesigns();
+  renderProductionStoneItems(order);
+  updateProductionStoneMasterReloadState(order);
+  alert(`${masterRows.length} corrected ${itemLabels} stone row${masterRows.length === 1 ? "" : "s"} uploaded to Design Master ${designName}. Other subcategories and existing PR items were not changed.`);
+  return true;
 }
 
 const COLOUR_STONE_POSTFIX_OPTIONS = [
@@ -29320,8 +29482,10 @@ function productionStoneItemFromDesignStone(item = {}) {
     sourceFittingStoneId: item.sourceFittingStoneId || "",
     isFittingAccessory: Boolean(item.isFittingAccessory || item.fittingAccessoryId || item.fittingAccessoryName),
     date: today(),
-    settingType: automaticSetting.settingType,
-    manufacturingStage: automaticSetting.manufacturingStage,
+    settingType: item.settingType || automaticSetting.settingType,
+    manufacturingStage: item.manufacturingStage || automaticSetting.manufacturingStage,
+    isColourStone: Boolean(item.isColourStone),
+    colourStonePostfix: normalizeColourStonePostfix(item.colourStonePostfix || ""),
     itemKey: normalizeStoneItemKey(item.itemKey),
     stoneType: item.stoneType || "",
     shape,
@@ -39482,7 +39646,11 @@ async function openDesignDetail(designId) {
   const motiEntryCount = Array.isArray(design.motiItems) ? design.motiItems.length : 0;
   dialog.dataset.designId = design.id;
   document.getElementById("design-detail-title").textContent = design.number || design.name || "Design Details";
-  document.getElementById("design-detail-summary").textContent = design.name && design.name !== design.number ? design.name : "Complete design information and actions";
+  const designDetailBaseSummary = design.name && design.name !== design.number ? design.name : "Complete design information and actions";
+  const designStoneMasterAudit = design.stoneMasterUpdatedAt
+    ? ` / Stone Master last updated from ${design.stoneMasterSourceProductionNo || "PR item"} by ${design.stoneMasterUpdatedBy || "ERP User"} on ${productionStoneEditedTimeText(design.stoneMasterUpdatedAt)}`
+    : "";
+  document.getElementById("design-detail-summary").textContent = `${designDetailBaseSummary}${designStoneMasterAudit}`;
   document.getElementById("design-detail-category").textContent = design.category || "Uncategorised";
   document.getElementById("design-detail-items").textContent = itemKeys.length
     ? itemKeys.map(stoneItemInputValue).join(" / ")

@@ -9111,6 +9111,18 @@ dialog::backdrop {
   background: #e8f7f1 !important;
 }
 
+.production-stone-upload-master {
+  border-color: #5e9fd0 !important;
+  color: #0b4f82 !important;
+  background: #e9f5ff !important;
+  font-weight: 800;
+}
+
+.production-stone-upload-master:not(:disabled):hover {
+  border-color: #176aa5 !important;
+  background: #d5ecff !important;
+}
+
 .production-additional-stone-weight {
   display: grid;
   grid-template-columns: minmax(220px, 340px) minmax(0, 1fr);
