@@ -7956,12 +7956,33 @@ dialog::backdrop {
 }
 
 #bill-dialog .bill-non-gold-grid {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
   padding: 3px;
   border: 1px solid #e2eeeb;
   border-radius: 8px;
   background: #f7fbfa;
+}
+
+#bill-dialog .bill-stone-sw input,
+#bill-dialog .bill-total-card.stone-sw {
+  border-color: #9cc7ef;
+  background: #eef7ff;
+  color: #174f82;
+}
+
+#bill-dialog .bill-stone-colour input,
+#bill-dialog .bill-total-card.stone-colour {
+  border-color: #e9afd0;
+  background: #fff1f8;
+  color: #8a285e;
+}
+
+#bill-dialog .bill-stone-difference input,
+#bill-dialog .bill-total-card.stone-difference {
+  border-color: #e8c978;
+  background: #fff9df;
+  color: #73520b;
 }
 
 #bill-dialog .bill-non-gold-grid label {
