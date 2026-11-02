@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v758";
+const APP_VERSION = "v759";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4260,6 +4260,8 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     billStoneRuleVersion: existingBill.id
       ? (existingBill.billStoneRuleVersion || "")
       : BILL_STONE_RULE_VERSION,
+    billStoneSnapshotLocked: true,
+    billStoneSnapshotLockedAt: existingBill.billStoneSnapshotLockedAt || new Date().toISOString(),
     makingRate: 0,
     officeMakingRate: 0,
     otherCharges: 0,
@@ -48870,13 +48872,12 @@ function billUsesCurrentStoneRule(bill = {}) {
   return String(bill.billStoneRuleVersion || "") === BILL_STONE_RULE_VERSION;
 }
 
+function billHasFinalStoneSnapshot(bill = {}) {
+  return Boolean(bill?.id);
+}
+
 function billAllowsAutomaticStoneSync(bill = {}) {
-  if (!bill?.id || !billUsesCurrentStoneRule(bill) || isBillFactoryOutPosted(bill)) return false;
-  return !(bill.items || []).some((item) =>
-    item.officeStatus === "Office"
-    || item.factoryStatus === "Factory Out"
-    || item.repairStatus === "In Repair Production"
-  );
+  return !billHasFinalStoneSnapshot(bill) && billUsesCurrentStoneRule(bill);
 }
 
 function syncBillStoneEntriesForUpdatedOrders(orders = [], source = "Job Card Stone Entry") {
@@ -48888,7 +48889,7 @@ function syncBillStoneEntriesForUpdatedOrders(orders = [], source = "Job Card St
   (state.lots || []).forEach((lot) => {
     const storedBill = lot.bill || (state.bills || []).find((entry) => entry.lotId === lot.id) || {};
     const activeDraft = billDraftForLot(lot, storedBill);
-    if (billUsesCurrentStoneRule(storedBill) && activeDraft?.items?.length) {
+    if (!billHasFinalStoneSnapshot(storedBill) && billUsesCurrentStoneRule(storedBill) && activeDraft?.items?.length) {
       let changed = false;
       const items = activeDraft.items.map((item) => {
         const order = orderById.get(item.orderId);
@@ -50007,10 +50008,10 @@ function refreshBillItemStoneEntry(orderId = "") {
     alert("The selected Bill item or its Job Card stone entry could not be found.");
     return;
   }
-  const canRefresh = !bill.id ? canCreateBill() : canEditGeneratedBill();
+  const canRefresh = !billHasFinalStoneSnapshot(bill) && canCreateBill();
   if (!canRefresh || isReadOnlyUser()) {
-    alert(bill.id
-      ? "Only Owner or Manager can refresh stone weight in a generated Bill."
+    alert(billHasFinalStoneSnapshot(bill)
+      ? "This Bill is finalized. Its saved stone snapshot cannot be changed by later Job Card, Design Master or Stone Master updates."
       : "This login cannot update the pending Bill stone weight.");
     return;
   }
@@ -50292,9 +50293,12 @@ function renderBillItems(lot, bill = {}) {
     const bbRateVersion = generatedBill.id
       ? (generatedBill.bbRateVersion || saved.bbRateVersion || "")
       : BILL_BB_RATE_VERSION;
-    const calculationItem = billUsesRevisedBbRate({ bbRateVersion })
+    const rateCalculationItem = billUsesRevisedBbRate({ bbRateVersion })
       ? { ...saved, bbRateVersion }
       : saved;
+    const calculationItem = generatedBill.id
+      ? { ...rateCalculationItem, billStoneSnapshotLocked: true }
+      : rateCalculationItem;
     const lotManualWip = Boolean(lot.manualWipLot && !lot.manualWipCombinedBill && getLotOrderIds(lot).includes(order.id));
     const calculationOrder = lotManualWip ? {
       ...order,
@@ -50304,7 +50308,11 @@ function renderBillItems(lot, bill = {}) {
     } : order;
     const nonGold = billItemNonGoldBreakup(calculationItem, calculationOrder);
     const manualWip = Boolean(lotManualWip || order.manualWipOrder);
-    const actualStoneWeight = manualWip ? nonGold.stoneWeight : actualBillStoneWeight(order);
+    const actualStoneWeight = manualWip
+      ? nonGold.stoneWeight
+      : generatedBill.id
+        ? billNumber(saved.billActualStoneWeight ?? saved.inventoryNonGoldBreakdown?.stone ?? saved.stoneWeight ?? saved.stWeight)
+        : actualBillStoneWeight(order);
     const finalGwValue = saved.finalGw ?? (manualWip ? lot.manualWipGrossWeight || lot.grossIssuedWeight || order.manualWipGrossWeight || "" : "");
     const finalGw = Number(finalGwValue || 0);
     const gwSaveAdjustmentApplied = billGwSaveAdjustmentIsApplied(saved);

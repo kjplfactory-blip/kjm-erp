@@ -279,8 +279,8 @@
   const originalBillNonGoldBreakup = billItemNonGoldBreakup;
   billItemNonGoldBreakup = function diamondBillNonGoldBreakup(item = {}, order = {}) {
     const result = originalBillNonGoldBreakup(item, order);
-    const hasSavedStone = item.billStoneWeightFactor !== undefined
-      && item.billStoneWeightFactor !== null
+    const hasSavedStone = (item.billStoneSnapshotLocked
+      || (item.billStoneWeightFactor !== undefined && item.billStoneWeightFactor !== null))
       && (item.stoneWeight !== undefined || item.stWeight !== undefined);
     if (!order.manualWipOrder && order.id && hasSavedStone) {
       result.stoneWeight = billNumber(item.stoneWeight ?? item.stWeight);
@@ -317,7 +317,7 @@
 
   const decorateBillRows = (lot = {}, bill = {}) => {
     const savedItems = Array.isArray(bill.items) ? bill.items : [];
-    const useLiveBreakdown = !bill.id || billUsesCurrentStoneRule(bill);
+    const useLiveBreakdown = !billHasFinalStoneSnapshot(bill);
     document.querySelectorAll("#bill-item-table tr[data-order-id]").forEach((row) => {
       if (row.dataset.manualWip === "true") return;
       const order = findById("orders", row.dataset.orderId);
@@ -356,9 +356,13 @@
       if (swInput) swInput.value = hasStoredBreakdown ? billWeightInputValue(breakdown.swStoneWeight) : "";
       if (colourInput) colourInput.value = hasStoredBreakdown ? billWeightInputValue(breakdown.colourStoneWeight) : "";
       const status = row.querySelector("[data-bill-stone-status]");
+      const savedRowCount = Number(saved.billStoneRowCount ?? rows.length);
+      const savedPieceCount = Number(saved.billStonePieceCount ?? productionStoneTotals(rows).pcs);
+      const displayRowCount = useLiveBreakdown ? rows.length : savedRowCount;
+      const displayPieceCount = useLiveBreakdown ? productionStoneTotals(rows).pcs : savedPieceCount;
       if (status) status.textContent = hasStoredBreakdown
-        ? `${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${productionStoneTotals(rows).pcs} pcs / SW ${gram(breakdown.swStoneWeight)} / Colour ${gram(breakdown.colourStoneWeight)} / Total ${gram(Number(row.dataset.jobStoneWeight || 0))}`
-        : `${rows.length} stone row${rows.length === 1 ? "" : "s"} / ${productionStoneTotals(rows).pcs} pcs / Previous Bill total ${gram(Number(row.dataset.jobStoneWeight || 0))}`;
+        ? `${displayRowCount} stone row${displayRowCount === 1 ? "" : "s"} / ${displayPieceCount} pcs / SW ${gram(breakdown.swStoneWeight)} / Colour ${gram(breakdown.colourStoneWeight)} / Total ${gram(Number(row.dataset.jobStoneWeight || 0))}`
+        : `${displayRowCount} stone row${displayRowCount === 1 ? "" : "s"} / ${displayPieceCount} pcs / Previous Bill total ${gram(Number(row.dataset.jobStoneWeight || 0))}`;
       let badge = row.querySelector(".bill-diamond-type-badge");
       if (!badge && status) {
         status.insertAdjacentHTML("beforebegin", '<span class="bill-diamond-type-badge"></span>');
@@ -374,7 +378,7 @@
         detail = row.querySelector(".diamond-piece-breakdown");
       }
       if (detail) {
-        detail.textContent = pieceBreakdownText(rows);
+        detail.textContent = useLiveBreakdown ? pieceBreakdownText(rows) : (saved.billStonePieceBreakdown || "Saved Bill stone snapshot");
         detail.title = detail.textContent;
       }
     });
@@ -392,12 +396,18 @@
     billRefreshOrder = findById("orders", orderId);
     try {
       const result = originalRefreshBillItemStoneEntry(orderId);
+      const activeLot = findById("lots", document.getElementById("bill-form")?.lotId?.value || "") || {};
+      const activeBill = activeLot.bill || (state.bills || []).find((entry) => entry.lotId === activeLot.id) || {};
+      if (billHasFinalStoneSnapshot(activeBill)) {
+        decorateBillRows(activeLot, activeBill);
+        return result;
+      }
       const row = [...document.querySelectorAll("#bill-item-table tr[data-order-id]")]
         .find((entry) => entry.dataset.orderId === orderId);
       if (row && billRefreshOrder) {
         row.dataset.diamondType = orderDiamondType(billRefreshOrder);
         row.dataset.billStoneWeightFactor = String(diamondFactor(billRefreshOrder));
-        decorateBillRows(findById("lots", document.getElementById("bill-form")?.lotId?.value || "") || {}, {});
+        decorateBillRows(activeLot, {});
       }
       return result;
     } finally {
@@ -409,7 +419,7 @@
   billItemRows = function diamondBillItemRows(existingItems = [], options = {}) {
     const activeLot = findById("lots", document.getElementById("bill-form")?.lotId?.value || "") || {};
     const activeBill = activeLot.bill || (state.bills || []).find((entry) => entry.lotId === activeLot.id) || {};
-    const useLiveBreakdown = !activeBill.id || billUsesCurrentStoneRule(activeBill);
+    const useLiveBreakdown = !billHasFinalStoneSnapshot(activeBill);
     return originalBillItemRows(existingItems, options).map((item) => {
       const row = [...document.querySelectorAll("#bill-item-table tr[data-order-id]")]
         .find((entry) => entry.dataset.orderId === item.orderId);
@@ -430,14 +440,15 @@
         ...breakdownFields,
         diamondType: normalizeDiamondType(row?.dataset.diamondType || item.diamondType || orderDiamondType(order)),
         billStoneWeightFactor: Number(row?.dataset.billStoneWeightFactor ?? item.billStoneWeightFactor ?? diamondFactor(order)),
-        billStonePieceCount: productionStoneTotals(rows).pcs,
-        billStonePieceBreakdown: pieceBreakdownText(rows),
+        billStoneRowCount: liveBreakdown ? rows.length : Number(item.billStoneRowCount ?? rows.length),
+        billStonePieceCount: liveBreakdown ? productionStoneTotals(rows).pcs : Number(item.billStonePieceCount ?? productionStoneTotals(rows).pcs),
+        billStonePieceBreakdown: liveBreakdown ? pieceBreakdownText(rows) : (item.billStonePieceBreakdown || ""),
       };
     });
   };
 
   window.KJPL_DIAMOND_BILLING_V753 = Object.freeze({
-    version: "v757",
+    version: "v759",
     americanFactor: AMERICAN_FACTOR,
     americanAdjustmentPerGram: MAX_AMERICAN_ADJUSTMENT_PER_GRAM,
     realFactor: REAL_FACTOR,
