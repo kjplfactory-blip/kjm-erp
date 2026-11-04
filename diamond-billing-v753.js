@@ -369,7 +369,7 @@
     result.billStonePieceCount = productionStoneTotals(rows).pcs;
     result.billStonePieceBreakdown = pieceBreakdownText(rows);
     result.billStoneDetailRows = buildBillStoneDetailRows(order, rows, breakdown);
-    result.billStoneDetailRowsVersion = "v760";
+    result.billStoneDetailRowsVersion = "v761";
     return result;
   };
 
@@ -505,13 +505,13 @@
         billStonePieceCount: liveBreakdown ? productionStoneTotals(rows).pcs : Number(item.billStonePieceCount ?? productionStoneTotals(rows).pcs),
         billStonePieceBreakdown: liveBreakdown ? pieceBreakdownText(rows) : (item.billStonePieceBreakdown || ""),
         billStoneDetailRows: detailRows,
-        billStoneDetailRowsVersion: liveBreakdown ? "v760" : (item.billStoneDetailRowsVersion || ""),
+        billStoneDetailRowsVersion: liveBreakdown ? "v761" : (item.billStoneDetailRowsVersion || ""),
       };
     });
   };
 
   window.KJPL_DIAMOND_BILLING_V753 = Object.freeze({
-    version: "v760",
+    version: "v761",
     americanFactor: AMERICAN_FACTOR,
     americanAdjustmentPerGram: MAX_AMERICAN_ADJUSTMENT_PER_GRAM,
     realFactor: REAL_FACTOR,
