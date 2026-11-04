@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v759";
+const APP_VERSION = "v760";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26921,6 +26921,7 @@ function packingListPrintHtml(lot, bill) {
         <h2>Item Details</h2>
         ${billPrintItemTableHtml(items)}
       </section>
+      ${billPackingStoneDetailsHtml(items)}
       ${bill.remarks ? `<section class="bill-print-section"><h2>Remarks</h2><p>${escapeHtml(bill.remarks)}</p></section>` : ""}
     </section>
   `;
@@ -26985,6 +26986,7 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     colourStoneWeight: stoneBreakdown.colourStoneWeight,
     stoneAdjustmentWeight: stoneBreakdown.adjustmentWeight,
     hasStoneBreakdown: stoneBreakdown.hasBreakdown,
+    stoneDetailRows: billStoneDetailRowsForPackingList(item, stoneBreakdown),
     springWeight: billNumber(item.springWeight || nonGold.springWeight),
     otherNonGoldWeight: billNumber(item.otherNonGoldWeight || item.otherWeight || nonGold.otherNonGoldWeight),
     reducedWeight,
@@ -30109,6 +30111,99 @@ function productionNonGoldAvailableForSelection({ lotId = "", departmentId = "",
     pcs: Math.max(Number(totals.pcs || 0), 0),
     weight: Math.max(Number(totals.weight || 0), 0),
   };
+}
+
+function billStoneDetailRowsForPackingList(item = {}, stoneBreakdown = {}) {
+  const savedRows = Array.isArray(item.billStoneDetailRows)
+    ? item.billStoneDetailRows.filter((row) => row && typeof row === "object")
+    : [];
+  if (savedRows.length) {
+    return savedRows.map((row) => ({
+      stoneGroup: String(row.stoneGroup || "Stone").trim(),
+      stoneType: String(row.stoneType || "Stone").trim(),
+      shape: String(row.shape || "-").trim(),
+      size: String(row.size || "-").trim(),
+      pcs: Math.max(Number(row.pcs || 0), 0),
+      weightPerPc: Math.max(Number(row.weightPerPc || 0), 0),
+      totalWeight: Math.max(Number(row.totalWeight || 0), 0),
+    }));
+  }
+  const fallbackRows = [];
+  if (Number(stoneBreakdown.swStoneWeight || 0) > 0) {
+    fallbackRows.push({
+      stoneGroup: String(item.diamondType || "").toLowerCase() === "real" ? "Real Diamond" : "SW Stone",
+      stoneType: String(item.diamondType || "").toLowerCase() === "real" ? "Saved Real Diamond" : "Saved SW Stone",
+      shape: "-",
+      size: "-",
+      pcs: Number(item.billStonePieceCount || 0),
+      weightPerPc: 0,
+      totalWeight: Number(stoneBreakdown.swStoneWeight || 0),
+    });
+  }
+  if (Number(stoneBreakdown.colourStoneWeight || 0) > 0) {
+    fallbackRows.push({
+      stoneGroup: "Colour Stone",
+      stoneType: "Saved Colour Stone",
+      shape: "-",
+      size: "-",
+      pcs: 0,
+      weightPerPc: 0,
+      totalWeight: Number(stoneBreakdown.colourStoneWeight || 0),
+    });
+  }
+  return fallbackRows;
+}
+
+function billPackingStoneWeightPerPc(value = 0, pcs = 0) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0 || Number(pcs || 0) <= 0) return "-";
+  return number.toFixed(5);
+}
+
+function billPackingStoneDetailsHtml(items = []) {
+  const cards = items.map((item) => {
+    const rows = Array.isArray(item.stoneDetailRows) ? item.stoneDetailRows : [];
+    const totalPieces = Number(item.billStonePieceCount || rows.reduce((total, row) => total + Number(row.pcs || 0), 0));
+    const legacyPieceText = !Array.isArray(item.billStoneDetailRows) || !item.billStoneDetailRows.length
+      ? String(item.billStonePieceBreakdown || "").trim()
+      : "";
+    const rowHtml = rows.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.stoneGroup || "Stone")}</td>
+        <td>${escapeHtml(row.stoneType || "Stone")}</td>
+        <td>${escapeHtml(row.shape || "-")}</td>
+        <td>${escapeHtml(row.size || "-")}</td>
+        <td>${Number(row.pcs || 0) || "-"}</td>
+        <td>${billPackingStoneWeightPerPc(row.weightPerPc, row.pcs)}</td>
+        <td>${gram(row.totalWeight)}</td>
+      </tr>
+    `).join("");
+    return `
+      <article class="packing-stone-item">
+        <header class="packing-stone-item-header">
+          <div><strong>${escapeHtml(item.productionNo || "-")}</strong><span>${escapeHtml(item.design || item.itemName || "-")}</span></div>
+          <div><span>${escapeHtml(item.category || "-")} / ${escapeHtml(item.size || "-")}</span><span>${escapeHtml(String(item.diamondType || "american").toLowerCase() === "real" ? "Real Diamond" : "American Diamond")}</span></div>
+        </header>
+        ${legacyPieceText ? `<p class="packing-stone-legacy-pieces"><b>Saved Pieces:</b> ${escapeHtml(legacyPieceText)}</p>` : ""}
+        <table class="bill-print-table packing-stone-table">
+          <thead><tr><th>Group</th><th>Type</th><th>Shape</th><th>Size</th><th>Pcs</th><th>Wt/Pc</th><th>Total Wt</th></tr></thead>
+          <tbody>${rowHtml || '<tr><td colspan="7">No stone details saved for this item.</td></tr>'}</tbody>
+        </table>
+        <footer class="packing-stone-totals">
+          <span>Total Pcs <b>${totalPieces}</b></span>
+          <span>SW Stone <b>${gram(item.swStoneWeight)}</b></span>
+          <span>Colour Stone <b>${gram(item.colourStoneWeight)}</b></span>
+          <span>Total Stone <b>${gram(item.stoneWeight)}</b></span>
+        </footer>
+      </article>
+    `;
+  }).join("");
+  return `
+    <section class="bill-print-section packing-stone-section">
+      <h2>Stone Details By Item</h2>
+      <div class="packing-stone-list">${cards || "<p>No stone details found.</p>"}</div>
+    </section>
+  `;
 }
 
 function planProductionNonGoldShelfIssue({ materialType = "other", purity = "18K", weight = 0, preferredItemId = "" } = {}) {

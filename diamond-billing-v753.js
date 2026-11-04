@@ -82,6 +82,62 @@
   };
 
   const pieceBreakdownText = (items = []) => pieceBreakdown(items).join(" | ") || "No diamond pieces recorded";
+  const allocateBillStoneDetailWeights = (rows = [], targetWeight = 0) => {
+    const target = Number(weight3(Math.max(Number(targetWeight || 0), 0)));
+    if (!rows.length) return [];
+    const actualTotal = rows.reduce((total, row) => total + Math.max(Number(row.actualWeight || 0), 0), 0);
+    let remaining = target;
+    return rows.map((row, index) => {
+      const isLast = index === rows.length - 1;
+      const proportionalWeight = actualTotal > 0
+        ? target * (Math.max(Number(row.actualWeight || 0), 0) / actualTotal)
+        : 0;
+      const totalWeight = isLast
+        ? Number(weight3(Math.max(remaining, 0)))
+        : Number(weight3(Math.min(Math.max(proportionalWeight, 0), Math.max(remaining, 0))));
+      remaining = Number(weight3(Math.max(remaining - totalWeight, 0)));
+      const pcs = Math.max(Number(row.pcs || 0), 0);
+      return {
+        stoneGroup: row.stoneGroup,
+        stoneType: row.stoneType,
+        shape: row.shape,
+        size: row.size,
+        pcs,
+        weightPerPc: pcs > 0 ? Number((totalWeight / pcs).toFixed(5)) : 0,
+        totalWeight,
+        sourceIndex: row.sourceIndex,
+      };
+    });
+  };
+
+  const buildBillStoneDetailRows = (order = {}, sourceRows = null, savedBreakdown = null) => {
+    const type = orderDiamondType(order);
+    const rows = Array.isArray(sourceRows) ? sourceRows : productionStoneItemsForOrder(order);
+    const breakdown = savedBreakdown || stoneWeightBreakdown(order);
+    const prepared = rows.map((item, sourceIndex) => {
+      const colour = type === AMERICAN_DIAMOND && Boolean(item.isColourStone || item.isAdditionalStone);
+      const additional = Boolean(item.isAdditionalStone);
+      return {
+        stoneGroup: type === REAL_DIAMOND ? "Real Diamond" : (colour ? "Colour Stone" : "SW Stone"),
+        stoneType: additional
+          ? (type === REAL_DIAMOND ? "Real Diamond" : "Colour Stone")
+          : String(item.stoneType || (colour ? "Colour Stone" : "SW")).trim(),
+        shape: additional ? "Additional" : String(normalizeOcrShape(item.shape || "") || "-").trim(),
+        size: additional ? "-" : String(item.size || "-").trim(),
+        pcs: Math.max(Number(item.pcs || 0), 0),
+        actualWeight: Math.max(Number(effectiveStoneWeight(item, order) || 0), 0),
+        sourceIndex,
+        colour,
+      };
+    });
+    const swRows = prepared.filter((row) => !row.colour);
+    const colourRows = prepared.filter((row) => row.colour);
+    const allocated = [
+      ...allocateBillStoneDetailWeights(swRows, breakdown.swStoneWeight || 0),
+      ...allocateBillStoneDetailWeights(colourRows, breakdown.colourStoneWeight || 0),
+    ].sort((left, right) => left.sourceIndex - right.sourceIndex);
+    return allocated.map(({ sourceIndex, ...row }) => row);
+  };
   const activeDiamondType = (order = {}) => {
     const form = document.getElementById("production-stone-form");
     if (form?.diamondType && !productionStoneFittingEditorContext() && (!order.id || form.orderId?.value === order.id)) {
@@ -312,6 +368,8 @@
     result.stWeight = breakdown.totalStoneWeight;
     result.billStonePieceCount = productionStoneTotals(rows).pcs;
     result.billStonePieceBreakdown = pieceBreakdownText(rows);
+    result.billStoneDetailRows = buildBillStoneDetailRows(order, rows, breakdown);
+    result.billStoneDetailRowsVersion = "v760";
     return result;
   };
 
@@ -427,6 +485,9 @@
       const rows = order.id ? productionStoneItemsForOrder(order) : [];
       const liveBreakdown = useLiveBreakdown && order.id && row?.dataset.manualWip !== "true";
       const breakdown = liveBreakdown ? stoneWeightBreakdown(order) : billItemStoneWeightBreakdown(item);
+      const detailRows = liveBreakdown
+        ? buildBillStoneDetailRows(order, rows, breakdown)
+        : (Array.isArray(item.billStoneDetailRows) ? item.billStoneDetailRows : []);
       const breakdownFields = liveBreakdown || breakdown.hasBreakdown ? {
         billActualStoneWeight: Number(weight3(breakdown.actualStoneWeight ?? item.billActualStoneWeight ?? item.stoneWeight)),
         billActualSwStoneWeight: Number(weight3(breakdown.swActualStoneWeight ?? item.billActualSwStoneWeight ?? 0)),
@@ -443,12 +504,14 @@
         billStoneRowCount: liveBreakdown ? rows.length : Number(item.billStoneRowCount ?? rows.length),
         billStonePieceCount: liveBreakdown ? productionStoneTotals(rows).pcs : Number(item.billStonePieceCount ?? productionStoneTotals(rows).pcs),
         billStonePieceBreakdown: liveBreakdown ? pieceBreakdownText(rows) : (item.billStonePieceBreakdown || ""),
+        billStoneDetailRows: detailRows,
+        billStoneDetailRowsVersion: liveBreakdown ? "v760" : (item.billStoneDetailRowsVersion || ""),
       };
     });
   };
 
   window.KJPL_DIAMOND_BILLING_V753 = Object.freeze({
-    version: "v759",
+    version: "v760",
     americanFactor: AMERICAN_FACTOR,
     americanAdjustmentPerGram: MAX_AMERICAN_ADJUSTMENT_PER_GRAM,
     realFactor: REAL_FACTOR,
@@ -457,5 +520,6 @@
     effectiveStoneWeight,
     stoneWeightBreakdown,
     pieceBreakdown,
+    buildBillStoneDetailRows,
   });
 })();

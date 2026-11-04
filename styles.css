@@ -11214,6 +11214,93 @@ body.measuring-transfer-bag .global-print-area {
   vertical-align: middle;
 }
 
+.packing-stone-section {
+  page-break-before: auto;
+}
+
+.packing-stone-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  align-items: start;
+}
+
+.packing-stone-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #7ea9d5;
+  padding: 5px;
+  background: #fff;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.packing-stone-item-header,
+.packing-stone-totals {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.packing-stone-item-header > div {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.packing-stone-item-header strong {
+  color: #075985;
+  font-size: 10px;
+}
+
+.packing-stone-item-header span,
+.packing-stone-totals span {
+  font-size: 7.5px;
+}
+
+.packing-stone-table {
+  font-size: 7.2px;
+}
+
+.packing-stone-table th,
+.packing-stone-table td {
+  padding: 2px 3px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.packing-stone-table th:nth-child(2),
+.packing-stone-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.packing-stone-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid #bdd4e9;
+  padding-top: 4px;
+}
+
+.packing-stone-totals span {
+  display: grid;
+  gap: 1px;
+  color: #4b5563;
+}
+
+.packing-stone-totals b {
+  color: #111827;
+  font-size: 8.5px;
+}
+
+.packing-stone-legacy-pieces {
+  margin: 0;
+  color: #374151;
+  font-size: 7.2px;
+  line-height: 1.25;
+}
+
 .small-bill-document {
   width: 148.5mm;
   min-height: 105mm;
