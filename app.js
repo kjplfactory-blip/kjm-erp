@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v763";
+const APP_VERSION = "v765";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -26735,11 +26735,13 @@ function duplicateBillTagCopies(items = []) {
 
 function billTagHtml(lot, bill, item = {}) {
   const order = item.order || {};
-  const customerName = String(item.customer || order.customer || "").trim();
+  const customerName = String(item.customer || order.customer || bill.customer || lot.customer || "").trim();
   const customerOrderClass = customerName && isManufacturingCustomerOrder(customerName) ? " customer-order-tag" : "";
+  const customerLengthClass = customerName.length > 32 ? " very-long" : customerName.length > 22 ? " long" : "";
   const productionNo = item.productionNo || order.productionNo || order.number || "";
   const designName = item.itemName || jobItemDisplayName(order) || item.design || order.designNo || designLabel(order.designId) || "-";
   const itemDetail = billTagIndividualItemDetail(item, order);
+  const stoneBreakdown = billItemStoneWeightBreakdown(item);
   const barcodeValue = productionNo || `${lot.number || "LOT"}-${item.index + 1}`;
   return `
     <article class="bill-tag-card${customerOrderClass}">
@@ -26750,16 +26752,22 @@ function billTagHtml(lot, bill, item = {}) {
           <span>${escapeHtml(item.purity || order.purity || "-")}</span>
         </div>
         <div class="bill-tag-meta"><b>${escapeHtml(designName)}</b> / ${escapeHtml(item.category || order.category || "-")} / ${escapeHtml(itemDetail)} / ${escapeHtml(order.color || "-")}</div>
-        <div class="bill-tag-meta">${escapeHtml(item.customer || order.customer || "-")} / ${escapeHtml(billTagReference("JOB", lot.orderNumber))} / ${escapeHtml(billTagReference("BILL", bill.billNo))}</div>
+        <div class="bill-tag-customer${customerLengthClass}"><b>CUSTOMER</b><span>${escapeHtml(customerName || "-")}</span></div>
+        <div class="bill-tag-references">
+          <span>${escapeHtml(billTagReference("JOB", lot.orderNumber))}</span>
+          <span>${escapeHtml(billTagReference("BILL", bill.billNo))}</span>
+        </div>
         <div class="bill-tag-weights">
           ${billTagWeight("GW", item.finalGw)}
-          ${billTagWeight("STONE", item.stoneWeight)}
+          ${billTagWeight("NET", item.netWeight, "net")}
+          ${billTagWeight("SW", stoneBreakdown.swStoneWeight)}
+          ${billTagWeight("CLR", stoneBreakdown.colourStoneWeight)}
+          ${billTagWeight("ST TOTAL", stoneBreakdown.totalStoneWeight, "stone-total")}
           ${billTagWeight("BB", item.blackBeadsWeight)}
           ${billTagWeight("MOTI", item.motiWeight)}
           ${billTagWeight("MOP", item.mopWeight)}
           ${billTagWeight("SPRING", item.springWeight)}
           ${billTagWeight("OTHER", item.otherNonGoldWeight)}
-          ${billTagWeight("NET", item.netWeight, "net")}
         </div>
         <div class="bill-tag-barcode">${code128BarcodeSvg(barcodeValue, { maxLength: 60 })}</div>
       </div>

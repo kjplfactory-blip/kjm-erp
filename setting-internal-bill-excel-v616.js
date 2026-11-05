@@ -197,6 +197,22 @@
     });
   }
 
+  function excelHeaderStyle(value = "") {
+    const label = String(value || "").trim().toUpperCase();
+    if (/QC|OFFICE|STATUS|REMARK/.test(label)) return "HeaderStatus";
+    if (/TOTAL NON-GOLD|NON-GOLD|NET WEIGHT|WASTAGE|BASE FINE|TOTAL FINE|FINE WEIGHT/.test(label)) return "HeaderResult";
+    if (/SW STONE|COLOUR STONE|TOTAL STONE|STONE WEIGHT|^STONE \(/.test(label)) return "HeaderStone";
+    if (/BB |BLACK BEAD|MOTI|MOP|SPRING|OTHER/.test(label)) return "HeaderNonGold";
+    if (/FINAL GW|^GW \(/.test(label)) return "HeaderGold";
+    if (/CATEGORY|ITEM COLOUR|^SIZE$|PURITY|^ITEMS$/.test(label)) return "HeaderProduct";
+    if (/SR\.|BILL NO|BILL DATE|^LOT$|JOB CARD|CUSTOMER|ORDER TYPE|PR NO|DESIGN NAME/.test(label)) return "HeaderIdentity";
+    return "Header";
+  }
+
+  function excelHeaderRow(values = []) {
+    return values.map((value) => excelCell(value, excelHeaderStyle(value)));
+  }
+
   function billExcelColumns() {
     return [
       "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design Name", "Category / Item", "Size", "Item Colour", "Purity",
@@ -325,7 +341,22 @@
   }
 
   function excelStyleIndex(style = "") {
-    return { Title: 1, Header: 2, Weight: 3, Percent: 4, Total: 5 }[style] || 0;
+    return {
+      Title: 1,
+      Header: 2,
+      Weight: 3,
+      Percent: 4,
+      Total: 5,
+      HeaderIdentity: 6,
+      HeaderProduct: 7,
+      HeaderGold: 8,
+      HeaderNonGold: 9,
+      HeaderStone: 10,
+      HeaderResult: 11,
+      HeaderStatus: 12,
+      Data: 13,
+      TotalLabel: 14,
+    }[style] || 0;
   }
 
   function excelXlsxCellXml(cell = {}, rowNumber = 1, columnIndex = 0) {
@@ -353,17 +384,36 @@
 
   function excelXlsxWorksheetXml(worksheet = {}) {
     const rows = Array.isArray(worksheet.rows) ? worksheet.rows : [];
+    const columnCount = rows.reduce((largest, row) => Math.max(largest, Array.isArray(row) ? row.length : 0), 0);
+    const lastColumn = excelColumnName(Math.max(columnCount - 1, 0));
+    const headerRowIndex = rows.findIndex((row) => (row || []).some((cell) => String(cell?.style || "").startsWith("Header")));
+    const titleRowIndex = rows.findIndex((row) => (row || []).some((cell) => cell?.style === "Title"));
+    const frozenRows = Math.max(headerRowIndex + 1, 1);
+    let filterEndRow = rows.length;
+    while (filterEndRow > headerRowIndex + 1 && (rows[filterEndRow - 1] || []).some((cell) => ["Total", "TotalLabel"].includes(cell?.style))) {
+      filterEndRow -= 1;
+    }
     const sheetRows = rows.map((row, rowIndex) => {
       const cells = (Array.isArray(row) ? row : []).map((cell, columnIndex) => (
         excelXlsxCellXml(cell, rowIndex + 1, columnIndex)
       )).join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
+      const isTitle = (row || []).some((cell) => cell?.style === "Title");
+      const isHeader = (row || []).some((cell) => String(cell?.style || "").startsWith("Header"));
+      const height = isTitle ? ' ht="24" customHeight="1"' : isHeader ? ' ht="30" customHeight="1"' : "";
+      return `<row r="${rowIndex + 1}"${height}>${cells}</row>`;
     }).join("");
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${excelXlsxColumnWidths(rows)}<sheetData>${sheetRows}</sheetData><pageMargins left="0.25" right="0.25" top="0.4" bottom="0.4" header="0.2" footer="0.2"/></worksheet>`;
+    const dimension = columnCount && rows.length ? `<dimension ref="A1:${lastColumn}${rows.length}"/>` : "";
+    const autoFilter = headerRowIndex >= 0 && filterEndRow > headerRowIndex + 1
+      ? `<autoFilter ref="A${headerRowIndex + 1}:${lastColumn}${filterEndRow}"/>`
+      : "";
+    const mergedTitle = titleRowIndex >= 0 && columnCount > 1
+      ? `<mergeCells count="1"><mergeCell ref="A${titleRowIndex + 1}:${lastColumn}${titleRowIndex + 1}"/></mergeCells>`
+      : "";
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${dimension}<sheetViews><sheetView workbookViewId="0"><pane ySplit="${frozenRows}" topLeftCell="A${frozenRows + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${excelXlsxColumnWidths(rows)}<sheetData>${sheetRows}</sheetData>${autoFilter}${mergedTitle}<pageMargins left="0.25" right="0.25" top="0.4" bottom="0.4" header="0.2" footer="0.2"/></worksheet>`;
   }
 
   function excelXlsxStylesXml() {
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="0.000"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="3"><font><sz val="10"/><name val="Arial"/><family val="2"/></font><font><b/><sz val="14"/><name val="Arial"/><family val="2"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/><family val="2"/></font></fonts><fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCEFFD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF176D9C"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF1B8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD8E1E8"/></left><right style="thin"><color rgb="FFD8E1E8"/></right><top style="thin"><color rgb="FFD8E1E8"/></top><bottom style="thin"><color rgb="FFD8E1E8"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="164" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="0.000"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="4"><font><color rgb="FF18354A"/><sz val="10"/><name val="Arial"/><family val="2"/></font><font><b/><color rgb="FF0B4F7D"/><sz val="14"/><name val="Arial"/><family val="2"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/><family val="2"/></font><font><b/><color rgb="FF18354A"/><sz val="10"/><name val="Arial"/><family val="2"/></font></fonts><fills count="12"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCEFFD"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF176D9C"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF1B8"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0B4F7D"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2689B8"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3C94E"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFBFE3D0"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFA9D8F2"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF7D4A6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF5A7184"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7C9D6"/></left><right style="thin"><color rgb="FFB7C9D6"/></right><top style="thin"><color rgb="FFB7C9D6"/></top><bottom style="thin"><color rgb="FFB7C9D6"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="15"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="164" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="11" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   }
 
   function excelUniqueWorksheets(worksheets = []) {
@@ -515,8 +565,8 @@
     return [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - BILL DETAILS"], "Title"),
       excelRow(["Bill No", bill.billNo || "", "Bill Date", bill.billDate || "", "Lot", lot.number || "", "Job Card", lot.orderNumber || bill.jobNumber || ""]),
-      excelRow(billExcelColumns(), "Header"),
-      ...itemRows.map((row) => excelRow(row)),
+      excelHeaderRow(billExcelColumns()),
+      ...itemRows.map((row) => excelRow(row, "Data")),
       excelRow([
         "TOTAL", "", "", "", "", "", "", "", "", "", "", "",
         { value: totals.finalGw, type: "Number", style: "Total" }, "", "",
@@ -533,7 +583,7 @@
         { value: totals.baseFineWeight, type: "Number", style: "Total" },
         { value: totals.wastageFineWeight, type: "Number", style: "Total" },
         { value: totals.fineWeight, type: "Number", style: "Total" }, "", "", "",
-      ]),
+      ], "TotalLabel"),
     ];
   }
 
@@ -553,8 +603,8 @@
       alert("No generated Bill is available for Excel export.");
       return;
     }
-    const rows = [excelRow(billExcelColumns(), "Header")];
-    bills.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row) => rows.push(excelRow(row))));
+    const rows = [excelHeaderRow(billExcelColumns())];
+    bills.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row) => rows.push(excelRow(row, "Data"))));
     downloadExcelWorkbook(`ALL-BILL-DETAILS-${isoToday()}`, [excelWorksheet("All Bill Details", rows)]);
   };
 
@@ -674,7 +724,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - COMBINED BILL SUMMARY"], "Title"),
       excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
-      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Wastage Fine (g)", "Fine Weight (g)"], "Header"),
+      excelHeaderRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Wastage Fine (g)", "Fine Weight (g)"]),
     ];
     entries.forEach(({ lot, bill }, index) => {
       const totals = billTotals(bill.items || []);
@@ -694,7 +744,7 @@
         { value: totals.netWeight, type: "Number", style: "Weight" },
         { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
         { value: totals.fineWeight, type: "Number", style: "Weight" },
-      ]));
+      ], "Data"));
     });
     const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
     rows.push(excelRow([
@@ -713,7 +763,7 @@
       { value: grand.netWeight, type: "Number", style: "Total" },
       { value: grand.wastageFineWeight, type: "Number", style: "Total" },
       { value: grand.fineWeight, type: "Number", style: "Total" },
-    ]));
+    ], "TotalLabel"));
     return rows;
   }
 
@@ -721,12 +771,12 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - INDIVIDUAL ITEM DETAILS"], "Title"),
       excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
-      excelRow(["Item Sr.", "Bill Item Sr.", ...billExcelColumns()], "Header"),
+      excelHeaderRow(["Item Sr.", "Bill Item Sr.", ...billExcelColumns()]),
     ];
     let itemSerial = 0;
     entries.forEach(({ lot, bill }) => billExcelRows(lot, bill).forEach((row, billItemIndex) => {
       itemSerial += 1;
-      rows.push(excelRow([itemSerial, billItemIndex + 1, ...row]));
+      rows.push(excelRow([itemSerial, billItemIndex + 1, ...row], "Data"));
     }));
     const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
     rows.push(excelRow([
@@ -745,7 +795,7 @@
       { value: grand.baseFineWeight, type: "Number", style: "Total" },
       { value: grand.wastageFineWeight, type: "Number", style: "Total" },
       { value: grand.fineWeight, type: "Number", style: "Total" }, "", "", "",
-    ]));
+    ], "TotalLabel"));
     return rows;
   }
 
@@ -787,7 +837,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - BILL PERIOD WORK SUMMARY"], "Title"),
       excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN"), "Bills", entries.length]),
-      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+      excelHeaderRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"]),
     ];
     entries.forEach(({ lot, bill }, index) => {
       const totals = billTotals(bill.items || []);
@@ -808,7 +858,7 @@
         { value: totals.baseFineWeight, type: "Number", style: "Weight" },
         { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
         { value: totals.fineWeight, type: "Number", style: "Weight" },
-      ]));
+      ], "Data"));
     });
     const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
     rows.push(excelRow([
@@ -828,7 +878,7 @@
       { value: grand.baseFineWeight, type: "Number", style: "Total" },
       { value: grand.wastageFineWeight, type: "Number", style: "Total" },
       { value: grand.fineWeight, type: "Number", style: "Total" },
-    ]));
+    ], "TotalLabel"));
     return rows;
   }
 
@@ -850,7 +900,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - PERIOD PURITY SUMMARY"], "Title"),
       excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN")]),
-      excelRow(["Purity", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+      excelHeaderRow(["Purity", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"]),
     ];
     [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true })).forEach(([purity, items]) => {
       const totals = billTotals(items);
@@ -871,7 +921,7 @@
         { value: totals.baseFineWeight, type: "Number", style: "Weight" },
         { value: totals.wastageFineWeight, type: "Number", style: "Weight" },
         { value: totals.fineWeight, type: "Number", style: "Weight" },
-      ]));
+      ], "Data"));
     });
     const grand = billTotals(entries.flatMap(({ bill }) => bill.items || []));
     rows.push(excelRow([
@@ -891,7 +941,7 @@
       { value: grand.baseFineWeight, type: "Number", style: "Total" },
       { value: grand.wastageFineWeight, type: "Number", style: "Total" },
       { value: grand.fineWeight, type: "Number", style: "Total" },
-    ]));
+    ], "TotalLabel"));
     return rows;
   }
 

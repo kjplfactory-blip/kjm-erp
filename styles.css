@@ -11592,18 +11592,18 @@ body.measuring-transfer-bag .global-print-area {
 
 .bill-tag-content {
   display: grid;
-  grid-template-rows: auto auto auto auto 6.6mm;
-  gap: 0.25mm;
+  grid-template-rows: 2.5mm 2.05mm 2.2mm 1.8mm minmax(7.2mm, 1fr) 4.7mm;
+  gap: 0.12mm;
   width: 94%;
   min-width: 94%;
   max-width: 94%;
-  height: 25.7mm;
-  min-height: 25.7mm;
-  max-height: 25.7mm;
+  height: 25mm;
+  min-height: 25mm;
+  max-height: 25mm;
   margin: 0;
   justify-self: center;
   align-self: center;
-  padding: 0.65mm 0.75mm;
+  padding: 0.4mm 0.6mm;
   border: 0.12mm solid #4b5563;
   box-sizing: border-box;
   overflow: hidden;
@@ -11626,69 +11626,126 @@ body.measuring-transfer-bag .global-print-area {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 1mm;
+  gap: 0.6mm;
   min-width: 0;
 }
 
 .bill-tag-head strong {
-  font-size: 7pt;
+  font-size: 6.2pt;
 }
 
 .bill-tag-head b {
   overflow: hidden;
   color: #000000;
-  font-size: 6.6pt;
+  font-size: 6pt;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .bill-tag-head span {
-  font-size: 6pt;
+  font-size: 5.5pt;
   font-weight: 800;
 }
 
 .bill-tag-meta {
   min-width: 0;
   overflow: hidden;
-  font-size: 5pt;
+  font-size: 4.4pt;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bill-tag-customer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5mm;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 4.8pt;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bill-tag-customer b {
+  color: #4b5563;
+  font-size: 3.6pt;
+}
+
+.bill-tag-customer span {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-tag-customer.long span {
+  font-size: 4.3pt;
+}
+
+.bill-tag-customer.very-long span {
+  font-size: 3.8pt;
+  letter-spacing: -0.08pt;
+}
+
+.bill-tag-references {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1mm;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 3.9pt;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bill-tag-references span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .bill-tag-weights {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.35mm;
+  gap: 0.18mm;
 }
 
 .bill-tag-weights span {
   display: grid;
   min-width: 0;
-  padding: 0.25mm 0.35mm;
+  padding: 0.1mm 0.2mm;
   border: 0.15mm solid #9ca3af;
   box-sizing: border-box;
   text-align: center;
 }
 
 .bill-tag-weights span.net {
-  grid-column: span 2;
+  grid-column: auto;
   border-color: #111111;
   background: #eeeeee;
 }
 
+.bill-tag-weights span.stone-total {
+  border-color: #287fa8;
+  background: #e6f4fb;
+}
+
 .bill-tag-weights b {
   color: #4b5563;
-  font-size: 4pt;
+  font-size: 3.1pt;
   line-height: 1;
 }
 
 .bill-tag-weights strong {
   overflow: hidden;
   color: #000000;
-  font-size: 5.3pt;
+  font-size: 4.3pt;
   line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -11703,9 +11760,9 @@ body.measuring-transfer-bag .global-print-area {
 
 .bill-tag-barcode .detail-barcode-wrap {
   display: grid;
-  grid-template-rows: minmax(4.1mm, 1fr) auto;
-  gap: 0.15mm;
-  width: 92%;
+  grid-template-rows: minmax(2.8mm, 1fr) auto;
+  gap: 0.08mm;
+  width: 90%;
   min-width: 0;
   height: 100%;
   justify-items: stretch;
@@ -11714,14 +11771,14 @@ body.measuring-transfer-bag .global-print-area {
 .bill-tag-barcode .detail-barcode-wrap .code128-barcode {
   width: 100%;
   height: 100%;
-  min-height: 4.1mm;
+  min-height: 2.8mm;
   fill: #000000;
 }
 
 .bill-tag-barcode .detail-barcode-wrap small {
   overflow: hidden;
   color: #000000;
-  font-size: 4pt;
+  font-size: 3.4pt;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0;
