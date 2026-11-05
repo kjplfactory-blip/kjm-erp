@@ -200,7 +200,8 @@
   function billExcelColumns() {
     return [
       "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Order Type", "PR No", "Design Name", "Category / Item", "Size", "Item Colour", "Purity",
-      "Final GW (g)", "BB No", "BB Type", "BB Weight (g)", "Moti Weight (g)", "Stone Weight (g)", "Spring Weight (g)", "Other Weight (g)",
+      "Final GW (g)", "BB No", "BB Type", "BB Weight (g)", "Moti Weight (g)", "MOP Weight (g)",
+      "SW Stone Weight (g)", "Colour Stone Weight (g)", "Total Stone Weight (g)", "Spring Weight (g)", "Other Weight (g)",
       "Total Non-Gold (g)", "Net Weight (g)", "Wastage %", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)", "QC Status", "Office Status", "Remarks",
     ];
   }
@@ -248,6 +249,7 @@
     return (bill.items || []).map((item) => {
       const order = findById("orders", item.orderId) || {};
       const fine = billItemFineBreakup(item);
+      const stoneBreakdown = billItemStoneWeightBreakdown(item);
       const linkedItemCode = order.id ? jobItemSubcategoryLabel(order) : "";
       const itemName = linkedItemCode && linkedItemCode !== "-"
         ? linkedItemCode
@@ -259,6 +261,9 @@
         { value: billNumber(item.finalGw), type: "Number", style: "Weight" }, item.bbNo || "", item.bbType || "",
         { value: billNumber(item.blackBeadsWeight || item.bbWeight), type: "Number", style: "Weight" },
         { value: billNumber(item.motiWeight || item.mmWeight), type: "Number", style: "Weight" },
+        { value: billNumber(item.mopWeight), type: "Number", style: "Weight" },
+        { value: stoneBreakdown.swStoneWeight, type: "Number", style: "Weight" },
+        { value: stoneBreakdown.colourStoneWeight, type: "Number", style: "Weight" },
         { value: billNumber(item.stoneWeight || item.stWeight), type: "Number", style: "Weight" },
         { value: billNumber(item.springWeight), type: "Number", style: "Weight" },
         { value: billNumber(item.otherNonGoldWeight || item.otherWeight), type: "Number", style: "Weight" },
@@ -517,6 +522,9 @@
         { value: totals.finalGw, type: "Number", style: "Total" }, "", "",
         { value: totals.bbWeight, type: "Number", style: "Total" },
         { value: totals.motiWeight, type: "Number", style: "Total" },
+        { value: totals.mopWeight, type: "Number", style: "Total" },
+        { value: totals.swStoneWeight, type: "Number", style: "Total" },
+        { value: totals.colourStoneWeight, type: "Number", style: "Total" },
         { value: totals.stoneWeight, type: "Number", style: "Total" },
         { value: totals.springWeight, type: "Number", style: "Total" },
         { value: totals.otherNonGoldWeight, type: "Number", style: "Total" },
@@ -666,7 +674,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - COMBINED BILL SUMMARY"], "Title"),
       excelRow(["Generated On", new Date().toLocaleString("en-IN"), "Selected Bills", entries.length]),
-      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "Stone (g)", "BB (g)", "Moti (g)", "Spring (g)", "Other (g)", "Non-Gold (g)", "Net Weight (g)", "Wastage Fine (g)", "Fine Weight (g)"], "Header"),
+      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Wastage Fine (g)", "Fine Weight (g)"], "Header"),
     ];
     entries.forEach(({ lot, bill }, index) => {
       const totals = billTotals(bill.items || []);
@@ -674,9 +682,12 @@
         index + 1, bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", multiBillExcelCustomers(lot, bill),
         { value: totals.pieces, type: "Number" },
         { value: totals.finalGw, type: "Number", style: "Weight" },
-        { value: totals.stoneWeight, type: "Number", style: "Weight" },
         { value: totals.bbWeight, type: "Number", style: "Weight" },
         { value: totals.motiWeight, type: "Number", style: "Weight" },
+        { value: totals.mopWeight, type: "Number", style: "Weight" },
+        { value: totals.swStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.colourStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.stoneWeight, type: "Number", style: "Weight" },
         { value: totals.springWeight, type: "Number", style: "Weight" },
         { value: totals.otherNonGoldWeight, type: "Number", style: "Weight" },
         { value: totals.reducedWeight, type: "Number", style: "Weight" },
@@ -690,9 +701,12 @@
       "GRAND TOTAL", "", "", "", "", "",
       { value: grand.pieces, type: "Number", style: "Total" },
       { value: grand.finalGw, type: "Number", style: "Total" },
-      { value: grand.stoneWeight, type: "Number", style: "Total" },
       { value: grand.bbWeight, type: "Number", style: "Total" },
       { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.mopWeight, type: "Number", style: "Total" },
+      { value: grand.swStoneWeight, type: "Number", style: "Total" },
+      { value: grand.colourStoneWeight, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
       { value: grand.springWeight, type: "Number", style: "Total" },
       { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
       { value: grand.reducedWeight, type: "Number", style: "Total" },
@@ -720,6 +734,9 @@
       { value: grand.finalGw, type: "Number", style: "Total" }, "", "",
       { value: grand.bbWeight, type: "Number", style: "Total" },
       { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.mopWeight, type: "Number", style: "Total" },
+      { value: grand.swStoneWeight, type: "Number", style: "Total" },
+      { value: grand.colourStoneWeight, type: "Number", style: "Total" },
       { value: grand.stoneWeight, type: "Number", style: "Total" },
       { value: grand.springWeight, type: "Number", style: "Total" },
       { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
@@ -770,7 +787,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - BILL PERIOD WORK SUMMARY"], "Title"),
       excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN"), "Bills", entries.length]),
-      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "Stone (g)", "BB (g)", "Moti (g)", "Spring (g)", "Other (g)", "Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+      excelRow(["Sr.", "Bill No", "Bill Date", "Lot", "Job Card", "Customer", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
     ];
     entries.forEach(({ lot, bill }, index) => {
       const totals = billTotals(bill.items || []);
@@ -778,9 +795,12 @@
         index + 1, bill.billNo || "", bill.billDate || "", lot.number || "", lot.orderNumber || bill.jobNumber || "", multiBillExcelCustomers(lot, bill),
         { value: totals.pieces, type: "Number" },
         { value: totals.finalGw, type: "Number", style: "Weight" },
-        { value: totals.stoneWeight, type: "Number", style: "Weight" },
         { value: totals.bbWeight, type: "Number", style: "Weight" },
         { value: totals.motiWeight, type: "Number", style: "Weight" },
+        { value: totals.mopWeight, type: "Number", style: "Weight" },
+        { value: totals.swStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.colourStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.stoneWeight, type: "Number", style: "Weight" },
         { value: totals.springWeight, type: "Number", style: "Weight" },
         { value: totals.otherNonGoldWeight, type: "Number", style: "Weight" },
         { value: totals.reducedWeight, type: "Number", style: "Weight" },
@@ -795,9 +815,12 @@
       "GRAND TOTAL", "", "", "", "", "",
       { value: grand.pieces, type: "Number", style: "Total" },
       { value: grand.finalGw, type: "Number", style: "Total" },
-      { value: grand.stoneWeight, type: "Number", style: "Total" },
       { value: grand.bbWeight, type: "Number", style: "Total" },
       { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.mopWeight, type: "Number", style: "Total" },
+      { value: grand.swStoneWeight, type: "Number", style: "Total" },
+      { value: grand.colourStoneWeight, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
       { value: grand.springWeight, type: "Number", style: "Total" },
       { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
       { value: grand.reducedWeight, type: "Number", style: "Total" },
@@ -827,7 +850,7 @@
     const rows = [
       excelRow(["KHUSHALI JEWELLS MANUFACTURING - PERIOD PURITY SUMMARY"], "Title"),
       excelRow(["From Date", fromDate, "To Date", toDate, "Generated On", new Date().toLocaleString("en-IN")]),
-      excelRow(["Purity", "Items", "GW (g)", "Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
+      excelRow(["Purity", "Items", "GW (g)", "BB (g)", "Moti (g)", "MOP (g)", "SW Stone (g)", "Colour Stone (g)", "Total Stone (g)", "Spring (g)", "Other (g)", "Total Non-Gold (g)", "Net Weight (g)", "Base Fine (g)", "Wastage Fine (g)", "Total Fine (g)"], "Header"),
     ];
     [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true })).forEach(([purity, items]) => {
       const totals = billTotals(items);
@@ -835,6 +858,14 @@
         purity,
         { value: totals.pieces, type: "Number" },
         { value: totals.finalGw, type: "Number", style: "Weight" },
+        { value: totals.bbWeight, type: "Number", style: "Weight" },
+        { value: totals.motiWeight, type: "Number", style: "Weight" },
+        { value: totals.mopWeight, type: "Number", style: "Weight" },
+        { value: totals.swStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.colourStoneWeight, type: "Number", style: "Weight" },
+        { value: totals.stoneWeight, type: "Number", style: "Weight" },
+        { value: totals.springWeight, type: "Number", style: "Weight" },
+        { value: totals.otherNonGoldWeight, type: "Number", style: "Weight" },
         { value: totals.reducedWeight, type: "Number", style: "Weight" },
         { value: totals.netWeight, type: "Number", style: "Weight" },
         { value: totals.baseFineWeight, type: "Number", style: "Weight" },
@@ -847,6 +878,14 @@
       "GRAND TOTAL",
       { value: grand.pieces, type: "Number", style: "Total" },
       { value: grand.finalGw, type: "Number", style: "Total" },
+      { value: grand.bbWeight, type: "Number", style: "Total" },
+      { value: grand.motiWeight, type: "Number", style: "Total" },
+      { value: grand.mopWeight, type: "Number", style: "Total" },
+      { value: grand.swStoneWeight, type: "Number", style: "Total" },
+      { value: grand.colourStoneWeight, type: "Number", style: "Total" },
+      { value: grand.stoneWeight, type: "Number", style: "Total" },
+      { value: grand.springWeight, type: "Number", style: "Total" },
+      { value: grand.otherNonGoldWeight, type: "Number", style: "Total" },
       { value: grand.reducedWeight, type: "Number", style: "Total" },
       { value: grand.netWeight, type: "Number", style: "Total" },
       { value: grand.baseFineWeight, type: "Number", style: "Total" },

@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v761</small>
+          <small class="app-version-badge">App v763</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v761</span>
+            <span class="app-version-badge">App v763</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -721,7 +721,7 @@
             <div class="non-gold-control-filters">
               <label>Search <input id="non-gold-control-search" class="search" placeholder="Material, department, Job Card, PR or reference"></label>
               <label>Karat <select id="non-gold-control-purity"><option value="">All Karats</option><option value="9K">9K</option><option value="14K">14K</option><option value="18K">18K</option><option value="22K">22K</option></select></label>
-              <label>Material <select id="non-gold-control-material"><option value="">All Materials</option><option value="stone">Stone</option><option value="black-beads">Black Beads</option><option value="moti">Moti</option><option value="spring">Spring</option><option value="other">Other / Unidentified</option></select></label>
+              <label>Material <select id="non-gold-control-material"><option value="">All Materials</option><option value="stone">Stone</option><option value="black-beads">Black Beads</option><option value="moti">Moti</option><option value="mop">MOP</option><option value="spring">Spring</option><option value="other">Other / Unidentified</option></select></label>
             </div>
             <div class="table-wrap non-gold-control-table-wrap">
               <table class="non-gold-control-table">
@@ -770,6 +770,7 @@
             <label>Material <select name="materialType" required>
               <option value="stone">Stone</option>
               <option value="moti">Moti</option>
+              <option value="mop">MOP</option>
               <option value="black-beads">Black Beads</option>
               <option value="spring">Spring</option>
               <option value="other">Other</option>
@@ -793,6 +794,7 @@
             <label>Material <select name="materialType" required>
               <option value="stone">Stone</option>
               <option value="moti">Moti</option>
+              <option value="mop">MOP</option>
               <option value="black-beads">Black Beads</option>
               <option value="spring">Spring</option>
               <option value="other">Other</option>
@@ -811,6 +813,7 @@
             <label>Material <select name="materialType" required>
               <option value="stone">Stone</option>
               <option value="moti">Moti</option>
+              <option value="mop">MOP</option>
               <option value="black-beads">Black Beads</option>
               <option value="spring">Spring</option>
               <option value="other">Other</option>
@@ -1142,6 +1145,7 @@
                   <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="stone"> Stone</span><input type="number" min="0" step="0.001" data-non-gold-weight="stone" placeholder="Wt (g)" disabled></label>
                   <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="black-beads"> Black Beads</span><input type="number" min="0" step="0.001" data-non-gold-weight="black-beads" placeholder="Wt (g)" disabled></label>
                   <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="moti"> Moti</span><input type="number" min="0" step="0.001" data-non-gold-weight="moti" placeholder="Wt (g)" disabled></label>
+                  <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="mop"> MOP</span><input type="number" min="0" step="0.001" data-non-gold-weight="mop" placeholder="Wt (g)" disabled></label>
                   <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="spring"> Spring</span><input type="number" min="0" step="0.001" data-non-gold-weight="spring" placeholder="Wt (g)" disabled></label>
                   <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="other"> Other</span><input type="number" min="0" step="0.001" data-non-gold-weight="other" placeholder="Wt (g)" disabled></label>
                 </div>
@@ -1216,6 +1220,7 @@
                   <option value="stone">Stone</option>
                   <option value="black-beads">Black Beads</option>
                   <option value="moti">Moti</option>
+                  <option value="mop">MOP</option>
                   <option value="spring">Spring</option>
                   <option value="other">Other / Accessory</option>
                 </select>
@@ -1246,6 +1251,7 @@
                   <option value="stone">Stone</option>
                   <option value="black-beads">Black Beads</option>
                   <option value="moti">Moti</option>
+                  <option value="mop">MOP</option>
                   <option value="spring">Spring</option>
                   <option value="other">Other / Accessory</option>
                 </select>
@@ -1346,6 +1352,7 @@
                 <label>Stone (g) <input name="stoneWeight" type="number" min="0" step="0.001" value="0"></label>
                 <label>Black Beads (g) <input name="blackBeadsWeight" type="number" min="0" step="0.001" value="0"></label>
                 <label>Moti (g) <input name="motiWeight" type="number" min="0" step="0.001" value="0"></label>
+                <label>MOP (g) <input name="mopWeight" type="number" min="0" step="0.001" value="0"></label>
                 <label>Spring (g) <input name="springWeight" type="number" min="0" step="0.001" value="0"></label>
                 <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.001" value="0"></label>
               </div>
@@ -1369,7 +1376,7 @@
             </div>
             <div class="factory-reset-warning">
               <strong>One confirmed scan, one complete transaction</strong>
-              <span>Stone, Black Beads, Moti, Spring, Other non-gold, and Net Gold are recorded separately.</span>
+                <span>Stone, Black Beads, Moti, MOP, Spring, Other non-gold, and Net Gold are recorded separately.</span>
               <span>The same bill party receives the inward fine-gold entry, keeping its Factory Ledger balance matched.</span>
               <span>A PR already returned to Production Shelf cannot be received twice.</span>
             </div>
@@ -2063,7 +2070,7 @@
                 <section class="manual-reset-choice-card" data-reset-section="non-gold">
                   <div class="manual-reset-choice-head">
                     <span class="manual-reset-code">A</span>
-                    <div><strong>Non-Gold Inventory</strong><small>Stone, Black Beads, Moti, Spring and Other non-gold stock.</small></div>
+                  <div><strong>Non-Gold Inventory</strong><small>Stone, Black Beads, Moti, MOP, Spring and Other non-gold stock.</small></div>
                   </div>
                   <label data-choice-state="RESET"><input type="radio" name="nonGoldMode" value="A1"> <span><b>A1</b> Reset all current non-gold stock to zero</span></label>
                   <label data-choice-state="KEEP"><input type="radio" name="nonGoldMode" value="A2"> <span><b>A2</b> Keep current non-gold stock</span></label>
@@ -3101,6 +3108,7 @@
             <label>Stone - Direct (g) <input name="fittingNonGoldStoneWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
             <label>Black Beads - Issued (g) <input name="fittingNonGoldBlackBeadsWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
             <label>Moti - Issued (g) <input name="fittingNonGoldMotiWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
+            <label>MOP - Issued (g) <input name="fittingNonGoldMopWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
             <label>Spring - Issued (g) <input name="fittingNonGoldSpringWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
             <label>Other - Issued (g) <input name="fittingNonGoldOtherWeight" type="number" min="0" step="0.001" value="0" inputmode="decimal"></label>
           </div>
@@ -3578,6 +3586,7 @@
           <label>Stone Weight (g) <input name="stoneWeight" type="number" min="0" step="0.00001" value="0"></label>
           <label>Black Beads Weight (g) <input name="blackBeadsWeight" type="number" min="0" step="0.00001" value="0"></label>
           <label>Moti Weight (g) <input name="motiWeight" type="number" min="0" step="0.00001" value="0"></label>
+          <label>MOP Weight (g) <input name="mopWeight" type="number" min="0" step="0.00001" value="0"></label>
           <label>Spring Weight (g) <input name="springWeight" type="number" min="0" step="0.00001" value="0"></label>
           <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.00001" value="0"></label>
         </div>
@@ -3642,6 +3651,7 @@
               <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="stone"> Stone</span><input type="number" min="0" step="0.001" data-non-gold-weight="stone" placeholder="Wt (g)" disabled></label>
               <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="black-beads"> Black Beads</span><input type="number" min="0" step="0.001" data-non-gold-weight="black-beads" placeholder="Wt (g)" disabled></label>
               <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="moti"> Moti</span><input type="number" min="0" step="0.001" data-non-gold-weight="moti" placeholder="Wt (g)" disabled></label>
+              <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="mop"> MOP</span><input type="number" min="0" step="0.001" data-non-gold-weight="mop" placeholder="Wt (g)" disabled></label>
               <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="spring"> Spring</span><input type="number" min="0" step="0.001" data-non-gold-weight="spring" placeholder="Wt (g)" disabled></label>
               <label class="non-gold-component"><span><input type="checkbox" data-non-gold-check="other"> Other</span><input type="number" min="0" step="0.001" data-non-gold-weight="other" placeholder="Wt (g)" disabled></label>
             </div>
@@ -3925,6 +3935,7 @@
               <label>Stone (g) <input name="stoneWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Black Beads (g) <input name="blackBeadsWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Moti (g) <input name="motiWeight" type="number" min="0" step="0.001" value="0"></label>
+              <label>MOP (g) <input name="mopWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Spring (g) <input name="springWeight" type="number" min="0" step="0.001" value="0"></label>
               <label>Other Non-Gold (g) <input name="otherNonGoldWeight" type="number" min="0" step="0.001" value="0"></label>
             </div>
@@ -4277,20 +4288,20 @@
   <script src="fitting-accessory-quantity-v620.js?v=620"></script>
   <script src="fine-integrity-v695.js?v=697"></script>
   <script src="central-non-gold-shelf-v688.js?v=697"></script>
-  <script src="central-non-gold-flow-v699.js?v=699"></script>
+  <script src="central-non-gold-flow-v699.js?v=763"></script>
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-  <script src="app.js?v=761"></script>
-    <script src="office-reference-bills-v715.js?v=715.1"></script>
+  <script src="app.js?v=763"></script>
+  <script src="office-reference-bills-v715.js?v=763"></script>
   <script src="sequential-numbering-v714.js?v=745"></script>
   <script src="setting-split-v611.js?v=611"></script>
   <script src="setting-split-restore-v612.js?v=612"></script>
     <script src="department-holdings-v615.js?v=697.3"></script>
-  <script src="setting-internal-bill-excel-v616.js?v=736"></script>
+  <script src="setting-internal-bill-excel-v616.js?v=763"></script>
   <script src="setting-master-tiles-v617.js?v=671"></script>
   <script src="setting-manual-transfer-v618.js?v=618"></script>
   <script src="setting-received-manual-lots-v619.js?v=619"></script>
-  <script src="diamond-billing-v753.js?v=761"></script>
+  <script src="diamond-billing-v753.js?v=763"></script>
 </body>
 </html>

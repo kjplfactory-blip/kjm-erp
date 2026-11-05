@@ -344,6 +344,7 @@
         result.stoneWeight
         + result.blackBeadsWeight
         + result.motiWeight
+        + result.mopWeight
         + result.springWeight
         + result.otherNonGoldWeight
       ));

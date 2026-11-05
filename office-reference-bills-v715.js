@@ -122,6 +122,7 @@
           <span><b>Stone</b>${gram(nonGold.stoneWeight)}</span>
           <span><b>Black Beads</b>${gram(nonGold.blackBeadsWeight)}</span>
           <span><b>Moti</b>${gram(nonGold.motiWeight)}</span>
+          <span><b>MOP</b>${gram(nonGold.mopWeight)}</span>
           <span><b>Spring</b>${gram(nonGold.springWeight)}</span>
           <span><b>Other</b>${gram(nonGold.otherNonGoldWeight)}</span>
           <span><b>Total Non-Gold</b>${gram(nonGold.total)}</span>
@@ -194,6 +195,7 @@
       ["Stone", gram(nonGold.stoneWeight)],
       ["Black Beads", gram(nonGold.blackBeadsWeight)],
       ["Moti", gram(nonGold.motiWeight)],
+      ["MOP", gram(nonGold.mopWeight)],
       ["Spring", gram(nonGold.springWeight)],
       ["Other Non-Gold", gram(nonGold.otherNonGoldWeight)],
       ["Total Non-Gold", gram(nonGold.total)],

@@ -1,7 +1,7 @@
 (function attachCentralNonGoldFlowV699(global) {
   "use strict";
 
-  const MATERIALS = ["stone", "black-beads", "moti", "spring", "other"];
+  const MATERIALS = ["stone", "black-beads", "moti", "mop", "spring", "other"];
 
   function number(value) {
     const parsed = Number(value || 0);
@@ -37,6 +37,7 @@
     if (["stone", "stones", "st"].includes(text)) return "stone";
     if (["black beads", "blackbeads", "bb"].includes(text)) return "black-beads";
     if (["moti", "mm"].includes(text)) return "moti";
+    if (["mop", "mother of pearl", "motherofpearl"].includes(text)) return "mop";
     if (["spring", "springs"].includes(text)) return "spring";
     return "other";
   }

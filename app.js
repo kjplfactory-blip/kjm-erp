@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v761";
+const APP_VERSION = "v763";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -154,6 +154,7 @@ const SET_ITEM_CATEGORY_KEYS = [...SET_ITEM_KEYS, "MM"];
 const PRODUCTION_NON_GOLD_TYPES = [
   { value: "stone", label: "Stone" },
   { value: "moti", label: "Moti" },
+  { value: "mop", label: "MOP" },
   { value: "black-beads", label: "Black Beads" },
   { value: "spring", label: "Spring" },
   { value: "combination", label: "Combination / Mixed Non-Gold" },
@@ -164,6 +165,7 @@ const REQUESTED_18K_OPENING_NON_GOLD = Object.freeze({
   stone: 284.300,
   "black-beads": 24.810,
   moti: 42.622,
+  mop: 0,
   spring: 5.630,
   other: 0,
 });
@@ -2694,7 +2696,7 @@ document.getElementById("factory-in-form")?.addEventListener("change", (event) =
 });
 
 document.getElementById("factory-in-form")?.addEventListener("input", (event) => {
-  if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
+    if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "mopWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
     updateFactoryRejectedMode(event.currentTarget);
   }
 });
@@ -2854,7 +2856,7 @@ document.getElementById("factory-entry-edit-form")?.addEventListener("change", (
   if (event.target.name === "materialType") updateFactoryRejectedMode(event.currentTarget);
 });
 document.getElementById("factory-entry-edit-form")?.addEventListener("input", (event) => {
-  if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
+    if (["weight", "stoneWeight", "blackBeadsWeight", "motiWeight", "mopWeight", "springWeight", "otherNonGoldWeight"].includes(event.target.name)) {
     updateFactoryRejectedMode(event.currentTarget);
   }
 });
@@ -9198,6 +9200,7 @@ function normalizeOfficeReturnFactoryLedgerV735(currentState = state) {
       stoneWeight: Number(weight3(breakdown.stone || 0)),
       blackBeadsWeight: Number(weight3(breakdown["black-beads"] || 0)),
       motiWeight: Number(weight3(breakdown.moti || 0)),
+      mopWeight: Number(weight3(breakdown.mop || 0)),
       springWeight: Number(weight3(breakdown.spring || 0)),
       otherNonGoldWeight: Number(weight3(breakdown.other || 0)),
       netWeight,
@@ -11731,7 +11734,7 @@ function isSetItemCategory(value = "") {
 }
 
 function needsNormalSize(value = "") {
-  return ["BR", "LR", "GR"].includes(categoryCode(value));
+  return ["BR", "LR", "GR", "PB"].includes(categoryCode(value));
 }
 
 function updateOrderItemCategoryFields(row) {
@@ -12980,6 +12983,7 @@ function phoneBarcodeProductHtml(match) {
           ${jobItemDetailCell("Hand Stone", `${handStone.pcs} pcs / ${gram(handStone.weight)}`)}
           ${jobItemDetailCell("Black Beads", hasFinalWeights ? gram(nonGold.blackBeadsWeight) : "-")}
           ${jobItemDetailCell("Moti", hasFinalWeights ? gram(nonGold.motiWeight) : "-")}
+          ${jobItemDetailCell("MOP", hasFinalWeights ? gram(nonGold.mopWeight) : "-")}
           ${jobItemDetailCell("Spring", hasFinalWeights ? gram(nonGold.springWeight) : "-")}
           ${jobItemDetailCell("Other Non-Gold", hasFinalWeights ? gram(nonGold.otherNonGoldWeight) : "-")}
           ${jobItemDetailCell("Total Non-Gold", hasFinalWeights ? gram(nonGold.total) : gram(waxStone.weight + handStone.weight))}
@@ -14754,6 +14758,7 @@ function safeItemNonGoldCategory(item = {}) {
   if (description.includes("stone")) return "stone";
   if (description.includes("black") || description.includes("bead")) return "black-beads";
   if (description.includes("moti")) return "moti";
+  if (description.includes("mop") || description.includes("mother of pearl") || description.includes("mother-of-pearl")) return "mop";
   if (description.includes("spring")) return "spring";
   if (description.includes("combination") || description.includes("mixed non-gold")) return "combination";
   return "other";
@@ -16491,7 +16496,7 @@ function normalizeSafeDepartmentReturn(entry = {}, currentState = state) {
   const grossWeight = Math.abs(Number(weight3(entry.grossWeight || 0)));
   const waxStoneWeight = Math.abs(Number(weight3(entry.waxStoneWeight || 0)));
   const lossWeight = Math.abs(Number(weight3(entry.lossWeight || 0)));
-  const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "casting-item", "rod", "rejected-item", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "other"];
+  const allowedReturnTypes = ["loss", "wastage", "rava", "laser-wire", "tar", "patta", "accessory", "casting-item", "rod", "rejected-item", "chain", "gold-ball", "stone", "black-beads", "moti", "mop", "spring", "non-gold-other", "other"];
   const returnType = allowedReturnTypes.includes(entry.returnType) ? entry.returnType : "other";
   const savedNonGoldCategory = normalizeSafeNonGoldCategory(entry.nonGoldCategory || safeDepartmentReturnNonGoldCategory(returnType));
   const savedNonGoldWeight = Math.abs(Number(weight3(entry.nonGoldWeight ?? (savedNonGoldCategory ? grossWeight - waxStoneWeight : 0))));
@@ -16550,6 +16555,7 @@ function safeDepartmentReturnLabel(value = "") {
     stone: "Stone",
     "black-beads": "Black Beads",
     moti: "Moti",
+    mop: "MOP",
     spring: "Spring",
     "non-gold-other": "Other Non-Gold",
     other: "Other Material",
@@ -16566,12 +16572,12 @@ function safeDepartmentReturnSafeKind(value = "") {
 }
 
 function safeDepartmentReturnNonGoldCategory(value = "") {
-  if (["stone", "black-beads", "moti", "spring"].includes(value)) return value;
+  if (["stone", "black-beads", "moti", "mop", "spring"].includes(value)) return value;
   return value === "non-gold-other" ? "other" : "";
 }
 
 function safeDepartmentReceiveReturnTypes() {
-  return ["accessory", "casting-item", "rod", "rejected-item", "patta", "tar", "chain", "gold-ball", "stone", "black-beads", "moti", "spring", "non-gold-other", "rava", "laser-wire", "wastage", "loss", "other"];
+  return ["accessory", "casting-item", "rod", "rejected-item", "patta", "tar", "chain", "gold-ball", "stone", "black-beads", "moti", "mop", "spring", "non-gold-other", "rava", "laser-wire", "wastage", "loss", "other"];
 }
 
 function safeDepartmentReceiveDestinationValue(department = {}, process = "") {
@@ -17530,6 +17536,7 @@ function factoryRejectedBreakdown(value = {}) {
     stone: value.stoneWeight,
     "black-beads": value.blackBeadsWeight,
     moti: value.motiWeight,
+    mop: value.mopWeight,
     spring: value.springWeight,
     other: value.otherNonGoldWeight,
   });
@@ -17651,6 +17658,7 @@ function addFactoryLedgerEntry(entry = {}) {
     stoneWeight: Number(weight3(entry.stoneWeight ?? nonGoldBreakdown.stone ?? 0)),
     blackBeadsWeight: Number(weight3(entry.blackBeadsWeight ?? nonGoldBreakdown["black-beads"] ?? 0)),
     motiWeight: Number(weight3(entry.motiWeight ?? nonGoldBreakdown.moti ?? 0)),
+    mopWeight: Number(weight3(entry.mopWeight ?? nonGoldBreakdown.mop ?? 0)),
     springWeight: Number(weight3(entry.springWeight ?? nonGoldBreakdown.spring ?? 0)),
     otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight ?? nonGoldBreakdown.other ?? 0)),
     nonGoldBreakdown,
@@ -17723,6 +17731,7 @@ function addFactoryInEntry({ vendor, materialType, purity, weight, wstgPercent, 
     stoneWeight: rejectedBreakdown.stone || 0,
     blackBeadsWeight: rejectedBreakdown["black-beads"] || 0,
     motiWeight: rejectedBreakdown.moti || 0,
+    mopWeight: rejectedBreakdown.mop || 0,
     springWeight: rejectedBreakdown.spring || 0,
     otherNonGoldWeight: rejectedBreakdown.other || 0,
     nonGoldBreakdown: rejectedBreakdown,
@@ -18009,9 +18018,10 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
     const stoneWeight = Number(billInventoryStoneWeight(item, order));
     const blackBeadsWeight = Number(item.blackBeadsWeight ?? item.bbWeight ?? 0);
     const motiWeight = Number(item.motiWeight ?? item.mmWeight ?? 0);
+    const mopWeight = Number(item.mopWeight ?? 0);
     const springWeight = Number(item.springWeight || 0);
     const otherNonGoldWeight = Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0);
-    const componentNonGold = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + springWeight + otherNonGoldWeight));
+    const componentNonGold = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + mopWeight + springWeight + otherNonGoldWeight));
     const reducedWeight = componentNonGold;
     const netWeight = Number(Math.max(finalGw - reducedWeight, 0));
     const purity = item.purity || order.purity || lot.metalPurity || "18K";
@@ -18023,6 +18033,7 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
       stoneWeight,
       blackBeadsWeight,
       motiWeight,
+      mopWeight,
       springWeight,
       otherNonGoldWeight,
       reducedWeight,
@@ -18041,6 +18052,7 @@ function billFactoryOutWeightSummary(source = state, bill = {}, lot = {}) {
     stoneWeight: add("stoneWeight"),
     blackBeadsWeight: add("blackBeadsWeight"),
     motiWeight: add("motiWeight"),
+    mopWeight: add("mopWeight"),
     springWeight: add("springWeight"),
     otherNonGoldWeight: add("otherNonGoldWeight"),
     reducedWeight: add("reducedWeight"),
@@ -18116,6 +18128,7 @@ function billFactoryOutMovement(source = state, bill = {}, lot = {}) {
     totals.stoneWeight ? `Stone ${gram(totals.stoneWeight)}` : "",
     totals.blackBeadsWeight ? `BB ${gram(totals.blackBeadsWeight)}` : "",
     totals.motiWeight ? `Moti ${gram(totals.motiWeight)}` : "",
+    totals.mopWeight ? `MOP ${gram(totals.mopWeight)}` : "",
     totals.springWeight ? `Spring ${gram(totals.springWeight)}` : "",
     totals.otherNonGoldWeight ? `Other ${gram(totals.otherNonGoldWeight)}` : "",
   ].filter(Boolean).join(" / ");
@@ -18163,6 +18176,7 @@ function billFactoryOutNonGoldLines(source = state, bill = {}, lot = {}) {
       stone: entry.stoneWeight,
       "black-beads": entry.blackBeadsWeight,
       moti: entry.motiWeight,
+      mop: entry.mopWeight,
       spring: entry.springWeight,
       other: entry.otherNonGoldWeight,
     });
@@ -18778,6 +18792,7 @@ function syncFactoryOutLedgerForState(source) {
       stoneWeight: totals.stoneWeight,
       blackBeadsWeight: totals.blackBeadsWeight,
       motiWeight: totals.motiWeight,
+      mopWeight: totals.mopWeight,
       springWeight: totals.springWeight,
       otherNonGoldWeight: totals.otherNonGoldWeight,
       totalNonGoldWeight: Number(weight3(totalNonGoldWeight)),
@@ -18794,7 +18809,7 @@ function syncFactoryOutLedgerForState(source) {
         orderType,
         `Destination ${officeDestination}`,
         `Bill GW ${gram(totalGrossWeight)} - Non-Gold ${gram(totalNonGoldWeight)} = Factory Out Net ${gram(totalNetWeight)}`,
-        `Stone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}`,
+        `Stone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / MOP ${gram(totals.mopWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}`,
         prText,
         isKjplOfficePartyName(customerName) ? `Original party ${customerName}` : "",
       ].filter(Boolean).join(" | "),
@@ -26660,6 +26675,7 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
   const nonGoldText = [
     `BB ${weight3(nonGold.blackBeadsWeight)} g`,
     `M ${weight3(nonGold.motiWeight)}`,
+    `MOP ${weight3(nonGold.mopWeight)}`,
     `SP ${weight3(nonGold.springWeight)}`,
     `O ${weight3(nonGold.otherNonGoldWeight)}`,
   ].join(" / ");
@@ -26740,6 +26756,7 @@ function billTagHtml(lot, bill, item = {}) {
           ${billTagWeight("STONE", item.stoneWeight)}
           ${billTagWeight("BB", item.blackBeadsWeight)}
           ${billTagWeight("MOTI", item.motiWeight)}
+          ${billTagWeight("MOP", item.mopWeight)}
           ${billTagWeight("SPRING", item.springWeight)}
           ${billTagWeight("OTHER", item.otherNonGoldWeight)}
           ${billTagWeight("NET", item.netWeight, "net")}
@@ -26857,12 +26874,13 @@ function billWeightCategoryRows(totals = {}, lot = {}, items = []) {
     { label: "Gross Weight", value: weight3(totals.finalGw), note: "Total GW" },
     { label: "BB Weight", value: weight3(totals.bbWeight), note: "Black beads" },
     { label: "Moti Weight", value: weight3(totals.motiWeight), note: "Moti" },
+    { label: "MOP Weight", value: weight3(totals.mopWeight), note: "Mother of Pearl" },
     { label: "SW Stone Weight", value: weight3(totals.swStoneWeight), note: "Billing SW stone" },
     { label: "Colour Stone Weight", value: weight3(totals.colourStoneWeight), note: "Colour + Additional stone" },
     { label: "Total Stone Weight", value: weight3(totals.stoneWeight), note: "SW + Colour stone" },
     { label: "Spring Weight", value: weight3(totals.springWeight), note: "Spring" },
     { label: "Other Weight", value: weight3(totals.otherNonGoldWeight), note: "Other non-gold" },
-    { label: "Total Non-Gold", value: weight3(totals.reducedWeight), note: "BB + Moti + Stone + Spring + Other" },
+    { label: "Total Non-Gold", value: weight3(totals.reducedWeight), note: "BB + Moti + MOP + Stone + Spring + Other" },
     { label: "Net Weight", value: weight3(totals.netWeight), note: "GW - Total Non-Gold", highlight: true },
     { label: "Mfg. Loss", value: weight3(lot.actualWastage || 0), note: "Production weight loss" },
     { label: "Bill Wastage Fine", value: weight3(totals.wastageFineWeight), note: `${wastageRate} added on Net Wt` },
@@ -26906,6 +26924,7 @@ function packingListPrintHtml(lot, bill) {
           ${billPrintTotalCard("Total GW", gram(totals.finalGw))}
           ${billPrintTotalCard("BB Wt", gram(totals.bbWeight))}
           ${billPrintTotalCard("Moti Wt", gram(totals.motiWeight))}
+          ${billPrintTotalCard("MOP Wt", gram(totals.mopWeight))}
           ${billPrintTotalCard("SW Stone", gram(totals.swStoneWeight))}
           ${billPrintTotalCard("Colour Stone", gram(totals.colourStoneWeight))}
           ${billPrintTotalCard("Total Stone", gram(totals.stoneWeight))}
@@ -26981,6 +27000,7 @@ function billPrintItem(item = {}, order = {}, index = 0) {
     finalGw,
     blackBeadsWeight: billNumber(item.blackBeadsWeight || item.bbWeight || nonGold.blackBeadsWeight),
     motiWeight: billNumber(item.motiWeight || item.mmWeight || nonGold.motiWeight),
+    mopWeight: billNumber(item.mopWeight || nonGold.mopWeight),
     stoneWeight: billNumber(item.stoneWeight || item.stWeight || nonGold.stoneWeight),
     swStoneWeight: stoneBreakdown.swStoneWeight,
     colourStoneWeight: stoneBreakdown.colourStoneWeight,
@@ -27036,6 +27056,7 @@ function billPrintItemTableHtml(items = []) {
       <td>${gram(item.finalGw)}</td>
       <td>${gram(item.blackBeadsWeight)}</td>
       <td>${gram(item.motiWeight)}</td>
+      <td>${gram(item.mopWeight)}</td>
       <td>${item.hasStoneBreakdown ? gram(item.swStoneWeight) : "-"}</td>
       <td>${item.hasStoneBreakdown ? gram(item.colourStoneWeight) : "-"}</td>
       <td>${gram(item.stoneWeight)}</td>
@@ -27048,9 +27069,9 @@ function billPrintItemTableHtml(items = []) {
   return `
     <table class="bill-print-table bill-print-items-table">
       <thead>
-        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Size</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>SW Stone</th><th>Colour Stone</th><th>Total Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
+        <tr><th>#</th><th>PR No</th><th>Customer</th><th>Category</th><th>Design</th><th>Size</th><th>Purity</th><th>GW</th><th>BB</th><th>Moti</th><th>MOP</th><th>SW Stone</th><th>Colour Stone</th><th>Total Stone</th><th>Spring</th><th>Other</th><th>Non-Gold</th><th>Net</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="17">No item details</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="18">No item details</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -29641,6 +29662,7 @@ function normalizeProductionNonGoldMaterial(value = "") {
   if (["stone", "stones", "st"].includes(text)) return "stone";
   if (["black-beads", "black beads", "blackbeads", "bb"].includes(text)) return "black-beads";
   if (["moti", "mm"].includes(text)) return "moti";
+  if (["mop", "mother of pearl", "mother-of-pearl", "motherofpearl"].includes(text)) return "mop";
   if (["spring", "springs"].includes(text)) return "spring";
   if (["combination", "combined", "mixed", "mixed non-gold", "multiple", "all non-gold"].includes(text)) return "combination";
   return "other";
@@ -32572,6 +32594,7 @@ const TRANSFER_FITTING_NON_GOLD_FIELDS = Object.freeze({
   stone: "fittingNonGoldStoneWeight",
   "black-beads": "fittingNonGoldBlackBeadsWeight",
   moti: "fittingNonGoldMotiWeight",
+  mop: "fittingNonGoldMopWeight",
   spring: "fittingNonGoldSpringWeight",
   other: "fittingNonGoldOtherWeight",
 });
@@ -39224,6 +39247,7 @@ function completedJobBillSummary(job = {}) {
     stoneWeight: 0,
     blackBeadsWeight: 0,
     motiWeight: 0,
+    mopWeight: 0,
     springWeight: 0,
     otherNonGoldWeight: 0,
     nonGoldWeight: 0,
@@ -39248,6 +39272,7 @@ function completedJobBillSummary(job = {}) {
     totals.stoneWeight += nonGold.stoneWeight;
     totals.blackBeadsWeight += nonGold.blackBeadsWeight;
     totals.motiWeight += nonGold.motiWeight;
+    totals.mopWeight += nonGold.mopWeight;
     totals.springWeight += nonGold.springWeight;
     totals.otherNonGoldWeight += nonGold.otherNonGoldWeight;
     totals.nonGoldWeight += savedNonGold;
@@ -39279,6 +39304,7 @@ function completedJobBillSummaryHtml(summary = {}) {
       <span><b>Stone</b><strong>${weightText(summary.stoneWeight)}</strong></span>
       <span><b>Black Beads</b><strong>${weightText(summary.blackBeadsWeight)}</strong></span>
       <span><b>Moti</b><strong>${weightText(summary.motiWeight)}</strong></span>
+      <span><b>MOP</b><strong>${weightText(summary.mopWeight)}</strong></span>
       <span><b>Spring</b><strong>${weightText(summary.springWeight)}</strong></span>
       <span><b>Other</b><strong>${weightText(summary.otherNonGoldWeight)}</strong></span>
       <span class="completed-job-total"><b>Total Non-Gold</b><strong>${weightText(summary.nonGoldWeight)}</strong></span>
@@ -39950,7 +39976,7 @@ function scaledFittingAccessoryStoneRow(item = {}, quantity = 1) {
   };
 }
 
-const NON_GOLD_CONTROL_MATERIALS = ["stone", "black-beads", "moti", "spring", "other"];
+const NON_GOLD_CONTROL_MATERIALS = ["stone", "black-beads", "moti", "mop", "spring", "other"];
 
 function normalizeNonGoldControlMaterial(value = "") {
   const material = normalizeProductionNonGoldMaterial(value || "other");
@@ -46484,6 +46510,7 @@ function renderOfficeLibraryItems(entries, emptyText) {
           <span><b>Stone</b>${gram(nonGold.stoneWeight)}</span>
           <span><b>Black Beads</b>${gram(nonGold.blackBeadsWeight)}</span>
           <span><b>Moti</b>${gram(nonGold.motiWeight)}</span>
+          <span><b>MOP</b>${gram(nonGold.mopWeight)}</span>
           <span><b>Spring</b>${gram(nonGold.springWeight)}</span>
           <span><b>Other</b>${gram(nonGold.otherNonGoldWeight)}</span>
           <span><b>Total Non-Gold</b>${gram(nonGold.total)}</span>
@@ -46824,6 +46851,7 @@ function officeReturnWeightsFromRow(row) {
     stone: Number(row.querySelector('[data-return-weight="stone"]')?.value || 0),
     "black-beads": Number(row.querySelector('[data-return-weight="black-beads"]')?.value || 0),
     moti: Number(row.querySelector('[data-return-weight="moti"]')?.value || 0),
+    mop: Number(row.querySelector('[data-return-weight="mop"]')?.value || 0),
     spring: Number(row.querySelector('[data-return-weight="spring"]')?.value || 0),
     other: Number(row.querySelector('[data-return-weight="other"]')?.value || 0),
   });
@@ -46867,6 +46895,7 @@ function renderOfficeReturnSelectedItems() {
           <label>Stone (g)<input data-return-weight="stone" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.stone)}"></label>
           <label>Black Beads (g)<input data-return-weight="black-beads" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown["black-beads"])}"></label>
           <label>Moti (g)<input data-return-weight="moti" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.moti)}"></label>
+          <label>MOP (g)<input data-return-weight="mop" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.mop)}"></label>
           <label>Spring (g)<input data-return-weight="spring" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.spring)}"></label>
           <label>Other (g)<input data-return-weight="other" type="number" min="0" step="0.00001" value="${weight5(weights.nonGoldBreakdown.other)}"></label>
         </div>
@@ -46961,6 +46990,7 @@ function officeReturnCompositionLines(returnedEntries = []) {
       stoneWeight: Number(weight3(breakdown.stone || 0)),
       blackBeadsWeight: Number(weight3(breakdown["black-beads"] || 0)),
       motiWeight: Number(weight3(breakdown.moti || 0)),
+      mopWeight: Number(weight3(breakdown.mop || 0)),
       springWeight: Number(weight3(breakdown.spring || 0)),
       otherNonGoldWeight: Number(weight3(breakdown.other || 0)),
       nonGoldWeight,
@@ -47317,6 +47347,7 @@ function productionReturnNonGoldBreakdown(item = {}) {
     stone: billNumber(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? item.stoneWt),
     "black-beads": billNumber(item.blackBeadsWeight ?? item.bbWeight),
     moti: billNumber(item.motiWeight ?? item.mmWeight),
+    mop: billNumber(item.mopWeight),
     spring: billNumber(item.springWeight),
     other: billNumber(item.otherNonGoldWeight ?? item.otherWeight),
   });
@@ -47414,6 +47445,7 @@ function addOfficeProductionReturnLedger(safeItem = {}) {
     stoneWeight: Number(safeItem.nonGoldBreakdown?.stone || 0),
     blackBeadsWeight: Number(safeItem.nonGoldBreakdown?.["black-beads"] || 0),
     motiWeight: Number(safeItem.nonGoldBreakdown?.moti || 0),
+    mopWeight: Number(safeItem.nonGoldBreakdown?.mop || 0),
     springWeight: Number(safeItem.nonGoldBreakdown?.spring || 0),
     otherNonGoldWeight: Number(safeItem.nonGoldBreakdown?.other || 0),
     totalNonGoldWeight: Number(safeItem.nonGoldWeight || 0),
@@ -47471,6 +47503,7 @@ function returnBillItemToProductionShelf({ lot = {}, bill = {}, item = {}, order
     bbWeight: Number(normalizedWeights.nonGoldBreakdown["black-beads"] || 0),
     motiWeight: Number(normalizedWeights.nonGoldBreakdown.moti || 0),
     mmWeight: Number(normalizedWeights.nonGoldBreakdown.moti || 0),
+    mopWeight: Number(normalizedWeights.nonGoldBreakdown.mop || 0),
     springWeight: Number(normalizedWeights.nonGoldBreakdown.spring || 0),
     otherNonGoldWeight: Number(normalizedWeights.nonGoldBreakdown.other || 0),
     otherWeight: Number(normalizedWeights.nonGoldBreakdown.other || 0),
@@ -47555,6 +47588,7 @@ function openProductionReturnDialog(key = "", options = {}) {
   form.stoneWeight.value = billWeightInputValue(nonGold.stone || 0);
   form.blackBeadsWeight.value = billWeightInputValue(nonGold["black-beads"] || 0);
   form.motiWeight.value = billWeightInputValue(nonGold.moti || 0);
+  form.mopWeight.value = billWeightInputValue(nonGold.mop || 0);
   form.springWeight.value = billWeightInputValue(nonGold.spring || 0);
   form.otherNonGoldWeight.value = billWeightInputValue(nonGold.other || 0);
   form.remarks.value = "";
@@ -47573,6 +47607,7 @@ function productionReturnFormWeights(form = document.getElementById("production-
     stone: Number(form?.stoneWeight?.value || 0),
     "black-beads": Number(form?.blackBeadsWeight?.value || 0),
     moti: Number(form?.motiWeight?.value || 0),
+    mop: Number(form?.mopWeight?.value || 0),
     spring: Number(form?.springWeight?.value || 0),
     other: Number(form?.otherNonGoldWeight?.value || 0),
   });
@@ -48996,14 +49031,16 @@ function billItemNonGoldBreakup(item = {}, order = {}) {
   const savedBbWeight = billNumber(item.blackBeadsWeight ?? item.bbWeight ?? manualBreakdown["black-beads"]);
   const blackBeadsWeight = bbType && billUsesRevisedBbRate(item) ? calculatedBbWeight : savedBbWeight;
   const motiWeight = billNumber(item.motiWeight ?? item.mmWeight ?? manualBreakdown.moti);
+  const mopWeight = billNumber(item.mopWeight ?? manualBreakdown.mop);
   const springWeight = billNumber(item.springWeight ?? manualBreakdown.spring);
   const otherNonGoldWeight = billNumber(item.otherNonGoldWeight ?? item.otherWeight ?? (Number(manualBreakdown.other || 0) + Number(manualBreakdown.combination || 0)));
-  const total = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + springWeight + otherNonGoldWeight));
+  const total = Number(weight3(stoneWeight + blackBeadsWeight + motiWeight + mopWeight + springWeight + otherNonGoldWeight));
   return {
     bbNo,
     bbType,
     blackBeadsWeight,
     motiWeight,
+    mopWeight,
     stoneWeight,
     springWeight,
     otherNonGoldWeight,
@@ -49022,6 +49059,7 @@ function billItemWithLatestStoneEntry(item = {}, order = {}, source = "Job Card 
     stone: actualStoneWeight,
     "black-beads": nonGold.blackBeadsWeight,
     moti: nonGold.motiWeight,
+    mop: nonGold.mopWeight,
     spring: nonGold.springWeight,
     other: nonGold.otherNonGoldWeight,
   });
@@ -49146,6 +49184,7 @@ function billAccessoryNonGoldBreakdown(item = {}) {
     stone: billNumber(item.stoneWeight ?? item.stWeight),
     "black-beads": billNumber(item.blackBeadsWeight ?? item.bbWeight),
     moti: billNumber(item.motiWeight ?? item.mmWeight),
+    mop: billNumber(item.mopWeight),
     spring: billNumber(item.springWeight),
     other: billNumber(item.otherNonGoldWeight ?? item.otherWeight),
   });
@@ -49193,6 +49232,7 @@ function billNonGoldSummaryText(item = {}, order = {}) {
   return [
     `BB ${nonGold.bbNo ? `${nonGold.bbNo}${bbTypeLabel(nonGold.bbType) ? ` ${bbTypeLabel(nonGold.bbType)}` : ""} ` : ""}${billWeightText(nonGold.blackBeadsWeight)}`,
     `Moti ${billWeightText(nonGold.motiWeight)}`,
+    `MOP ${billWeightText(nonGold.mopWeight)}`,
     `Stone ${billWeightText(nonGold.stoneWeight)}`,
     `Spring ${billWeightText(nonGold.springWeight)}`,
     `Other ${billWeightText(nonGold.otherNonGoldWeight)}`,
@@ -50274,6 +50314,7 @@ function billTotals(items = []) {
       finalGw: result.finalGw + billNumber(item.finalGw),
       bbWeight: result.bbWeight + billNumber(item.blackBeadsWeight || item.bbWeight),
       motiWeight: result.motiWeight + billNumber(item.motiWeight || item.mmWeight),
+      mopWeight: result.mopWeight + billNumber(item.mopWeight),
       stoneWeight: result.stoneWeight + billNumber(item.stoneWeight || item.stWeight),
       swStoneWeight: result.swStoneWeight + stoneBreakdown.swStoneWeight,
       colourStoneWeight: result.colourStoneWeight + stoneBreakdown.colourStoneWeight,
@@ -50293,6 +50334,7 @@ function billTotals(items = []) {
     finalGw: 0,
     bbWeight: 0,
     motiWeight: 0,
+    mopWeight: 0,
     stoneWeight: 0,
     swStoneWeight: 0,
     colourStoneWeight: 0,
@@ -50322,6 +50364,7 @@ function renderBillTotals(items = []) {
     <div class="bill-total-card"><span>Total GW (g)</span><strong>${gram(total.finalGw)}</strong></div>
     <div class="bill-total-card"><span>BB Wt (g)</span><strong>${gram(total.bbWeight)}</strong></div>
     <div class="bill-total-card"><span>Moti Wt (g)</span><strong>${gram(total.motiWeight)}</strong></div>
+    <div class="bill-total-card"><span>MOP Wt (g)</span><strong>${gram(total.mopWeight)}</strong></div>
     <div class="bill-total-card stone-sw"><span>SW Stone (g)</span><strong>${gram(total.swStoneWeight)}</strong></div>
     <div class="bill-total-card stone-colour"><span>Colour Stone (g)</span><strong>${gram(total.colourStoneWeight)}</strong></div>
     <div class="bill-total-card"><span>Total Stone (g)</span><strong>${gram(total.stoneWeight)}</strong></div>
@@ -50564,6 +50607,7 @@ function renderBillItems(lot, bill = {}) {
             <label>BB Type <select name="billItemBbType">${bbTypeOptions(nonGold.bbType)}</select></label>
             <label>BB Wt <input name="billItemBbWeight" type="number" min="0" step="0.00001" ${manualWip ? "" : "readonly"} value="${escapeHtml(billWeightInputValue(nonGold.blackBeadsWeight))}"></label>
             <label>Moti Wt <input name="billItemMotiWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.motiWeight))}"></label>
+            <label>MOP Wt <input name="billItemMopWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.mopWeight))}"></label>
             <label>Total Stone <input name="billItemStoneWeight" type="number" min="0" step="0.00001" ${manualWip ? "" : "readonly"} value="${escapeHtml(billWeightInputValue(nonGold.stoneWeight))}"></label>
             <label>Spring <input name="billItemSpringWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.springWeight))}"></label>
             <label>Other Wt <input name="billItemOtherNonGoldWeight" type="number" min="0" step="0.00001" value="${escapeHtml(billWeightInputValue(nonGold.otherNonGoldWeight))}"></label>
@@ -50602,6 +50646,7 @@ function billItemRows(existingItems = [], options = {}) {
     const bbTypeInput = row.querySelector('[name="billItemBbType"]');
     const bbWeightInput = row.querySelector('[name="billItemBbWeight"]');
     const motiWeightInput = row.querySelector('[name="billItemMotiWeight"]');
+    const mopWeightInput = row.querySelector('[name="billItemMopWeight"]');
     const stoneWeightInput = row.querySelector('[name="billItemStoneWeight"]');
     const springWeightInput = row.querySelector('[name="billItemSpringWeight"]');
     const otherNonGoldWeightInput = row.querySelector('[name="billItemOtherNonGoldWeight"]');
@@ -50634,11 +50679,12 @@ function billItemRows(existingItems = [], options = {}) {
       ? calculatedBbWeight
       : Number(bbWeightInput?.value || existing.blackBeadsWeight || existing.bbWeight || 0);
     const motiWeight = Number(motiWeightInput?.value || 0);
+    const mopWeight = Number(mopWeightInput?.value || 0);
     const manualWip = row.dataset.manualWip === "true";
     const stoneWeight = Number(manualWip ? stoneWeightInput?.value || 0 : row.dataset.jobStoneWeight || 0);
     const springWeight = Number(springWeightInput?.value || 0);
     const otherNonGoldWeight = Number(otherNonGoldWeightInput?.value || 0);
-    const reducedWeight = Number(weight3(blackBeadsWeight + motiWeight + stoneWeight + springWeight + otherNonGoldWeight));
+    const reducedWeight = Number(weight3(blackBeadsWeight + motiWeight + mopWeight + stoneWeight + springWeight + otherNonGoldWeight));
     const netWeight = Math.max(finalGw - reducedWeight, 0);
     const wastagePercent = billWastagePercent;
     const baseFineWeight = fineGoldWeight(netWeight, row.dataset.purity || "18K");
@@ -50673,6 +50719,7 @@ function billItemRows(existingItems = [], options = {}) {
       bbWeight: Number(weight3(blackBeadsWeight)),
       motiWeight: Number(weight3(motiWeight)),
       mmWeight: Number(weight3(motiWeight)),
+      mopWeight: Number(weight3(mopWeight)),
       stoneWeight: Number(weight3(stoneWeight)),
       stWeight: Number(weight3(stoneWeight)),
       billActualStoneWeight: Number(weight3(row.dataset.billActualStoneWeight || stoneWeight)),
@@ -50686,6 +50733,7 @@ function billItemRows(existingItems = [], options = {}) {
         stone: Number(row.dataset.billActualStoneWeight || stoneWeight),
         "black-beads": blackBeadsWeight,
         moti: motiWeight,
+        mop: mopWeight,
         spring: springWeight,
         other: otherNonGoldWeight,
       }),
@@ -50693,6 +50741,7 @@ function billItemRows(existingItems = [], options = {}) {
         Number(row.dataset.billActualStoneWeight || stoneWeight)
         + blackBeadsWeight
         + motiWeight
+        + mopWeight
         + springWeight
         + otherNonGoldWeight
       )),
@@ -50701,6 +50750,7 @@ function billItemRows(existingItems = [], options = {}) {
         - Number(row.dataset.billActualStoneWeight || stoneWeight)
         - blackBeadsWeight
         - motiWeight
+        - mopWeight
         - springWeight
         - otherNonGoldWeight,
         0
@@ -50806,6 +50856,7 @@ function markParentRepairItemsComplete(reworkLot, reworkBill = {}) {
       bbWeight: Number(repairedItem.bbWeight ?? repairedItem.blackBeadsWeight ?? item.bbWeight ?? 0),
       motiWeight: Number(repairedItem.motiWeight ?? item.motiWeight ?? 0),
       mmWeight: Number(repairedItem.mmWeight ?? repairedItem.motiWeight ?? item.mmWeight ?? 0),
+      mopWeight: Number(repairedItem.mopWeight ?? item.mopWeight ?? 0),
       stoneWeight: Number(repairedItem.stoneWeight ?? item.stoneWeight ?? 0),
       stWeight: Number(repairedItem.stWeight ?? repairedItem.stoneWeight ?? item.stWeight ?? 0),
       springWeight: Number(repairedItem.springWeight ?? item.springWeight ?? 0),
@@ -51893,6 +51944,7 @@ function factoryOutBillSummaryHtml(record) {
     ["Stone", gram(totals.stoneWeight)],
     ["BB", gram(totals.blackBeadsWeight)],
     ["Moti", gram(totals.motiWeight)],
+    ["MOP", gram(totals.mopWeight)],
     ["Spring", gram(totals.springWeight)],
     ["Other", gram(totals.otherNonGoldWeight)],
     ["Total Non-Gold", gram(totals.reducedWeight)],
@@ -51940,6 +51992,7 @@ function factoryOutBatchTotals(records = []) {
     result.stoneWeight += Number(weights.stoneWeight || 0);
     result.blackBeadsWeight += Number(weights.blackBeadsWeight || 0);
     result.motiWeight += Number(weights.motiWeight || 0);
+    result.mopWeight += Number(weights.mopWeight || 0);
     result.springWeight += Number(weights.springWeight || 0);
     result.otherNonGoldWeight += Number(weights.otherNonGoldWeight || 0);
     result.reducedWeight += Number(weights.reducedWeight || 0);
@@ -51953,6 +52006,7 @@ function factoryOutBatchTotals(records = []) {
     stoneWeight: 0,
     blackBeadsWeight: 0,
     motiWeight: 0,
+    mopWeight: 0,
     springWeight: 0,
     otherNonGoldWeight: 0,
     reducedWeight: 0,
@@ -52500,7 +52554,7 @@ async function saveSelectedBillFactoryOut(form, data = {}) {
   }
   if (cloudVerified) {
     if (status) status.textContent = `${bill.billNo || "Bill"} is posted, synced, and removed from the pending dropdown. Open Factory Ledger to view it.`;
-    alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
+  alert(`${bill.billNo || "Bill"} saved and confirmed in Supabase cloud.\nDestination ${KJPL_OFFICE_VENDOR_NAME}\nGW ${gram(totals.finalGw)}\nStone ${gram(totals.stoneWeight)} / BB ${gram(totals.blackBeadsWeight)} / Moti ${gram(totals.motiWeight)} / MOP ${gram(totals.mopWeight)} / Spring ${gram(totals.springWeight)} / Other ${gram(totals.otherNonGoldWeight)}\nNet ${gram(totals.netWeight)} / WSTG ${wstgPercent.toFixed(2)}%`);
   } else {
     const syncMessage = document.getElementById("sync-status")?.textContent || "Cloud save pending";
     const syncDetail = document.getElementById("sync-detail")?.textContent || "The app will retry automatically.";
@@ -53525,7 +53579,7 @@ function factoryLedgerReferenceHtml(entry = {}) {
     ? `PR ${productionNos.slice(0, 6).join(", ")}${productionNos.length > 6 ? ` +${productionNos.length - 6} more` : ""}`
     : "";
   const billWeightText = isBillMovement
-    ? `GW ${gram(entry.grossWeight || 0)} / Stone ${gram(entry.stoneWeight || 0)} / BB ${gram(entry.blackBeadsWeight || 0)} / Moti ${gram(entry.motiWeight || 0)} / Spring ${gram(entry.springWeight || 0)} / Other ${gram(entry.otherNonGoldWeight || 0)} / Non-Gold ${gram(entry.totalNonGoldWeight || 0)} / Net ${gram(entry.netWeight ?? entry.weight ?? 0)}`
+    ? `GW ${gram(entry.grossWeight || 0)} / Stone ${gram(entry.stoneWeight || 0)} / BB ${gram(entry.blackBeadsWeight || 0)} / Moti ${gram(entry.motiWeight || 0)} / MOP ${gram(entry.mopWeight || 0)} / Spring ${gram(entry.springWeight || 0)} / Other ${gram(entry.otherNonGoldWeight || 0)} / Non-Gold ${gram(entry.totalNonGoldWeight || 0)} / Net ${gram(entry.netWeight ?? entry.weight ?? 0)}`
     : "";
   const fullReference = [
     entry.reference || "-",
@@ -53692,6 +53746,7 @@ function openFactoryLedgerEdit(id) {
   form.stoneWeight.value = weight3(nonGoldBreakdown.stone || 0);
   form.blackBeadsWeight.value = weight3(nonGoldBreakdown["black-beads"] || 0);
   form.motiWeight.value = weight3(nonGoldBreakdown.moti || 0);
+  form.mopWeight.value = weight3(nonGoldBreakdown.mop || 0);
   form.springWeight.value = weight3(nonGoldBreakdown.spring || 0);
   form.otherNonGoldWeight.value = weight3(nonGoldBreakdown.other || 0);
   form.reference.value = entry.reference || "";
@@ -53755,6 +53810,7 @@ function editedFactoryLedgerEntry(existing = {}, data = {}) {
     stoneWeight: preserveSavedBreakup ? Number(existing.stoneWeight || 0) : Number(nonGoldBreakdown.stone || 0),
     blackBeadsWeight: preserveSavedBreakup ? Number(existing.blackBeadsWeight || 0) : Number(nonGoldBreakdown["black-beads"] || 0),
     motiWeight: preserveSavedBreakup ? Number(existing.motiWeight || 0) : Number(nonGoldBreakdown.moti || 0),
+    mopWeight: preserveSavedBreakup ? Number(existing.mopWeight || 0) : Number(nonGoldBreakdown.mop || 0),
     springWeight: preserveSavedBreakup ? Number(existing.springWeight || 0) : Number(nonGoldBreakdown.spring || 0),
     otherNonGoldWeight: preserveSavedBreakup ? Number(existing.otherNonGoldWeight || 0) : Number(nonGoldBreakdown.other || 0),
     nonGoldBreakdown: preserveSavedBreakup ? factoryEntryNonGoldBreakdown(existing) : nonGoldBreakdown,
@@ -56859,6 +56915,7 @@ function normalizeState(currentState) {
       stoneWeight: Number(weight3(entry.stoneWeight ?? nonGoldBreakdown.stone ?? 0)),
       blackBeadsWeight: Number(weight3(entry.blackBeadsWeight ?? nonGoldBreakdown["black-beads"] ?? 0)),
       motiWeight: Number(weight3(entry.motiWeight ?? nonGoldBreakdown.moti ?? 0)),
+      mopWeight: Number(weight3(entry.mopWeight ?? nonGoldBreakdown.mop ?? 0)),
       springWeight: Number(weight3(entry.springWeight ?? nonGoldBreakdown.spring ?? 0)),
       otherNonGoldWeight: Number(weight3(entry.otherNonGoldWeight ?? nonGoldBreakdown.other ?? 0)),
       nonGoldBreakdown,
@@ -57063,6 +57120,7 @@ function normalizeState(currentState) {
       bbWeight: Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
       motiWeight: Number(item.motiWeight ?? item.mmWeight ?? 0),
       mmWeight: Number(item.motiWeight ?? item.mmWeight ?? 0),
+      mopWeight: Number(item.mopWeight ?? 0),
       stoneWeight: Number(item.stoneWeight ?? item.stWeight ?? item.reducedWeight ?? 0),
       stWeight: Number(item.stoneWeight ?? item.stWeight ?? item.reducedWeight ?? 0),
       billActualStoneWeight: Number(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0),
@@ -57077,6 +57135,7 @@ function normalizeState(currentState) {
           stone: Number(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0),
           "black-beads": Number(item.blackBeadsWeight ?? item.bbWeight ?? 0),
           moti: Number(item.motiWeight ?? item.mmWeight ?? 0),
+          mop: Number(item.mopWeight ?? 0),
           spring: Number(item.springWeight || 0),
           other: Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0),
         }
@@ -57085,6 +57144,7 @@ function normalizeState(currentState) {
         Number(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0)
         + Number(item.blackBeadsWeight ?? item.bbWeight ?? 0)
         + Number(item.motiWeight ?? item.mmWeight ?? 0)
+        + Number(item.mopWeight ?? 0)
         + Number(item.springWeight || 0)
         + Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0)
       ))),
@@ -57093,6 +57153,7 @@ function normalizeState(currentState) {
         - Number(item.billActualStoneWeight ?? item.stoneWeight ?? item.stWeight ?? 0)
         - Number(item.blackBeadsWeight ?? item.bbWeight ?? 0)
         - Number(item.motiWeight ?? item.mmWeight ?? 0)
+        - Number(item.mopWeight ?? 0)
         - Number(item.springWeight || 0)
         - Number(item.otherNonGoldWeight ?? item.otherWeight ?? 0),
         0
