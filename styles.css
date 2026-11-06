@@ -3708,6 +3708,95 @@ form.active-operation-page,
   border: 1px solid var(--line);
 }
 
+.customer-order-due-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dbe5f3;
+  background: #f8fbff;
+}
+
+.customer-order-due-legend span,
+.job-badge.customer-due-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.customer-order-due-legend .normal,
+.job-badge.customer-due-badge.normal {
+  border-color: #9fc9eb;
+  background: #e7f3fd;
+  color: #145b8f;
+}
+
+.customer-order-due-legend .green,
+.job-badge.customer-due-badge.green {
+  border-color: #9bd5ae;
+  background: #e4f6e9;
+  color: #17623a;
+}
+
+.customer-order-due-legend .yellow,
+.job-badge.customer-due-badge.yellow {
+  border-color: #e8d16f;
+  background: #fff6bf;
+  color: #735900;
+}
+
+.customer-order-due-legend .orange,
+.job-badge.customer-due-badge.orange {
+  border-color: #efb174;
+  background: #ffe5ca;
+  color: #91420a;
+}
+
+.customer-order-due-legend .red,
+.job-badge.customer-due-badge.red {
+  border-color: #e29a9a;
+  background: #ffdada;
+  color: #9d2020;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-job-card-row > td {
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-normal > td {
+  background: #edf7ff;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-green > td {
+  background: #e8f7ed;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-yellow > td {
+  background: #fff8cf;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-orange > td {
+  background: #ffead6;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-red > td {
+  background: #ffe2e2;
+}
+
+.customer-order-job-card-table tbody tr.customer-order-due-normal > td:first-child { border-left: 6px solid #4b9bd3; }
+.customer-order-job-card-table tbody tr.customer-order-due-green > td:first-child { border-left: 6px solid #3aa768; }
+.customer-order-job-card-table tbody tr.customer-order-due-yellow > td:first-child { border-left: 6px solid #d3aa10; }
+.customer-order-job-card-table tbody tr.customer-order-due-orange > td:first-child { border-left: 6px solid #e17a20; }
+.customer-order-job-card-table tbody tr.customer-order-due-red > td:first-child { border-left: 6px solid #ce3f3f; }
+
+.customer-order-job-card-table tbody tr.customer-order-job-card-row:hover > td {
+  filter: brightness(0.98);
+}
+
 .summary-list {
   display: grid;
   gap: 8px;

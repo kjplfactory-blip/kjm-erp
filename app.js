@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v765";
+const APP_VERSION = "v766";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -575,6 +575,7 @@ let motiLibraryPage = 1;
 const motiLibraryPageSize = 100;
 let activeJobOrderPage = 1;
 let completedJobOrderPage = 1;
+let customerJobOrderPage = 1;
 const jobOrderPageSize = 75;
 let transferHistoryRenderLimit = 200;
 let selectedStoneChartFiles = [];
@@ -893,6 +894,10 @@ document.getElementById("completed-job-order-search")?.addEventListener("input",
   completedJobOrderPage = 1;
   renderOrders();
 }));
+document.getElementById("customer-job-order-search")?.addEventListener("input", debounceInput(() => {
+  customerJobOrderPage = 1;
+  renderOrders();
+}));
 document.getElementById("job-order-pagination")?.addEventListener("click", (event) => {
   const button = event.target.closest?.("[data-job-order-page]");
   if (!button) return;
@@ -903,6 +908,12 @@ document.getElementById("completed-job-order-pagination")?.addEventListener("cli
   const button = event.target.closest?.("[data-completed-job-order-page]");
   if (!button) return;
   completedJobOrderPage = Math.max(1, Number(button.dataset.completedJobOrderPage || 1));
+  renderOrders();
+});
+document.getElementById("customer-job-order-pagination")?.addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-customer-job-order-page]");
+  if (!button) return;
+  customerJobOrderPage = Math.max(1, Number(button.dataset.customerJobOrderPage || 1));
   renderOrders();
 });
 
@@ -38533,35 +38544,89 @@ function renderOrders() {
 function renderOrdersCached() {
   const activeQuery = jobOrderSearchQuery("job-order-search");
   const completedQuery = jobOrderSearchQuery("completed-job-order-search");
+  const customerQuery = jobOrderSearchQuery("customer-job-order-search");
   const activeJobs = activeQuery
     ? searchedJobOrderFamilies(activeQuery)
     : groupedJobOrders((order) => !isCompletedOrder(order), "active");
   const completedJobs = completedQuery
     ? searchedJobOrderFamilies(completedQuery)
     : groupedJobOrders(isCompletedOrder, "completed");
+  const customerJobs = customerOrderJobCards(customerQuery);
   const activePageCount = Math.max(1, Math.ceil(activeJobs.length / jobOrderPageSize));
   const completedPageCount = Math.max(1, Math.ceil(completedJobs.length / jobOrderPageSize));
+  const customerPageCount = Math.max(1, Math.ceil(customerJobs.length / jobOrderPageSize));
   activeJobOrderPage = Math.min(activeJobOrderPage, activePageCount);
   completedJobOrderPage = Math.min(completedJobOrderPage, completedPageCount);
+  customerJobOrderPage = Math.min(customerJobOrderPage, customerPageCount);
   const visibleActiveJobs = activeQuery
     ? activeJobs
     : activeJobs.slice((activeJobOrderPage - 1) * jobOrderPageSize, activeJobOrderPage * jobOrderPageSize);
   const visibleCompletedJobs = completedQuery
     ? completedJobs
     : completedJobs.slice((completedJobOrderPage - 1) * jobOrderPageSize, completedJobOrderPage * jobOrderPageSize);
+  const visibleCustomerJobs = customerQuery
+    ? customerJobs
+    : customerJobs.slice((customerJobOrderPage - 1) * jobOrderPageSize, customerJobOrderPage * jobOrderPageSize);
   const activeRows = activeQuery
     ? jobOrderFamilySearchRows(visibleActiveJobs)
     : visibleActiveJobs.map(orderTableRow).join("");
   const completedRows = completedQuery
     ? jobOrderFamilySearchRows(visibleCompletedJobs)
     : visibleCompletedJobs.map(orderTableRow).join("");
+  const customerRows = visibleCustomerJobs.map((job) => orderTableRow(job, {
+    customerOrder: true,
+    customerDueClass: customerOrderDueClass(job.dueDate),
+  })).join("");
   document.getElementById("orders-table").innerHTML = activeRows || tableEmpty(3, activeQuery ? "No Job Order matches this search." : "No active job orders recorded.");
   document.getElementById("completed-orders-table").innerHTML = completedRows || tableEmpty(3, completedQuery ? "No Job Order matches this search." : "No completed job orders recorded.");
+  document.getElementById("customer-orders-table").innerHTML = customerRows || tableEmpty(3, customerQuery ? "No Customer Order Job Card matches this search." : "No pending customer Job Cards recorded.");
   renderJobOrderSearchSummary("job-order-search-summary", activeJobs, activeQuery, "active");
   renderJobOrderSearchSummary("completed-job-order-search-summary", completedJobs, completedQuery, "completed");
+  renderCustomerJobOrderSummary(customerJobs, customerQuery);
   renderJobOrderPagination("job-order-pagination", activeJobOrderPage, activePageCount, activeJobs.length, "job-order-page", Boolean(activeQuery));
   renderJobOrderPagination("completed-job-order-pagination", completedJobOrderPage, completedPageCount, completedJobs.length, "completed-job-order-page", Boolean(completedQuery));
+  renderJobOrderPagination("customer-job-order-pagination", customerJobOrderPage, customerPageCount, customerJobs.length, "customer-job-order-page", Boolean(customerQuery));
   renderRepairJobOrders();
+}
+
+function customerOrderJobCards(query = "") {
+  return groupedJobOrders((order) => !isCompletedOrder(order) && isManufacturingCustomerOrder(order.customer), "active")
+    .filter((job) => !query || jobOrderMatchesSearch(job, query))
+    .sort(compareCustomerOrderDueDate);
+}
+
+function compareCustomerOrderDueDate(left = {}, right = {}) {
+  const leftDays = daysRemaining(left.dueDate);
+  const rightDays = daysRemaining(right.dueDate);
+  if (leftDays === null && rightDays !== null) return 1;
+  if (rightDays === null && leftDays !== null) return -1;
+  if (leftDays !== rightDays) return Number(leftDays || 0) - Number(rightDays || 0);
+  return compareJobCardNumbersNewestFirst(left.jobNumber, right.jobNumber);
+}
+
+function customerOrderDueClass(dueDate) {
+  const days = daysRemaining(dueDate);
+  if (days === null || days > 10) return "normal";
+  if (days <= 1) return "red";
+  if (days <= 3) return "orange";
+  if (days <= 7) return "yellow";
+  return "green";
+}
+
+function customerOrderDeliveryBadgeHtml(dueDate) {
+  const dueClass = customerOrderDueClass(dueDate);
+  return `<span class="job-badge customer-due-badge ${dueClass}">${escapeHtml(daysRemainingText(dueDate))}</span>`;
+}
+
+function renderCustomerJobOrderSummary(jobs = [], query = "") {
+  const summary = document.getElementById("customer-job-order-search-summary");
+  if (summary) {
+    summary.textContent = query
+      ? `${jobs.length} matching Customer Job Card${jobs.length === 1 ? "" : "s"}`
+      : `${jobs.length} pending Customer Job Card${jobs.length === 1 ? "" : "s"} / Nearest due date first`;
+  }
+  const tileNote = document.querySelector('[data-order-page="customer"] span');
+  if (tileNote) tileNote.textContent = `${jobs.length} pending customer job${jobs.length === 1 ? "" : "s"} by due date`;
 }
 
 function renderJobOrderPagination(elementId, page, pageCount, total, dataKey, hidden = false) {
@@ -39324,7 +39389,11 @@ function completedJobBillSummaryHtml(summary = {}) {
 
 function orderTableRow(job, options = {}) {
   const urgency = job.urgent ? '<span class="job-badge urgent">Urgent</span>' : "";
-  const delivery = isCompletedJob(job) ? "" : deliveryBadgeHtml(job.dueDate);
+  const delivery = isCompletedJob(job)
+    ? ""
+    : options.customerOrder
+      ? customerOrderDeliveryBadgeHtml(job.dueDate)
+      : deliveryBadgeHtml(job.dueDate);
   const completedBillSummary = isCompletedJob(job)
     ? completedJobBillSummaryHtml(completedJobBillSummary(job))
     : "";
@@ -39334,8 +39403,13 @@ function orderTableRow(job, options = {}) {
   const completion = options.familyRole
     ? `<span class="job-badge ${isCompletedJob(job) ? "family-completed" : "family-active"}">${isCompletedJob(job) ? "Completed" : "Active"}</span>`
     : "";
+  const rowClasses = [
+    options.familyRole ? "job-order-family-member" : "",
+    options.customerOrder ? "customer-order-job-card-row" : "",
+    options.customerDueClass ? `customer-order-due-${options.customerDueClass}` : "",
+  ].filter(Boolean).join(" ");
   return `
-    <tr class="${options.familyRole ? "job-order-family-member" : ""}" data-job-family-root="${escapeHtml(options.familyRoot || "")}">
+    <tr class="${rowClasses}" data-job-family-root="${escapeHtml(options.familyRoot || "")}">
       <td>${customerOrderDisplayHtml(job.customer)}</td>
       <td>
         <div class="job-order-summary-line">
