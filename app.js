@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v766";
+const APP_VERSION = "v767";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -29,6 +29,9 @@ const APP_VERSION_RETRY_DELAY_MS = 1500;
 const APP_VERSION_SYNC_WAIT_MS = 20000;
 const BARCODE_SCAN_RESET_MS = 140;
 const BARCODE_SCAN_MIN_LENGTH = 3;
+const BARCODE_SCAN_MAX_AVERAGE_GAP_MS = 65;
+const BARCODE_SCAN_MAX_GAP_MS = 110;
+const BARCODE_SCAN_MAX_DURATION_MS = 1800;
 const OWNER_CURRENT_PASSWORD = "@N170726";
 const KJPL_OFFICE_VENDOR_NAME = "KJPL Office";
 const officeReturnLotSelection = new Set();
@@ -433,6 +436,9 @@ let catalogueActiveCategory = "";
 let catalogueImageCache = new Map();
 let barcodeScanBuffer = "";
 let barcodeScanLastInputAt = 0;
+let barcodeScanStartedAt = 0;
+let barcodeScanKeyGaps = [];
+let barcodeScanSourceSnapshot = null;
 let barcodeScanStatusTimer = null;
 let jobCardSearchStatusTimer = null;
 let universalSearchInputTimer = null;
@@ -13546,26 +13552,91 @@ function openUniversalSearchResult(key = "") {
 }
 
 function handleHardwareBarcodeScan(event) {
-  if (event.defaultPrevented || !currentUser) return;
-  if (isBarcodeTypingTarget(event.target)) return;
+  if (event.defaultPrevented || !currentUser || event.isComposing || event.repeat) return;
+  const isTerminator = event.key === "Enter" || event.key === "Tab";
+  const isPrintable = event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey;
+  if (!isTerminator && !isPrintable) return;
 
-  const now = Date.now();
-  if (now - barcodeScanLastInputAt > BARCODE_SCAN_RESET_MS) barcodeScanBuffer = "";
-  barcodeScanLastInputAt = now;
+  const now = typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+  if (barcodeScanBuffer && now - barcodeScanLastInputAt > BARCODE_SCAN_RESET_MS) {
+    resetHardwareBarcodeCandidate();
+  }
 
-  if (event.key === "Enter") {
+  if (isTerminator) {
     const scannedText = barcodeScanBuffer.trim();
-    barcodeScanBuffer = "";
-    if (scannedText.length >= BARCODE_SCAN_MIN_LENGTH) {
-      event.preventDefault();
-      openScannedBarcode(scannedText);
+    const isScanner = scannedText.length >= BARCODE_SCAN_MIN_LENGTH && isLikelyHardwareBarcodeScan(now);
+    if (!isScanner) {
+      resetHardwareBarcodeCandidate();
+      return;
     }
+    event.preventDefault();
+    event.stopPropagation();
+    restoreHardwareBarcodeSource();
+    resetHardwareBarcodeCandidate();
+    openScannedBarcode(scannedText);
     return;
   }
 
-  if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (!barcodeScanBuffer) {
+    barcodeScanStartedAt = now;
+    barcodeScanSourceSnapshot = captureHardwareBarcodeSource(event.target);
+  } else {
+    barcodeScanKeyGaps.push(now - barcodeScanLastInputAt);
+  }
+  barcodeScanLastInputAt = now;
   barcodeScanBuffer += event.key;
   if (barcodeScanBuffer.length > 240) barcodeScanBuffer = barcodeScanBuffer.slice(-240);
+
+}
+
+function isLikelyHardwareBarcodeScan(now = 0, finalCheck = true) {
+  if (!barcodeScanBuffer || !barcodeScanStartedAt) return false;
+  const gaps = barcodeScanKeyGaps.filter((gap) => Number.isFinite(gap) && gap >= 0);
+  if (!gaps.length) return false;
+  const totalDuration = Math.max(0, Number(now || barcodeScanLastInputAt) - barcodeScanStartedAt);
+  const averageGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+  const maximumGap = Math.max(...gaps);
+  if (totalDuration > BARCODE_SCAN_MAX_DURATION_MS) return false;
+  if (maximumGap > BARCODE_SCAN_MAX_GAP_MS || averageGap > BARCODE_SCAN_MAX_AVERAGE_GAP_MS) return false;
+  return !finalCheck || barcodeScanBuffer.length >= BARCODE_SCAN_MIN_LENGTH;
+}
+
+function captureHardwareBarcodeSource(target) {
+  if (!isBarcodeTypingTarget(target)) return null;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+    return {
+      target,
+      value: target.value,
+      selectionStart: target.selectionStart,
+      selectionEnd: target.selectionEnd,
+    };
+  }
+  if (target instanceof HTMLSelectElement) return { target, value: target.value };
+  if (target.isContentEditable) return { target, html: target.innerHTML, contentEditable: true };
+  return null;
+}
+
+function restoreHardwareBarcodeSource() {
+  const snapshot = barcodeScanSourceSnapshot;
+  if (!snapshot?.target?.isConnected) return;
+  if (snapshot.contentEditable) snapshot.target.innerHTML = snapshot.html;
+  else snapshot.target.value = snapshot.value;
+  if (typeof snapshot.target.setSelectionRange === "function" && Number.isInteger(snapshot.selectionStart)) {
+    try {
+      snapshot.target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd ?? snapshot.selectionStart);
+    } catch (error) {}
+  }
+  snapshot.target.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function resetHardwareBarcodeCandidate() {
+  barcodeScanBuffer = "";
+  barcodeScanLastInputAt = 0;
+  barcodeScanStartedAt = 0;
+  barcodeScanKeyGaps = [];
+  barcodeScanSourceSnapshot = null;
 }
 
 function isBarcodeTypingTarget(target) {
@@ -13590,12 +13661,12 @@ function openScannedBarcode(value) {
 function setBarcodeScanStatus(message, mode = "") {
   const node = document.getElementById("barcode-scan-status");
   if (!node) return;
-  node.textContent = message || "Ready";
+  node.textContent = message || "USB Scanner Ready";
   node.className = ["scan-status", mode].filter(Boolean).join(" ");
   clearTimeout(barcodeScanStatusTimer);
   if (mode) {
     barcodeScanStatusTimer = setTimeout(() => {
-      node.textContent = "Ready";
+      node.textContent = "USB Scanner Ready";
       node.className = "scan-status";
     }, 4500);
   }
