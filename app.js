@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v770";
+const APP_VERSION = "v771";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -4819,6 +4819,8 @@ document.getElementById("add-production-stone-row")?.addEventListener("click", a
 document.getElementById("refresh-production-stone-master")?.addEventListener("click", refreshProductionStoneFromMaster);
 document.getElementById("reset-production-stone-design")?.addEventListener("click", resetProductionStoneFromDesign);
 document.getElementById("upload-production-stone-design")?.addEventListener("click", uploadProductionStoneEntryToDesignMaster);
+document.getElementById("convert-pr-wax-to-hand")?.addEventListener("click", () => convertProductionWaxStoneToHand("item"));
+document.getElementById("convert-job-wax-to-hand")?.addEventListener("click", () => convertProductionWaxStoneToHand("job"));
 
 document.getElementById("production-stone-form").addEventListener("change", (event) => {
   if (event.target.dataset.productionStoneField) {
@@ -23741,6 +23743,7 @@ function configureProductionStoneDialogMode(mode = "production") {
   const designMasterButton = document.getElementById("reset-production-stone-design");
   const uploadDesignMasterButton = document.getElementById("upload-production-stone-design");
   const navigation = document.getElementById("production-stone-navigation");
+  const bulkSetting = document.getElementById("production-stone-bulk-setting");
   if (title) title.textContent = fittingMode ? "Fitting Item Stone Entry" : "Production Stone Entry";
   if (guidance) guidance.textContent = fittingMode
     ? "These rows belong only to one fitting piece. Quantity totals are calculated automatically, and transferred pieces copy these exact stone rows into the destination PR item. Design Master and Stone Master remain unchanged unless a missing Stone Master weight is saved."
@@ -23751,6 +23754,7 @@ function configureProductionStoneDialogMode(mode = "production") {
   if (designMasterButton) designMasterButton.textContent = fittingMode ? "Get From Design + Stone Master" : "Get Stone Data From Design Master";
   uploadDesignMasterButton?.classList.toggle("hidden", fittingMode);
   navigation?.classList.toggle("hidden", fittingMode);
+  bulkSetting?.classList.toggle("hidden", fittingMode);
   if (!fittingMode && form) delete form.dataset.fittingJobItemId;
 }
 
@@ -24795,6 +24799,121 @@ function productionStoneRowsFromDialog({ validate = false } = {}) {
     if (item) items.push(item);
   });
   return items;
+}
+
+function productionStoneRowsFromDialogWithAdditional(order = {}, { validate = false } = {}) {
+  const items = productionStoneRowsFromDialog({ validate });
+  const form = document.getElementById("production-stone-form");
+  const additionalStoneWeight = Number(formatStoneWeight(form?.additionalStoneWeight?.value || "") || 0);
+  if (additionalStoneWeight > 0) items.push(directAdditionalStoneItemForOrder(order, additionalStoneWeight));
+  return items;
+}
+
+function waxStoneRowsConvertedToHand(items = []) {
+  let converted = 0;
+  const rows = (items || []).map((item) => {
+    if (item.settingType !== "wax" || item.isFittingAccessory || item.settingType === "fitting") return { ...item };
+    converted += 1;
+    return {
+      ...item,
+      settingType: "hand",
+      manufacturingStage: manufacturingStageForSettingType("hand"),
+      date: today(),
+    };
+  });
+  return { rows, converted };
+}
+
+function productionStoneBulkRollbackSnapshot() {
+  return structuredClone({
+    orders: state.orders || [],
+    lots: state.lots || [],
+    settingManagerEntries: state.settingManagerEntries || [],
+    ledger: state.ledger || [],
+    safeItems: state.safeItems || [],
+    bills: state.bills || [],
+    productionNonGoldIssues: state.productionNonGoldIssues || [],
+    nonGoldAuditEvents: state.nonGoldAuditEvents || [],
+  });
+}
+
+function restoreProductionStoneBulkRollback(snapshot = {}) {
+  Object.entries(snapshot).forEach(([key, value]) => {
+    state[key] = value;
+  });
+}
+
+function convertProductionWaxStoneToHand(scope = "item") {
+  if (productionStoneFittingEditorContext()) return false;
+  const form = document.getElementById("production-stone-form");
+  const order = findById("orders", form?.orderId?.value || "");
+  if (!order || !requireProductionStoneEditPermission(order, "change Wax Stone to Hand Stone")) return false;
+
+  let currentRows = [];
+  try {
+    currentRows = productionStoneRowsFromDialogWithAdditional(order, { validate: true });
+  } catch (error) {
+    alert(error.message || "Correct the current PR stone rows before applying the bulk setting change.");
+    return false;
+  }
+
+  const targetOrders = scope === "job" ? getJobOrders(order) : [order];
+  const plans = targetOrders.map((targetOrder) => {
+    const sourceRows = targetOrder.id === order.id ? currentRows : productionStoneItemsForOrder(targetOrder);
+    const result = waxStoneRowsConvertedToHand(sourceRows);
+    return { order: targetOrder, ...result };
+  });
+  const changedPlans = plans.filter((plan) => plan.converted > 0);
+  const convertedRows = changedPlans.reduce((total, plan) => total + plan.converted, 0);
+  if (!convertedRows) {
+    alert(scope === "job"
+      ? `No Wax Stone rows are available in ${order.jobNumber || order.number}.`
+      : `No Wax Stone rows are available in ${order.productionNo || order.number}.`);
+    return false;
+  }
+
+  const targetLabel = scope === "job"
+    ? `${order.jobNumber || order.number} / ${changedPlans.length} PR item${changedPlans.length === 1 ? "" : "s"}`
+    : `${order.productionNo || order.number}`;
+  if (!confirm(`Convert ${convertedRows} Wax Stone row${convertedRows === 1 ? "" : "s"} to Hand Stone for ${targetLabel}?\n\nPieces and stone weights will remain unchanged. Manufacturing Stage will change to Setting. Design Master and finalized bills will not change.`)) return false;
+
+  const rollback = productionStoneBulkRollbackSnapshot();
+  const source = scope === "job" ? "Whole Job Card Wax To Hand" : "PR Item Wax To Hand";
+  let syncedTransfers = 0;
+  try {
+    changedPlans.forEach((plan) => {
+      plan.order.productionStoneItems = plan.rows;
+      plan.order.colourStonePostfix = colourStonePostfixesForItems(plan.rows).join("/");
+      plan.order.itemName = normalizedJobItemName(plan.order, findById("designs", plan.order.designId));
+      stampProductionStoneEdit(plan.order, source);
+    });
+    const changedOrders = changedPlans.map((plan) => plan.order);
+    syncColourStoneOrderReferences(changedOrders);
+    syncedTransfers = syncFilingTransfersForUpdatedStoneOrders(changedOrders, source);
+    backupRecentJobOrders(changedOrders);
+    const saved = saveState({
+      alertOnFailure: true,
+      context: `${targetLabel} Wax Stone to Hand Stone`,
+      changedStateKeys: ["orders", "lots", "settingManagerEntries", "ledger", "safeItems", "bills", "productionNonGoldIssues", "nonGoldAuditEvents"],
+    });
+    if (!saved) throw new Error("The bulk stone-setting change could not be saved.");
+  } catch (error) {
+    restoreProductionStoneBulkRollback(rollback);
+    const restoredOrder = findById("orders", order.id) || order;
+    renderProductionStoneItems(restoredOrder);
+    updateProductionStoneMasterReloadState(restoredOrder);
+    alert(error?.message || "The bulk stone-setting change could not be completed. No ERP data was changed.");
+    return false;
+  }
+
+  const refreshedOrder = findById("orders", order.id) || order;
+  form.dataset.stoneEdited = "false";
+  form.additionalStoneWeight.value = formatStoneWeight(productionAdditionalStoneWeightForOrder(refreshedOrder)) || "";
+  renderProductionStoneItems(refreshedOrder);
+  updateProductionStoneMasterReloadState(refreshedOrder);
+  renderJobItemsDetail(jobOrdersForOpenOrderDialog(refreshedOrder));
+  alert(`${convertedRows} Wax Stone row${convertedRows === 1 ? "" : "s"} changed to Hand Stone for ${targetLabel}.${syncedTransfers ? ` ${syncedTransfers} active transfer chain${syncedTransfers === 1 ? " was" : "s were"} recalculated.` : ""}`);
+  return true;
 }
 
 function productionStoneItemFromDialogRow(row, { validate = false, rowNumber = 1 } = {}) {

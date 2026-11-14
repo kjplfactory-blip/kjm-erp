@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-        <small class="app-version-badge">App v770</small>
+        <small class="app-version-badge">App v771</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">USB Scanner Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-          <span class="app-version-badge">App v770</span>
+          <span class="app-version-badge">App v771</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -3087,6 +3087,16 @@
         <p id="production-stone-guidance" class="dialog-note production-stone-guidance">Stone rows start from Design Master. Additional Stone Weight is added directly to this PR item only. Use Upload PR Stone Entry To Design Master only after saving a verified correction.</p>
         <section id="production-stone-target-panel" class="production-stone-target-panel hidden">
           <div id="production-stone-targets" class="production-stone-targets"></div>
+        </section>
+        <section id="production-stone-bulk-setting" class="production-stone-bulk-setting">
+          <div>
+            <strong>Bulk Setting Change</strong>
+            <small>Convert Wax Stone rows to Hand Stone without changing pieces or stone weight. Design Master remains unchanged.</small>
+          </div>
+          <div class="production-stone-bulk-actions">
+            <button class="ghost-button" type="button" id="convert-pr-wax-to-hand">Current PR: Wax To Hand</button>
+            <button class="ghost-button" type="button" id="convert-job-wax-to-hand">Whole Job Card: Wax To Hand</button>
+          </div>
         </section>
         <section class="production-diamond-type-control">
           <label>
