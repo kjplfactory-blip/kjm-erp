@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v767";
+const APP_VERSION = "v768";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1958,12 +1958,21 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   );
   const metalPurity = karatLogicPurity(data.metalPurity || selectedOrders[0]?.purity || "18K");
   const issuedWeight = Number(data.issuedWeight);
-  const plannedWaxStoneWeight = productionStoneTotalsForOrders(selectedOrders, "wax").weight;
+  const stoneAdjustmentMode = normalizeIssueGoldStoneAdjustmentMode(data.stoneAdjustmentMode);
+  const stonePlan = issueGoldStoneAdjustmentPlan(selectedOrders, stoneAdjustmentMode);
+  const plannedWaxStoneWeight = stonePlan.waxStoneWeight;
+  const plannedHandStoneWeight = stonePlan.handStoneWeight;
+  const waxStoneWeight = stonePlan.allocatedWaxStoneWeight;
+  const initialHandStoneWeight = stonePlan.allocatedHandStoneWeight;
+  const allocatedStoneWeight = stonePlan.allocatedStoneWeight;
   const castingSafeItem = findSafeItemOrGroup(data.castingSafeItemId, metalPurity);
-  const waxStoneWeight = issueMetalWaxStoneWeight(castingSafeItem, plannedWaxStoneWeight, issuedWeight);
-  const netMetalIssuedWeight = Number(weight3(issuedWeight - waxStoneWeight));
+  const netMetalIssuedWeight = Number(weight3(issuedWeight - allocatedStoneWeight));
   if (!selectedOrders.length) {
     alert("Select one open job card to issue metal.");
+    return;
+  }
+  if (!stoneAdjustmentMode) {
+    alert("Select whether this Gold Issue should adjust Wax Stone only or Wax + Hand Stone.");
     return;
   }
   if (!karigar) return;
@@ -1972,7 +1981,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     return;
   }
   if (netMetalIssuedWeight <= 0) {
-    alert("Metal issued weight must be more than wax-set stone weight.");
+    alert("Metal issued weight must be more than the selected stone adjustment.");
     return;
   }
 
@@ -1999,10 +2008,10 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
   const issueSafeItemsBefore = captureSafeIssueSourceItems(castingSafeItem);
   const castingSourceForAssignment = structuredClone(castingSafeItem);
-  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(castingSourceForAssignment, waxStoneWeight);
+  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(castingSourceForAssignment, allocatedStoneWeight);
   const looseWaxAvailable = availableLooseNonGoldWeight(state, metalPurity, "stone");
   if (looseWaxAllocationWeight > looseWaxAvailable + 0.0005) {
-    alert(`This ${issueSourceName} entry is stored as GW only, but ${data.jobNumber} already contains ${gram(looseWaxAllocationWeight)} wax stone.\n\nLoose Non-Gold Shelf has only ${gram(looseWaxAvailable)} matching ${transferPurityLabel(metalPurity)} stone. Add or correct the Loose Stone balance before issuing this Job Card.`);
+    alert(`This ${issueSourceName} entry does not contain the full selected stone adjustment for ${data.jobNumber}.\n\nAn additional ${gram(looseWaxAllocationWeight)} stone is required, but the Loose Non-Gold Shelf has only ${gram(looseWaxAvailable)} matching ${transferPurityLabel(metalPurity)} stone. Add or correct the Loose Stone balance before issuing this Job Card.`);
     return;
   }
   const lotNumber = nextLotNumber(state);
@@ -2026,6 +2035,13 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     grossIssuedWeight: issuedWeight,
     waxStoneWeight,
     plannedWaxStoneWeight,
+    plannedHandStoneWeight,
+    initialHandStoneWeight,
+    issueGoldAllocatedWaxStoneWeight: waxStoneWeight,
+    issueGoldAllocatedHandStoneWeight: initialHandStoneWeight,
+    issueGoldAllocatedStoneWeight: allocatedStoneWeight,
+    stoneAdjustmentMode,
+    stoneAdjustmentLabel: issueGoldStoneAdjustmentLabel(stoneAdjustmentMode),
     physicalWaxStoneWeight: waxStoneWeight,
     issuedWeight: netMetalIssuedWeight,
     castingSafeItemId: castingSafeItem.id,
@@ -2047,24 +2063,25 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     itemNarration: fittingAccessoriesOrder?.itemNarration || "",
     finalDestination: fittingAccessoriesIssue ? "Chain Fitting Department" : "",
   };
-  const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
+  const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
   const safeItemsBeforeTransaction = structuredClone(state.safeItems || []);
   const sourceIssued = issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
     grossWeight: issuedWeight,
-    waxStoneWeight,
+    waxStoneWeight: allocatedStoneWeight,
     externalWaxStoneWeight: looseWaxAllocationWeight,
   });
   if (!sourceIssued) {
     state.safeItems = safeItemsBeforeTransaction;
-    alert(`The selected ${issueSourceName} holding could not issue GW ${gram(issuedWeight)} as Net Gold ${gram(netMetalIssuedWeight)} plus Wax Stone ${gram(waxStoneWeight)}. No stock was changed.`);
+    alert(`The selected ${issueSourceName} holding could not issue GW ${gram(issuedWeight)} as Net Gold ${gram(netMetalIssuedWeight)} plus Stone ${gram(allocatedStoneWeight)}. No stock was changed.`);
     return;
   }
   try {
-    const castingSources = assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, waxStoneWeight, selectedOrders);
+    const sourceSettingType = stoneAdjustmentMode === "wax-hand" ? "" : "wax";
+    const castingSources = assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, allocatedStoneWeight, selectedOrders, sourceSettingType);
     const castingAssignedWeight = Number(weight3(castingSources.reduce((total, entry) => total + Number(entry.weight || 0), 0)));
-    const storedWaxWeight = Number(weight3(Math.max(waxStoneWeight - looseWaxAllocationWeight, 0)));
+    const storedWaxWeight = Number(weight3(Math.max(allocatedStoneWeight - looseWaxAllocationWeight, 0)));
     const safeEmbeddedWeight = Number(weight3(Math.max(storedWaxWeight - castingAssignedWeight, 0)));
-    assignSafeEmbeddedWaxSourceToLot(issuedLot, castingSourceForAssignment, safeEmbeddedWeight, selectedOrders);
+    assignSafeEmbeddedWaxSourceToLot(issuedLot, castingSourceForAssignment, safeEmbeddedWeight, selectedOrders, sourceSettingType);
     issuedLot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
       Number(issuedLot.unassignedWaxStoneSourceWeight || 0) - safeEmbeddedWeight,
       0,
@@ -2103,7 +2120,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   }
   event.target.reset();
   refreshProductionPage("issue");
-  alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
+  alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
 });
 
 document.getElementById("opening-non-gold-adjustment-form")?.addEventListener("input", updateOpeningNonGoldAdjustmentSummary);
@@ -28501,7 +28518,8 @@ function goldIssueCorrectionTargetGroups(lot = {}) {
   return [...groups.entries()].map(([jobNumber, orders]) => {
     const purities = [...new Set(orders.map((order) => karatLogicPurity(order.purity || lot.metalPurity || "")))];
     const waxStoneWeight = Number(weight3(productionStoneTotalsForOrders(orders, "wax").weight));
-    return { jobNumber, orders, purity: purities[0] || "", waxStoneWeight, compatible: purities.length === 1 };
+    const handStoneWeight = Number(weight3(productionStoneTotalsForOrders(orders, "hand").weight));
+    return { jobNumber, orders, purity: purities[0] || "", waxStoneWeight, handStoneWeight, compatible: purities.length === 1 };
   }).filter((group) => group.jobNumber && group.compatible)
     .sort((left, right) => {
       if (left.jobNumber === lot.orderNumber) return -1;
@@ -28550,8 +28568,11 @@ function updateGoldIssueCorrectionSummary() {
   const target = goldIssueCorrectionTargetGroups(lot).find((group) => group.jobNumber === form.targetJobNumber.value);
   if (!target) return;
   const gross = Number(form.grossIssuedWeight.value || 0);
+  const stoneAdjustmentMode = normalizeIssueGoldStoneAdjustmentMode(lot.stoneAdjustmentMode) || "wax";
   const wax = Number(weight3(target.waxStoneWeight || 0));
-  const net = Number(weight3(gross - wax));
+  const hand = stoneAdjustmentMode === "wax-hand" ? Number(weight3(target.handStoneWeight || 0)) : 0;
+  const allocatedStoneWeight = Number(weight3(wax + hand));
+  const net = Number(weight3(gross - allocatedStoneWeight));
   form.metalPurity.value = target.purity;
   form.waxStoneWeight.value = weight3(wax);
   form.netIssuedWeight.value = weight3(Math.max(net, 0));
@@ -28574,7 +28595,7 @@ function updateGoldIssueCorrectionSummary() {
       note.textContent = `Issue GW correction only: ${gram(oldGross)} to ${gram(gross)}. Existing Wax / Hand / Other deduction ${gram(preservedDeductions)} remains unchanged, so corrected Net Gold is ${gram(Math.max(correctedNet, 0))}. Additional Shelf Gold required ${gram(additionalIssue)}; selected Safe balance ${gram(available)}.`;
       note.classList.toggle("warn", correctedNet <= 0 || additionalIssue > available + 0.0005);
     } else {
-      note.textContent = `Corrected calculation: GW ${gram(gross)} - Wax Stone ${gram(wax)} = Net Gold ${gram(Math.max(net, 0))}. Selected Safe GW ${gram(available)}; GW balance after correction ${gram(Math.max(available - gross, 0))}.`;
+      note.textContent = `Corrected calculation: GW ${gram(gross)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Gold ${gram(Math.max(net, 0))}. Selected Safe GW ${gram(available)}; GW balance after correction ${gram(Math.max(available - gross, 0))}.`;
       note.classList.toggle("warn", net <= 0 || gross > available + 0.0005);
     }
   }
@@ -28600,7 +28621,7 @@ function openGoldIssueCorrection(lotId = "") {
   const targets = goldIssueCorrectionTargetGroups(lot);
   form.lotId.value = lot.id;
   form.targetJobNumber.innerHTML = targets.length
-    ? targets.map((target) => `<option value="${escapeHtml(target.jobNumber)}">${escapeHtml(target.jobNumber)} / ${target.orders.length} item${target.orders.length === 1 ? "" : "s"} / ${escapeHtml(transferPurityLabel(target.purity))} / Wax ${gram(target.waxStoneWeight)}</option>`).join("")
+    ? targets.map((target) => `<option value="${escapeHtml(target.jobNumber)}">${escapeHtml(target.jobNumber)} / ${target.orders.length} item${target.orders.length === 1 ? "" : "s"} / ${escapeHtml(transferPurityLabel(target.purity))} / Wax ${gram(target.waxStoneWeight)} / Hand ${gram(target.handStoneWeight)}</option>`).join("")
     : '<option value="">No eligible Job Card</option>';
   form.targetJobNumber.value = lot.orderNumber || targets[0]?.jobNumber || "";
   form.targetJobNumber.disabled = !targets.length;
@@ -28644,7 +28665,9 @@ function openGoldIssueCorrection(lotId = "") {
       ? "Restore the source holding and return this Job Card to the Issue Gold screen"
       : fullCorrectionReason;
   }
-  document.getElementById("gold-issue-correction-summary").textContent = `${lot.number} / ${lot.orderNumber} / GW ${gram(lot.grossIssuedWeight || lot.issuedWeight)} / Wax ${gram(lot.waxStoneWeight)} / Net Gold ${gram(lot.issuedWeight)} / ${lot.currentDepartment || lot.karigarName || "-"}`;
+  const savedStoneMode = normalizeIssueGoldStoneAdjustmentMode(lot.stoneAdjustmentMode) || "wax";
+  const savedStoneTotal = Number(weight3(lot.issueGoldAllocatedStoneWeight ?? (Number(lot.waxStoneWeight || 0) + (savedStoneMode === "wax-hand" ? Number(lot.initialHandStoneWeight || 0) : 0))));
+  document.getElementById("gold-issue-correction-summary").textContent = `${lot.number} / ${lot.orderNumber} / GW ${gram(lot.grossIssuedWeight || lot.issuedWeight)} / ${issueGoldStoneAdjustmentLabel(savedStoneMode)} ${gram(savedStoneTotal)} / Net Gold ${gram(lot.issuedWeight)} / ${lot.currentDepartment || lot.karigarName || "-"}`;
   if (!dialog.open) dialog.showModal();
 }
 
@@ -29069,11 +29092,14 @@ function saveGoldIssueCorrection(event) {
   }
   const purity = karatLogicPurity(target.purity || lot.metalPurity);
   const gross = Number(data.grossIssuedWeight || 0);
+  const stoneAdjustmentMode = normalizeIssueGoldStoneAdjustmentMode(lot.stoneAdjustmentMode) || "wax";
   const wax = Number(weight3(target.waxStoneWeight || 0));
-  const net = Number(weight3(gross - wax));
+  const hand = stoneAdjustmentMode === "wax-hand" ? Number(weight3(target.handStoneWeight || 0)) : 0;
+  const allocatedStoneWeight = Number(weight3(wax + hand));
+  const net = Number(weight3(gross - allocatedStoneWeight));
   const correctionReason = String(data.correctionReason || "").trim();
   if (!Number.isFinite(gross) || gross <= 0 || net <= 0) {
-    alert("Gold Issue GW must be more than the Job Card wax-stone weight.");
+    alert("Gold Issue GW must be more than the selected Job Card stone adjustment.");
     return;
   }
   if (!data.castingSafeItemId) {
@@ -29091,9 +29117,11 @@ function saveGoldIssueCorrection(event) {
     source: lot.issueSourceDetail || lot.issueSourceName || "",
     gross: Number(lot.grossIssuedWeight || lot.issuedWeight || 0),
     wax: Number(lot.waxStoneWeight || 0),
+    hand: Number(lot.initialHandStoneWeight || 0),
+    allocatedStone: Number(lot.issueGoldAllocatedStoneWeight ?? (Number(lot.waxStoneWeight || 0) + Number(lot.initialHandStoneWeight || 0))),
     net: Number(lot.issuedWeight || 0),
   };
-  if (!confirm(`Save correction for ${lot.number}?\n\nJob Card: ${oldDetails.jobNumber} to ${target.jobNumber}\nGold Issue GW: ${gram(oldDetails.gross)} to ${gram(gross)}\nWax Stone: ${gram(oldDetails.wax)} to ${gram(wax)}\nNet Gold: ${gram(oldDetails.net)} to ${gram(net)}\nFirst Department: ${oldDetails.department || "-"} to ${karigar.name}\n\nThe original Safe balance will be restored before this corrected issue is applied.`)) return;
+  if (!confirm(`Save correction for ${lot.number}?\n\nJob Card: ${oldDetails.jobNumber} to ${target.jobNumber}\nGold Issue GW: ${gram(oldDetails.gross)} to ${gram(gross)}\n${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)}: ${gram(oldDetails.allocatedStone)} to ${gram(allocatedStoneWeight)}\nNet Gold: ${gram(oldDetails.net)} to ${gram(net)}\nFirst Department: ${oldDetails.department || "-"} to ${karigar.name}\n\nThe original Safe balance will be restored before this corrected issue is applied.`)) return;
 
   const stateBefore = structuredClone(state);
   if (!restoreGoldIssueSafeStock(lot)) {
@@ -29126,16 +29154,16 @@ function saveGoldIssueCorrection(event) {
   const sourceDetail = safeItemOptionLabel(source);
   const sourceSnapshots = captureSafeIssueSourceItems(source);
   const sourceForAssignment = structuredClone(source);
-  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(sourceForAssignment, wax);
+  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(sourceForAssignment, allocatedStoneWeight);
   const looseWaxAvailable = availableLooseNonGoldWeight(state, purity, "stone");
   if (looseWaxAllocationWeight > looseWaxAvailable + 0.0005) {
     state = stateBefore;
-    alert(`Corrected Job Card requires ${gram(looseWaxAllocationWeight)} wax stone from the Loose Non-Gold Shelf, but only ${gram(looseWaxAvailable)} is available. No data was changed.`);
+    alert(`Corrected Job Card requires ${gram(looseWaxAllocationWeight)} additional stone from the Loose Non-Gold Shelf, but only ${gram(looseWaxAvailable)} is available. No data was changed.`);
     return;
   }
   const balanceAfter = Number(weight3(available - gross));
   const issueDepartment = mergedProductionDepartmentName(primaryDepartmentProcess(karigar), karigar.name);
-  const reference = `${lot.number} for ${target.jobNumber} issued from ${sourceName} to ${karigar.name}; ${sourceDetail}; Gold Issue ${gram(gross)} - Wax Stone ${gram(wax)} = Net Wt ${gram(net)}; Balance ${gram(balanceAfter)}`;
+  const reference = `${lot.number} for ${target.jobNumber} issued from ${sourceName} to ${karigar.name}; ${sourceDetail}; Gold Issue ${gram(gross)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Wt ${gram(net)}; Balance ${gram(balanceAfter)}`;
 
   target.orders.forEach((order) => { order.status = "In Production"; });
   Object.assign(lot, {
@@ -29151,6 +29179,15 @@ function saveGoldIssueCorrection(event) {
     metalPurity: purity,
     grossIssuedWeight: Number(weight3(gross)),
     waxStoneWeight: wax,
+    physicalWaxStoneWeight: wax,
+    plannedWaxStoneWeight: wax,
+    plannedHandStoneWeight: Number(weight3(target.handStoneWeight || 0)),
+    initialHandStoneWeight: hand,
+    issueGoldAllocatedWaxStoneWeight: wax,
+    issueGoldAllocatedHandStoneWeight: hand,
+    issueGoldAllocatedStoneWeight: allocatedStoneWeight,
+    stoneAdjustmentMode,
+    stoneAdjustmentLabel: issueGoldStoneAdjustmentLabel(stoneAdjustmentMode),
     issuedWeight: net,
     castingSafeItemId: source.id,
     castingSafeItemDescription: source.description || "",
@@ -29180,7 +29217,7 @@ function saveGoldIssueCorrection(event) {
   });
   if (!issueFromSafeSelection(source, net, reference, lot.number, {
     grossWeight: gross,
-    waxStoneWeight: wax,
+    waxStoneWeight: allocatedStoneWeight,
     externalWaxStoneWeight: looseWaxAllocationWeight,
   })) {
     state = stateBefore;
@@ -29189,11 +29226,12 @@ function saveGoldIssueCorrection(event) {
   }
   try {
     lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => entry.sourceType !== "safe-embedded-wax");
-    const castingSources = assignCastingEmbeddedSourceToLot(lot, sourceForAssignment, wax, target.orders);
+    const sourceSettingType = stoneAdjustmentMode === "wax-hand" ? "" : "wax";
+    const castingSources = assignCastingEmbeddedSourceToLot(lot, sourceForAssignment, allocatedStoneWeight, target.orders, sourceSettingType);
     const castingAssignedWeight = Number(weight3(castingSources.reduce((total, entry) => total + Number(entry.weight || 0), 0)));
-    const storedWaxWeight = Number(weight3(Math.max(wax - looseWaxAllocationWeight, 0)));
+    const storedWaxWeight = Number(weight3(Math.max(allocatedStoneWeight - looseWaxAllocationWeight, 0)));
     const safeEmbeddedWeight = Number(weight3(Math.max(storedWaxWeight - castingAssignedWeight, 0)));
-    assignSafeEmbeddedWaxSourceToLot(lot, sourceForAssignment, safeEmbeddedWeight, target.orders);
+    assignSafeEmbeddedWaxSourceToLot(lot, sourceForAssignment, safeEmbeddedWeight, target.orders, sourceSettingType);
     lot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
       Number(lot.unassignedWaxStoneSourceWeight || 0) - safeEmbeddedWeight,
       0,
@@ -29207,7 +29245,7 @@ function saveGoldIssueCorrection(event) {
   recordGoldIssueCorrection(
     lot,
     "EDIT",
-    `${correctionReason}; Job ${oldDetails.jobNumber} to ${target.jobNumber}; source ${oldDetails.source || "-"} to ${sourceDetail}; GW ${gram(oldDetails.gross)} to ${gram(gross)}; Wax ${gram(oldDetails.wax)} to ${gram(wax)}; Net ${gram(oldDetails.net)} to ${gram(net)}; department ${oldDetails.department || "-"} to ${karigar.name}.`,
+    `${correctionReason}; Job ${oldDetails.jobNumber} to ${target.jobNumber}; source ${oldDetails.source || "-"} to ${sourceDetail}; GW ${gram(oldDetails.gross)} to ${gram(gross)}; ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(oldDetails.allocatedStone)} to ${gram(allocatedStoneWeight)}; Net ${gram(oldDetails.net)} to ${gram(net)}; department ${oldDetails.department || "-"} to ${karigar.name}.`,
   );
   if (!saveState({ alertOnFailure: true, context: `Correct Gold Issue ${lot.number}` })) {
     state = stateBefore;
@@ -29219,7 +29257,7 @@ function saveGoldIssueCorrection(event) {
   document.getElementById("history-dialog")?.close();
   document.getElementById("online-transfer-history-dialog")?.close();
   render();
-  alert(`${lot.number} Gold Issue corrected successfully.\n${target.jobNumber} / GW ${gram(gross)} / Wax ${gram(wax)} / Net Gold ${gram(net)} / ${karigar.name}.`);
+  alert(`${lot.number} Gold Issue corrected successfully.\n${target.jobNumber} / GW ${gram(gross)} / ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} / Net Gold ${gram(net)} / ${karigar.name}.`);
 }
 
 function renderOrderLots(order, scopedLotId = "") {
@@ -29438,6 +29476,33 @@ function productionStoneTotalsForOrders(orders = [], settingType = "") {
   }, { pcs: 0, weight: 0 });
 }
 
+function normalizeIssueGoldStoneAdjustmentMode(value = "") {
+  const mode = String(value || "").trim().toLowerCase();
+  return ["wax", "wax-hand"].includes(mode) ? mode : "";
+}
+
+function issueGoldStoneAdjustmentLabel(mode = "") {
+  return normalizeIssueGoldStoneAdjustmentMode(mode) === "wax-hand"
+    ? "Wax + Hand Stone"
+    : "Wax Stone";
+}
+
+function issueGoldStoneAdjustmentPlan(orders = [], mode = "") {
+  const normalizedMode = normalizeIssueGoldStoneAdjustmentMode(mode);
+  const waxStoneWeight = Number(weight3(productionStoneTotalsForOrders(orders, "wax").weight || 0));
+  const handStoneWeight = Number(weight3(productionStoneTotalsForOrders(orders, "hand").weight || 0));
+  const allocatedWaxStoneWeight = normalizedMode ? waxStoneWeight : 0;
+  const allocatedHandStoneWeight = normalizedMode === "wax-hand" ? handStoneWeight : 0;
+  return {
+    mode: normalizedMode,
+    waxStoneWeight,
+    handStoneWeight,
+    allocatedWaxStoneWeight,
+    allocatedHandStoneWeight,
+    allocatedStoneWeight: Number(weight3(allocatedWaxStoneWeight + allocatedHandStoneWeight)),
+  };
+}
+
 function issueMetalWaxStoneWeight(selection = null, plannedWaxStoneWeight = 0, grossIssueWeight = 0) {
   const plannedWax = Number(weight3(Math.max(Number(plannedWaxStoneWeight || 0), 0)));
   if (!selection) return plannedWax;
@@ -29467,7 +29532,7 @@ function issueGoldLooseWaxAllocationWeight(selection = null, waxStoneWeight = 0)
   return Number(weight3(Math.max(requested - issueGoldStoredWaxWeight(selection, requested), 0)));
 }
 
-function assignSafeEmbeddedWaxSourceToLot(lot = {}, selection = null, weight = 0, orders = []) {
+function assignSafeEmbeddedWaxSourceToLot(lot = {}, selection = null, weight = 0, orders = [], settingType = "wax") {
   const embeddedWeight = Number(weight3(Math.max(Number(weight || 0), 0)));
   if (!lot?.id || !selection || embeddedWeight <= 0.0005) return [];
   return setLotEmbeddedNonGoldSource(lot, {
@@ -29478,7 +29543,7 @@ function assignSafeEmbeddedWaxSourceToLot(lot = {}, selection = null, weight = 0
     weight: embeddedWeight,
     purity: lot.metalPurity || selection.purity || selection.locker || "18K",
     orders,
-    settingType: "wax",
+    settingType,
   });
 }
 
@@ -29495,7 +29560,7 @@ function applyIssueGoldLooseWaxSource(lot = {}, orders = [], weight = 0) {
     sourceId: lot.id,
     purity: lot.metalPurity || orders[0]?.purity || "18K",
     breakdown: { stone: looseWeight },
-    reference: `${lot.number || "Gold Issue"} / ${lot.orderNumber || "Job Card"} wax stone already included in GW`,
+    reference: `${lot.number || "Gold Issue"} / ${lot.orderNumber || "Job Card"} ${issueGoldStoneAdjustmentLabel(lot.stoneAdjustmentMode).toLowerCase()} already included in GW`,
     date: lot.issueDate || today(),
   });
   setLotEmbeddedNonGoldSource(lot, {
@@ -29506,9 +29571,10 @@ function applyIssueGoldLooseWaxSource(lot = {}, orders = [], weight = 0) {
     weight: looseWeight,
     purity: lot.metalPurity || orders[0]?.purity || "18K",
     orders,
-    settingType: "wax",
+    settingType: normalizeIssueGoldStoneAdjustmentMode(lot.stoneAdjustmentMode) === "wax-hand" ? "" : "wax",
   });
   lot.looseWaxAllocationWeight = looseWeight;
+  lot.looseStoneAllocationWeight = looseWeight;
   lot.looseWaxAllocationAt = source.postedAt || new Date().toISOString();
   lot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
     Number(lot.unassignedWaxStoneSourceWeight || 0) - looseWeight,
@@ -29533,6 +29599,7 @@ function restoreIssueGoldLooseWaxSource(lot = {}) {
     reversedAt: new Date().toISOString(),
   };
   lot.looseWaxAllocationWeight = 0;
+  lot.looseStoneAllocationWeight = 0;
   return true;
 }
 
@@ -29545,7 +29612,7 @@ function assignedEmbeddedSourceWeight(sourceType = "", sourceId = "", excludeLot
   }, 0)));
 }
 
-function assignCastingEmbeddedSourceToLot(lot = {}, selection = null, waxStoneWeight = 0, orders = []) {
+function assignCastingEmbeddedSourceToLot(lot = {}, selection = null, waxStoneWeight = 0, orders = [], settingType = "wax") {
   if (!lot?.id || !selection) return [];
   lot.embeddedNonGoldSources = (lot.embeddedNonGoldSources || []).filter((entry) => entry.sourceType !== "casting-wax");
   let remaining = Number(weight3(Math.max(Number(waxStoneWeight || 0), 0)));
@@ -29570,7 +29637,7 @@ function assignCastingEmbeddedSourceToLot(lot = {}, selection = null, waxStoneWe
       weight: take,
       purity: lot.metalPurity || melting.targetPurity || "18K",
       orders,
-      settingType: "wax",
+      settingType,
     }));
     remaining = Number(weight3(remaining - take));
   });
@@ -29632,26 +29699,30 @@ function updateIssueMetalSummary() {
   const selectedOrders = state.orders.filter((order) =>
     (order.jobNumber || order.productionNo || order.number) === jobNumber && order.status === "Pending"
   );
-  const plannedWaxStoneWeight = productionStoneTotalsForOrders(selectedOrders, "wax").weight;
+  const stoneAdjustmentMode = normalizeIssueGoldStoneAdjustmentMode(form.stoneAdjustmentMode?.value);
+  const stonePlan = issueGoldStoneAdjustmentPlan(selectedOrders, stoneAdjustmentMode);
   const castingItem = findSafeItemOrGroup(form.castingSafeItemId?.value, form.metalPurity.value || selectedOrders[0]?.purity || "18K");
-  const waxStoneWeight = issueMetalWaxStoneWeight(castingItem, plannedWaxStoneWeight, grossIssue);
-  const netMetal = Number(weight3(grossIssue - waxStoneWeight));
+  const allocatedStoneWeight = stonePlan.allocatedStoneWeight;
+  const netMetal = Number(weight3(grossIssue - allocatedStoneWeight));
   const purities = [...new Set(selectedOrders.map((order) => order.purity).filter(Boolean))];
   if (!jobNumber) {
-    summary.textContent = "Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.";
+    summary.textContent = "Select a Job Card, source, stone adjustment, and Gold Issue weight to calculate Net Wt.";
     return;
   }
   const castingAvailable = castingItem ? safeItemAvailableGrossWeight(castingItem) : 0;
-  const looseWaxAllocation = issueGoldLooseWaxAllocationWeight(castingItem, waxStoneWeight);
-  const looseWaxAvailable = availableLooseNonGoldWeight(state, form.metalPurity.value || purities[0] || "18K", "stone");
+  const storedStoneAllocation = issueGoldStoredWaxWeight(castingItem, allocatedStoneWeight);
+  const looseStoneAllocation = issueGoldLooseWaxAllocationWeight(castingItem, allocatedStoneWeight);
+  const looseStoneAvailable = availableLooseNonGoldWeight(state, form.metalPurity.value || purities[0] || "18K", "stone");
   const castingNote = castingItem
-    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Physical wax used ${gram(waxStoneWeight)}${Math.abs(plannedWaxStoneWeight - waxStoneWeight) > 0.0005 ? ` (Job Card estimate ${gram(plannedWaxStoneWeight)})` : ""}. GW balance after issue ${gram(Math.max(castingAvailable - Math.max(grossIssue, 0), 0))}.${looseWaxAllocation > 0.0005 ? ` Wax already inside this GW: ${gram(looseWaxAllocation)} will move from Loose Non-Gold to the Job Card (available ${gram(looseWaxAvailable)}).` : ""}`
+    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Source stone used ${gram(storedStoneAllocation)}. GW balance after issue ${gram(Math.max(castingAvailable - Math.max(grossIssue, 0), 0))}.${looseStoneAllocation > 0.0005 ? ` Additional stone already inside this GW: ${gram(looseStoneAllocation)} will move from Loose Non-Gold to the Job Card (available ${gram(looseStoneAvailable)}).` : ""}`
     : ` Select casting or related item from ${safeLockerForPurity(form.metalPurity.value || purities[0] || "18K")} Safe.`;
   const purityNote = purities.length > 1 ? ` Multiple purities in job: ${purities.join(", ")}.` : ` Purity: ${purities[0] || form.metalPurity.value || "-"}.`;
-  summary.textContent = `Gold Issue ${gram(grossIssue)} - Wax Stone ${gram(waxStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${purityNote}${castingNote}`;
-  summary.classList.toggle("warn", grossIssue > 0 && (netMetal <= 0 || grossIssue > castingAvailable + 0.0005 || looseWaxAllocation > looseWaxAvailable + 0.0005));
+  const planNote = ` Job Card Stone: Wax ${gram(stonePlan.waxStoneWeight)} / Hand ${gram(stonePlan.handStoneWeight)}.`;
+  summary.textContent = stoneAdjustmentMode
+    ? `Gold Issue ${gram(grossIssue)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${planNote}${purityNote}${castingNote}`
+    : `Choose Stone Adjustment. Wax-only Net Wt ${gram(Math.max(grossIssue - stonePlan.waxStoneWeight, 0))}; Wax + Hand Net Wt ${gram(Math.max(grossIssue - stonePlan.waxStoneWeight - stonePlan.handStoneWeight, 0))}.${planNote}${purityNote}${castingNote}`;
+  summary.classList.toggle("warn", grossIssue > 0 && (!stoneAdjustmentMode || netMetal <= 0 || grossIssue > castingAvailable + 0.0005 || looseStoneAllocation > looseStoneAvailable + 0.0005));
 }
-
 function applyIssuePurityFromJob() {
   const form = document.getElementById("production-form");
   if (!form?.jobNumber?.value) return;
@@ -29702,7 +29773,7 @@ function safeItemOptionLabel(item = {}) {
   const type = item.virtualSafeGroup ? "Casting Shelf" : isCastingIssueStock(item) ? "Casting Item" : "Related Gold Item";
   const itemCount = item.virtualSafeGroup ? ` / ${item.items?.length || 0} entries` : "";
   const date = item.virtualSafeGroup ? "" : ` / ${item.date || "-"}`;
-  return `${source} / ${type} / ${colour} / ${desiredPurity}${date} / GW ${gram(item.grossWeight)} / Wax ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
+  return `${source} / ${type} / ${colour} / ${desiredPurity}${date} / GW ${gram(item.grossWeight)} / Stone ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
 }
 
 function safeIssueSourceName(item = {}) {

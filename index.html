@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>KHUSHALI JEWELLS MANUFACTURING</title>
-  <link rel="stylesheet" href="styles.css?v=767">
+  <link rel="stylesheet" href="styles.css?v=768">
   <link rel="stylesheet" href="department-holdings-v615.css?v=629">
   <link rel="stylesheet" href="setting-master-tiles-v617.css?v=671">
   <link rel="stylesheet" href="setting-manual-transfer-v618.css?v=629">
@@ -20,7 +20,7 @@
           <div>
             <strong>KHUSHALI JEWELLS MANUFACTURING</strong>
             <small>VELLA Production ERP</small>
-          <small class="app-version-badge">App v767</small>
+          <small class="app-version-badge">App v768</small>
           </div>
         </div>
         <label>User
@@ -131,7 +131,7 @@
             <small id="barcode-scan-status" class="scan-status">USB Scanner Ready</small>
           </div>
           <div class="top-action-group sync-group" aria-label="Live sync status">
-            <span class="app-version-badge">App v767</span>
+            <span class="app-version-badge">App v768</span>
             <button id="sync-status" class="sync-pill offline" type="button" aria-label="Open multi-device sync health">Sync: Checking</button>
             <small id="sync-detail" class="sync-detail">App loading</small>
           </div>
@@ -734,7 +734,14 @@
               <option value="92.5%"></option>
             </datalist>
             <label>Metal Issued To Job Card (g) <input name="issuedWeight" type="number" min="0.001" step="0.001" required></label>
-            <p id="issue-metal-summary" class="dialog-note">Select job card and enter Gold Issue weight to see: Gold Issue - Wax Stone = Net Wt.</p>
+            <label>Stone Adjustment
+              <select name="stoneAdjustmentMode" required>
+                <option value="">Select stone adjustment</option>
+                <option value="wax">Adjust Wax Stone Only</option>
+                <option value="wax-hand">Adjust Wax + Hand Stone</option>
+              </select>
+            </label>
+            <p id="issue-metal-summary" class="dialog-note">Select a Job Card, source, stone adjustment, and Gold Issue weight to calculate Net Wt.</p>
             <label>Expected Wastage (%) <input name="wastagePercent" type="number" min="0" step="0.01" value="2"></label>
             <button type="submit">Issue Metal</button>
           </form>
@@ -4324,7 +4331,7 @@
   <script src="non-gold-issue-v705.js?v=713"></script>
   <script src="ledger-reconciliation-v687.js?v=687"></script>
     <script src="job-card-lot-merge-v716.js?v=716"></script>
-  <script src="app.js?v=767"></script>
+  <script src="app.js?v=768"></script>
   <script src="office-reference-bills-v715.js?v=766"></script>
   <script src="sequential-numbering-v714.js?v=745"></script>
   <script src="setting-split-v611.js?v=611"></script>
