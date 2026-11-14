@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v768";
+const APP_VERSION = "v769";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -1962,11 +1962,12 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const stonePlan = issueGoldStoneAdjustmentPlan(selectedOrders, stoneAdjustmentMode);
   const plannedWaxStoneWeight = stonePlan.waxStoneWeight;
   const plannedHandStoneWeight = stonePlan.handStoneWeight;
-  const waxStoneWeight = stonePlan.allocatedWaxStoneWeight;
   const initialHandStoneWeight = stonePlan.allocatedHandStoneWeight;
   const allocatedStoneWeight = stonePlan.allocatedStoneWeight;
   const castingSafeItem = findSafeItemOrGroup(data.castingSafeItemId, metalPurity);
-  const netMetalIssuedWeight = Number(weight3(issuedWeight - allocatedStoneWeight));
+  const issueComposition = issueGoldCompositionPlan(castingSafeItem, issuedWeight, allocatedStoneWeight);
+  const waxStoneWeight = issueComposition.totalStoneWeight;
+  const netMetalIssuedWeight = issueComposition.netWeight;
   if (!selectedOrders.length) {
     alert("Select one open job card to issue metal.");
     return;
@@ -2008,7 +2009,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   const issueSourceDetail = safeItemOptionLabel(castingSafeItem);
   const issueSafeItemsBefore = captureSafeIssueSourceItems(castingSafeItem);
   const castingSourceForAssignment = structuredClone(castingSafeItem);
-  const looseWaxAllocationWeight = issueGoldLooseWaxAllocationWeight(castingSourceForAssignment, allocatedStoneWeight);
+  const looseWaxAllocationWeight = issueComposition.externalStoneWeight;
   const looseWaxAvailable = availableLooseNonGoldWeight(state, metalPurity, "stone");
   if (looseWaxAllocationWeight > looseWaxAvailable + 0.0005) {
     alert(`This ${issueSourceName} entry does not contain the full selected stone adjustment for ${data.jobNumber}.\n\nAn additional ${gram(looseWaxAllocationWeight)} stone is required, but the Loose Non-Gold Shelf has only ${gram(looseWaxAvailable)} matching ${transferPurityLabel(metalPurity)} stone. Add or correct the Loose Stone balance before issuing this Job Card.`);
@@ -2037,9 +2038,13 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     plannedWaxStoneWeight,
     plannedHandStoneWeight,
     initialHandStoneWeight,
-    issueGoldAllocatedWaxStoneWeight: waxStoneWeight,
+    issueGoldAllocatedWaxStoneWeight: stonePlan.allocatedWaxStoneWeight,
     issueGoldAllocatedHandStoneWeight: initialHandStoneWeight,
     issueGoldAllocatedStoneWeight: allocatedStoneWeight,
+    issueSourceAssociatedNonGoldBreakdown: issueComposition.nonGoldBreakdown,
+    issueSourceAssociatedNonGoldWeight: issueComposition.nonGoldWeight,
+    issueSourceStoredWaxStoneWeight: issueComposition.waxStoneWeight,
+    issueSourceExternalStoneWeight: issueComposition.externalStoneWeight,
     stoneAdjustmentMode,
     stoneAdjustmentLabel: issueGoldStoneAdjustmentLabel(stoneAdjustmentMode),
     physicalWaxStoneWeight: waxStoneWeight,
@@ -2063,12 +2068,15 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
     itemNarration: fittingAccessoriesOrder?.itemNarration || "",
     finalDestination: fittingAccessoriesIssue ? "Chain Fitting Department" : "",
   };
-  const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Wt ${gram(netMetalIssuedWeight)}; Balance ${gram(balanceAfterIssue)}`;
+  const sourceCompositionText = nonGoldBreakdownText(issueComposition.nonGoldBreakdown);
+  const productionReference = `${lotNumber} for ${data.jobNumber} issued from ${issueSourceName} to ${karigar.name}; ${issueSourceDetail}; Gold Issue ${gram(issuedWeight)} - Embedded Non-Gold ${gram(issueComposition.totalEmbeddedNonGoldWeight)} = Net Wt ${gram(netMetalIssuedWeight)}${sourceCompositionText ? `; Associated ${sourceCompositionText}` : ""}; Balance ${gram(balanceAfterIssue)}`;
   const safeItemsBeforeTransaction = structuredClone(state.safeItems || []);
   const sourceIssued = issueFromSafeSelection(castingSafeItem, netMetalIssuedWeight, productionReference, lotNumber, {
     grossWeight: issuedWeight,
-    waxStoneWeight: allocatedStoneWeight,
+    waxStoneWeight: issueComposition.issueWaxStoneWeight,
     externalWaxStoneWeight: looseWaxAllocationWeight,
+    nonGoldBreakdown: issueComposition.nonGoldBreakdown,
+    nonGoldWeight: issueComposition.nonGoldWeight,
   });
   if (!sourceIssued) {
     state.safeItems = safeItemsBeforeTransaction;
@@ -2077,11 +2085,12 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   }
   try {
     const sourceSettingType = stoneAdjustmentMode === "wax-hand" ? "" : "wax";
-    const castingSources = assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, allocatedStoneWeight, selectedOrders, sourceSettingType);
+    const castingSources = assignCastingEmbeddedSourceToLot(issuedLot, castingSourceForAssignment, issueComposition.waxStoneWeight, selectedOrders, sourceSettingType);
     const castingAssignedWeight = Number(weight3(castingSources.reduce((total, entry) => total + Number(entry.weight || 0), 0)));
-    const storedWaxWeight = Number(weight3(Math.max(allocatedStoneWeight - looseWaxAllocationWeight, 0)));
+    const storedWaxWeight = issueComposition.waxStoneWeight;
     const safeEmbeddedWeight = Number(weight3(Math.max(storedWaxWeight - castingAssignedWeight, 0)));
     assignSafeEmbeddedWaxSourceToLot(issuedLot, castingSourceForAssignment, safeEmbeddedWeight, selectedOrders, sourceSettingType);
+    assignSafeAssociatedNonGoldSourceToLot(issuedLot, castingSourceForAssignment, issueComposition.nonGoldBreakdown, selectedOrders);
     issuedLot.unassignedWaxStoneSourceWeight = Number(weight3(Math.max(
       Number(issuedLot.unassignedWaxStoneSourceWeight || 0) - safeEmbeddedWeight,
       0,
@@ -2120,7 +2129,7 @@ document.getElementById("production-form").addEventListener("submit", (event) =>
   }
   event.target.reset();
   refreshProductionPage("issue");
-  alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
+  alert(`${lotNumber} issued successfully to ${karigar.name}.\nJob Card ${data.jobNumber} / GW ${gram(issuedWeight)} / Associated Non-Gold ${gram(issueComposition.totalEmbeddedNonGoldWeight)} / Net Gold ${gram(netMetalIssuedWeight)}.`);
 });
 
 document.getElementById("opening-non-gold-adjustment-form")?.addEventListener("input", updateOpeningNonGoldAdjustmentSummary);
@@ -2650,13 +2659,21 @@ document.getElementById("safe-department-receive-form")?.addEventListener("chang
   if (event.target.name === "purity" && !event.currentTarget.issueId.value) {
     event.currentTarget.locker.value = safeLockerForPurity(event.target.value);
   }
-  if (event.target.closest(".department-receive-line")) updateSafeDepartmentReceiveLine(event.target.closest(".department-receive-line"));
+  const receiveLine = event.target.closest(".department-receive-line");
+  if (receiveLine) {
+    if (event.target.matches("[data-return-non-gold-weight]")) receiveLine.dataset.nonGoldManual = "true";
+    updateSafeDepartmentReceiveLine(receiveLine);
+  }
   updateSafeDepartmentReceiveCalculation();
 });
 
 document.getElementById("safe-department-receive-form")?.addEventListener("input", (event) => {
-  if (event.target.closest(".department-receive-line")) updateSafeDepartmentReceiveLine(event.target.closest(".department-receive-line"));
-  if (["returnLineGrossWeight", "returnLineWaxStoneWeight", "lossWeight", "purity"].includes(event.target.name)) updateSafeDepartmentReceiveCalculation();
+  const receiveLine = event.target.closest(".department-receive-line");
+  if (receiveLine) {
+    if (event.target.matches("[data-return-non-gold-weight]")) receiveLine.dataset.nonGoldManual = "true";
+    updateSafeDepartmentReceiveLine(receiveLine);
+  }
+  if (receiveLine || ["returnLineGrossWeight", "returnLineWaxStoneWeight", "lossWeight", "purity"].includes(event.target.name)) updateSafeDepartmentReceiveCalculation();
 });
 
 document.getElementById("add-safe-department-return-item")?.addEventListener("click", () => {
@@ -2672,6 +2689,16 @@ document.getElementById("add-safe-department-return-loss")?.addEventListener("cl
 });
 
 document.getElementById("safe-department-receive-lines")?.addEventListener("click", (event) => {
+  const autoButton = event.target.closest(".auto-department-receive-non-gold");
+  if (autoButton) {
+    const row = autoButton.closest(".department-receive-line");
+    if (row) {
+      row.dataset.nonGoldManual = "false";
+      updateSafeDepartmentReceiveLine(row);
+      updateSafeDepartmentReceiveCalculation();
+    }
+    return;
+  }
   const removeButton = event.target.closest(".remove-department-receive-line");
   if (!removeButton) return;
   removeButton.closest(".department-receive-line")?.remove();
@@ -15189,6 +15216,10 @@ function addSafeItem(item) {
     sourceLine: item.sourceLine || "",
     castingBatchId: item.castingBatchId || "",
     castingBatchName: item.castingBatchName || "",
+    linkedLotId: item.linkedLotId || item.lotId || "",
+    linkedJobNumber: item.linkedJobNumber || item.jobNumber || "",
+    linkedOrderId: item.linkedOrderId || item.orderId || "",
+    linkedProductionNo: item.linkedProductionNo || item.productionNo || "",
     colour: item.colour || safeItemColour(item),
     desiredPurity: item.desiredPurity || safeItemDesiredPurity(item),
     safeKind,
@@ -16735,6 +16766,61 @@ function isTarPattaManufacturingDepartment(value = "") {
   return hasTar && hasPatta && hasManufacturing;
 }
 
+function safeDepartmentReceiveEditableBreakdown(value = {}, fallbackCategory = "", fallbackWeight = 0) {
+  const breakdown = normalizeNonGoldBreakdown(value, fallbackCategory, fallbackWeight);
+  if (Number(breakdown.combination || 0) > 0) {
+    breakdown.other = Number(weight3(Number(breakdown.other || 0) + Number(breakdown.combination || 0)));
+    delete breakdown.combination;
+  }
+  return normalizeNonGoldBreakdown(breakdown);
+}
+
+function proportionalNonGoldBreakdown(value = {}, requestedGross = 0, availableGross = 0) {
+  const available = safeDepartmentReceiveEditableBreakdown(value);
+  const gross = Math.max(Number(requestedGross || 0), 0);
+  const sourceGross = Math.max(Number(availableGross || 0), 0);
+  if (!Object.keys(available).length || gross <= 0 || sourceGross <= 0) return {};
+  const ratio = Math.min(gross / sourceGross, 1);
+  return normalizeNonGoldBreakdown(Object.fromEntries(Object.entries(available).map(([category, weight]) => [
+    category,
+    Number(weight3(Number(weight || 0) * ratio)),
+  ])));
+}
+
+function safeDepartmentReceiveAvailableBreakdown(issue = null, available = {}) {
+  if (issue) {
+    return safeDepartmentReceiveEditableBreakdown(
+      issue.nonGoldBreakdown,
+      issue.nonGoldCategory,
+      issue.nonGoldWeight,
+    );
+  }
+  return safeDepartmentReceiveEditableBreakdown({}, "other", available.nonGoldWeight ?? available.nonGold ?? 0);
+}
+
+function safeDepartmentReceiveLineBreakdown(row) {
+  if (!row) return {};
+  const breakdown = {};
+  row.querySelectorAll("[data-return-non-gold-weight]").forEach((input) => {
+    const category = normalizeSafeNonGoldCategory(input.dataset.returnNonGoldWeight);
+    const weight = Number(weight3(Math.max(Number(input.value || 0), 0)));
+    if (category && weight > 0) breakdown[category] = weight;
+  });
+  return normalizeNonGoldBreakdown(breakdown);
+}
+
+function writeSafeDepartmentReceiveLineBreakdown(row, value = {}) {
+  if (!row) return {};
+  const breakdown = safeDepartmentReceiveEditableBreakdown(value);
+  row.querySelectorAll("[data-return-non-gold-weight]").forEach((input) => {
+    const category = normalizeSafeNonGoldCategory(input.dataset.returnNonGoldWeight);
+    input.value = weight3(breakdown[category] || 0);
+  });
+  const summary = row.querySelector("[data-return-non-gold-summary]");
+  if (summary) summary.textContent = nonGoldBreakdownText(breakdown) || "No associated non-gold";
+  return breakdown;
+}
+
 function safeDepartmentReceiveLineHtml(values = {}) {
   const selectedType = safeDepartmentReceiveReturnTypes().includes(values.returnType) ? values.returnType : "accessory";
   const options = safeDepartmentReceiveReturnTypes().map((value) =>
@@ -16743,17 +16829,30 @@ function safeDepartmentReceiveLineHtml(values = {}) {
   const grossWeight = Number(weight3(values.grossWeight || 0));
   const waxStoneWeight = Number(weight3(values.waxStoneWeight || 0));
   const nonGoldCategory = safeDepartmentReturnNonGoldCategory(selectedType);
-  const nonGoldWeight = Number(weight3(values.nonGoldWeight ?? (nonGoldCategory ? Math.max(grossWeight - waxStoneWeight, 0) : 0)));
+  const nonGoldBreakdown = nonGoldCategory
+    ? normalizeNonGoldBreakdown({}, nonGoldCategory, values.nonGoldWeight ?? Math.max(grossWeight - waxStoneWeight, 0))
+    : safeDepartmentReceiveEditableBreakdown(values.nonGoldBreakdown, values.nonGoldCategory, values.nonGoldWeight);
+  const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
   const netWeight = safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight);
   const destinationValue = values.destinationValue || "";
   const routeMode = values.routeMode === "department" || destinationValue ? "department" : "safe";
+  const componentInputs = NON_GOLD_COMPONENT_TYPES.map((component) => `
+    <label><span>${escapeHtml(component.label)}</span><input type="number" min="0" step="0.001" value="${weight3(nonGoldBreakdown[component.value] || 0)}" data-return-non-gold-weight="${escapeHtml(component.value)}"></label>
+  `).join("");
   return `
-    <div class="department-receive-line">
+    <div class="department-receive-line" data-non-gold-manual="${values.nonGoldManual ? "true" : "false"}">
       <label><span>Type</span><select name="returnLineType">${options}</select></label>
       <label><span>Item Description</span><input name="returnLineDescription" value="${escapeHtml(values.description || "")}" placeholder="Item name / purpose"></label>
       <label><span>GW (g)</span><input name="returnLineGrossWeight" type="number" min="0" step="0.001" value="${weight3(grossWeight)}"></label>
       <label><span>Wax Stone (g)</span><input name="returnLineWaxStoneWeight" type="number" min="0" step="0.001" value="${weight3(waxStoneWeight)}"></label>
-      <label><span>Non-Gold (g)</span><input name="returnLineNonGoldWeight" type="number" min="0" step="0.001" value="${weight3(nonGoldWeight)}" readonly></label>
+      <div class="department-receive-non-gold-field">
+        <label><span>Associated Non-Gold (g)</span><input name="returnLineNonGoldWeight" type="number" min="0" step="0.001" value="${weight3(nonGoldWeight)}" readonly></label>
+        <details class="department-receive-non-gold-details">
+          <summary data-return-non-gold-summary>${escapeHtml(nonGoldBreakdownText(nonGoldBreakdown) || "No associated non-gold")}</summary>
+          <div class="department-receive-non-gold-grid">${componentInputs}</div>
+          <button class="ghost-button auto-department-receive-non-gold" type="button">Use Holding Proportion</button>
+        </details>
+      </div>
       <label><span>Net Wt (g)</span><input name="returnLineNetWeight" type="number" value="${weight3(netWeight)}" readonly></label>
       <label><span>Action</span><select name="returnLineRoute"><option value="safe" ${routeMode === "safe" ? "selected" : ""}>Receive To Safe</option><option value="department" ${routeMode === "department" ? "selected" : ""}>Transfer To Department</option></select></label>
       <label><span>Transfer Department</span><select name="returnLineDestination">${safeDepartmentReceiveDestinationOptions(destinationValue, document.getElementById("safe-department-receive-form")?.departmentName?.value || "")}</select></label>
@@ -16781,6 +16880,8 @@ function resetSafeDepartmentReceiveLines() {
 
 function updateSafeDepartmentReceiveLine(row) {
   if (!row) return;
+  const form = document.getElementById("safe-department-receive-form");
+  const issue = safeDepartmentIssuesInHand().find((item) => item.id === form?.issueId?.value);
   const isLoss = row.querySelector('[name="returnLineType"]')?.value === "loss";
   const nonGoldCategory = safeDepartmentReturnNonGoldCategory(row.querySelector('[name="returnLineType"]')?.value || "");
   const isNonGold = Boolean(nonGoldCategory);
@@ -16793,7 +16894,20 @@ function updateSafeDepartmentReceiveLine(row) {
   row.classList.toggle("is-non-gold-line", isNonGold);
   const grossWeight = Math.max(Number(row.querySelector('[name="returnLineGrossWeight"]')?.value || 0), 0);
   const waxStoneWeight = isLoss || isNonGold ? 0 : Math.max(Number(waxInput?.value || 0), 0);
-  const nonGoldWeight = isNonGold ? Number(weight3(grossWeight)) : 0;
+  let nonGoldBreakdown = {};
+  if (isNonGold) {
+    nonGoldBreakdown = normalizeNonGoldBreakdown({}, nonGoldCategory, grossWeight);
+    row.dataset.nonGoldManual = "false";
+  } else if (!isLoss) {
+    const available = issue || safeDepartmentReceiveAvailability(form?.departmentName?.value, form?.purity?.value);
+    const sourceBreakdown = safeDepartmentReceiveAvailableBreakdown(issue, available);
+    const availableGross = Number(available?.grossWeight ?? available?.gross ?? 0);
+    nonGoldBreakdown = row.dataset.nonGoldManual === "true"
+      ? safeDepartmentReceiveLineBreakdown(row)
+      : proportionalNonGoldBreakdown(sourceBreakdown, grossWeight, availableGross);
+  }
+  writeSafeDepartmentReceiveLineBreakdown(row, nonGoldBreakdown);
+  const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
   const nonGoldInput = row.querySelector('[name="returnLineNonGoldWeight"]');
   if (nonGoldInput) nonGoldInput.value = weight3(nonGoldWeight);
   const netWeight = isLoss ? 0 : safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight);
@@ -16818,7 +16932,8 @@ function safeDepartmentReceiveLines() {
     const grossWeight = Number(weight3(row.querySelector('[name="returnLineGrossWeight"]')?.value || 0));
     const waxStoneWeight = returnType === "loss" ? 0 : Number(weight3(row.querySelector('[name="returnLineWaxStoneWeight"]')?.value || 0));
     const nonGoldCategory = safeDepartmentReturnNonGoldCategory(returnType);
-    const nonGoldWeight = Number(weight3(row.querySelector('[name="returnLineNonGoldWeight"]')?.value || 0));
+    const nonGoldBreakdown = safeDepartmentReceiveLineBreakdown(row);
+    const nonGoldWeight = nonGoldBreakdownTotal(nonGoldBreakdown);
     const routeMode = row.querySelector('[name="returnLineRoute"]')?.value || "safe";
     const destinationValue = routeMode === "department" ? row.querySelector('[name="returnLineDestination"]')?.value || "" : "";
     return {
@@ -16829,7 +16944,8 @@ function safeDepartmentReceiveLines() {
       grossWeight,
       waxStoneWeight,
       nonGoldWeight,
-      nonGoldCategory,
+      nonGoldCategory: nonGoldBreakdownCategory(nonGoldBreakdown, nonGoldCategory),
+      nonGoldBreakdown,
       netWeight: returnType === "loss" ? 0 : safeItemNetFromGross(grossWeight, waxStoneWeight, nonGoldWeight),
       routeMode,
       destinationValue,
@@ -16847,8 +16963,9 @@ function safeDepartmentReceiveLineTotals(lines = safeDepartmentReceiveLines()) {
     grossWeight: Number(weight3(totals.grossWeight + Math.max(Number(line.grossWeight || 0), 0))),
     waxStoneWeight: Number(weight3(totals.waxStoneWeight + Math.max(Number(line.waxStoneWeight || 0), 0))),
     nonGoldWeight: Number(weight3(totals.nonGoldWeight + Math.max(Number(line.nonGoldWeight || 0), 0))),
+    nonGoldBreakdown: addNonGoldBreakdowns(totals.nonGoldBreakdown, line.nonGoldBreakdown),
     netWeight: Number(weight3(totals.netWeight + Math.max(Number(line.netWeight || 0), 0))),
-  }), { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, netWeight: 0 });
+  }), { grossWeight: 0, waxStoneWeight: 0, nonGoldWeight: 0, nonGoldBreakdown: {}, netWeight: 0 });
 }
 
 function safeDepartmentReceiveAccounting(lines = safeDepartmentReceiveLines()) {
@@ -16967,14 +17084,12 @@ function applySafeDepartmentReceiveIssueDefaults() {
     const sourceColour = safeWastageColour(sourceItem || issue);
     ensureSelectOption(form.colour, sourceColour);
     form.colour.value = sourceColour || "Mixed / Not Set";
-    if (issue.nonGoldCategory) {
-      const firstLine = document.querySelector("#safe-department-receive-lines .department-receive-line");
-      const typeSelect = firstLine?.querySelector('[name="returnLineType"]');
-      if (typeSelect) typeSelect.value = issue.nonGoldCategory === "other" ? "non-gold-other" : issue.nonGoldCategory;
-      const description = firstLine?.querySelector('[name="returnLineDescription"]');
-      if (description && !description.value) description.value = issue.itemDescription || safeNonGoldCategoryLabel(issue.nonGoldCategory);
-      updateSafeDepartmentReceiveLine(firstLine);
-    }
+    document.querySelectorAll("#safe-department-receive-lines .department-receive-line").forEach((row, index) => {
+      row.dataset.nonGoldManual = "false";
+      const description = row.querySelector('[name="returnLineDescription"]');
+      if (index === 0 && description && !description.value) description.value = issue.itemDescription || "WIP item";
+      updateSafeDepartmentReceiveLine(row);
+    });
   } else {
     const currentAvailability = safeDepartmentReceiveAvailability(form.departmentName.value, form.purity.value);
     form.purity.value = (Number(currentAvailability.gross || 0) || Number(currentAvailability.gold || 0))
@@ -16982,6 +17097,10 @@ function applySafeDepartmentReceiveIssueDefaults() {
       : safeDepartmentReceiveDefaultPurity(form.departmentName.value) || form.purity.value || "18K";
     form.locker.value = safeLockerForPurity(form.purity.value);
     form.colour.value = "Mixed / Not Set";
+    document.querySelectorAll("#safe-department-receive-lines .department-receive-line").forEach((row) => {
+      row.dataset.nonGoldManual = "false";
+      updateSafeDepartmentReceiveLine(row);
+    });
   }
   updateSafeDepartmentReceiveCalculation();
 }
@@ -17081,9 +17200,11 @@ function saveSafeDepartmentReceive(event) {
     alert("Department loss cannot be negative.");
     return;
   }
-  const invalidWeightLine = lines.find((line) => line.grossWeight <= 0 || line.waxStoneWeight < 0 || line.waxStoneWeight > line.grossWeight);
+  const invalidWeightLine = lines.find((line) => line.grossWeight <= 0
+    || line.waxStoneWeight < 0
+    || line.waxStoneWeight + line.nonGoldWeight > line.grossWeight + 0.0005);
   if (invalidWeightLine) {
-    alert(`Return line ${invalidWeightLine.lineNumber}: gross weight must be greater than zero and wax stone cannot exceed gross weight.`);
+    alert(`Return line ${invalidWeightLine.lineNumber}: gross weight must be greater than zero and the combined wax-stone plus associated non-gold cannot exceed GW.`);
     invalidWeightLine.row.querySelector('[name="returnLineGrossWeight"]')?.focus();
     return;
   }
@@ -17124,6 +17245,11 @@ function saveSafeDepartmentReceive(event) {
     alert(`Non-gold received cannot exceed the department non-gold balance of ${gram(availableNonGold)}.`);
     return;
   }
+  const availableNonGoldBreakdown = safeDepartmentReceiveAvailableBreakdown(issue, available);
+  if (!nonGoldBreakdownCanCover(availableNonGoldBreakdown, totals.nonGoldBreakdown, ["combination", "other"])) {
+    alert(`The selected holding does not have enough of one or more non-gold components. Available: ${nonGoldBreakdownText(availableNonGoldBreakdown) || "none"}.`);
+    return;
+  }
   const remarks = form.remarks.value.trim();
   if (!remarks) {
     alert("Enter remarks for this department receipt or loss.");
@@ -17159,6 +17285,7 @@ function saveSafeDepartmentReceive(event) {
       waxStoneWeight: line.waxStoneWeight,
       nonGoldWeight: line.nonGoldWeight,
       nonGoldCategory: line.nonGoldCategory,
+      nonGoldBreakdown: line.nonGoldBreakdown,
       nonGoldWeightKnown: true,
       netWeight: line.netWeight,
       lossWeight: 0,
@@ -17170,7 +17297,7 @@ function saveSafeDepartmentReceive(event) {
       remarks: `${line.description}; ${remarks}${directDestination ? `; Direct to ${directDestination.department.name}${directDestination.process && departmentTextKey(directDestination.process) !== departmentTextKey(directDestination.department.name) ? ` / ${directDestination.process}` : ""}` : ""}`,
     });
     if (directDestination) {
-      const targetNonGoldBreakdown = normalizeNonGoldBreakdown({}, line.nonGoldCategory, line.nonGoldWeight);
+      const targetNonGoldBreakdown = normalizeNonGoldBreakdown(line.nonGoldBreakdown, line.nonGoldCategory, line.nonGoldWeight);
       directIssues.push(normalizeSafeDepartmentIssue({
         id: crypto.randomUUID(),
         date: entry.date,
@@ -17199,6 +17326,13 @@ function saveSafeDepartmentReceive(event) {
         nonGoldWeight: line.nonGoldWeight,
         netWeight: line.netWeight,
         destinationMode: "department",
+        lotId: issue?.lotId || "",
+        lotNumber: issue?.lotNumber || "",
+        jobNumber: issue?.jobNumber || "",
+        orderId: issue?.orderId || "",
+        productionNo: issue?.productionNo || "",
+        designNumber: issue?.designNumber || "",
+        itemName: issue?.itemName || "",
         directDepartmentTransfer: true,
         directTransferId,
         sourceDepartmentId: issue?.departmentId || department?.id || "",
@@ -17220,6 +17354,7 @@ function saveSafeDepartmentReceive(event) {
         sourceLine: line.returnType,
         safeKind: safeDepartmentReturnSafeKind(line.returnType),
         nonGoldCategory: line.nonGoldCategory,
+        nonGoldBreakdown: line.nonGoldBreakdown,
         nonGoldWeight: line.nonGoldWeight,
         nonGoldWeightKnown: true,
         colour: form.colour.value,
@@ -17227,6 +17362,10 @@ function saveSafeDepartmentReceive(event) {
         grossWeight: line.grossWeight,
         waxStoneWeight: line.waxStoneWeight,
         netWeight: line.netWeight,
+        linkedLotId: issue?.lotId || "",
+        linkedJobNumber: issue?.jobNumber || "",
+        linkedOrderId: issue?.orderId || "",
+        linkedProductionNo: issue?.productionNo || "",
         status: "In Safe",
         remarks: entry.remarks,
       });
@@ -29527,6 +29666,50 @@ function issueGoldStoredWaxWeight(selection = null, waxStoneWeight = 0) {
   return Number(weight3(Math.min(requested, available)));
 }
 
+function safeSelectionStoredComposition(selection = null, grossWeight = 0) {
+  if (!selection) return { grossWeight: 0, waxStoneWeight: 0, nonGoldBreakdown: {}, nonGoldWeight: 0 };
+  const items = selection.virtualSafeGroup ? selection.items || [] : [selection];
+  const availableItems = items.filter((item) => item && item.status !== "Out");
+  const availableGross = Number(weight3(availableItems.reduce((total, item) => total + safeItemAvailableGrossWeight(item), 0)));
+  const availableWax = Number(weight3(availableItems.reduce((total, item) => total + safeItemWaxStoneWeight(item), 0)));
+  const availableBreakdown = availableItems.reduce((total, item) => addNonGoldBreakdowns(total, safeItemNonGoldBreakdown(item)), {});
+  const requestedGross = Number(weight3(Math.min(Math.max(Number(grossWeight || 0), 0), availableGross)));
+  if (requestedGross <= 0 || availableGross <= 0) {
+    return { grossWeight: requestedGross, waxStoneWeight: 0, nonGoldBreakdown: {}, nonGoldWeight: 0 };
+  }
+  const ratio = Math.min(requestedGross / availableGross, 1);
+  const waxStoneWeight = Number(weight3(availableWax * ratio));
+  const nonGoldBreakdown = proportionalNonGoldBreakdown(availableBreakdown, requestedGross, availableGross);
+  return {
+    grossWeight: requestedGross,
+    waxStoneWeight,
+    nonGoldBreakdown,
+    nonGoldWeight: nonGoldBreakdownTotal(nonGoldBreakdown),
+  };
+}
+
+function issueGoldCompositionPlan(selection = null, grossWeight = 0, plannedStoneWeight = 0) {
+  const stored = safeSelectionStoredComposition(selection, grossWeight);
+  const storedBreakdown = normalizeNonGoldBreakdown(stored.nonGoldBreakdown);
+  const storedBreakdownStone = Number(weight3(storedBreakdown.stone || 0));
+  const storedStoneWeight = Number(weight3(stored.waxStoneWeight + storedBreakdownStone));
+  const targetStoneWeight = Number(weight3(Math.max(Number(plannedStoneWeight || 0), 0)));
+  const externalStoneWeight = Number(weight3(Math.max(targetStoneWeight - storedStoneWeight, 0)));
+  const totalStoneWeight = Number(weight3(storedStoneWeight + externalStoneWeight));
+  const issueWaxStoneWeight = Number(weight3(stored.waxStoneWeight + externalStoneWeight));
+  const totalEmbeddedNonGoldWeight = Number(weight3(issueWaxStoneWeight + stored.nonGoldWeight));
+  return {
+    ...stored,
+    storedBreakdownStone,
+    storedStoneWeight,
+    externalStoneWeight,
+    totalStoneWeight,
+    issueWaxStoneWeight,
+    totalEmbeddedNonGoldWeight,
+    netWeight: Number(weight3(Math.max(Number(grossWeight || 0) - totalEmbeddedNonGoldWeight, 0))),
+  };
+}
+
 function issueGoldLooseWaxAllocationWeight(selection = null, waxStoneWeight = 0) {
   const requested = Number(weight3(Math.max(Number(waxStoneWeight || 0), 0)));
   return Number(weight3(Math.max(requested - issueGoldStoredWaxWeight(selection, requested), 0)));
@@ -29545,6 +29728,21 @@ function assignSafeEmbeddedWaxSourceToLot(lot = {}, selection = null, weight = 0
     orders,
     settingType,
   });
+}
+
+function assignSafeAssociatedNonGoldSourceToLot(lot = {}, selection = null, value = {}, orders = []) {
+  if (!lot?.id || !selection) return [];
+  const sourceReference = selection.id || lot.castingSafeItemId || lot.id;
+  return Object.entries(normalizeNonGoldBreakdown(value)).flatMap(([materialType, weight]) => setLotEmbeddedNonGoldSource(lot, {
+    sourceType: "safe-associated-non-gold",
+    sourceId: `${sourceReference}:${materialType}`,
+    sourceMode: "direct",
+    materialType,
+    weight,
+    purity: lot.metalPurity || selection.purity || selection.locker || "18K",
+    orders,
+    settingType: materialType === "stone" ? "" : "__none__",
+  }));
 }
 
 function applyIssueGoldLooseWaxSource(lot = {}, orders = [], weight = 0) {
@@ -29703,23 +29901,24 @@ function updateIssueMetalSummary() {
   const stonePlan = issueGoldStoneAdjustmentPlan(selectedOrders, stoneAdjustmentMode);
   const castingItem = findSafeItemOrGroup(form.castingSafeItemId?.value, form.metalPurity.value || selectedOrders[0]?.purity || "18K");
   const allocatedStoneWeight = stonePlan.allocatedStoneWeight;
-  const netMetal = Number(weight3(grossIssue - allocatedStoneWeight));
+  const issueComposition = issueGoldCompositionPlan(castingItem, grossIssue, allocatedStoneWeight);
+  const netMetal = issueComposition.netWeight;
   const purities = [...new Set(selectedOrders.map((order) => order.purity).filter(Boolean))];
   if (!jobNumber) {
     summary.textContent = "Select a Job Card, source, stone adjustment, and Gold Issue weight to calculate Net Wt.";
     return;
   }
   const castingAvailable = castingItem ? safeItemAvailableGrossWeight(castingItem) : 0;
-  const storedStoneAllocation = issueGoldStoredWaxWeight(castingItem, allocatedStoneWeight);
-  const looseStoneAllocation = issueGoldLooseWaxAllocationWeight(castingItem, allocatedStoneWeight);
+  const storedStoneAllocation = issueComposition.storedStoneWeight;
+  const looseStoneAllocation = issueComposition.externalStoneWeight;
   const looseStoneAvailable = availableLooseNonGoldWeight(state, form.metalPurity.value || purities[0] || "18K", "stone");
   const castingNote = castingItem
-    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Source stone used ${gram(storedStoneAllocation)}. GW balance after issue ${gram(Math.max(castingAvailable - Math.max(grossIssue, 0), 0))}.${looseStoneAllocation > 0.0005 ? ` Additional stone already inside this GW: ${gram(looseStoneAllocation)} will move from Loose Non-Gold to the Job Card (available ${gram(looseStoneAvailable)}).` : ""}`
+    ? ` Safe Source: ${safeItemOptionLabel(castingItem)}. Associated source stone ${gram(storedStoneAllocation)}${issueComposition.nonGoldWeight > 0.0005 ? ` / breakdown ${nonGoldBreakdownText(issueComposition.nonGoldBreakdown)}` : ""}. GW balance after issue ${gram(Math.max(castingAvailable - Math.max(grossIssue, 0), 0))}.${looseStoneAllocation > 0.0005 ? ` Additional stone already inside this GW: ${gram(looseStoneAllocation)} will move from Loose Non-Gold to the Job Card (available ${gram(looseStoneAvailable)}).` : ""}`
     : ` Select casting or related item from ${safeLockerForPurity(form.metalPurity.value || purities[0] || "18K")} Safe.`;
   const purityNote = purities.length > 1 ? ` Multiple purities in job: ${purities.join(", ")}.` : ` Purity: ${purities[0] || form.metalPurity.value || "-"}.`;
   const planNote = ` Job Card Stone: Wax ${gram(stonePlan.waxStoneWeight)} / Hand ${gram(stonePlan.handStoneWeight)}.`;
   summary.textContent = stoneAdjustmentMode
-    ? `Gold Issue ${gram(grossIssue)} - ${issueGoldStoneAdjustmentLabel(stoneAdjustmentMode)} ${gram(allocatedStoneWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${planNote}${purityNote}${castingNote}`
+    ? `Gold Issue ${gram(grossIssue)} - Embedded Non-Gold ${gram(issueComposition.totalEmbeddedNonGoldWeight)} = Net Wt ${gram(Math.max(netMetal, 0))}.${planNote}${purityNote}${castingNote}`
     : `Choose Stone Adjustment. Wax-only Net Wt ${gram(Math.max(grossIssue - stonePlan.waxStoneWeight, 0))}; Wax + Hand Net Wt ${gram(Math.max(grossIssue - stonePlan.waxStoneWeight - stonePlan.handStoneWeight, 0))}.${planNote}${purityNote}${castingNote}`;
   summary.classList.toggle("warn", grossIssue > 0 && (!stoneAdjustmentMode || netMetal <= 0 || grossIssue > castingAvailable + 0.0005 || looseStoneAllocation > looseStoneAvailable + 0.0005));
 }
@@ -29741,12 +29940,36 @@ function isPlainRodSafeStock(item = {}) {
   return /\brod\b/.test(description) && !description.includes("casting item");
 }
 
+function safeItemLinkedJobReference(item = {}) {
+  if (!item) return null;
+  const directReference = item.linkedLotId || item.linkedJobNumber || item.linkedOrderId || item.linkedProductionNo;
+  if (directReference) return {
+    lotId: item.linkedLotId || "",
+    jobNumber: item.linkedJobNumber || "",
+    orderId: item.linkedOrderId || "",
+    productionNo: item.linkedProductionNo || "",
+  };
+  if (item.sourceType !== "safe-department-return" || !item.sourceId) return null;
+  const returnEntry = (state.safeDepartmentReturns || []).find((entry) => entry.id === item.sourceId);
+  const issue = returnEntry?.issueId
+    ? (state.safeDepartmentIssues || []).find((entry) => entry.id === returnEntry.issueId)
+    : null;
+  if (!issue || !(issue.lotId || issue.jobNumber || issue.orderId || issue.productionNo)) return null;
+  return {
+    lotId: issue.lotId || "",
+    jobNumber: issue.jobNumber || "",
+    orderId: issue.orderId || "",
+    productionNo: issue.productionNo || "",
+  };
+}
+
 function safeItemEligibleForJobCardMetal(item = {}) {
   if (!item || item.status === "Out" || safeItemAvailableWeight(item) <= 0.0005) return false;
   const kind = safeItemKind(item);
   if (["wastage", "ghiss", "non-gold"].includes(kind)) return false;
   if (isPlainRodSafeStock(item)) return false;
-  return safeItemNonGoldWeight(item) <= 0.0005;
+  if (safeItemLinkedJobReference(item)) return false;
+  return true;
 }
 
 function relatedSafeItemsForJobCard(purity = "") {
@@ -29773,7 +29996,9 @@ function safeItemOptionLabel(item = {}) {
   const type = item.virtualSafeGroup ? "Casting Shelf" : isCastingIssueStock(item) ? "Casting Item" : "Related Gold Item";
   const itemCount = item.virtualSafeGroup ? ` / ${item.items?.length || 0} entries` : "";
   const date = item.virtualSafeGroup ? "" : ` / ${item.date || "-"}`;
-  return `${source} / ${type} / ${colour} / ${desiredPurity}${date} / GW ${gram(item.grossWeight)} / Stone ${gram(safeItemWaxStoneWeight(item))} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
+  const associatedBreakdown = safeItemNonGoldBreakdown(item);
+  const associatedText = nonGoldBreakdownText(associatedBreakdown);
+  return `${source} / ${type} / ${colour} / ${desiredPurity}${date} / GW ${gram(item.grossWeight)} / Stone ${gram(safeItemWaxStoneWeight(item) + Number(associatedBreakdown.stone || 0))}${associatedText ? ` / Associated ${associatedText}` : ""} / NT Avl ${gram(safeItemAvailableWeight(item))}${itemCount}`;
 }
 
 function safeIssueSourceName(item = {}) {

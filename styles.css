@@ -14296,6 +14296,59 @@ body:not(.printing-order):not(.printing-single-item):not(.printing-bill):not(.pr
   width: 100%;
 }
 
+.department-receive-non-gold-field {
+  min-width: 0;
+}
+
+.department-receive-non-gold-field > label {
+  display: block;
+}
+
+.department-receive-non-gold-details {
+  position: relative;
+  margin-top: 4px;
+}
+
+.department-receive-non-gold-details > summary {
+  overflow: hidden;
+  color: #1d5f90;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.department-receive-non-gold-details[open] {
+  z-index: 3;
+  padding: 7px;
+  border: 1px solid #9fc7e6;
+  border-radius: 6px;
+  background: #f2f9ff;
+  box-shadow: 0 8px 20px rgba(18, 71, 110, 0.14);
+}
+
+.department-receive-non-gold-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 7px 0;
+}
+
+.department-receive-non-gold-grid label > span {
+  display: block;
+  color: #4b6578;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.department-receive-non-gold-details .auto-department-receive-non-gold {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  font-size: 10px;
+}
+
 .department-receive-line .remove-department-receive-line {
   width: 36px;
   min-width: 36px;
