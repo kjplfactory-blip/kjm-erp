@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v769";
+const APP_VERSION = "v770";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -15134,26 +15134,28 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
   let remainingWax = Number(weight3(issueDetails.waxStoneWeight || 0));
   let remainingExternalWax = Number(weight3(issueDetails.externalWaxStoneWeight || 0));
   let remainingNonGoldBreakdown = normalizeNonGoldBreakdown(issueDetails.nonGoldBreakdown, issueDetails.nonGoldCategory, issueDetails.nonGoldWeight);
-  const totalNet = remainingNet;
-  const totalExternalWax = remainingExternalWax;
-  const items = [...(group.items || [])].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  const requestedMaterials = Object.keys(remainingNonGoldBreakdown);
+  const items = [...(group.items || [])].sort((a, b) => {
+    const requestedCompositionWeight = (item) => {
+      const breakdown = safeItemNonGoldBreakdown(item);
+      return safeItemWaxStoneWeight(item) + requestedMaterials.reduce((total, materialType) => total + Number(breakdown[materialType] || 0), 0);
+    };
+    const compositionDifference = requestedCompositionWeight(b) - requestedCompositionWeight(a);
+    if (Math.abs(compositionDifference) > 0.0005) return compositionDifference;
+    return String(a.date || "").localeCompare(String(b.date || ""));
+  });
   for (const item of items) {
     if (remainingNet <= 0.0005) break;
     const itemNet = safeItemAvailableWeight(item);
     if (itemNet <= 0) continue;
     const takeNet = Number(weight3(Math.min(itemNet, remainingNet)));
-    const proportionalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * Number(issueDetails.waxStoneWeight || 0))) : 0;
-    const targetWax = remainingNet - takeNet <= 0.0005 ? remainingWax : proportionalWax;
-    const proportionalExternalWax = totalNet > 0 ? Number(weight3((takeNet / totalNet) * totalExternalWax)) : 0;
-    const takeExternalWax = Number(weight3(Math.min(
-      remainingExternalWax,
-      remainingNet - takeNet <= 0.0005 ? remainingExternalWax : proportionalExternalWax,
-      targetWax,
-    )));
     const takeStoredWax = Number(weight3(Math.min(
       safeItemWaxStoneWeight(item),
-      Math.max(remainingWax - takeExternalWax, 0),
-      Math.max(targetWax - takeExternalWax, 0),
+      Math.max(remainingWax - remainingExternalWax, 0),
+    )));
+    const takeExternalWax = Number(weight3(Math.min(
+      remainingExternalWax,
+      Math.max(remainingWax - takeStoredWax, 0),
     )));
     const takeWax = Number(weight3(takeStoredWax + takeExternalWax));
     const itemBreakdown = safeItemNonGoldBreakdown(item);
@@ -15178,7 +15180,10 @@ function issueFromSafeGroup(group, weight, reference, sourceId = "", issueDetail
     remainingExternalWax = Number(weight3(Math.max(remainingExternalWax - takeExternalWax, 0)));
     remainingNonGoldBreakdown = subtractNonGoldBreakdown(remainingNonGoldBreakdown, takeNonGoldBreakdown);
   }
-  return remainingNet <= 0.0005 && remainingWax <= 0.0005 && remainingExternalWax <= 0.0005;
+  return remainingNet <= 0.0005
+    && remainingWax <= 0.0005
+    && remainingExternalWax <= 0.0005
+    && nonGoldBreakdownTotal(remainingNonGoldBreakdown) <= 0.0005;
 }
 
 function factoryInWeight() {
@@ -29666,7 +29671,7 @@ function issueGoldStoredWaxWeight(selection = null, waxStoneWeight = 0) {
   return Number(weight3(Math.min(requested, available)));
 }
 
-function safeSelectionStoredComposition(selection = null, grossWeight = 0) {
+function safeSelectionStoredComposition(selection = null, grossWeight = 0, plannedStoneWeight = 0) {
   if (!selection) return { grossWeight: 0, waxStoneWeight: 0, nonGoldBreakdown: {}, nonGoldWeight: 0 };
   const items = selection.virtualSafeGroup ? selection.items || [] : [selection];
   const availableItems = items.filter((item) => item && item.status !== "Out");
@@ -29678,8 +29683,24 @@ function safeSelectionStoredComposition(selection = null, grossWeight = 0) {
     return { grossWeight: requestedGross, waxStoneWeight: 0, nonGoldBreakdown: {}, nonGoldWeight: 0 };
   }
   const ratio = Math.min(requestedGross / availableGross, 1);
-  const waxStoneWeight = Number(weight3(availableWax * ratio));
   const nonGoldBreakdown = proportionalNonGoldBreakdown(availableBreakdown, requestedGross, availableGross);
+  let waxStoneWeight = Number(weight3(availableWax * ratio));
+  const requestedStone = Number(weight3(Math.max(Number(plannedStoneWeight || 0), 0)));
+  if (requestedStone > 0) {
+    const availableBreakdownStone = Number(weight3(Math.max(Number(availableBreakdown.stone || 0), 0)));
+    const selectedStone = Number(weight3(Math.min(
+      requestedStone,
+      availableWax + availableBreakdownStone,
+      requestedGross,
+    )));
+    waxStoneWeight = Number(weight3(Math.min(availableWax, selectedStone)));
+    const breakdownStone = Number(weight3(Math.min(
+      availableBreakdownStone,
+      Math.max(selectedStone - waxStoneWeight, 0),
+    )));
+    if (breakdownStone > 0) nonGoldBreakdown.stone = breakdownStone;
+    else delete nonGoldBreakdown.stone;
+  }
   return {
     grossWeight: requestedGross,
     waxStoneWeight,
@@ -29689,7 +29710,7 @@ function safeSelectionStoredComposition(selection = null, grossWeight = 0) {
 }
 
 function issueGoldCompositionPlan(selection = null, grossWeight = 0, plannedStoneWeight = 0) {
-  const stored = safeSelectionStoredComposition(selection, grossWeight);
+  const stored = safeSelectionStoredComposition(selection, grossWeight, plannedStoneWeight);
   const storedBreakdown = normalizeNonGoldBreakdown(stored.nonGoldBreakdown);
   const storedBreakdownStone = Number(weight3(storedBreakdown.stone || 0));
   const storedStoneWeight = Number(weight3(stored.waxStoneWeight + storedBreakdownStone));
