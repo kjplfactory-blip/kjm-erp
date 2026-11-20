@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v777";
+const APP_VERSION = "v778";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -554,6 +554,7 @@ const demoState = {
   xrfTests: [],
   manualResetHistory: [],
   dayCloseHistory: [],
+  handStoneDailyReports: [],
   oneTimeJob1680ResetAt: "",
   karigars: [
     { id: crypto.randomUUID(), name: "Casting Department", speciality: "Casting", processes: ["Casting"], rate: 720 },
@@ -4319,6 +4320,14 @@ function saveBillFromForm(closeDialog = false, options = {}) {
     billDate: data.billDate,
     createdAt: existingBill.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    createdBy: existingBill.createdBy || currentOperatorName(),
+    createdByLoginId: existingBill.createdByLoginId || currentUser?.id || "",
+    createdByAccount: existingBill.createdByAccount || currentLoginAccountName(),
+    createdByRole: existingBill.createdByRole || currentUserConfig()?.role || "",
+    updatedBy: currentOperatorName(),
+    updatedByLoginId: currentUser?.id || "",
+    updatedByAccount: currentLoginAccountName(),
+    updatedByRole: currentUserConfig()?.role || "",
     bbRateVersion: existingBill.id ? (existingBill.bbRateVersion || "") : BILL_BB_RATE_VERSION,
     billStoneRuleVersion: existingBill.id
       ? (existingBill.billStoneRuleVersion || "")
@@ -4794,7 +4803,11 @@ document.getElementById("production-stone-form").addEventListener("submit", (eve
       : [...cloneProductionStonePlan(regularStoneItems), ...existingAdditionalItems];
     targetOrder.colourStonePostfix = colourStonePostfixesForItems(targetOrder.productionStoneItems || []).join("/");
     targetOrder.itemName = normalizedJobItemName(targetOrder, findById("designs", targetOrder.designId));
-    stampProductionStoneEdit(targetOrder, "Manual Stone Entry");
+    stampProductionStoneEdit(targetOrder, productionStoneOpenedFromBill()
+      ? "Bill - Manual Stone Entry"
+      : isSettingManagerUser()
+        ? "Setting Manager - Manual Stone Entry"
+        : "Manual Stone Entry");
     targetOrder.productionStoneCopiedFrom = order.productionNo || order.number || "";
   });
   syncColourStoneOrderReferences(targetOrders);
@@ -22672,6 +22685,7 @@ function jobItemDetailHtml(order) {
 
 function jobItemDetailActionsHtml(order = {}) {
   const viewDesignButton = `<button type="button" onclick="openPrItemDesign('${escapeHtml(order.id)}')">View Design</button>`;
+  const auditLogButton = `<button type="button" onclick="openPrAuditLog('${escapeHtml(order.id)}')">Log</button>`;
   const editDesignNameButton = canEditPageData("designs") && order.designId
     ? `<button type="button" onclick="openPrDesignNameEditor('${escapeHtml(order.id)}')">Edit Design Name</button>`
     : "";
@@ -22679,6 +22693,7 @@ function jobItemDetailActionsHtml(order = {}) {
     return `
       <div class="row-actions job-item-detail-actions">
         ${viewDesignButton}
+        ${auditLogButton}
         <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Edit Stone Details</button>
         ${editDesignNameButton}
         <small>Job Card details are read only for Setting Manager.</small>
@@ -22688,6 +22703,7 @@ function jobItemDetailActionsHtml(order = {}) {
   return `
     <div class="row-actions job-item-detail-actions">
       ${viewDesignButton}
+      ${auditLogButton}
       <button type="button" onclick="printSingleJobItem('${escapeHtml(order.id)}')">Print This Item</button>
       <button type="button" onclick="openItemBarcodeGenerator('${escapeHtml(order.id)}')">Barcode + QR</button>
       <button type="button" onclick="openProductionStoneEntry('${escapeHtml(order.id)}')">Stone Entry</button>
@@ -41448,7 +41464,7 @@ function addJobItemFittingAccessories(form, selections = []) {
     }));
   }
   order.productionStoneItems = [...currentItems, ...copiedRows];
-  stampProductionStoneEdit(order, "Fitting Accessory Added");
+  stampProductionStoneEdit(order, billContext ? "Bill - Fitting Accessory Added" : "Fitting Accessory Added");
   order.productionStoneCopiedFrom = sourceLabels.join(" / ");
   const totals = designStoneTotals(copiedRows);
   if (billContext) {
@@ -43241,6 +43257,14 @@ function normalizeSettingManagerEntry(entry = {}, currentState = state) {
     id: entryId,
     createdAt,
     updatedAt,
+    createdBy: entry.createdBy || (!entry.id ? currentOperatorName() : ""),
+    createdByLoginId: entry.createdByLoginId || (!entry.id ? currentUser?.id || "" : ""),
+    createdByAccount: entry.createdByAccount || (!entry.id ? currentLoginAccountName() : ""),
+    createdByRole: entry.createdByRole || (!entry.id ? currentUserConfig()?.role || "" : ""),
+    updatedBy: entry.updatedBy || "",
+    updatedByLoginId: entry.updatedByLoginId || "",
+    updatedByAccount: entry.updatedByAccount || "",
+    updatedByRole: entry.updatedByRole || "",
     entryType,
     workType: entry.workType || (isAccessory ? (returnExpected ? "Accessory / Repair Return" : "Accessory Used In Job") : "Stone Setting"),
     returnExpected,
@@ -55606,6 +55630,9 @@ async function closeManagerDayAndDownloadBackup() {
   const cloudSaved = await saveCurrentStateToCloudNow({ context: "Manager Day Close" });
   const cloudBackupSaved = cloudSaved ? await createNormalizedCloudBackupV703(dateKey) : false;
   const downloaded = downloadErpDataBackup({ allowManager: true, filePrefix: `KJM-ERP-DAY-CLOSE-${dateKey}` });
+  if (typeof downloadDailyHandStoneLogPdf === "function") {
+    await downloadDailyHandStoneLogPdf(dateKey, { markClosed: true, triggeredBy: "Manager Close Day" });
+  }
   renderFineSheetBackupControls();
   if (downloaded) {
     alert(`Day closed successfully for ${fineSheetBackupDateLabel(dateKey)}.\nComplete ERP backup downloaded.\nCloud backup: ${cloudBackupSaved ? "Confirmed" : "Pending; local backup is safe"}.\nNet Factory Fine: ${gram(record.netFine)}.`);
@@ -57442,6 +57469,9 @@ function normalizeState(currentState) {
     : [];
   currentState.dayCloseHistory = Array.isArray(currentState.dayCloseHistory)
     ? currentState.dayCloseHistory.slice(0, 90)
+    : [];
+  currentState.handStoneDailyReports = Array.isArray(currentState.handStoneDailyReports)
+    ? currentState.handStoneDailyReports.slice(0, 120)
     : [];
   currentState.oneTimeJob1680ResetAt = currentState.oneTimeJob1680ResetAt || "";
   currentState.nextOrder = currentState.nextOrder || 1004;

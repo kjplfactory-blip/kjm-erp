@@ -1,0 +1,65 @@
+#pr-audit-log-dialog { width: 100vw; max-width: none; height: 100vh; max-height: none; margin: 0; padding: 0; border: 0; background: #edf7ff; }
+#pr-audit-log-dialog::backdrop { background: rgba(2, 25, 48, 0.55); }
+.pr-audit-shell { height: 100vh; overflow-y: auto; color: #102a43; background: linear-gradient(180deg, #dff2ff 0, #f7fbff 220px, #f7fbff 100%); }
+.pr-audit-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 94px; padding: 18px clamp(18px, 3vw, 42px); color: #fff; background: #075187; box-shadow: 0 4px 18px rgba(7, 81, 135, 0.2); }
+.pr-audit-header > div:first-child { min-width: 0; }
+.pr-audit-header span { display: block; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.08em; color: #ffe66d; }
+.pr-audit-header h2 { margin: 2px 0; font-size: clamp(1.12rem, 2vw, 1.55rem); line-height: 1.2; color: #fff; }
+.pr-audit-header p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d7edff; }
+.pr-audit-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+.pr-audit-header-actions button { min-height: 38px; }
+.pr-audit-header-actions .ghost-button { color: #fff; border-color: rgba(255,255,255,.55); background: rgba(255,255,255,.08); }
+.pr-audit-summary { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; padding: 18px clamp(18px, 3vw, 42px) 10px; }
+.pr-audit-summary article { min-width: 0; padding: 13px 15px; border: 1px solid #b8d9ee; border-radius: 8px; background: #fff; box-shadow: 0 5px 14px rgba(35,94,132,.08); }
+.pr-audit-summary span { display: block; margin-bottom: 4px; font-size: .68rem; font-weight: 800; color: #52758d; }
+.pr-audit-summary b { display: block; overflow-wrap: anywhere; font-size: .9rem; color: #073f69; }
+.pr-audit-filters { position: sticky; top: 94px; z-index: 4; display: flex; gap: 7px; padding: 9px clamp(18px, 3vw, 42px); overflow-x: auto; border-bottom: 1px solid #c5e0f1; background: rgba(247,251,255,.96); backdrop-filter: blur(8px); }
+.pr-audit-filters button { flex: 0 0 auto; min-height: 34px; padding: 7px 14px; color: #175779; border: 1px solid #acd2e8; background: #fff; }
+.pr-audit-filters button.active { color: #fff; border-color: #0877b9; background: #0877b9; }
+.pr-audit-timeline { width: min(1180px, calc(100% - 36px)); margin: 14px auto 48px; }
+.pr-audit-event { display: grid; grid-template-columns: 44px minmax(0,1fr); margin-bottom: 12px; }
+.pr-audit-rail { position: relative; display: flex; justify-content: center; }
+.pr-audit-rail::after { content: ""; position: absolute; top: 31px; bottom: -17px; width: 2px; background: #b6d9ed; }
+.pr-audit-event:last-child .pr-audit-rail::after { display: none; }
+.pr-audit-rail span { position: relative; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; color: #fff; border: 3px solid #e7f6ff; border-radius: 50%; background: #0877b9; font-size: .72rem; font-weight: 900; }
+.pr-audit-event-body { min-width: 0; padding: 14px 16px 15px; border: 1px solid #bfddec; border-radius: 8px; background: #fff; box-shadow: 0 4px 13px rgba(18,78,117,.07); }
+.pr-audit-event-body > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pr-audit-event-body h3 { margin: 5px 0 0; font-size: 1rem; color: #073f69; }
+.pr-audit-event-body time { flex: 0 0 auto; font-size: .74rem; font-weight: 700; color: #53758b; }
+.pr-audit-category { display: inline-block; padding: 3px 7px; border-radius: 4px; font-size: .62rem; font-weight: 900; text-transform: uppercase; color: #075187; background: #dff2ff; }
+.pr-audit-category.setting { color: #6a4600; background: #fff0ba; }
+.pr-audit-category.bill { color: #65305e; background: #f8e4f4; }
+.pr-audit-category.accessory { color: #2d5a25; background: #e7f5df; }
+.pr-audit-category.transfer { color: #24516a; background: #e4f0f6; }
+.pr-audit-category.job { color: #fff; background: #075187; }
+.pr-audit-byline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.pr-audit-byline > * { padding: 4px 7px; border-radius: 4px; font-size: .68rem; color: #34576c; background: #edf6fb; }
+.pr-audit-byline b { color: #073f69; }
+.pr-audit-source { margin: 10px 0 0; font-size: .8rem; font-weight: 750; color: #1e5a7d; }
+.pr-audit-remarks { margin: 8px 0 0; padding: 8px 10px; border-left: 3px solid #e4b71b; background: #fff9df; font-size: .78rem; }
+.pr-audit-metric-grid { display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 7px; margin-top: 12px; }
+.pr-audit-metric-grid > div { padding: 8px 9px; border: 1px solid #d6e8f3; border-radius: 6px; background: #f8fcff; }
+.pr-audit-metric-grid span,.pr-audit-metric-grid small { display: block; color: #618095; font-size: .62rem; }
+.pr-audit-metric-grid b { display: block; margin: 2px 0; color: #064a79; font-size: .82rem; }
+.pr-audit-event details { margin-top: 12px; }
+.pr-audit-event summary { cursor: pointer; color: #086b9f; font-size: .76rem; font-weight: 800; }
+.pr-audit-table-wrap { margin-top: 8px; overflow-x: auto; border: 1px solid #c7e0ef; border-radius: 6px; }
+.pr-audit-stone-table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+.pr-audit-stone-table th { color: #fff; background: #075187; }
+.pr-audit-stone-table th,.pr-audit-stone-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid #d9e9f2; }
+.pr-audit-stone-table tbody tr:nth-child(even) { background: #f3f9fd; }
+.pr-audit-empty { padding: 34px; text-align: center; border: 1px dashed #9bc8e2; border-radius: 8px; color: #52758d; background: #fff; }
+@media (max-width: 900px) {
+  .pr-audit-header { position: relative; align-items: stretch; flex-direction: column; }
+  .pr-audit-header-actions { justify-content: flex-start; }
+  .pr-audit-filters { top: 0; }
+  .pr-audit-summary,.pr-audit-metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .pr-audit-event-body > header { flex-direction: column; }
+}
+@media (max-width: 560px) {
+  .pr-audit-summary { grid-template-columns: 1fr; }
+  .pr-audit-timeline { width: calc(100% - 18px); }
+  .pr-audit-event { grid-template-columns: 32px minmax(0,1fr); }
+  .pr-audit-rail span { width: 26px; height: 26px; }
+  .pr-audit-event-body { padding: 11px; }
+}
