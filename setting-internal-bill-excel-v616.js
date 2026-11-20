@@ -652,7 +652,8 @@
     const summary = document.getElementById("multi-bill-excel-summary");
     const footer = document.getElementById("multi-bill-excel-footer");
     const exportButton = document.getElementById("export-selected-bills-excel");
-    if (!list || !summary || !footer || !exportButton) return;
+    const packingPdfButton = document.getElementById("download-selected-packing-list-pdf");
+    if (!list || !summary || !footer || !exportButton || !packingPdfButton) return;
     const allEntries = generatedBillExcelEntries();
     const validKeys = new Set(allEntries.map(multiBillExcelEntryKey));
     [...multiBillExcelSelection].forEach((key) => {
@@ -687,9 +688,10 @@
       <span><small>TOTAL NET WT</small><b>${weight3(totals.netWeight)} g</b></span>
     `;
     footer.textContent = selectedEntries.length
-      ? `${selectedEntries.length} bill${selectedEntries.length === 1 ? "" : "s"} selected. They will be merged into one Excel file.`
+      ? `${selectedEntries.length} bill${selectedEntries.length === 1 ? "" : "s"} selected. Export one Excel workbook or one combined Packing List PDF.`
       : "No bills selected.";
     exportButton.disabled = selectedEntries.length === 0;
+    packingPdfButton.disabled = selectedEntries.length === 0;
   }
 
   function openMultiBillExcelDialog() {
@@ -1055,6 +1057,42 @@
     ]);
   }
 
+  async function downloadSelectedPackingListPdf() {
+    const entries = selectedMultiBillExcelEntries();
+    if (!entries.length) {
+      alert("Select at least one generated Bill to combine into a Packing List PDF.");
+      return;
+    }
+    const notReady = entries.filter(({ bill }) => !billHasFinalQcOkItems(bill));
+    if (notReady.length) {
+      const references = notReady.map(({ bill, lot }) => bill.billNo || lot.orderNumber || lot.number || "Bill").join(", ");
+      alert(`Packing List PDF can include only QC OK items transferred to Office. Complete these Bills first: ${references}`);
+      return;
+    }
+    const pdfApi = window.KJM_COMBINED_PACKING_PDF_V775;
+    if (!pdfApi?.downloadCombinedPackingListPdf) {
+      alert("The Packing List PDF component could not load. Refresh App v775 and try again.");
+      return;
+    }
+    const button = document.getElementById("download-selected-packing-list-pdf");
+    const previousText = button?.textContent || "Download Combined Packing List PDF";
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Creating PDF...";
+    }
+    try {
+      await pdfApi.downloadCombinedPackingListPdf(entries);
+    } catch (error) {
+      console.error("Combined Packing List PDF failed", error);
+      alert(`Combined Packing List PDF could not be created. ${error?.message || error}`);
+    } finally {
+      if (button) {
+        button.textContent = previousText;
+        button.disabled = false;
+      }
+    }
+  }
+
   renderBills = function renderBillsV616() {
     coreRenderBills.call(this);
     document.querySelectorAll("#bill-table tr").forEach((row) => {
@@ -1081,6 +1119,7 @@
     renderMultiBillExcelDialog();
   });
   document.getElementById("export-selected-bills-excel")?.addEventListener("click", exportSelectedBillsExcel);
+  document.getElementById("download-selected-packing-list-pdf")?.addEventListener("click", downloadSelectedPackingListPdf);
   document.getElementById("open-bill-period-export")?.addEventListener("click", openBillPeriodExportDialog);
   document.getElementById("close-bill-period-export")?.addEventListener("click", closeBillPeriodExportDialog);
   document.getElementById("bill-period-export-form")?.addEventListener("submit", exportBillPeriodExcel);
@@ -1101,6 +1140,8 @@
     billPeriodEntries,
     periodBillSummaryRows,
     periodBillPurityRows,
+    selectedMultiBillExcelEntries,
+    downloadSelectedPackingListPdf,
   };
 
   if (migrateInternalSettingSplits(state)) render();
