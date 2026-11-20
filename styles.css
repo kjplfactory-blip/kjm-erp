@@ -7734,6 +7734,31 @@ dialog::backdrop {
   line-height: 1.25;
 }
 
+#bill-dialog .bill-fitting-design-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+#bill-dialog .bill-fitting-design-view-button {
+  max-width: 150px;
+  margin-top: 0;
+  overflow: hidden;
+  border-color: #8bb8e8;
+  background: #edf6ff;
+  color: #174b9b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#bill-dialog .bill-fitting-design-view-button:hover,
+#bill-dialog .bill-fitting-design-view-button:focus-visible {
+  border-color: #397fca;
+  background: #dceeff;
+  color: #0f3b74;
+}
+
 #bill-dialog .bill-item-remove-button {
   display: block;
   width: 100%;
@@ -11874,6 +11899,11 @@ body.measuring-transfer-bag .global-print-area {
 .bill-tag-weights span.stone-total {
   border-color: #287fa8;
   background: #e6f4fb;
+}
+
+.bill-tag-weights span.stone-pieces {
+  border-color: #5a8ec4;
+  background: #edf6ff;
 }
 
 .bill-tag-weights b {

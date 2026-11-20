@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v771";
+const APP_VERSION = "v772";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3561,7 +3561,7 @@ document.getElementById("bill-form").addEventListener("click", async (event) => 
   if (!button) return;
   event.preventDefault();
   hideBillDesignHoverPreview();
-  await openBillDesignImage(button.dataset.billDesignPreview || "");
+  await openBillDesignImage(button);
 });
 
 document.getElementById("bill-form").addEventListener("submit", (event) => {
@@ -27104,6 +27104,7 @@ function billTagHtml(lot, bill, item = {}) {
   const designName = item.itemName || jobItemDisplayName(order) || item.design || order.designNo || designLabel(order.designId) || "-";
   const itemDetail = billTagIndividualItemDetail(item, order);
   const stoneBreakdown = billItemStoneWeightBreakdown(item);
+  const stonePieceCount = billTagStonePieceCount(item, order);
   const barcodeValue = productionNo || `${lot.number || "LOT"}-${item.index + 1}`;
   return `
     <article class="bill-tag-card${customerOrderClass}">
@@ -27125,6 +27126,7 @@ function billTagHtml(lot, bill, item = {}) {
           ${billTagWeight("SW", stoneBreakdown.swStoneWeight)}
           ${billTagWeight("CLR", stoneBreakdown.colourStoneWeight)}
           ${billTagWeight("ST TOTAL", stoneBreakdown.totalStoneWeight, "stone-total")}
+          ${billTagCount("ST PCS", stonePieceCount, "stone-pieces")}
           ${billTagWeight("BB", item.blackBeadsWeight)}
           ${billTagWeight("MOTI", item.motiWeight)}
           ${billTagWeight("MOP", item.mopWeight)}
@@ -27139,6 +27141,29 @@ function billTagHtml(lot, bill, item = {}) {
 
 function billTagWeight(label, value, extraClass = "") {
   return `<span class="${escapeHtml(extraClass)}"><b>${escapeHtml(label)}</b><strong>${weight3(value)}</strong></span>`;
+}
+
+function billTagCount(label, value, extraClass = "") {
+  const number = Math.max(Number(value || 0), 0);
+  const text = Number.isInteger(number) ? String(number) : String(Number(number.toFixed(3)));
+  return `<span class="${escapeHtml(extraClass)}"><b>${escapeHtml(label)}</b><strong>${escapeHtml(text)}</strong></span>`;
+}
+
+function billTagStonePieceCount(item = {}, order = {}) {
+  const savedCount = item.billStonePieceCount;
+  if (savedCount !== undefined && savedCount !== null && savedCount !== "") {
+    return Math.max(Number(savedCount || 0), 0);
+  }
+  const savedRows = Array.isArray(item.billStoneDetailRows) ? item.billStoneDetailRows : [];
+  if (savedRows.length) {
+    return savedRows.reduce((total, row) => total + Math.max(Number(row?.pcs || 0), 0), 0);
+  }
+  const savedPieceText = String(item.billStonePieceBreakdown || "");
+  const savedPieces = [...savedPieceText.matchAll(/([\d.]+)\s*pcs?/gi)]
+    .reduce((total, match) => total + Math.max(Number(match[1] || 0), 0), 0);
+  if (savedPieces > 0) return savedPieces;
+  if (!order?.id) return 0;
+  return Math.max(Number(productionStoneTotals(productionStoneItemsForOrder(order)).pcs || 0), 0);
 }
 
 function billTagReference(label, value) {
@@ -51005,6 +51030,21 @@ function billOrderForPreview(orderId = "") {
   return findById("orders", orderId) || null;
 }
 
+function billDesignPreviewContext(buttonOrOrderId) {
+  const dataset = typeof buttonOrOrderId === "string"
+    ? { billDesignPreview: buttonOrOrderId }
+    : (buttonOrOrderId?.dataset || {});
+  const order = billOrderForPreview(dataset.billDesignPreview || "");
+  const linkedDesign = dataset.billDesignId ? findById("designs", dataset.billDesignId) : null;
+  const design = linkedDesign || billDesignForOrder(order || {});
+  return {
+    order,
+    design,
+    title: String(dataset.billDesignTitle || (linkedDesign ? designText(linkedDesign) : billOrderDesignCode(order || {})) || "Design Image"),
+    reference: String(dataset.billDesignReference || [order?.productionNo || order?.number, order?.category].filter(Boolean).join(" / ") || "Bill item"),
+  };
+}
+
 function positionBillDesignHoverPreview(button, preview) {
   const rect = button.getBoundingClientRect();
   const margin = 10;
@@ -51021,9 +51061,10 @@ function positionBillDesignHoverPreview(button, preview) {
 }
 
 async function showBillDesignHoverPreview(button) {
-  const orderId = button?.dataset?.billDesignPreview || "";
-  const order = billOrderForPreview(orderId);
-  const design = billDesignForOrder(order || {});
+  const context = billDesignPreviewContext(button);
+  const { order, design } = context;
+  const orderId = order?.id || button?.dataset?.billDesignPreview || "";
+  const previewKey = `${orderId}:${design?.id || "missing"}`;
   const preview = document.getElementById("bill-design-hover-preview");
   const image = document.getElementById("bill-design-hover-image");
   const title = document.getElementById("bill-design-hover-title");
@@ -51033,8 +51074,9 @@ async function showBillDesignHoverPreview(button) {
 
   const requestId = ++billDesignHoverRequest;
   preview.dataset.orderId = orderId;
-  title.textContent = billOrderDesignCode(order || {}) || "Design Image";
-  reference.textContent = [order?.productionNo || order?.number, order?.category].filter(Boolean).join(" / ") || "Bill item";
+  preview.dataset.previewKey = previewKey;
+  title.textContent = context.title;
+  reference.textContent = context.reference;
   image.src = "";
   image.classList.add("hidden");
   message.textContent = design ? "Loading design image..." : "Design Master image is not linked to this item.";
@@ -51045,7 +51087,7 @@ async function showBillDesignHoverPreview(button) {
   if (!design) return;
 
   const imageData = await getDesignImage(design.id).catch(() => design.imageData || "");
-  if (requestId !== billDesignHoverRequest || preview.dataset.orderId !== orderId || preview.classList.contains("hidden")) return;
+  if (requestId !== billDesignHoverRequest || preview.dataset.previewKey !== previewKey || preview.classList.contains("hidden")) return;
   if (!imageData && !design.imageData) {
     message.textContent = "Design image is not available on cloud or this laptop.";
     return;
@@ -51063,6 +51105,7 @@ function hideBillDesignHoverPreview() {
   preview.classList.add("hidden");
   preview.setAttribute("aria-hidden", "true");
   delete preview.dataset.orderId;
+  delete preview.dataset.previewKey;
 }
 
 function positionBillItemRemarkPreview(trigger, preview) {
@@ -51098,11 +51141,10 @@ function hideBillItemRemarkPreview() {
   preview.setAttribute("aria-hidden", "true");
 }
 
-async function openBillDesignImage(orderId = "") {
-  const order = billOrderForPreview(orderId);
-  const design = billDesignForOrder(order || {});
+async function openBillDesignImage(buttonOrOrderId = "") {
+  const { order, design } = billDesignPreviewContext(buttonOrOrderId);
   if (!order || !design) {
-    alert("No matching Design Master image is linked to this Bill item.");
+    alert("No matching Design Master image is linked to this Bill item or fitting accessory.");
     return;
   }
   await openDesignImage(design.id);
@@ -51164,6 +51206,14 @@ function renderBillItems(lot, bill = {}) {
     ].filter(Boolean).join(" / ");
     const fittingAccessories = manualWip ? [] : jobItemFittingAccessoryLinks(order);
     const fittingAccessoryPcs = fittingAccessories.reduce((total, accessory) => total + Number(accessory.quantity || 0), 0);
+    const fittingImageButtons = fittingAccessories.map((accessory) => {
+      const design = findById("designs", accessory.sourceDesignId);
+      if (!design) return "";
+      const title = accessory.name || designText(design) || "Fitting Accessory";
+      const reference = `${accessory.quantity} fitting pcs / ${accessory.pcs} stone pcs`;
+      return `<button type="button" class="ghost-button bill-design-view-button bill-fitting-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" data-bill-design-id="${escapeHtml(design.id)}" data-bill-design-title="${escapeHtml(title)}" data-bill-design-reference="${escapeHtml(reference)}" aria-label="View fitting design image for ${escapeHtml(title)}">View ${escapeHtml(title)}</button>`;
+    }).filter(Boolean).join("");
+    const canRefreshStoneEntry = Boolean(!manualWip && !generatedBill.id && !isReadOnlyUser() && canCreateBill());
     const itemRemark = String(order.remarks || saved.remarks || "").trim();
     const removeBlockedReason = !canManageBillItems
       ? (generatedBill.id ? "Only Owner or Manager can change a generated Bill." : "This login cannot change Bill items.")
@@ -51184,9 +51234,11 @@ function renderBillItems(lot, bill = {}) {
           <button type="button" class="bill-item-remark-trigger ${itemRemark ? "has-remark" : "no-remark"}" data-bill-item-remark="${escapeHtml(itemRemark)}" aria-label="${escapeHtml(itemRemark ? `Item remark: ${itemRemark}` : "No Remark")}">${itemRemark ? "Remark" : "No Remark"}</button>
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-design-view-button" data-bill-design-preview="${escapeHtml(order.id)}" aria-label="View design image for ${escapeHtml(itemLabel)}">View Design</button>`}
           ${manualWip ? "" : `<button type="button" class="ghost-button bill-item-stone-open-button" data-open-bill-stone="${escapeHtml(order.id)}" aria-label="Open stone entry for ${escapeHtml(itemLabel)}">Open Stone Entry</button>`}
+          ${canRefreshStoneEntry ? `<button type="button" class="ghost-button bill-item-stone-refresh-button" data-refresh-bill-stone="${escapeHtml(order.id)}" aria-label="Update stone entry for ${escapeHtml(itemLabel)}">Update Stone Entry</button>` : ""}
           ${!manualWip && canUpdateBillLinkedEntries ? `<button type="button" class="ghost-button bill-item-fitting-accessory-button" data-add-bill-fitting="${escapeHtml(order.id)}" aria-label="Add fitting accessory to ${escapeHtml(itemLabel)}">Add Fitting Accessory</button>` : ""}
           ${!manualWip ? `<small class="bill-item-stone-status" data-bill-stone-status>Live stone entry: ${productionStoneItemsForOrder(order).length} row${productionStoneItemsForOrder(order).length === 1 ? "" : "s"} / ${gram(nonGold.stoneWeight)}</small>` : ""}
           ${fittingAccessories.length ? `<small class="bill-item-fitting-accessory-status">Fitting included: ${escapeHtml(fittingAccessories.map((accessory) => accessory.name).join(" / "))} / ${escapeHtml(fittingAccessoryPcs)} fitting pcs</small>` : ""}
+          ${fittingImageButtons ? `<div class="bill-fitting-design-images" aria-label="Fitting accessory design images">${fittingImageButtons}</div>` : ""}
         </td>
         <td>${sizeEnabled ? `<input name="billItemSize" value="${escapeHtml(sizeValue)}" placeholder="Enter size" aria-label="Size for ${escapeHtml(itemLabel)}">` : '<span class="bill-size-not-applicable">-</span>'}</td>
         <td class="bill-final-gw-cell"><input name="billItemFinalGw" type="number" min="0" step="0.001" value="${escapeHtml(finalGwValue)}" placeholder="Final GW"></td>
