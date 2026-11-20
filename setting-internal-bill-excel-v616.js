@@ -1069,9 +1069,9 @@
       alert(`Packing List PDF can include only QC OK items transferred to Office. Complete these Bills first: ${references}`);
       return;
     }
-    const pdfApi = window.KJM_COMBINED_PACKING_PDF_V775;
+    const pdfApi = window.KJM_COMBINED_PACKING_PDF_V776;
     if (!pdfApi?.downloadCombinedPackingListPdf) {
-      alert("The Packing List PDF component could not load. Refresh App v775 and try again.");
+      alert("The Packing List PDF component could not load. Refresh App v776 and try again.");
       return;
     }
     const button = document.getElementById("download-selected-packing-list-pdf");
