@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v773";
+const APP_VERSION = "v774";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -27122,11 +27122,11 @@ function billTagHtml(lot, bill, item = {}) {
         </div>
         <div class="bill-tag-weights">
           ${billTagWeight("GW", item.finalGw)}
-          ${billTagWeight("NET", item.netWeight, "net")}
-          ${billTagWeight("SW", stoneBreakdown.swStoneWeight)}
-          ${billTagWeight("CLR", stoneBreakdown.colourStoneWeight)}
-          ${billTagWeight("ST TOTAL", stoneBreakdown.totalStoneWeight, "stone-total")}
-          ${billTagCount("ST PCS", stonePieceCount, "stone-pieces")}
+          ${billTagWeight("NW", item.netWeight, "net")}
+          ${billTagWeight("ST WT", stoneBreakdown.totalStoneWeight, "stone-total")}
+          ${billTagCount("ST PC", stonePieceCount, "stone-pieces")}
+          ${billTagWeight("SW ST WT", stoneBreakdown.swStoneWeight)}
+          ${billTagWeight("CLR ST WT", stoneBreakdown.colourStoneWeight)}
           ${billTagWeight("BB", item.blackBeadsWeight)}
           ${billTagWeight("MOTI", item.motiWeight)}
           ${billTagWeight("MOP", item.mopWeight)}
