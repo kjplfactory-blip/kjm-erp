@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v772";
+const APP_VERSION = "v773";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -30830,12 +30830,6 @@ function billStoneDetailRowsForPackingList(item = {}, stoneBreakdown = {}, order
   return fallbackRows;
 }
 
-function billPackingStoneWeightPerPc(value = 0, pcs = 0) {
-  const number = Number(value || 0);
-  if (!Number.isFinite(number) || number <= 0 || Number(pcs || 0) <= 0) return "-";
-  return number.toFixed(5);
-}
-
 function billPackingStoneDetailsHtml(items = []) {
   const cards = items.map((item) => {
     const rows = Array.isArray(item.stoneDetailRows) ? item.stoneDetailRows : [];
@@ -30855,7 +30849,6 @@ function billPackingStoneDetailsHtml(items = []) {
         <td>${escapeHtml(row.shape || "-")}</td>
         <td>${escapeHtml(row.size || "-")}</td>
         <td>${Number(row.pcs || 0) || "-"}</td>
-        <td>${billPackingStoneWeightPerPc(row.weightPerPc, row.pcs)}</td>
         <td>${gram(row.totalWeight)}</td>
       </tr>
     `).join("");
@@ -30867,8 +30860,8 @@ function billPackingStoneDetailsHtml(items = []) {
         </header>
         ${legacyPieceText ? `<p class="packing-stone-legacy-pieces"><b>Saved Pieces:</b> ${escapeHtml(legacyPieceText)}</p>` : ""}
         <table class="bill-print-table packing-stone-table">
-          <thead><tr><th>Group</th><th>Type</th><th>Shape</th><th>Size</th><th>Pcs</th><th>Wt/Pc</th><th>Total Wt</th></tr></thead>
-          <tbody>${rowHtml || '<tr><td colspan="7">No stone details saved for this item.</td></tr>'}</tbody>
+          <thead><tr><th>Group</th><th>Type</th><th>Shape</th><th>Size</th><th>Pcs</th><th>Total Wt</th></tr></thead>
+          <tbody>${rowHtml || '<tr><td colspan="6">No stone details saved for this item.</td></tr>'}</tbody>
         </table>
         <footer class="packing-stone-totals">
           <span>Total Pcs <b>${totalPieces}</b></span>
