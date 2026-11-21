@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v778";
+const APP_VERSION = "v779";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3491,6 +3491,7 @@ document.getElementById("bill-item-table")?.addEventListener("change", (event) =
 });
 document.getElementById("add-pending-combined-bill-items")?.addEventListener("click", openCombinedBillAddItemsDialog);
 document.getElementById("save-bill-draft")?.addEventListener("click", () => saveBillDraftNow());
+document.getElementById("bill-refresh-all-stones")?.addEventListener("click", refreshAllBillStoneDataFromMaster);
 document.getElementById("delete-bill")?.addEventListener("click", deleteBillFromDialog);
 document.getElementById("bill-item-search")?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -24007,7 +24008,7 @@ function appendProductionStoneEditHistory(order = {}, source = "Manual Stone Ent
   order.productionStoneEditHistory = history.slice(0, PRODUCTION_STONE_EDIT_HISTORY_LIMIT);
 }
 
-function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry") {
+function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry", options = {}) {
   if (!order?.id) return order;
   const existingHistory = normalizedProductionStoneEditHistory(order);
   order.productionStoneOverride = true;
@@ -24018,7 +24019,7 @@ function stampProductionStoneEdit(order = {}, source = "Manual Stone Entry") {
   order.productionStoneEditedAccount = currentLoginAccountName();
   order.productionStoneEditSource = source;
   appendProductionStoneEditHistory(order, source, existingHistory);
-  syncBillStoneEntriesForUpdatedOrders([order], source);
+  if (!options.skipBillSync) syncBillStoneEntriesForUpdatedOrders([order], source);
   return order;
 }
 
@@ -49357,6 +49358,8 @@ function applyBillAccessMode() {
   const bulkQcToolbar = document.getElementById("bill-qc-bulk-toolbar");
   const bulkQcOk = document.getElementById("bill-qc-all-ok");
   const bulkRemoveToolbar = document.getElementById("bill-item-bulk-remove-toolbar");
+  const stoneMasterToolbar = document.getElementById("bill-stone-master-toolbar");
+  const refreshAllStones = document.getElementById("bill-refresh-all-stones");
   const addPendingItems = document.getElementById("add-pending-combined-bill-items");
   const saveDraftButton = document.getElementById("save-bill-draft");
   const deleteBillButton = document.getElementById("delete-bill");
@@ -49367,6 +49370,15 @@ function applyBillAccessMode() {
   if (bulkQcOk) bulkQcOk.disabled = !canChangeQc;
   const canManageBillItems = Boolean(!referenceOnly && !qcOnlyMode && !lockedForUser && !isReadOnlyUser()
     && (bill.id ? canEditGeneratedBill() : canCreateBill()));
+  const canRefreshAllStones = Boolean(!referenceOnly && !qcOnlyMode && !isReadOnlyUser()
+    && (bill.id ? canEditGeneratedBill() : canCreateBill()));
+  if (stoneMasterToolbar) stoneMasterToolbar.classList.toggle("hidden", !canRefreshAllStones);
+  if (refreshAllStones) {
+    refreshAllStones.disabled = !canRefreshAllStones;
+    refreshAllStones.textContent = bill.id
+      ? "Get Updated Stone Data + Save Bill"
+      : "Get Updated Stone Data From Stone Master";
+  }
   if (bulkRemoveToolbar) bulkRemoveToolbar.classList.toggle("hidden", !canManageBillItems);
   form.querySelectorAll(".bill-item-remove-check").forEach((checkbox) => {
     checkbox.disabled = !canManageBillItems || checkbox.dataset.removalBlocked === "true";
@@ -50911,6 +50923,185 @@ function refreshBillItemStoneEntry(orderId = "") {
     const reference = order.productionNo || order.number || billOrderDesignCode(order) || "Item";
     setBillDraftStatus(`${reference} stone entry refreshed to ${gram(latestStoneWeight)} and saved in this Bill draft.`, "saved");
   }
+}
+
+function billStoneMasterRefreshPlan(order = {}) {
+  const sourceItems = Array.isArray(order.productionStoneItems) && order.productionStoneItems.length
+    ? order.productionStoneItems.map((item) => ({ ...item }))
+    : buildProductionStoneItemsForOrder(order).map((item) => ({ ...item }));
+  let matchedRows = 0;
+  let unmatchedRows = 0;
+  let changedRows = 0;
+  const items = sourceItems.map((item) => {
+    if (item.isAdditionalStone) return item;
+    const libraryStone = productionStoneLibraryMatch(item.stoneType, item.shape, item.size);
+    const masterWeight = formatStoneWeight(libraryStone?.weightPerPc || "");
+    if (!libraryStone || Number(masterWeight || 0) <= 0) {
+      unmatchedRows += 1;
+      return item;
+    }
+    matchedRows += 1;
+    const refreshed = productionStoneItemWithMasterData(item, { force: true });
+    const totalWeight = totalStoneWeight(masterWeight, item.pcs);
+    const next = {
+      ...refreshed,
+      weightPerPc: masterWeight,
+      totalWeight,
+    };
+    if (
+      String(item.code || "") !== String(next.code || "")
+      || formatStoneWeight(item.weightPerPc || "") !== masterWeight
+      || formatStoneWeight(item.totalWeight || "") !== formatStoneWeight(totalWeight || "")
+    ) changedRows += 1;
+    return next;
+  });
+  return { order, items, matchedRows, unmatchedRows, changedRows };
+}
+
+function updateBillStoneRowFromOrder(row, order, statusText = "Stone Master") {
+  if (!row || !order) return;
+  const stoneItems = productionStoneItemsForOrder(order);
+  const actualStoneWeight = actualBillStoneWeight(order);
+  const latestStoneWeight = automaticBillStoneWeight(order);
+  row.dataset.jobStoneWeight = weight3(latestStoneWeight);
+  row.dataset.billActualStoneWeight = weight3(actualStoneWeight);
+  row.dataset.billStoneWeightFactor = String(automaticBillStoneWeightFactor(order));
+  const stoneInput = row.querySelector('[name="billItemStoneWeight"]');
+  if (stoneInput) stoneInput.value = billWeightInputValue(latestStoneWeight);
+  const stoneStatus = row.querySelector("[data-bill-stone-status]");
+  if (stoneStatus) {
+    stoneStatus.textContent = `${statusText}: ${stoneItems.length} row${stoneItems.length === 1 ? "" : "s"} / ${gram(latestStoneWeight)}`;
+  }
+}
+
+function refreshAllBillStoneDataFromMaster() {
+  const form = document.getElementById("bill-form");
+  const dialog = document.getElementById("bill-dialog");
+  const lot = findById("lots", form?.lotId?.value || "");
+  const bill = lot?.bill || (state.bills || []).find((entry) => entry.lotId === lot?.id) || {};
+  if (!dialog?.open || !lot) {
+    alert("Open a Bill first, then update its Stone Master data.");
+    return false;
+  }
+  if (isReferenceOnlyBill(bill) || isReferenceOnlyBillLot(lot)) {
+    alert("Reference Bills are historical records and cannot be changed.");
+    return false;
+  }
+  if (isReadOnlyUser() || (bill.id ? !canEditGeneratedBill() : !canCreateBill())) {
+    alert(bill.id
+      ? "Only Owner or Manager can update Stone Master data in a generated Bill."
+      : "This login cannot update Bill stone data.");
+    return false;
+  }
+  const rows = Array.from(document.querySelectorAll("#bill-item-table tr[data-order-id]"))
+    .filter((row) => row.dataset.manualWip !== "true");
+  const hadBillDraft = Object.prototype.hasOwnProperty.call(lot, "billDraft");
+  const billDraftBefore = hadBillDraft ? structuredClone(lot.billDraft) : null;
+  const billDraftUpdatedAtBefore = lot.billDraftUpdatedAt || "";
+  const plans = rows
+    .map((row) => ({ row, order: findById("orders", row.dataset.orderId || "") }))
+    .filter((entry) => entry.order)
+    .map((entry) => ({
+      ...entry,
+      orderBefore: structuredClone(entry.order),
+      plan: billStoneMasterRefreshPlan(entry.order),
+    }));
+  if (!plans.length) {
+    alert("This Bill has no linked PR stone entries to update from Stone Master.");
+    return false;
+  }
+  const matchedRows = plans.reduce((total, entry) => total + entry.plan.matchedRows, 0);
+  const unmatchedRows = plans.reduce((total, entry) => total + entry.plan.unmatchedRows, 0);
+  if (!matchedRows) {
+    alert("No Bill stone row matched Stone Master by Type, Shape and Size. Existing Bill values were kept unchanged.");
+    return false;
+  }
+  const generatedWarning = bill.id
+    ? "\n\nThis is a generated Bill. The saved Bill stone snapshot and totals will be replaced by this explicit update."
+    : "";
+  if (!confirm(
+    `Update all ${plans.length} linked Bill item${plans.length === 1 ? "" : "s"} from Stone Master?\n\n`
+    + `${matchedRows} stone row${matchedRows === 1 ? "" : "s"} matched by Type, Shape and Size.`
+    + `${unmatchedRows ? `\n${unmatchedRows} unmatched row${unmatchedRows === 1 ? "" : "s"} will remain unchanged.` : ""}`
+    + generatedWarning
+  )) return false;
+
+  const button = document.getElementById("bill-refresh-all-stones");
+  const previousButtonText = button?.textContent || "Get Updated Stone Data From Stone Master";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Updating Stone Data...";
+  }
+  const changedOrders = [];
+  plans.forEach(({ row, order, plan }) => {
+    if (plan.matchedRows) {
+      order.productionStoneItems = plan.items;
+      order.productionStoneCopiedFrom = "Stone Master (Bill Update)";
+      if (plan.changedRows) {
+        stampProductionStoneEdit(order, "Bill - Stone Master Bulk Update", { skipBillSync: true });
+        changedOrders.push(order);
+      }
+    }
+    updateBillStoneRowFromOrder(row, order, "Stone Master updated");
+  });
+  updateBillAmount({ preserveWastageField: true });
+
+  let saved = false;
+  if (bill.id) {
+    const result = saveBillFromForm(false, { applyGwSaveAdjustment: false });
+    saved = Boolean(result?.bill);
+    if (saved) {
+      renderBillItems(lot, result.bill);
+      updateBillAmount({ preserveWastageField: true });
+      applyBillAccessMode();
+    }
+  } else {
+    saved = saveBillDraftNow();
+  }
+  if (!saved) {
+    plans.forEach(({ order, orderBefore }) => {
+      const targetOrder = findById("orders", order.id) || order;
+      Object.keys(targetOrder).forEach((key) => delete targetOrder[key]);
+      Object.assign(targetOrder, orderBefore);
+    });
+    const restoredLot = findById("lots", lot.id) || lot;
+    if (hadBillDraft) restoredLot.billDraft = billDraftBefore;
+    else delete restoredLot.billDraft;
+    if (billDraftUpdatedAtBefore) restoredLot.billDraftUpdatedAt = billDraftUpdatedAtBefore;
+    else delete restoredLot.billDraftUpdatedAt;
+    const restoredBill = restoredLot.bill || (state.bills || []).find((entry) => entry.lotId === restoredLot.id) || {};
+    renderBillItems(restoredLot, workingBillRecord(restoredLot, restoredBill));
+    updateBillAmount({ preserveWastageField: true });
+    applyBillAccessMode();
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousButtonText;
+    }
+    setBillDraftStatus("Stone Master update could not be saved. Keep this Bill open and try again.", "error");
+    alert("The Stone Master update could not be saved safely. The Bill remains open for retry.");
+    return false;
+  }
+  if (changedOrders.length) {
+    syncSettingEntriesForUpdatedStoneOrders(changedOrders, "Bill - Stone Master Bulk Update");
+    syncFilingTransfersForUpdatedStoneOrders(changedOrders, "Bill - Stone Master Bulk Update");
+    saveState({ alertOnFailure: false, context: `${bill.billNo || lot.number} Stone Master update` });
+  }
+  const changedRows = plans.reduce((total, entry) => total + entry.plan.changedRows, 0);
+  setBillDraftStatus(
+    `${plans.length} Bill item${plans.length === 1 ? "" : "s"} checked against Stone Master; ${changedRows} row${changedRows === 1 ? "" : "s"} changed and saved.`,
+    "saved"
+  );
+  if (button) {
+    button.disabled = false;
+    button.textContent = bill.id ? "Get Updated Stone Data + Save Bill" : previousButtonText;
+  }
+  alert(
+    `Stone Master update completed for ${plans.length} Bill item${plans.length === 1 ? "" : "s"}.\n\n`
+    + `Matched: ${matchedRows} row${matchedRows === 1 ? "" : "s"}\n`
+    + `Changed: ${changedRows} row${changedRows === 1 ? "" : "s"}\n`
+    + `Unmatched and kept unchanged: ${unmatchedRows}`
+  );
+  return true;
 }
 
 function handleBillAmountChange(event) {

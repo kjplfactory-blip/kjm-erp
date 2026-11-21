@@ -7572,6 +7572,27 @@ dialog::backdrop {
   background: #d7f2eb;
 }
 
+#bill-dialog .bill-stone-master-toolbar {
+  border-color: #8ec5e8;
+  background: #edf8ff;
+}
+
+#bill-dialog .bill-stone-master-toolbar span {
+  color: #315f7d;
+}
+
+#bill-dialog #bill-refresh-all-stones {
+  flex: 0 0 auto;
+  border-color: #2584bd;
+  background: #fff;
+  color: #075985;
+  font-weight: 900;
+}
+
+#bill-dialog #bill-refresh-all-stones:hover {
+  background: #dff3ff;
+}
+
 #bill-dialog .bill-item-table {
   border: 0;
   border-radius: 10px;
