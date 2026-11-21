@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v779";
+const APP_VERSION = "v780";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -23767,8 +23767,8 @@ function configureProductionStoneDialogMode(mode = "production") {
     : "Stone rows start from Design Master. Additional Stone Weight stays only on this PR. After saving a verified correction, Upload PR Stone Entry To Design Master can replace only the matching design subcategory.";
   additional?.classList.toggle("hidden", fittingMode);
   if (saveButton) saveButton.textContent = fittingMode ? "Save Fitting Stone Entry" : "Save Production Stone Plan";
-  if (stoneMasterButton) stoneMasterButton.textContent = fittingMode ? "Refresh Weights From Stone Master" : "Get Stone Data From Stone Master";
-  if (designMasterButton) designMasterButton.textContent = fittingMode ? "Get From Design + Stone Master" : "Get Stone Data From Design Master";
+  if (stoneMasterButton) stoneMasterButton.textContent = "Refresh Weights From Stone Master";
+  if (designMasterButton) designMasterButton.textContent = "Get From Design + Stone Master";
   uploadDesignMasterButton?.classList.toggle("hidden", fittingMode);
   navigation?.classList.toggle("hidden", fittingMode);
   bulkSetting?.classList.toggle("hidden", fittingMode);
@@ -23902,7 +23902,7 @@ function productionStoneOpenedFromBill() {
 }
 
 function canReloadProductionStoneFromMaster(order = {}) {
-  return order.productionStoneOverride !== true && !productionStoneDialogHasUnsavedEdits(order);
+  return Boolean(order?.id);
 }
 
 function productionStoneDialogHasUnsavedEdits(order = {}) {
@@ -24184,27 +24184,27 @@ function updateProductionStoneMasterReloadState(order = {}) {
     renderProductionStoneMeta(order);
     return;
   }
-  const locked = !canReloadProductionStoneFromMaster(order);
+  const edited = productionStoneEntryEdited(order);
   const editedStatus = document.getElementById("production-stone-edit-status");
   if (editedStatus) {
-    editedStatus.classList.toggle("hidden", !productionStoneEntryEdited(order));
-    editedStatus.textContent = productionStoneEntryEdited(order) ? productionStoneEditStatusText(order) : "";
+    editedStatus.classList.toggle("hidden", !edited);
+    editedStatus.textContent = edited ? productionStoneEditStatusText(order) : "";
   }
   const sourceLock = document.getElementById("production-stone-source-lock");
   if (sourceLock) {
-    sourceLock.classList.toggle("locked", locked);
-    sourceLock.innerHTML = locked
-      ? `<strong>GET STONE DATA LOCKED</strong><span>This PR stone plan is edited. Continue by changing, adding, or removing its current rows.</span>`
-      : `<strong>MASTER DATA AVAILABLE</strong><span>Get Stone Data can be used only before the first item-level edit.</span>`;
+    sourceLock.classList.remove("locked");
+    sourceLock.innerHTML = edited
+      ? `<strong>OWNER-AUTHORIZED MASTER REFRESH AVAILABLE</strong><span>This PR was edited earlier. Enter the Owner password to refresh Stone Master weights or replace its normal rows from Design + Stone Master. Additional Stone and PR-added fitting accessories will be preserved.</span>`
+      : `<strong>MASTER DATA AVAILABLE</strong><span>Enter the Owner password to refresh Stone Master weights or load the latest Design + Stone Master rows.</span>`;
   }
   ["refresh-production-stone-master", "reset-production-stone-design"].forEach((id) => {
     const button = document.getElementById(id);
     if (!button) return;
-    button.disabled = locked;
-    button.title = locked
-      ? "This PR stone plan was already updated. Modify the current rows or add a new stone row."
-      : "Load the starting stone rows before the first item-level update.";
-    button.setAttribute("aria-disabled", locked ? "true" : "false");
+    button.disabled = false;
+    button.title = id === "refresh-production-stone-master"
+      ? "Owner password required. Refresh current rows with Stone Master weights."
+      : "Owner password required. Replace normal rows from Design Master and apply Stone Master weights.";
+    button.setAttribute("aria-disabled", "false");
   });
   renderProductionStoneMeta(order);
 }
@@ -25133,6 +25133,7 @@ function removeProductionStoneRow(button) {
 function refreshProductionStoneFromMaster() {
   const form = document.getElementById("production-stone-form");
   const fittingContext = productionStoneFittingEditorContext();
+  if (!requireOwnerPasswordAlways("refresh this stone entry from Stone Master")) return;
   if (fittingContext) {
     if (!requireFittingAccessoriesManager("refresh fitting stone details from Stone Master")) return;
     const sourceItems = productionStoneRowsFromDialog();
@@ -25159,10 +25160,6 @@ function refreshProductionStoneFromMaster() {
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "refresh stone details")) return;
-  if (!canReloadProductionStoneFromMaster(order)) {
-    alert("This PR stone plan was already updated. Modify the current rows or add a new stone row; Stone Master can no longer replace it.");
-    return;
-  }
   const targetOrders = selectedProductionStoneTargetOrders(order);
   let matchedRows = 0;
   let unmatchedRows = 0;
@@ -25174,7 +25171,10 @@ function refreshProductionStoneFromMaster() {
       const libraryStone = productionStoneLibraryMatch(item.stoneType, item.shape, item.size);
       if (libraryStone && Number(libraryStone.weightPerPc || 0) > 0) matchedRows += 1;
       else unmatchedRows += 1;
-      return productionStoneItemWithMasterData(item, { force: true });
+      const refreshed = productionStoneItemWithMasterData(item, { force: true });
+      return libraryStone && Number(libraryStone.weightPerPc || 0) > 0
+        ? { ...refreshed, totalWeight: totalStoneWeight(refreshed.weightPerPc, refreshed.pcs) }
+        : refreshed;
     });
     return { targetOrder, refreshedItems };
   });
@@ -25201,6 +25201,7 @@ function refreshProductionStoneFromMaster() {
 function resetProductionStoneFromDesign() {
   const form = document.getElementById("production-stone-form");
   const fittingContext = productionStoneFittingEditorContext();
+  if (!requireOwnerPasswordAlways("replace this stone entry from Design Master and Stone Master")) return;
   if (fittingContext) {
     loadFittingJobStoneFromDesign(fittingContext.sourceOrder.id, fittingContext.item.id, true);
     return;
@@ -25208,25 +25209,34 @@ function resetProductionStoneFromDesign() {
   const order = findById("orders", form.orderId.value);
   if (!order) return;
   if (!requireProductionStoneEditPermission(order, "load Design Master stone details")) return;
-  if (!canReloadProductionStoneFromMaster(order)) {
-    alert("This PR stone plan was already updated. Modify the current rows or add a new stone row; Design Master can no longer replace it.");
-    return;
-  }
   const targetOrders = selectedProductionStoneTargetOrders(order);
   const productionNumbers = targetOrders.map((item) => item.productionNo || item.number).filter(Boolean);
-  const plans = targetOrders.map((targetOrder) => ({
-    targetOrder,
-    items: [
-      ...buildProductionStoneItemsForOrder(targetOrder),
-      ...(targetOrder.productionStoneItems || []).filter((item) => item.isAdditionalStone),
-    ],
-  }));
+  const plans = targetOrders.map((targetOrder) => {
+    const latestDesignRows = buildProductionStoneItemsForOrder(targetOrder).map((item) => {
+      const libraryStone = productionStoneLibraryMatch(item.stoneType, item.shape, item.size);
+      const refreshed = productionStoneItemWithMasterData(item, { force: true });
+      return libraryStone && Number(libraryStone.weightPerPc || 0) > 0
+        ? { ...refreshed, totalWeight: totalStoneWeight(refreshed.weightPerPc, refreshed.pcs) }
+        : refreshed;
+    });
+    const preservedPrRows = (targetOrder.productionStoneItems || [])
+      .filter((item) => item.isAdditionalStone || item.jobFittingAccessoryId || item.sourceFittingAllocationId || item.sourceFittingJobItemId)
+      .map((item) => {
+        if (item.isAdditionalStone) return { ...item };
+        const libraryStone = productionStoneLibraryMatch(item.stoneType, item.shape, item.size);
+        const refreshed = productionStoneItemWithMasterData(item, { force: true });
+        return libraryStone && Number(libraryStone.weightPerPc || 0) > 0
+          ? { ...refreshed, totalWeight: totalStoneWeight(refreshed.weightPerPc, refreshed.pcs) }
+          : refreshed;
+      });
+    return { targetOrder, items: [...latestDesignRows, ...preservedPrRows] };
+  });
   const rowCount = plans.reduce((total, plan) => total + plan.items.filter((item) => !item.isAdditionalStone).length, 0);
   if (!rowCount) {
     alert("No matching stone rows are available in Design Master for this item. Update Design Master first, then use this button again.");
     return;
   }
-  if (!confirm(`Get the latest stone rows for ${targetOrders.length} selected production number${targetOrders.length === 1 ? "" : "s"} from Design Master?\n\n${productionNumbers.join(", ")}\n\nStone Master weights will be applied automatically. This will not change Design Master.`)) return;
+  if (!confirm(`Get the latest stone rows for ${targetOrders.length} selected production number${targetOrders.length === 1 ? "" : "s"} from Design Master?\n\n${productionNumbers.join(", ")}\n\nStone Master weights will be applied automatically. Additional Stone and PR-added fitting accessories will be preserved. This will not change Design Master.`)) return;
   plans.filter((plan) => plan.items.length).forEach(({ targetOrder, items }) => {
     targetOrder.productionStoneItems = items;
     stampProductionStoneEdit(targetOrder, "Design Master Data Loaded");
@@ -37226,6 +37236,13 @@ function requireOwnerPermission(action) {
   const password = prompt(`Enter Owner password to ${action}:`);
   if (password === userPassword("owner")) return true;
   alert("Wrong Owner password.");
+  return false;
+}
+
+function requireOwnerPasswordAlways(action) {
+  const password = prompt(`Enter Owner password to ${action}:`);
+  if (password === userPassword("owner")) return true;
+  alert("Wrong Owner password. Stone data was not changed.");
   return false;
 }
 
