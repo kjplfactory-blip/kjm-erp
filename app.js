@@ -17,7 +17,7 @@ function debounceInput(callback, wait = 140) {
     timer = setTimeout(() => callback(...args), wait);
   };
 }
-const APP_VERSION = "v780";
+const APP_VERSION = "v781";
 const APP_BUILD = appVersionBuild(APP_VERSION);
 const SYNC_SCHEMA_VERSION = APP_BUILD;
 const MIN_NORMALIZED_STATE_BUILD = 653;
@@ -3634,15 +3634,17 @@ document.getElementById("print-bill-tags-a6").addEventListener("click", () => {
 });
 
 let multiBillTagSelection = new Set();
+let multiBillTagEntriesCache = null;
+const renderMultiBillTagSearch = debounceInput(() => renderMultiBillTagDialog(), 100);
 
 document.getElementById("open-multi-bill-tags").addEventListener("click", openMultiBillTagDialog);
 document.getElementById("close-multi-bill-tags").addEventListener("click", closeMultiBillTagDialog);
-document.getElementById("multi-bill-tag-search").addEventListener("input", renderMultiBillTagDialog);
+document.getElementById("multi-bill-tag-search").addEventListener("input", renderMultiBillTagSearch);
 document.getElementById("multi-bill-tag-select-unprinted").addEventListener("click", () => selectVisibleMultiBillTags(true));
 document.getElementById("multi-bill-tag-select-visible").addEventListener("click", () => selectVisibleMultiBillTags(false));
 document.getElementById("multi-bill-tag-clear").addEventListener("click", () => {
   multiBillTagSelection.clear();
-  renderMultiBillTagDialog();
+  syncMultiBillTagSelectionUi();
 });
 document.getElementById("print-multi-bill-tags-a4").addEventListener("click", () => printSelectedMultiBillTags("a4"));
 document.getElementById("print-multi-bill-tags-a6").addEventListener("click", () => printSelectedMultiBillTags("a6"));
@@ -26536,7 +26538,23 @@ function startHallmarkTagPrint(html, afterPrint = null, options = {}) {
     if (typeof afterPrint === "function") afterPrint();
   };
   window.addEventListener("afterprint", cleanup);
-  setTimeout(() => window.print(), 100);
+  printHallmarkTagsWhenReady(printArea);
+}
+
+function printHallmarkTagsWhenReady(printArea) {
+  const images = [...printArea.querySelectorAll("img")];
+  const imageReady = images.map((image) => {
+    if (typeof image.decode === "function") return image.decode().catch(() => undefined);
+    if (image.complete) return Promise.resolve();
+    return new Promise((resolve) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+    });
+  });
+  const timeout = new Promise((resolve) => setTimeout(resolve, 1200));
+  Promise.race([Promise.all(imageReady), timeout]).then(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+  });
 }
 
 function printBillFromDialog() {
@@ -26627,7 +26645,7 @@ function printBillTags(lotId, billOverride = null, pageSize = "a4") {
     return;
   }
   const normalizedPageSize = pageSize === "a6" ? "a6" : "a4";
-  const entries = billPrintItems(lot, bill, billPrintOrders(lot, bill)).map((item) => ({ lot, bill, item }));
+  const entries = billTagPrintItems(lot, bill).map((item) => ({ lot, bill, item }));
   startHallmarkTagPrint(
     billTagsPrintHtml(lot, bill, normalizedPageSize),
     () => markBillTagEntriesPrinted(entries),
@@ -26639,6 +26657,7 @@ function openMultiBillTagDialog() {
   multiBillTagSelection = new Set();
   const search = document.getElementById("multi-bill-tag-search");
   if (search) search.value = "";
+  refreshGeneratedBillTagEntries();
   renderMultiBillTagDialog();
   document.getElementById("multi-bill-tag-dialog").showModal();
   setTimeout(() => search?.focus(), 50);
@@ -26646,6 +26665,7 @@ function openMultiBillTagDialog() {
 
 function closeMultiBillTagDialog() {
   document.getElementById("multi-bill-tag-dialog")?.close();
+  multiBillTagEntriesCache = null;
 }
 
 function multiBillTagEntryKey(lot = {}, item = {}, fallbackIndex = 0) {
@@ -26653,47 +26673,55 @@ function multiBillTagEntryKey(lot = {}, item = {}, fallbackIndex = 0) {
   return `${lot.id || lot.number || "lot"}::${itemKey}`;
 }
 
-function generatedBillTagEntries() {
-  const entries = [];
-  (state.lots || []).forEach((lot) => {
-    const bill = lot.bill || state.bills?.find((item) => item.lotId === lot.id);
-    if (!bill?.id || !billHasFinalQcOkItems(bill)) return;
-    const orders = billPrintOrders(lot, bill);
-    billPrintItems(lot, bill, orders).forEach((item, index) => {
-      entries.push({
-        key: multiBillTagEntryKey(lot, item, index),
-        lot,
-        bill,
-        item,
+function refreshGeneratedBillTagEntries() {
+  multiBillTagEntriesCache = withRenderCache(() => {
+    const entries = [];
+    const billsByLotId = new Map((state.bills || []).map((bill) => [bill.lotId, bill]));
+    (state.lots || []).forEach((lot) => {
+      const bill = lot.bill || billsByLotId.get(lot.id);
+      if (!bill?.id || !billHasFinalQcOkItems(bill)) return;
+      billTagPrintItems(lot, bill).forEach((item, index) => {
+        const key = multiBillTagEntryKey(lot, item, index);
+        entries.push({
+          key,
+          lot,
+          bill,
+          item,
+          searchText: [
+            bill.billNo,
+            bill.billDate,
+            lot.number,
+            lot.orderNumber,
+            item.customer,
+            item.productionNo,
+            item.design,
+            item.category,
+            item.ringType,
+            item.cmItemType,
+          ].join(" ").toLowerCase(),
+        });
       });
     });
+    return entries;
   });
-  return entries;
+  return multiBillTagEntriesCache;
 }
 
-function filteredMultiBillTagEntries() {
+function generatedBillTagEntries() {
+  return multiBillTagEntriesCache || refreshGeneratedBillTagEntries();
+}
+
+function filteredMultiBillTagEntries(entries = generatedBillTagEntries()) {
   const query = String(document.getElementById("multi-bill-tag-search")?.value || "").trim().toLowerCase();
-  const entries = generatedBillTagEntries();
   if (!query) return entries;
-  return entries.filter(({ lot, bill, item }) => [
-    bill.billNo,
-    bill.billDate,
-    lot.number,
-    lot.orderNumber,
-    item.customer,
-    item.productionNo,
-    item.design,
-    item.category,
-    item.ringType,
-    item.cmItemType,
-  ].join(" ").toLowerCase().includes(query));
+  return entries.filter((entry) => entry.searchText.includes(query));
 }
 
 function renderMultiBillTagDialog() {
   const allEntries = generatedBillTagEntries();
   const validKeys = new Set(allEntries.map((entry) => entry.key));
   multiBillTagSelection = new Set([...multiBillTagSelection].filter((key) => validKeys.has(key)));
-  const filteredEntries = filteredMultiBillTagEntries();
+  const filteredEntries = filteredMultiBillTagEntries(allEntries);
   const groups = new Map();
   filteredEntries.forEach((entry) => {
     const groupKey = entry.lot.id || entry.bill.id;
@@ -26750,7 +26778,7 @@ function handleMultiBillTagSelectionChange(event) {
     const key = itemCheckbox.dataset.multiBillTagKey;
     if (itemCheckbox.checked) multiBillTagSelection.add(key);
     else multiBillTagSelection.delete(key);
-    renderMultiBillTagDialog();
+    syncMultiBillTagSelectionUi();
     return;
   }
   const lotCheckbox = event.target.closest?.("[data-multi-bill-tag-lot]");
@@ -26762,7 +26790,7 @@ function handleMultiBillTagSelectionChange(event) {
       if (lotCheckbox.checked) multiBillTagSelection.add(key);
       else multiBillTagSelection.delete(key);
     });
-  renderMultiBillTagDialog();
+  syncMultiBillTagSelectionUi();
 }
 
 function selectVisibleMultiBillTags(unprintedOnly = false) {
@@ -26772,10 +26800,29 @@ function selectVisibleMultiBillTags(unprintedOnly = false) {
     return;
   }
   entries.forEach(({ key }) => multiBillTagSelection.add(key));
-  renderMultiBillTagDialog();
+  syncMultiBillTagSelectionUi();
 }
 
-function updateMultiBillTagSummary(allEntries = generatedBillTagEntries(), visibleEntries = filteredMultiBillTagEntries()) {
+function syncMultiBillTagSelectionUi() {
+  const list = document.getElementById("multi-bill-tag-list");
+  list?.querySelectorAll("[data-multi-bill-tag-key]").forEach((input) => {
+    const selected = multiBillTagSelection.has(input.dataset.multiBillTagKey);
+    input.checked = selected;
+    input.closest(".multi-bill-tag-item")?.classList.toggle("selected", selected);
+  });
+  list?.querySelectorAll(".multi-bill-tag-group").forEach((group) => {
+    const itemInputs = [...group.querySelectorAll("[data-multi-bill-tag-key]")];
+    const groupInput = group.querySelector("[data-multi-bill-tag-lot]");
+    if (groupInput) {
+      groupInput.checked = itemInputs.length > 0 && itemInputs.every((input) => input.checked);
+      groupInput.indeterminate = itemInputs.some((input) => input.checked) && !groupInput.checked;
+    }
+  });
+  const allEntries = generatedBillTagEntries();
+  updateMultiBillTagSummary(allEntries, filteredMultiBillTagEntries(allEntries));
+}
+
+function updateMultiBillTagSummary(allEntries = generatedBillTagEntries(), visibleEntries = filteredMultiBillTagEntries(allEntries)) {
   const selectedEntries = allEntries.filter(({ key }) => multiBillTagSelection.has(key));
   const selectedCount = selectedEntries.length;
   const selectedTagCount = selectedCount * 2;
@@ -26835,9 +26882,32 @@ function markBillTagEntriesPrinted(entries = []) {
     if (savedBillIndex >= 0) state.bills[savedBillIndex] = bill;
   });
   if (!updated) return;
-  saveState();
-  renderBills();
-  if (document.getElementById("multi-bill-tag-dialog")?.open) renderMultiBillTagDialog();
+  (multiBillTagEntriesCache || []).forEach((entry) => {
+    if (!printedKeys.has(entry.key)) return;
+    entry.item.billTagPrinted = true;
+    entry.item.billTagPrintedDate = today();
+    entry.item.billTagPrintedIsoDate = isoToday();
+    entry.item.billTagPrintCount = Number(entry.item.billTagPrintCount || 0) + 1;
+  });
+  saveState({ changedStateKeys: ["lots", "bills"], skipFineSheetSnapshot: true });
+  if (document.getElementById("multi-bill-tag-dialog")?.open) syncMultiBillTagPrintedStatusUi(printedKeys);
+}
+
+function syncMultiBillTagPrintedStatusUi(printedKeys = new Set()) {
+  const list = document.getElementById("multi-bill-tag-list");
+  if (!list || !printedKeys.size) return;
+  list.querySelectorAll("[data-multi-bill-tag-key]").forEach((input) => {
+    if (!printedKeys.has(input.dataset.multiBillTagKey)) return;
+    const status = input.closest(".multi-bill-tag-item")?.querySelector(":scope > b");
+    if (!status) return;
+    status.className = "printed";
+    status.textContent = `Printed ${today()}`;
+  });
+  list.querySelectorAll(".multi-bill-tag-group").forEach((group) => {
+    const printedCount = group.querySelectorAll(".multi-bill-tag-item > b.printed").length;
+    const status = group.querySelector(".multi-bill-tag-group-head em");
+    if (status) status.textContent = `${printedCount} Printed`;
+  });
 }
 
 function printFactorySummary() {
@@ -27089,15 +27159,16 @@ function hallmarkedTagHtml({ lot, bill, item, order }) {
 }
 
 function billTagsPrintHtml(lot, bill, pageSize = "a4") {
-  const orders = billPrintOrders(lot, bill);
-  const items = duplicateBillTagCopies(billPrintItems(lot, bill, orders));
+  const tagCards = duplicateBillTagHtmlCopies(
+    billTagPrintItems(lot, bill).map((item) => billTagHtml(lot, bill, item)),
+  );
   const isA6 = pageSize === "a6";
-  const pages = chunkPrintItems(items, isA6 ? 10 : 40);
+  const pages = chunkPrintItems(tagCards, isA6 ? 10 : 40);
   return `
     <div class="bill-tags-document ${isA6 ? "a6-tags-document" : "a4-tags-document"}">
-      ${pages.map((pageItems) => `
+      ${pages.map((pageTags) => `
         <section class="bill-tags-sheet">
-          ${pageItems.map((item) => billTagHtml(lot, bill, item)).join("")}
+          ${pageTags.join("")}
         </section>
       `).join("")}
     </div>
@@ -27106,12 +27177,15 @@ function billTagsPrintHtml(lot, bill, pageSize = "a4") {
 
 function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
   const isA6 = pageSize === "a6";
-  const pages = chunkPrintItems(duplicateBillTagCopies(entries), isA6 ? 10 : 40);
+  const tagCards = duplicateBillTagHtmlCopies(
+    entries.map(({ lot, bill, item }) => billTagHtml(lot, bill, item)),
+  );
+  const pages = chunkPrintItems(tagCards, isA6 ? 10 : 40);
   return `
     <div class="bill-tags-document ${isA6 ? "a6-tags-document" : "a4-tags-document"} multi-bill-tags-document">
-      ${pages.map((pageEntries) => `
+      ${pages.map((pageTags) => `
         <section class="bill-tags-sheet">
-          ${pageEntries.map(({ lot, bill, item }) => billTagHtml(lot, bill, item)).join("")}
+          ${pageTags.join("")}
         </section>
       `).join("")}
     </div>
@@ -27120,6 +27194,10 @@ function multiBillTagsPrintHtml(entries = [], pageSize = "a6") {
 
 function duplicateBillTagCopies(items = []) {
   return (items || []).flatMap((item) => [item, item]);
+}
+
+function duplicateBillTagHtmlCopies(tagCards = []) {
+  return (tagCards || []).flatMap((tagCard) => [tagCard, tagCard]);
 }
 
 function billTagHtml(lot, bill, item = {}) {
@@ -27160,10 +27238,25 @@ function billTagHtml(lot, bill, item = {}) {
           ${billTagWeight("SPRING", item.springWeight)}
           ${billTagWeight("OTHER", item.otherNonGoldWeight)}
         </div>
-        <div class="bill-tag-barcode">${code128BarcodeSvg(barcodeValue, { maxLength: 60 })}</div>
+        <div class="bill-tag-barcode">${billTagBarcodeImage(barcodeValue)}</div>
       </div>
     </article>
   `;
+}
+
+const billTagBarcodeImageCache = new Map();
+
+function billTagBarcodeImage(value) {
+  const text = barcodeSafeText(value, 60);
+  if (billTagBarcodeImageCache.has(text)) return billTagBarcodeImageCache.get(text);
+  const barcodeHtml = code128BarcodeSvg(text, { maxLength: 60 });
+  const rawSvg = barcodeHtml.match(/<svg[\s\S]*?<\/svg>/)?.[0] || "";
+  const svg = rawSvg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+  const image = svg
+    ? `<div class="barcode-wrap detail-barcode-wrap"><img class="barcode code128-barcode" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}" alt=""><small>${escapeHtml(text)}</small></div>`
+    : barcodeHtml;
+  billTagBarcodeImageCache.set(text, image);
+  return image;
 }
 
 function billTagWeight(label, value, extraClass = "") {
@@ -27366,6 +27459,71 @@ function packingListPrintHtml(lot, bill) {
       ${bill.remarks ? `<section class="bill-print-section"><h2>Remarks</h2><p>${escapeHtml(bill.remarks)}</p></section>` : ""}
     </section>
   `;
+}
+
+function billTagPrintItems(lot = {}, bill = {}) {
+  return billPrintableSavedItems(bill).map((item, index) => {
+    const order = item.order || findById("orders", item.orderId) || {};
+    return billTagPrintItem(item, order, lot, bill, index);
+  });
+}
+
+function billTagPrintItem(item = {}, order = {}, lot = {}, bill = {}, index = 0) {
+  let fallbackNonGold = null;
+  const fallback = () => {
+    if (!fallbackNonGold) fallbackNonGold = billItemNonGoldBreakup(item, order);
+    return fallbackNonGold;
+  };
+  const savedWeight = (keys, fallbackKey) => {
+    const key = keys.find((candidate) => item[candidate] !== undefined && item[candidate] !== null && item[candidate] !== "");
+    return key ? billNumber(item[key]) : billNumber(fallback()[fallbackKey]);
+  };
+  const finalGw = billNumber(item.finalGw);
+  const stoneWeight = savedWeight(["stoneWeight", "stWeight", "stoneWt"], "stoneWeight");
+  const blackBeadsWeight = savedWeight(["blackBeadsWeight", "bbWeight"], "blackBeadsWeight");
+  const motiWeight = savedWeight(["motiWeight", "mmWeight"], "motiWeight");
+  const mopWeight = savedWeight(["mopWeight"], "mopWeight");
+  const springWeight = savedWeight(["springWeight"], "springWeight");
+  const otherNonGoldWeight = savedWeight(["otherNonGoldWeight", "otherWeight"], "otherNonGoldWeight");
+  const calculatedNonGold = Number(weight3(
+    stoneWeight + blackBeadsWeight + motiWeight + mopWeight + springWeight + otherNonGoldWeight,
+  ));
+  const reducedWeight = item.reducedWeight !== undefined && item.reducedWeight !== null && item.reducedWeight !== ""
+    ? billNumber(item.reducedWeight)
+    : calculatedNonGold;
+  const netWeight = item.netWeight !== undefined && item.netWeight !== null && item.netWeight !== ""
+    ? billNumber(item.netWeight)
+    : Number(weight3(Math.max(finalGw - reducedWeight, 0)));
+  const stoneBreakdown = billItemStoneWeightBreakdown({ ...item, stoneWeight });
+  return {
+    ...item,
+    order,
+    index,
+    productionNo: item.productionNo || order.productionNo || order.number || "",
+    itemName: item.itemName || jobItemDisplayName(order),
+    customer: item.customer || order.customer || bill.customer || lot.customer || "",
+    design: item.designNo || item.design || order.designNo || designLabel(order.designId) || "",
+    category: item.category || order.category || "Uncategorised",
+    ringType: item.ringType || order.ringType || "",
+    cmItemType: item.cmItemType || order.cmItemType || "",
+    size: billItemSizeText(item, order),
+    clSize: item.clSize || order.clSize || "",
+    cgSize: item.cgSize || order.cgSize || "",
+    color: item.color || order.color || "",
+    purity: item.purity || order.purity || "",
+    finalGw,
+    blackBeadsWeight,
+    motiWeight,
+    mopWeight,
+    stoneWeight,
+    swStoneWeight: stoneBreakdown.swStoneWeight,
+    colourStoneWeight: stoneBreakdown.colourStoneWeight,
+    hasStoneBreakdown: stoneBreakdown.hasBreakdown,
+    springWeight,
+    otherNonGoldWeight,
+    reducedWeight,
+    netWeight,
+  };
 }
 
 function billPrintItems(lot, bill, orders = []) {
